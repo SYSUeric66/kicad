@@ -1356,3 +1356,137 @@ void PCB_EDIT_FRAME::GenIPC2581File( wxCommandEvent& event )
 
     GetScreen()->SetContentModified( false );
 }
+
+void PCB_EDIT_FRAME::GenODBFiles( wxCommandEvent& event )
+{
+    // DIALOG_EXPORT_2581 dlg( this );
+
+    // if( dlg.ShowModal() != wxID_OK )
+    //     return;
+    
+    
+    // TODO
+    wxFileName pcbFileName = GetSettingsManager()->
+                             GetCommonSettings()->m_System.working_dir + wxS("odb-test");
+
+    // Write through symlinks, don't replace them
+    WX_FILENAME::ResolvePossibleSymlinks( pcbFileName );
+
+    if( pcbFileName.GetName().empty() )
+    {
+        DisplayErrorMessage( this, _( "The board must be saved before generating ODB++ files." ) );
+        return;
+    }
+
+    if( !IsWritable( pcbFileName ) )
+    {
+        wxString msg = wxString::Format( _( "Insufficient permissions to write file '%s'." ),
+                                         pcbFileName.GetFullPath() );
+
+        DisplayErrorMessage( this, msg );
+        return;
+    }
+
+    wxString   tempFile = wxFileName::CreateTempFileName( wxS( "pcbnew_odb" ) );
+    wxString   upperTxt;
+    wxString   lowerTxt;
+    WX_PROGRESS_REPORTER reporter( this, _( "Generating ODB++ output files" ), 5 );
+    // STRING_UTF8_MAP props;
+
+    // props["units"] = dlg.GetUnitsString();
+    // props["sigfig"] = dlg.GetPrecision();
+    // props["version"] = dlg.GetVersion();
+    // props["OEMRef"] = dlg.GetOEM();
+    // props["mpn"] = dlg.GetMPN();
+    // props["mfg"] = dlg.GetMfg();
+    // props["dist"] = dlg.GetDist();
+    // props["distpn"] = dlg.GetDistPN();
+
+    auto saveFile = [&]() -> bool
+    {
+        try
+        {
+            PLUGIN::RELEASER pi( IO_MGR::PluginFind( IO_MGR::ODB ) );
+
+            pi->SaveBoard( tempFile, GetBoard(), nullptr, &reporter );
+            return true;
+        }
+        catch( const IO_ERROR& ioe )
+        {
+            DisplayError( this, wxString::Format( _( "Error generating IPC2581 file '%s'.\n%s" ),
+                                                  pcbFileName.GetFullPath(), ioe.What() ) );
+
+            lowerTxt.Printf( _( "Failed to create temporary file '%s'." ), tempFile );
+
+            SetMsgPanel( upperTxt, lowerTxt );
+
+            // In case we started a file but didn't fully write it, clean up
+            wxRemoveFile( tempFile );
+
+            return false;
+        }
+    };
+
+    thread_pool& tp = GetKiCadThreadPool();
+    auto ret = tp.submit( saveFile );
+
+
+    std::future_status status = ret.wait_for( std::chrono::milliseconds( 250 ) );
+
+    while( status != std::future_status::ready )
+    {
+        reporter.KeepRefreshing();
+        status = ret.wait_for( std::chrono::milliseconds( 250 ) );
+    }
+
+    try
+    {
+        if( !ret.get() )
+            return;
+    }
+    catch(const std::exception& e)
+    {
+        wxLogError( "Exception in ODB++ generation: %s", e.what() );
+        GetScreen()->SetContentModified( false );
+        return;
+    }
+
+    // Preserve the permissions of the current file
+    KIPLATFORM::IO::DuplicatePermissions( pcbFileName.GetFullPath(), tempFile );
+
+    // if( dlg.GetCompress() )
+    // {
+        wxFileName tempfn = pcbFileName;
+        // tempfn.SetExt( Ipc2581FileExtension );
+        wxFileName zipfn = tempFile;
+        zipfn.SetExt( "zip" );
+
+        wxFFileOutputStream fnout( zipfn.GetFullPath() );
+        wxZipOutputStream zip( fnout );
+        wxFFileInputStream fnin( tempFile );
+
+        zip.PutNextEntry( tempfn.GetFullName() );
+        fnin.Read( zip );
+        zip.Close();
+        fnout.Close();
+
+        wxRemoveFile( tempFile );
+        tempFile = zipfn.GetFullPath();
+    // }
+
+    // If save succeeded, replace the original with what we just wrote
+    if( !wxRenameFile( tempFile, pcbFileName.GetFullPath() ) )
+    {
+        DisplayError( this, wxString::Format( _( "Error generating IPC2581 file '%s'.\n"
+                                                 "Failed to rename temporary file '%s." ),
+                                              pcbFileName.GetFullPath(),
+                                              tempFile ) );
+
+        lowerTxt.Printf( _( "Failed to rename temporary file '%s'." ),
+                         tempFile );
+
+        SetMsgPanel( upperTxt, lowerTxt );
+    }
+
+    GetScreen()->SetContentModified( false );
+}

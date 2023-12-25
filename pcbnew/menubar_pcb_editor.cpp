@@ -170,6 +170,9 @@ void PCB_EDIT_FRAME::doReCreateMenuBar()
     if( ADVANCED_CFG::GetCfg().m_Enable2581 )
         submenuFabOutputs->Add( PCB_ACTIONS::generateIPC2581File );
 
+    if( ADVANCED_CFG::GetCfg().m_EnableODB )
+        submenuFabOutputs->Add( PCB_ACTIONS::generateODBFile );
+
     submenuFabOutputs->Add( PCB_ACTIONS::generatePosFile );
     submenuFabOutputs->Add( PCB_ACTIONS::generateReportFile );
     submenuFabOutputs->Add( PCB_ACTIONS::generateD356File );

@@ -294,6 +294,11 @@ public:
     */
     bool m_Enable2581;
 
+   /**
+    * When true, enable output to odb++
+   */
+   bool m_EnableODB;
+
 ///@}
 
 
