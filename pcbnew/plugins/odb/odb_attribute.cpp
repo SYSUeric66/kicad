@@ -1,29 +1,25 @@
-#include "attribute_util.hpp"
+#include "odb_attribute.h"
 #include <sstream>
 #include <iomanip>
-#include "util/once.hpp"
-#include "odb_util.hpp"
 
-namespace horizon::ODB {
 
-namespace attribute::detail {
-std::string make_legal_string_attribute(const std::string &n)
-{
-    std::string out;
-    out.reserve(n.size());
-    for (auto c : utf8_to_ascii(n)) {
-        if (isgraph(c) || c == ' ')
-            ;
-        else if (isspace(c))
-            c = ' ';
-        else
-            c = '_';
-        out.append(1, c);
-    }
+// std::string make_legal_string_attribute(const std::string &n)
+// {
+//     std::string out;
+//     out.reserve(n.size());
+//     for (auto c : utf8_to_ascii(n)) {
+//         if (isgraph(c) || c == ' ')
+//             ;
+//         else if (isspace(c))
+//             c = ' ';
+//         else
+//             c = '_';
+//         out.append(1, c);
+//     }
 
-    return out;
-}
-} // namespace attribute::detail
+//     return out;
+// }
+
 
 std::string AttributeProvider::double_to_string(double v, unsigned int n)
 {
@@ -35,7 +31,8 @@ std::string AttributeProvider::double_to_string(double v, unsigned int n)
 
 static unsigned int get_or_create_text(std::map<std::string, unsigned int> &m, const std::string &t)
 {
-    if (m.count(t)) {
+    if (m.count(t))
+    {
         return m.at(t);
     }
     else {
@@ -55,10 +52,11 @@ unsigned int AttributeProvider::get_or_create_attribute_text(const std::string &
     return get_or_create_text(attribute_texts, name);
 }
 
-void RecordWithAttributes::write_attributes(std::ostream &ost) const
+void ATTR_RECORD_WRITER::write_attributes(std::ostream &ost) const
 {
     Once once;
-    for (const auto &attr : attributes) {
+    for(const auto &attr : attributes)
+    {
         if (once())
             ost << " ;";
         else
@@ -72,11 +70,10 @@ void RecordWithAttributes::write_attributes(std::ostream &ost) const
 void AttributeProvider::write_attributes(std::ostream &ost, const std::string &prefix) const
 {
     for (const auto &[name, n] : attribute_names) {
-        ost << prefix << "@" << n << " " << name << endl;
+        ost << prefix << "@" << n << " " << name << std::endl;
     }
     for (const auto &[name, n] : attribute_texts) {
-        ost << prefix << "&" << n << " " << name << endl;
+        ost << prefix << "&" << n << " " << name << std::endl;
     }
 }
 
-} // namespace horizon::ODB

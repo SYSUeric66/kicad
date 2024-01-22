@@ -341,7 +341,7 @@ public:
     /**
      * Create and Generate ODB++ output files
     */
-    void GenODBFile( wxCommandEvent& event );
+    void GenODBPPFiles( wxCommandEvent& event );
 
     /**
      * Create an ASCII footprint report file giving some infos on footprints and board outlines.

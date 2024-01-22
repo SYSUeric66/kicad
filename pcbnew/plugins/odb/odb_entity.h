@@ -5,10 +5,13 @@
 #include <map>
 #include <wx/string.h>
 #include "odb_attribute.h"
+#include <iostream>
+#include "odb_feature.h"
+#include <functional>
 
 
  
-
+class BOARD;
 enum class Polarity
 {
     POSITIVE,
@@ -18,29 +21,43 @@ enum class Polarity
 class ODB_ENTITY_BASE
 {
 public:
-	ODB_ENTITY_BASE();
-	virtual ~ODB_ENTITY_BASE();
-    virtual bool GenerateFiles(const TreeWriter &writer) = 0;
+	ODB_ENTITY_BASE( BOARD* aBoard ) : m_board( aBoard ) {}
+
+    ODB_ENTITY_BASE() : m_board( nullptr ) {}
+
+	virtual ~ODB_ENTITY_BASE() = default;
+    virtual bool GenerateFiles( ODB_TREE_WRITER& writer ) = 0;
+    virtual bool CreateDirectiryTree( ODB_TREE_WRITER& writer );
+    virtual std::string GetEntityName() = 0;
+    virtual void InitEntityData() {}
+
 
 //     ODB_GENERATE_INTERFACE* GetPluginInterface() const { return m_generator; }
 //     ODB_BOARD_MANAGER* GetBoardManager() const { return m_boardManager; }
-// private:
-//     ODB_GENERATE_INTERFACE* m_generator;
+protected:
+    BOARD*                        m_board;
+    // std::string                   m_entityName;
+    std::vector<std::string>      m_fileName;
 //     ODB_BOARD_MANAGER* m_boardManager;
 
 };
 
-
-
-
 class ODB_MATRIX_ENTITY : public ODB_ENTITY_BASE
 {
 public:
-	ODB_MATRIX_ENTITY(const char* name, const char* description, const char* manufacturer, const char* version, const char* date);
+	ODB_MATRIX_ENTITY( BOARD* aBoard ) : ODB_ENTITY_BASE( aBoard )
+    {
+    }
 	virtual ~ODB_MATRIX_ENTITY();
+
+    inline virtual std::string GetEntityName()
+    {
+        return "matrix";
+    }
 
     struct MATRIX_LAYER
     {
+
         enum class CONTEXT
         { 
             BOARD,
@@ -84,116 +101,226 @@ public:
         std::optional<Subtype> m_addType;
 
 
-        Polarity polarity = Polarity::POSITIVE;
+        Polarity m_polarity = Polarity::POSITIVE;
 
-        const unsigned int m_rowNumber;
-        const wxString m_layerName;
+        const uint32_t m_rowNumber;
+        const std::string m_layerName;
         CONTEXT m_context;
         TYPE m_type;
 
 
-        MATRIX_LAYER(unsigned int aRow, const wxString &aLayerName) :
-         m_rowNumber( aRow ), m_layerName( aLayerName ){};
+        MATRIX_LAYER( uint32_t aRow, const std::string &aLayerName )
+                    : m_rowNumber( aRow ), m_layerName( aLayerName )
+        {
+        }
 
     };
 
 
-    Layer& add_layer(const std::string &name);
-    void add_step(const std::string &name);
+    void AddLayer( const wxString &aLayerName );
+    void AddStep( const wxString &aStepName );
 
-    void write(std::ostream &ost) const;
 
-    
+    bool GenerateMatrixFile( ODB_TREE_WRITER& writer );
+    virtual bool GenerateFiles( ODB_TREE_WRITER& writer );
+    virtual void InitEntityData();
 
 private:
 
-    std::map<wxString, unsigned int> m_matrix_steps;
-    std::vector<MATRIX_LAYER> m_matrix_layers;  
-    std::vector<Layer> layers;
-    unsigned int row = 1;
-    unsigned int col = 1;
+    std::map<wxString, unsigned int> m_matrixSteps;
+    std::vector<MATRIX_LAYER> m_matrixLayers;  
+    unsigned int m_row = 1;
+    unsigned int m_col = 1;
 
 };
 
-class Features;
-class Components;
+class ODB_MISC_ENTITY : public ODB_ENTITY_BASE
+{
+public:
+    ODB_MISC_ENTITY( BOARD* aBoard, const std::vector<wxString>& aValue )
+     : ODB_ENTITY_BASE( aBoard )
+    {
+    }
+    virtual ~ODB_MISC_ENTITY();
+
+    inline virtual std::string GetEntityName()
+    {
+        return "misc";
+    }
+
+    bool AddAttrList();
+    bool AddSysAttrFiles();
+    virtual bool GenerateInfoFile( ODB_TREE_WRITER& writer );
+
+    virtual bool GenerateFiles( ODB_TREE_WRITER& writer );
+    
+private:
+    std::map<wxString, wxString> m_info;
+    // ODB_ATTRLIST m_attrlist;
+
+};
+
 class EDAData;
 class BoardPackage;
 class ODB_STEP_ENTITY : public ODB_ENTITY_BASE
 {
 public:
-    ODB_STEP_ENTITY(const wxString &name, const wxString &type, const wxString &desc, const wxString &file, const wxString &line);
+    ODB_STEP_ENTITY( BOARD* aBoard );
     virtual ~ODB_STEP_ENTITY();
+
+    inline virtual std::string GetEntityName()
+    {
+        return "pcb";
+    }
 
     bool AddAttrList();
     bool AddBom();
     bool AddEdaData();
-    bool AddLayerEntity();
+    bool InitLayerEntityData();
     bool AddNetList();
     bool AddProfile();
     bool AddStepHeader();
     // bool AddImpedanceFile();
     // bool AddZonesFile();
-
-    virtual bool GenerateFiles(const TreeWriter &writer);
+    virtual bool CreateDirectiryTree( ODB_TREE_WRITER& writer );
+    virtual void InitEntityData();
+    bool GenerateLayerFiles( ODB_TREE_WRITER& writer );
+    bool GenerateEdaFiles( ODB_TREE_WRITER& writer ) {}
+    bool GenerateNetlistsFiles( ODB_TREE_WRITER& writer ) {}
+    bool GenerateProfileFile( ODB_TREE_WRITER& writer ) {}
+    bool GenerateStepHeaderFile( ODB_TREE_WRITER& writer ) {}
+    bool GenerateAttrListFile( ODB_TREE_WRITER& writer ) {}
+    virtual bool GenerateFiles( ODB_TREE_WRITER& writer ) {}
 
 private:
 
-    ODB_ATTRLIST m_attrList;
-    // std::map<std::string, Features> layer_features;
-    std::vector<ODB_LAYER_ENTITY> m_layerEntity;
-    std::optional<Features> m_profile;
-    std::optional<ODB_BOMS> m_boms;
+    // ODB_ATTRLIST m_attrList;
+    std::map<wxString, std::shared_ptr<ODB_LAYER_ENTITY>> m_layerEntityMap;
+    std::optional<ODB_FEATURE> m_profile;
+    // std::optional<ODB_BOMS> m_boms;
 
-    std::optional<ODB_COMPONENTS> m_compTop;
-    std::optional<ODB_COMPONENTS> m_compBot;
-
-    EDAData m_edaData;
+    // EDAData m_edaData;
     STEP_HDR m_stepHdr;
-    Components::Component &add_component(const BoardPackage &pkg);
-
-
-
-
 
 };
 
-class ODB_SYMBOL_ENTITY : public ODB_ENTITY_BASE
-{
-
-};
-
-
-class ODB_FONTS_ENTITY : public ODB_ENTITY_BASE
-{
-
-};
-
-
-class ODB_MISC_ENTITY : public ODB_ENTITY_BASE
-{
-public:
-    ODB_MISC_ENTITY( const std::vector<wxString>& aValue );
-    virtual ~ODB_MISC_ENTITY();
-    
-    virtual bool GenerateFiles(const TreeWriter &writer);
-    
-private:
-    std::map<wxString, wxString> m_info;
-    ODB_ATTRLIST m_attrlist;
-
-};
 
 class ODB_LAYER_ENTITY : public ODB_ENTITY_BASE
 {
 public:
-    ODB_LAYER_ENTITY( const std::vector<wxString>& aValue );
+    ODB_LAYER_ENTITY( BOARD* aBoard,
+                      std::map<int, std::vector<BOARD_ITEM*>>& aMap,
+                      const PCB_LAYER_ID& aLayerID );
+                    
     virtual ~ODB_LAYER_ENTITY();
+
+    inline virtual std::string GetEntityName()
+    {
+        return "layers";
+    }
+
+    void InitEntityData();
     
-    bool AddAttrList();
-    
+    void AddLayerFeatures();
+
+
+    bool GenAttrList() { return true; }
+    bool GenComponents() { return true; }
+    bool GenTools() { return true; }
+
+    bool GenFeatures( ODB_TREE_WRITER &writer );
+
+    virtual bool GenerateFiles( ODB_TREE_WRITER& writer );
+
 private:
-    ODB_ATTRLIST m_attrlist;
+    std::map<int, std::vector<BOARD_ITEM*>> m_layerItems;
+    PCB_LAYER_ID m_layerID;
+    // ODB_ATTRLIST m_attrList;
+    // std::optional<ODB_COMPONENTS> m_compTop;
+    // std::optional<ODB_COMPONENTS> m_compBot;
+    std::unique_ptr<FEATURES_MANAGER> m_featuresMgr;
+    std::optional<std::unique_ptr<FEATURES_MANAGER>> m_profile;
+
+
+};
+
+class ODB_SYMBOLS_ENTITY : public ODB_ENTITY_BASE
+{
+public:
+    ODB_SYMBOLS_ENTITY( BOARD* aBoard ) : ODB_ENTITY_BASE( aBoard )
+    {
+    }
+    virtual ~ODB_SYMBOLS_ENTITY();
+
+    inline virtual std::string GetEntityName()
+    {
+        return "symbols";
+    }
+
+    virtual bool GenerateFiles( ODB_TREE_WRITER& writer );
+
+
+};
+
+class ODB_FONTS_ENTITY : public ODB_ENTITY_BASE
+{
+public:
+    ODB_FONTS_ENTITY();
+    virtual ~ODB_FONTS_ENTITY();
+
+    inline virtual std::string GetEntityName()
+    {
+        return "fonts";
+    }
+    virtual bool GenerateFiles( ODB_TREE_WRITER& writer );
+
+
+};
+
+class ODB_WHEELS_ENTITY : public ODB_ENTITY_BASE
+{
+public:
+    ODB_WHEELS_ENTITY();
+    virtual ~ODB_WHEELS_ENTITY();
+
+    inline virtual std::string GetEntityName()
+    {
+        return "wheels";
+    }
+
+    virtual bool GenerateFiles( ODB_TREE_WRITER& writer );
+
+
+};
+
+class ODB_INPUT_ENTITY : public ODB_ENTITY_BASE
+{
+public:
+    ODB_INPUT_ENTITY() = default;
+    virtual ~ODB_INPUT_ENTITY() = default;
+
+    inline virtual std::string GetEntityName()
+    {
+        return "input";
+    }
+
+    virtual bool GenerateFiles( ODB_TREE_WRITER &writer );
+
+
+};
+
+class ODB_USER_ENTITY : public ODB_ENTITY_BASE
+{
+public:
+    ODB_USER_ENTITY() = default;
+    virtual ~ODB_USER_ENTITY() = default;
+
+    inline virtual std::string GetEntityName()
+    {
+        return "user";
+    }
+
+    virtual bool GenerateFiles( ODB_TREE_WRITER &writer );
 
 
 };

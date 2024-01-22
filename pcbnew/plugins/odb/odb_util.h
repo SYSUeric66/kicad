@@ -1,60 +1,178 @@
-
+#include <map>
 #include <iostream>
-#include <filesystem>
-namespace fs = std::filesystem;
+#include <fstream>
+#include <vector>
+#include <string>
+#include <wx/string.h>
+#include "pcb_shape.h"
+#include <wx/filename.h>
+#include "odb_defines.h"
 
-class ODB_GENERATE_INTERFACE
+//<! Scale factor from IU to IPC2581 units (mm, micron, in)
+static double m_ODBScale = 1.0 / PCB_IU_PER_MM; 
+
+namespace ODB
 {
-    ODB_GENERATE_INTERFACE() {}
-    virtual ~ODB_GENERATE_INTERFACE() {}
-    virtual void GenerateFiles( ODB_WRITER& writer ) = 0;
-};
-
-class ODB_WRITER
-{
-public:
-    ODB_WRITER(const std::string &filename);
-    ~ODB_WRITER();
-
-    void write_line(const std::string &var, const std::string &value);
-    void write_line(const std::string &var, int value);
-    template <typename T> void write_line_enum(const std::string &var, const T &value)
+    
+    wxString Float2StrVal( double aVal )
     {
-        write_line(var, enum_to_string(value));
+        // We don't want to output -0.0 as this value is just 0 for fabs
+        if( aVal == -0.0 )
+            aVal = 0.0;
+
+        wxString str = wxString::FromCDouble( aVal, 4/*m_sigfig*/ );
+
+        // Remove all but the last trailing zeros from str
+        while( str.EndsWith( wxT( "00" ) ) )
+            str.RemoveLast();
+
+        return str;
     }
 
-    class ArrayProxy {
-        friend ODB_WRITER;
+    std::pair<wxString, wxString>& AddXY( const VECTOR2I& aVec )
+    {
+        std::pair<wxString, wxString> xy = std::pair<wxString, wxString>(
+                                     Float2StrVal( m_ODBScale * aVec.x ),
+                                     Float2StrVal( m_ODBScale * aVec.y ) );
 
-    public:
-        ~ArrayProxy();
-    };
+        return xy;
+    }
+
+    VECTOR2I GetShapePosition( const PCB_SHAPE& aShape )
+    {
+        VECTOR2D pos{};
+
+        switch( aShape.GetShape() )
+        {
+        // Rectangles in KiCad are mapped by their corner while IPC2581 uses the center
+        case SHAPE_T::RECTANGLE:
+            pos = aShape.GetPosition()
+                + VECTOR2I( aShape.GetRectangleWidth() / 2.0, aShape.GetRectangleHeight() / 2.0 );
+            break;
+        // Both KiCad and IPC2581 use the center of the circle
+        case SHAPE_T::CIRCLE:
+            pos = aShape.GetPosition();
+            break;
+
+        // KiCad uses the exact points on the board, so we want the reference location to be 0,0
+        case SHAPE_T::POLY:
+        case SHAPE_T::BEZIER:
+        case SHAPE_T::SEGMENT:
+        case SHAPE_T::ARC:
+            pos = VECTOR2D( 0, 0 );
+            break;
+        }
+
+        return VECTOR2I( pos.x, pos.y );
+    }
+
+}
+
+
+class ODB_TREE_WRITER
+{
+public:
+    ODB_TREE_WRITER( const wxString& aDir ) : m_currentPath( aDir )
+    {
+    }
+
+    ODB_TREE_WRITER( const wxString& aPareDir, const wxString& aSubDir )
+    {
+        CreateEntityDirectory( aPareDir, aSubDir );
+    }
+
+    virtual ~ODB_TREE_WRITER() {}
+    
+    [[nodiscard]] ODB_FILE_WRITER CreateFileProxy( const wxString& aFileName )
+    {
+        return ODB_FILE_WRITER( *this, aFileName );
+    }
+
+    void CreateEntityDirectory( const wxString& aPareDir,
+                          const wxString& aSubDir = wxEmptyString );
+
+    inline const wxString GetCurrentPath() const
+    {
+        return m_currentPath;
+    }
+
+    inline void SetCurrentPath( const wxString& aDir )
+    {
+        m_currentPath = aDir;
+    }
+
+    inline void SetRootPath( const wxString& aDir )
+    {
+        m_rootPath = aDir;
+    }
+
+    inline const wxString GetRootPath() const
+    {
+        return m_rootPath;
+    }
+
 
 private:
-    wxString currentProjectDirPath;
+    wxString m_currentPath;
+    wxString m_rootPath;
+};
+
+class ODB_FILE_WRITER
+{
+public:
+    ODB_FILE_WRITER( ODB_TREE_WRITER& aTreeWriter, const wxString& aFileName )
+     : m_treeWriter(aTreeWriter)
+    {
+        CreateFile( aFileName );
+    }
+
+    virtual ~ODB_FILE_WRITER()
+    {
+        if( m_ostream.is_open() )
+            m_ostream.close();
+    }
+
+    ODB_FILE_WRITER( ODB_FILE_WRITER && ) = delete;
+    ODB_FILE_WRITER &operator=( ODB_FILE_WRITER && ) = delete;
+
+    ODB_FILE_WRITER( ODB_FILE_WRITER const & ) = delete;
+    ODB_FILE_WRITER &operator=( ODB_FILE_WRITER const & ) = delete;
+
+    void CreateFile( const wxString& aFileName );
+    bool CloseFile();
+    inline std::ostream& GetStream() { return m_ostream; }
+
+private:
+    ODB_TREE_WRITER& m_treeWriter;
+    std::ofstream m_ostream;
+
 };
 
 
-class StructuredTextWriter {
+class ODB_TEXT_WRITER
+{
 public:
-    StructuredTextWriter(std::ostream &s);
-    void write_line(const std::string &var, const std::string &value);
-    void write_line(const std::string &var, int value);
-    template <typename T> void write_line_enum(const std::string &var, const T &value)
+    ODB_TEXT_WRITER( std::ostream& aStream ) : m_ostream( aStream ) {}
+    virtual ~ODB_TEXT_WRITER() {}
+
+    // void write_line( const std::string &var, const std::string &value );
+    void write_line( const std::string &var, int value );
+    void write_line(const wxString &var, const wxString &value);
+    template <typename T> void write_line_enum( const std::string &var, const T &value )
     {
         write_line(var, enum_to_string(value));
     }
 
     class ArrayProxy {
-        friend StructuredTextWriter;
+        friend ODB_TEXT_WRITER;
 
     public:
         ~ArrayProxy();
 
     private:
-        ArrayProxy(StructuredTextWriter &writer, const std::string &a);
+        ArrayProxy(ODB_TEXT_WRITER &writer, const std::string &a);
 
-        StructuredTextWriter &writer;
+        ODB_TEXT_WRITER &writer;
 
         ArrayProxy(ArrayProxy &&) = delete;
         ArrayProxy &operator=(ArrayProxy &&) = delete;
@@ -72,54 +190,24 @@ private:
     void write_indent();
     void begin_array(const std::string &a);
     void end_array();
-    std::ostream &ost;
+    std::ostream& m_ostream;
     bool in_array = false;
 };
 
 
-
-class TreeWriter {
-    friend class TreeWriterPrefixed;
-
+class Once {
 public:
-    class FileProxy {
-        friend TreeWriter;
-
-    private:
-        FileProxy(TreeWriter &writer, const fs::path &p);
-        TreeWriter &writer;
-
-    public:
-        std::ostream &stream;
-
-        ~FileProxy();
-
-        FileProxy(FileProxy &&) = delete;
-        FileProxy &operator=(FileProxy &&) = delete;
-
-        FileProxy(FileProxy const &) = delete;
-        FileProxy &operator=(FileProxy const &) = delete;
-    };
-
-    [[nodiscard]] FileProxy create_file(const fs::path &path)
+    bool operator()()
     {
-        return FileProxy(*this, path);
+        if (first) {
+            first = false;
+            return true;
+        }
+        return false;
     }
 
 private:
-    virtual std::ostream &create_file_internal(const fs::path &path) = 0;
-    virtual void close_file() = 0;
+    bool first = true;
 };
 
-class TreeWriterPrefixed : public TreeWriter {
-public:
-    TreeWriterPrefixed(TreeWriter &parent, const fs::path &prefix);
-
-private:
-    std::ostream &create_file_internal(const fs::path &path) override;
-    void close_file() override;
-
-    TreeWriter &parent;
-    const fs::path prefix;
-};
 

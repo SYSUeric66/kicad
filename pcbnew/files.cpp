@@ -1357,37 +1357,68 @@ void PCB_EDIT_FRAME::GenIPC2581File( wxCommandEvent& event )
     GetScreen()->SetContentModified( false );
 }
 
-void PCB_EDIT_FRAME::GenODBFiles( wxCommandEvent& event )
+void PCB_EDIT_FRAME::GenODBPPFiles( wxCommandEvent& event )
 {
     // DIALOG_EXPORT_2581 dlg( this );
 
     // if( dlg.ShowModal() != wxID_OK )
     //     return;
     
-    
-    // TODO
-    wxFileName pcbFileName = GetSettingsManager()->
-                             GetCommonSettings()->m_System.working_dir + wxS("odb-test");
+    // wxString path = m_parent->GetPcbNewSettings()->m_PlaceFile.output_directory;
+    wxString path = "D:/CodeBranch/kicad_master";
 
+    wxFileName  outputfile = wxFileName::DirName( path );
     // Write through symlinks, don't replace them
-    WX_FILENAME::ResolvePossibleSymlinks( pcbFileName );
+    WX_FILENAME::ResolvePossibleSymlinks( outputfile );
+    wxString    boardFilename = wxFileName( GetBoard()->GetFileName() ).GetName();
+    outputfile.SetName( boardFilename );
+    // m_reporter = &m_messagesPanel->Reporter();
+    wxString   msg;
+    // if( !EnsureFileDirectoryExists( &outputDir, boardFilename ) )
+    // {
+    //     msg.Printf( _( "Could not write ODB++ files to folder '%s'." ), outputDir.GetPath() );
+    //     DisplayErrorMessage( this, msg );
+    //     return;
+    // }
 
-    if( pcbFileName.GetName().empty() )
+    // wxFileName fn = GetBoard()->GetFileName();
+    // fn.SetPath( outputDir.GetPath() );
+    // wxString outputPath( aTargetFullFileName->GetPath() );
+
+    if( !wxFileName::DirExists( outputfile.GetFullPath() ) )
+    {
+        // Make every directory provided when the provided path doesn't exist
+        if( !wxFileName::Mkdir( outputfile.GetFullPath(), wxS_DIR_DEFAULT, wxPATH_MKDIR_FULL ) )
+        {
+            msg.Printf( _( "Cannot create output directory '%s'." ),
+                            outputfile.GetFullPath() );
+
+            DisplayErrorMessage( this, msg );
+        }
+
+    }
+
+    // TODO
+    // wxFileName odbFileName = outputDir.GetFullPath() + wxS("odb-test");
+
+
+
+    if( outputfile.GetName().empty() )
     {
         DisplayErrorMessage( this, _( "The board must be saved before generating ODB++ files." ) );
         return;
     }
 
-    if( !IsWritable( pcbFileName ) )
+    if( !IsWritable( outputfile ) )
     {
-        wxString msg = wxString::Format( _( "Insufficient permissions to write file '%s'." ),
-                                         pcbFileName.GetFullPath() );
+        msg = wxString::Format( _( "Insufficient permissions to write file '%s'." ),
+                                         outputfile.GetFullPath() );
 
         DisplayErrorMessage( this, msg );
         return;
     }
 
-    wxString   tempFile = wxFileName::CreateTempFileName( wxS( "pcbnew_odb" ) );
+    // wxString   tempFile = wxFileName::CreateTempFileName( wxS( "pcbnew_odb" ) );
     wxString   upperTxt;
     wxString   lowerTxt;
     WX_PROGRESS_REPORTER reporter( this, _( "Generating ODB++ output files" ), 5 );
@@ -1408,20 +1439,20 @@ void PCB_EDIT_FRAME::GenODBFiles( wxCommandEvent& event )
         {
             PLUGIN::RELEASER pi( IO_MGR::PluginFind( IO_MGR::ODB ) );
 
-            pi->SaveBoard( tempFile, GetBoard(), nullptr, &reporter );
+            pi->SaveBoard( outputfile.GetFullPath(), GetBoard(), nullptr, &reporter );
             return true;
         }
         catch( const IO_ERROR& ioe )
         {
             DisplayError( this, wxString::Format( _( "Error generating IPC2581 file '%s'.\n%s" ),
-                                                  pcbFileName.GetFullPath(), ioe.What() ) );
+                                                  outputfile.GetFullPath(), ioe.What() ) );
 
-            lowerTxt.Printf( _( "Failed to create temporary file '%s'." ), tempFile );
+            lowerTxt.Printf( _( "Failed to create temporary file '%s'." ), outputfile.GetFullPath() );
 
             SetMsgPanel( upperTxt, lowerTxt );
 
             // In case we started a file but didn't fully write it, clean up
-            wxRemoveFile( tempFile );
+            wxRemoveFile( outputfile.GetFullPath() );
 
             return false;
         }
@@ -1452,41 +1483,41 @@ void PCB_EDIT_FRAME::GenODBFiles( wxCommandEvent& event )
     }
 
     // Preserve the permissions of the current file
-    KIPLATFORM::IO::DuplicatePermissions( pcbFileName.GetFullPath(), tempFile );
+    // KIPLATFORM::IO::DuplicatePermissions( odbFileName.GetFullPath(), tempFile );
 
     // if( dlg.GetCompress() )
     // {
-        wxFileName tempfn = pcbFileName;
-        // tempfn.SetExt( Ipc2581FileExtension );
-        wxFileName zipfn = tempFile;
-        zipfn.SetExt( "zip" );
 
-        wxFFileOutputStream fnout( zipfn.GetFullPath() );
-        wxZipOutputStream zip( fnout );
-        wxFFileInputStream fnin( tempFile );
+    wxFileName zipfn = outputfile.GetFullPath();
+    zipfn.SetExt( "zip" );
 
-        zip.PutNextEntry( tempfn.GetFullName() );
-        fnin.Read( zip );
-        zip.Close();
-        fnout.Close();
+    wxFFileOutputStream fnout( zipfn.GetFullPath() );
+    wxZipOutputStream zip( fnout );
+    wxFFileInputStream fnin( outputfile.GetFullPath() );
 
-        wxRemoveFile( tempFile );
-        tempFile = zipfn.GetFullPath();
+    zip.PutNextEntry( zipfn.GetFullName() );
+    fnin.Read( zip );
+    zip.Close();
+    fnout.Close();
+
+    // wxRemoveFile( outputfile.GetFullPath() );
+    // tempFile = zipfn.GetFullPath();
     // }
 
+
     // If save succeeded, replace the original with what we just wrote
-    if( !wxRenameFile( tempFile, pcbFileName.GetFullPath() ) )
-    {
-        DisplayError( this, wxString::Format( _( "Error generating IPC2581 file '%s'.\n"
-                                                 "Failed to rename temporary file '%s." ),
-                                              pcbFileName.GetFullPath(),
-                                              tempFile ) );
+    // if( !wxRenameFile( tempFile, odbFileName.GetFullPath() ) )
+    // {
+    //     DisplayError( this, wxString::Format( _( "Error generating ODB++ file '%s'.\n"
+    //                                              "Failed to rename temporary file '%s." ),
+    //                                           odbFileName.GetFullPath(),
+    //                                           tempFile ) );
 
-        lowerTxt.Printf( _( "Failed to rename temporary file '%s'." ),
-                         tempFile );
+    //     lowerTxt.Printf( _( "Failed to rename temporary file '%s'." ),
+    //                      tempFile );
 
-        SetMsgPanel( upperTxt, lowerTxt );
-    }
+    //     SetMsgPanel( upperTxt, lowerTxt );
+    // }
 
     GetScreen()->SetContentModified( false );
 }
