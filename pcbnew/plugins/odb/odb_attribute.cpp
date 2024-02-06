@@ -67,13 +67,25 @@ void ATTR_RECORD_WRITER::write_attributes(std::ostream &ost) const
     }
 }
 
-void AttributeProvider::write_attributes(std::ostream &ost, const std::string &prefix) const
+void AttributeProvider::WriteAttributesName(std::ostream &ost, const std::string &prefix) const
 {
     for (const auto &[name, n] : attribute_names) {
         ost << prefix << "@" << n << " " << name << std::endl;
     }
+}
+
+void AttributeProvider::WriteAttributesText(std::ostream &ost, const std::string &prefix) const
+{
     for (const auto &[name, n] : attribute_texts) {
         ost << prefix << "&" << n << " " << name << std::endl;
     }
 }
 
+void AttributeProvider::write_attributes(std::ostream &ost, const std::string &prefix) const
+{
+    ost << std::endl << "#\n#Feature attribute names\n#" << std::endl;
+    WriteAttributesName( ost );
+
+    ost << std::endl << "#\n#Feature attribute text strings\n#" << std::endl;
+    WriteAttributesText( ost );
+}

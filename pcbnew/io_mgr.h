@@ -64,7 +64,7 @@ public:
         EASYEDAPRO,
         FABMASTER,
         GEDA_PCB, ///< Geda PCB file formats.
-        ODB,
+        ODBPP,
         PCAD,
         SOLIDWORKS_PCB,
         IPC2581,

@@ -19,25 +19,25 @@
 */
 
 #include "odb_plugin.h"
+#include "odb_util.h"
+#include "odb_attribute.h"
 
-
+#include "odb_defines.h"
+#include "odb_feature.h"
+#include "odb_entity.h"
+#include "wx/log.h"
 
 
 ODB_PLUGIN::~ODB_PLUGIN()
 {
-    // clearLoadedFootprints();
+    ClearLoadedFootprints();
 }
 
 
-// void ODB_PLUGIN::clearLoadedFootprints()
-// {
-//     for( FOOTPRINT* fp : m_loaded_footprints )
-//     {
-//         delete fp;
-//     }
-
-//     m_loaded_footprints.clear();
-// }
+void ODB_PLUGIN::ClearLoadedFootprints()
+{
+    m_loaded_footprints.clear();
+}
 
 
 const wxString ODB_PLUGIN::PluginName() const
@@ -49,13 +49,14 @@ bool ODB_PLUGIN::CreateEntity( ODB_TREE_WRITER& writer )
 {
     Make<ODB_FONTS_ENTITY>();
     Make<ODB_INPUT_ENTITY>();
-    Make<ODB_MATRIX_ENTITY>();
-    Make<ODB_MISC_ENTITY>();
-    Make<ODB_STEP_ENTITY>();
+    Make<ODB_MATRIX_ENTITY>( m_board, this );
+    Make<ODB_STEP_ENTITY>( m_board, this );
+    std::vector<wxString> miscVect = { "job", "MM" };
+    Make<ODB_MISC_ENTITY>( miscVect );
     Make<ODB_SYMBOLS_ENTITY>();
     Make<ODB_USER_ENTITY>();
     Make<ODB_WHEELS_ENTITY>();
-
+    return true;
 }        
 
 bool ODB_PLUGIN::GenerateFiles( ODB_TREE_WRITER &writer )
@@ -74,27 +75,34 @@ bool ODB_PLUGIN::GenerateFiles( ODB_TREE_WRITER &writer )
             return false;
         }
     }
+    return true;
 
 }
 bool ODB_PLUGIN::ExportODB( const wxString& aFileName )
 {
     try
     {
-        bool ret = true;
         std::shared_ptr<ODB_TREE_WRITER> writer =
              std::make_shared<ODB_TREE_WRITER>( aFileName, "odb" );
         writer->SetRootPath( writer->GetCurrentPath() );
-        ret = ret && CreateEntity( *writer );
-        ret = ret && InitEntityData();
-        ret = ret && GenerateFiles( *writer );
-        if( !ret )
+
+        if( !CreateEntity( *writer ) )
         {
             return false;
         }
 
+        InitEntityData();
+
+        if( !GenerateFiles( *writer ) )
+        {
+            return false;
+        }
+
+        return true;
     }
     catch(const std::exception& e)
     {
+        wxLogError( "Exception in ODB++ ExportODB process: %s", e.what() );
         std::cerr << e.what() << std::endl;
         return false;
     }
@@ -102,7 +110,7 @@ bool ODB_PLUGIN::ExportODB( const wxString& aFileName )
 }
 
 
-bool ODB_PLUGIN::InitEntityData()
+void ODB_PLUGIN::InitEntityData()
 {
     for( auto const& entity : m_entities )
     {
@@ -110,6 +118,20 @@ bool ODB_PLUGIN::InitEntityData()
     }
 
 }
+
+std::vector<FOOTPRINT*> ODB_PLUGIN::GetImportedCachedLibraryFootprints()
+{
+    std::vector<FOOTPRINT*> retval;
+    retval.reserve( m_loaded_footprints.size() );
+
+    for( const auto& fp : m_loaded_footprints )
+    {
+        retval.push_back( static_cast<FOOTPRINT*>( fp->Clone() ) );
+    }
+
+    return retval;
+}
+
 
 
 void ODB_PLUGIN::SaveBoard( const wxString& aFileName, BOARD* aBoard,

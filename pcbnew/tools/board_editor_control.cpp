@@ -503,10 +503,10 @@ int BOARD_EDITOR_CONTROL::GenerateFabFiles( const TOOL_EVENT& aEvent )
         m_frame->GenD356File( dummy );
     else if( aEvent.IsAction( &PCB_ACTIONS::generateBOM ) )
         m_frame->RecreateBOMFileFromBoard( dummy );
+    else if( aEvent.IsAction( &PCB_ACTIONS::generateIPC2581File ) )
+        m_frame->GenIPC2581File( dummy );
     else if( aEvent.IsAction( &PCB_ACTIONS::generateODBFile ) )
         m_frame->GenODBPPFiles( dummy );
-    // else if( aEvent.IsAction( &PCB_ACTIONS::generateODBFile ) )
-    //     m_frame->GenODBFile( dummy );
     else
         wxFAIL_MSG( wxT( "GenerateFabFiles(): unexpected request" ) );
 
@@ -1659,7 +1659,7 @@ void BOARD_EDITOR_CONTROL::setTransitions()
     Go( &BOARD_EDITOR_CONTROL::GenerateFabFiles,       PCB_ACTIONS::generateReportFile.MakeEvent() );
     Go( &BOARD_EDITOR_CONTROL::GenerateFabFiles,       PCB_ACTIONS::generateD356File.MakeEvent() );
     Go( &BOARD_EDITOR_CONTROL::GenerateFabFiles,       PCB_ACTIONS::generateBOM.MakeEvent() );
-    Go( &BOARD_EDITOR_CONTROL::GenerateFabFiles,       PCB_ACTIONS::generateODBFile.MakeEvent() );
+    Go( &BOARD_EDITOR_CONTROL::GenerateFabFiles,       PCB_ACTIONS::generateIPC2581File.MakeEvent() );
     Go( &BOARD_EDITOR_CONTROL::GenerateFabFiles,       PCB_ACTIONS::generateODBFile.MakeEvent() );
 
     // Track & via size control

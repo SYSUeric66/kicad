@@ -18,8 +18,8 @@
 */
 
 
-#ifndef ODB_PLUGIN_H
-#define ODB_PLUGIN_H
+#ifndef _ODB_PLUGIN_H_
+#define _ODB_PLUGIN_H_
 
 #include <eda_shape.h>
 #include <io_mgr.h>
@@ -28,13 +28,8 @@
 #include <font/font.h>
 #include <geometry/shape_segment.h>
 #include <stroke_params.h>
-
-// #include <wx/xml/xml.h>
 #include <memory>
-
-#include "odb_util.h"
 #include "odb_entity.h"
-#include "odb_defines.h"
 
 class BOARD;
 class BOARD_ITEM;
@@ -49,34 +44,6 @@ class PROGRESS_REPORTER;
 class SHAPE_POLY_SET;
 class SHAPE_SEGMENT;
 
-
-
-
-// class ODB_PLUGIN_INTERFACE
-// {
-// public:
-// 	ODB_PLUGIN_INTERFACE();
-// 	virtual ~ODB_PLUGIN_INTERFACE();
-
-//     virtual void Generate(ODB_WRITER &writer) = 0;
-// };
-
-// class ODB_ENTITY_HANDLER_BASE
-// {
-// public:
-// 	ODB_ENTITY_HANDLER_BASE();
-// 	virtual ~ODB_ENTITY_HANDLER_BASE();
-
-// };
-
-// class ODB_MATRIX_HANDLER : public ODB_ENTITY_HANDLER_BASE
-// {
-// public:
-// 	ODB_MATRIX_HANDLER();
-// 	virtual ~ODB_MATRIX_HANDLER();
-
-// 	virtual void OnEntity(ODB_ENTITY_BASE* entity);
-// };
 
 
 
@@ -152,9 +119,9 @@ public:
         return false;
     }
 
-    void add_matrix_layer(const std::string &name);
-    ODB_STEP_ENTITY &add_step(const std::string &name);
-    void write( std::shared_ptr<ODB_TREE_WRITER> aTreeWriter ) const;
+    // void add_matrix_layer(const std::string &name);
+    // ODB_STEP_ENTITY &add_step(const std::string &name);
+    // void write( std::shared_ptr<ODB_TREE_WRITER> aTreeWriter ) const;
 
 
     /**
@@ -174,181 +141,75 @@ public:
     // void RegisterLayerMappingCallback( LAYER_MAPPING_HANDLER aLayerMappingHandler ) override
     // {};
 
-private:
+public:
 
-    struct ODB_JOB
+    // struct ODB_JOB
+    // {
+    //     ODB_MATRIX_ENTITY m_matrix;
+    //     ODB_MISC_ENTITY m_misc;
+    //     ODB_FONTS_ENTITY m_fonts;
+    //     ODB_SYMBOLS_ENTITY m_symbols;
+    //     ODB_WHEELS_ENTITY m_wheels;
+
+    //     std::map<wxString, ODB_STEP_ENTITY> m_steps;
+    //     wxString m_jobName;
+
+    //     // using SymbolKey = std::tuple<UUID, int, std::string>; // padstack UUID, layer, content hash
+    //     // std::map<SymbolKey, Symbol> symbols;
+    //     // std::set<std::string> symbol_names;
+
+    // };
+    inline std::vector<std::pair<PCB_LAYER_ID, wxString>>& GetLayerNameList()
     {
-        ODB_MATRIX_ENTITY m_matrix;
-        ODB_MISC_ENTITY m_misc;
-        ODB_FONTS_ENTITY m_fonts;
-        ODB_SYMBOLS_ENTITY m_symbols;
-        ODB_WHEELS_ENTITY m_wheels;
+        return m_layer_name_list;
+    }
 
-        std::map<wxString, ODB_STEP_ENTITY> m_steps;
-        wxString m_jobName;
+    inline std::map<PCB_LAYER_ID, std::map<int, std::vector<BOARD_ITEM*>>>&
+           GetLayerElementsMap()
+    {
+        return m_layer_elements;
+    }
 
-        // using SymbolKey = std::tuple<UUID, int, std::string>; // padstack UUID, layer, content hash
-        // std::map<SymbolKey, Symbol> symbols;
-        // std::set<std::string> symbol_names;
+    inline std::vector<std::unique_ptr<FOOTPRINT>>& GetLoadedFootprintList()
+    {
+        return m_loaded_footprints;
+    }
 
-    };
+    inline std::map<std::pair<PCB_LAYER_ID, PCB_LAYER_ID>, std::vector<BOARD_ITEM*>>&
+           GetDrillLayerItemsMap()
+    {
+        return m_drill_layers;
+    }
+    
+    inline std::map<std::pair<PCB_LAYER_ID, PCB_LAYER_ID>, std::vector<PAD*>>&
+           GetSlotHolesMap()
+    {
+        return m_slot_holes;
+    }
+
 
     std::shared_ptr<ODB_TREE_WRITER> m_writer;
-
-
-    /**
-     * Frees the memory allocated for the loaded footprints in #m_loaded_footprints.
-     *
-    */
-    // void clearLoadedFootprints();
-
-    // /**
-    //  * Creates the XML header for IPC-2581
-    //  *
-    // */
-    // wxXmlNode* generateXmlHeader();
-
-    // /**
-    //  * Creates the Content section of the XML file.  This holds the overview of
-    //  * the rest of the board data.  Includes references to the step, bom, and layers
-    //  * as well as the content dictionaries
-    // */
-    // wxXmlNode* generateContentSection();
-
-    // /**
-    //  * Creates the logistical data header.  This section defines the organization and person
-    //  * creating the file.  Can be used for contact information and config management
-    // */
-    // wxXmlNode* generateLogisticSection();
-
-    // /**
-    //  * Creates the history section.  This section defines the history of the file, the revision
-    //  * number, and the date of the revision as well as software used to create the file.  Optionally,
-    //  * the data could include information about the git revision and tag
-    // */
-    // wxXmlNode* generateHistorySection();
-
-    // /**
-    //  * Creates the BOM section.  This section defines the BOM data for the board.  This includes
-    //  * the part number, manufacturer, and distributor information for each component on the board.
-    // */
-    // wxXmlNode* generateBOMSection( wxXmlNode* aEcadNode );
-
-    // /**
-    //  * Creates the ECAD section.  This describes the layout, layers, and design as well as
-    //  * component placement and netlist information
-    // */
-    // wxXmlNode* generateEcadSection();
-
-    // /**
-    //  * Creates the Approved Vendor List section.  If the user chooses, this will associate
-    //  * BOM items with vendor numbers and names.
-    // */
-    // wxXmlNode* generateAvlSection();
-
-    // void generateCadLayers( wxXmlNode* aCadLayerNode );
-
-    // void generateDrillLayers( wxXmlNode* aCadLayerNode );
-
-    // void generateStepSection( wxXmlNode* aCadNode );
-
-    // void generateProfile( wxXmlNode* aStepNode );
-
-    // void generateLogicalNets( wxXmlNode* aStepNode );
-
-    // void generatePhyNetGroup( wxXmlNode* aStepNode );
-
-    // void generateLayerFeatures( wxXmlNode* aStepNode );
-
-    // void generateLayerSetDrill( wxXmlNode* aStepNode );
-
-    // void generateLayerSetNet( wxXmlNode* aLayerNode, PCB_LAYER_ID aLayer, std::vector<BOARD_ITEM*>& aItems );
-
-    // wxXmlNode* generateContentStackup( wxXmlNode* aContentNode );
-
-    // void generateComponents( wxXmlNode* aStepNode );
-
-    // void addCadHeader( wxXmlNode* aEcadNode );
-
-    // wxXmlNode* addPackage( wxXmlNode* aStepNode, FOOTPRINT* aFootprint );
-
-    // void addPad( wxXmlNode* aContentNode, const PAD* aPad, PCB_LAYER_ID aLayer );
-
-    // void addVia( wxXmlNode* aContentNode, const PCB_VIA* aVia, PCB_LAYER_ID aLayer );
-
-    // void addPadStack( wxXmlNode* aContentNode, const PAD* aPad );
-
-    // void addPadStack( wxXmlNode* aContentNode, const PCB_VIA* aVia );
-
-    // void addLocationNode( wxXmlNode* aContentNode, double aX, double aY );
-
-    // void addLocationNode( wxXmlNode* aContentNode, const PAD& aPad, bool aRelative );
-
-    // void addLocationNode( wxXmlNode* aContentNode, const PCB_SHAPE& aShape );
-
-    // void addShape( wxXmlNode* aContentNode, const PCB_SHAPE& aShape );
-
-    // void addShape( wxXmlNode* aContentNode, const PAD& aPad, PCB_LAYER_ID aLayer );
-
-    // void addSlotCavity( wxXmlNode* aContentNode, const PAD& aPad, const wxString& aName );
-
-    // void addText( wxXmlNode* aContentNode, EDA_TEXT* aShape, const KIFONT::METRICS& aFontMetrics );
-
-    // void addLineDesc( wxXmlNode* aNode, int aWidth, LINE_STYLE aDashType, bool aForce = false );
-
-    // void addFillDesc( wxXmlNode* aNode, FILL_T aFillType, bool aForce = false );
-
-    // bool addPolygonNode( wxXmlNode* aParentNode, const SHAPE_POLY_SET::POLYGON& aPolygon,
-    //                      FILL_T aFillType = FILL_T::FILLED_SHAPE, int aWidth = 0,
-    //                      LINE_STYLE aDashType = LINE_STYLE::SOLID );
-
-    // bool addPolygonCutouts( wxXmlNode* aParentNode, const SHAPE_POLY_SET::POLYGON& aPolygon );
-
-    // bool addOutlineNode( wxXmlNode* aParentNode, const SHAPE_POLY_SET& aPolySet, int aWidth = 0,
-    //                      LINE_STYLE aDashType = LINE_STYLE::SOLID );
-
-    // bool addContourNode( wxXmlNode* aParentNode, const SHAPE_POLY_SET& aPolySet, int aOutline = 0,
-    //                      FILL_T aFillType = FILL_T::FILLED_SHAPE, int aWidth = 0,
-    //                      LINE_STYLE aDashType = LINE_STYLE::SOLID );
-
-    // size_t lineHash( int aWidth, LINE_STYLE aDashType );
-
-    // size_t shapeHash( const PCB_SHAPE& aShape );
-
-    // wxString genString( const wxString& aStr, const char* aPrefix = nullptr );
-
-    // wxString floatVal( double aVal );
-
-    // void addXY( wxXmlNode* aNode, const VECTOR2I& aVec, const char* aXName = nullptr,
-    //             const char* aYName = nullptr );
-
-    // void addAttribute( wxXmlNode* aNode, const wxString& aName, const wxString& aValue );
-
-    // wxXmlNode* insertNode( wxXmlNode* aParent, const wxString& aName );
-
-    // wxXmlNode* appendNode( wxXmlNode* aParent, const wxString& aName );
-
-    // void insertNode( wxXmlNode* aParent, wxXmlNode* aNode );
-
-    // void insertNodeAfter( wxXmlNode* aPrev, wxXmlNode* aNode );
-
-    // void addLayerAttributes( wxXmlNode* aNode, PCB_LAYER_ID aLayer );
 
     // inline const double GetODBScale() const { return m_ODBScale; }
     bool GenerateFiles( ODB_TREE_WRITER& writer );
     bool ExportODB( const wxString& aFileName );
     bool CreateEntity( ODB_TREE_WRITER& writer );
-    bool InitEntityData();
+    void InitEntityData();
     
     bool CreateDirectories( ODB_TREE_WRITER& writer );
+    /**
+     * Frees the memory allocated for the loaded footprints in #m_loaded_footprints.
+     *
+    */
+    void ClearLoadedFootprints();
 
 private:
 
     template <typename T,  typename... Args>
-    static std::shared_ptr<ODB_ENTITY_BASE> Make( Args&&... args )
+    void Make( Args&&... args )
     {
         std::shared_ptr<ODB_ENTITY_BASE> entity = 
-                std::make_shared<T>( m_board, std::forward<Args>( args )... );
+                std::make_shared<T>( std::forward<Args>( args )... );
 
         if( entity )
             m_entities.push_back( entity );
@@ -369,6 +230,7 @@ private:
 
 
     BOARD*                  m_board;
+    std::vector<std::unique_ptr<FOOTPRINT>> m_loaded_footprints;
     // std::vector<FOOTPRINT*> m_loaded_footprints;
     // const STRING_UTF8_MAP*  m_props;
 
@@ -390,19 +252,23 @@ private:
     // std::map<int, std::vector<std::pair<wxString, wxString>>>
     //         m_net_pin_dict; //<! Map from netcode to the component/pin pairs in the net
 
-    // std::map<PCB_LAYER_ID, wxString>
-    //         m_layer_name_map; //<! Mapping layer name in 2581 to the internal layer id
+    std::vector<std::pair<PCB_LAYER_ID, wxString>>
+            m_layer_name_list; //<! layer name in matrix entity to the internal layer id
 
-    // std::map<std::pair<PCB_LAYER_ID, PCB_LAYER_ID>, std::vector<BOARD_ITEM*>>
-    //         m_drill_layers; //<! Drill sets are output as layers (to/from pairs)
+    std::map<std::pair<PCB_LAYER_ID, PCB_LAYER_ID>, std::vector<BOARD_ITEM*>>
+            m_drill_layers; //<! Drill sets are output as layers (to/from pairs)
 
-    // std::map<std::pair<PCB_LAYER_ID, PCB_LAYER_ID>, std::vector<PAD*>>
-    //         m_slot_holes; //<! Storage vector of slotted holes that need to be output as cutouts
-    static std::vector<std::shared_ptr<ODB_ENTITY_BASE>> m_entities;
+    std::map<std::pair<PCB_LAYER_ID, PCB_LAYER_ID>, std::vector<PAD*>>
+            m_slot_holes; //<! Storage vector of slotted holes that need to be output as cutouts
+    
+    std::map<PCB_LAYER_ID, std::map<int, std::vector<BOARD_ITEM*>>> 
+            m_layer_elements; //<! Storage map of layer to element list
+
+    std::vector<std::shared_ptr<ODB_ENTITY_BASE>> m_entities;
     PROGRESS_REPORTER*      m_progress_reporter;
 
     // std::set<wxUniChar>     m_acceptable_chars;     //<! IPC2581B and C have differing sets of allowed characters in names
 
 };
 
-#endif // ODB_PLUGIN_H
+#endif // _ODB_PLUGIN_H_

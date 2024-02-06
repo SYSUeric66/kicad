@@ -1,7 +1,12 @@
+#ifndef _ODB_FEATURE_H_
+#define _ODB_FEATURE_H_
+
 #include "odb_attribute.h"
 #include "pad.h"
 #include "footprint.h"
 #include <list>
+#include "math/vector2d.h"
+#include "odb_defines.h"
 
 
 enum class ODB_DIRECTION
@@ -24,6 +29,11 @@ enum class ODB_DIRECTION
 //     }
 // };
 
+class ODB_LINE;
+class ODB_ARC;
+class ODB_PAD;
+class ODB_SURFACE;
+class ODB_FEATURE;
 
 class FEATURES_MANAGER : public AttributeProvider
 {
@@ -32,32 +42,38 @@ public:
     {
     }
 
-    virtual ~FEATURES_MANAGER() = default;
+    virtual ~FEATURES_MANAGER()
+    {
+        m_featuresList.clear();
+    }
 
     void InitFeatureList( PCB_LAYER_ID aLayer,
                           std::vector<BOARD_ITEM*>& aItems );
 
-    ODB_LINE& AddFeatureLine( const VECTOR2I& aStart,
-                          const VECTOR2I& aEnd, uint64_t aWidth);
+    void AddFeatureLine( const VECTOR2I& aStart,
+                              const VECTOR2I& aEnd, uint64_t aWidth );
 
-    ODB_ARC& AddFeatureArc( const VECTOR2I& aStart, const VECTOR2I& aEnd,
-                        const VECTOR2I& aCenter, uint64_t aWidth,
-                        ODB_DIRECTION aDirection );
+    void AddFeatureArc( const VECTOR2I& aStart, const VECTOR2I& aEnd,
+                            const VECTOR2I& aCenter, uint64_t aWidth,
+                            ODB_DIRECTION aDirection );
 
     // std::vector<ODB_FEATURE *> draw_polygon_outline(const Polygon &poly, const Placement &transform);
 
-    ODB_PAD& AddFeaturePad( const VECTOR2I& aCenter, const wxString& aSym,
-                            const EDA_ANGLE& aAngle, bool aMirror );
-
-    ODB_PAD& AddPadCircle(  const VECTOR2I& aCenter, uint64_t aDiameter,
+    void AddPadCircle(  const VECTOR2I& aCenter, uint64_t aDiameter,
                             const EDA_ANGLE& aAngle, bool aMirror, double aResize = 1.0 );
 
     void AddPadShape( const PAD& aPad, PCB_LAYER_ID aLayer );
 
-    ODB_SURFACE& AddFeatureSurface( const SHAPE_POLY_SET::POLYGON& aPolygon,
+    void AddFeatureSurface( const SHAPE_POLY_SET::POLYGON& aPolygon,
                                     FILL_T aFillType = FILL_T::FILLED_SHAPE );
 
     void AddShape( const PCB_SHAPE& aShape );
+
+    void AddVia( const PCB_VIA* aVia, PCB_LAYER_ID aLayer );
+
+    void AddPadStack( const PAD* aPad );
+
+    void AddPadStack( const PCB_VIA* aVia );
 
     bool AddContour( const SHAPE_POLY_SET& aPolySet, int aOutline = 0,
                      FILL_T aFillType = FILL_T::FILLED_SHAPE );
@@ -67,44 +83,41 @@ public:
 
     bool AddPolygonCutouts( const SHAPE_POLY_SET::POLYGON& aPolygon );
 
-
     void GenerateFeatureFile( std::ostream &ost ) const;
+
+    void GenerateProfileFeatures( std::ostream &ost ) const;
 
 private:
     inline uint32_t AddCircleSymbol( const wxString& aDiameter)
     {
-        return GetSymbolIndex( m_circleSymMap, aDiameter );
-    }
-
-    inline uint32_t AddPadSymbol( const wxString& aPad )
-    {
-        return GetSymbolIndex( m_padSymMap, aPad );
+        return GetSymbolIndex( m_circleSymMap, "r" + aDiameter );
     }
     
-    inline uint32_t AddRectSymbol( const wxString& aWidth, const wxString& aHeight )
+    uint32_t AddRectSymbol( const wxString& aWidth, const wxString& aHeight )
     {
-        return GetSymbolIndex( m_rectSymMap, std::make_pair( aWidth, aHeight ) );
+        wxString sym = "rect" + aWidth + ODB_DIM_X + aHeight;
+        return GetSymbolIndex( m_rectSymMap, sym );
     }
     
-    inline uint32_t AddOvalSymbol( const wxString& aWidth, const wxString& aHeight )
+    uint32_t AddOvalSymbol( const wxString& aWidth, const wxString& aHeight )
     {
-        return GetSymbolIndex( m_ovalSymMap, std::make_pair( aWidth, aHeight ) );
+        wxString sym = "oval" + aWidth + ODB_DIM_X + aHeight;
+        return GetSymbolIndex( m_ovalSymMap, sym );
     }
 
     inline uint32_t AddRoundRectSymbol( const wxString& aRoundRectDim )
     {
-        return GetSymbolIndex( m_roundRectSymMap, aRoundRectDim );
+        return GetSymbolIndex( m_roundRectSymMap, "rect" + aRoundRectDim );
     }
 
     inline uint32_t AddChamferRectSymbol( const wxString& aChamferRectDim )
     {
-        return GetSymbolIndex( m_chamRectSymMap, aChamferRectDim );
+        return GetSymbolIndex( m_chamRectSymMap, "rect" + aChamferRectDim );
     }
     
 
-
-    template <typename T>
-    uint32_t GetSymbolIndex( std::map<T, uint32_t>& aSymMap, const T& aKey )
+    uint32_t GetSymbolIndex( std::map<wxString, uint32_t>& aSymMap,
+                             const wxString& aKey )
     {
         if ( aSymMap.count( aKey ) )
         {
@@ -112,33 +125,30 @@ private:
         }
         else
         {
-            uint32_t index = m_symIndex++;
+            uint32_t index = m_symIndex;
+            m_symIndex++;
             aSymMap.emplace( aKey, index );
+            m_allSymMap.emplace( index, aKey );
             return index;
         }
     }
 
     std::map<wxString, uint32_t> m_circleSymMap;                    // diameter -> symbol index
     std::map<wxString, uint32_t> m_padSymMap;                    // name -> symbol index
-    std::map<std::pair<wxString, wxString>, uint32_t> m_rectSymMap; // w,h -> symbol index
-    std::map<std::pair<wxString, wxString>, uint32_t> m_ovalSymMap; // w,h -> symbol index
+    std::map<wxString, uint32_t> m_rectSymMap; // w,h -> symbol index
+    std::map<wxString, uint32_t> m_ovalSymMap; // w,h -> symbol index
     std::map<wxString, uint32_t> m_roundRectSymMap;
     std::map<wxString, uint32_t> m_chamRectSymMap;
 
+    std::map<uint32_t, wxString> m_allSymMap;
+
     template <typename T, typename... Args>
-    T& AddFeature( Args&&... args )
+    void AddFeature( Args&&... args )
     {
-        T* feature = std::make_unique<T>( m_featuresList.size(),
+        auto feature = std::make_unique<T>( m_featuresList.size(),
                                           std::forward<Args>( args )... );
         
-        if( feature != nullptr )
-        {
-            T& ref = *feature;
-            m_featuresList.push_back( std::move( feature ) );
-            return ref;
-        }
-
-        return *nullptr;
+        m_featuresList.emplace_back( std::move( feature ) );
 
     }
 
@@ -148,6 +158,7 @@ private:
     uint32_t m_symIndex = 0;
 
     std::list<std::unique_ptr<ODB_FEATURE>> m_featuresList;
+    std::map<BOARD_ITEM*, std::vector<uint32_t>> m_featureIDMap;
 };
 
 
@@ -156,15 +167,13 @@ private:
 class ODB_FEATURE : public ATTR_RECORD_WRITER
 {
 public:
-    template <typename T> using check_type = attribute::is_feature<T>;
-
+    // template <typename T> using check_type = attribute::is_feature<T>;
+    ODB_FEATURE( uint32_t aIndex ) : m_index( aIndex ) {}
     virtual void WriteFeatures( std::ostream &ost );
 
     virtual ~ODB_FEATURE() = default;
 
 protected:
-    ODB_FEATURE( uint32_t aIndex ) : m_index( aIndex ) {}    
-
     enum class FEATURE_TYPE
     { 
         LINE,
@@ -173,7 +182,7 @@ protected:
         SURFACE
     };
 
-    virtual FEATURE_TYPE GetFeatureType() const = 0;
+    virtual FEATURE_TYPE GetFeatureType() = 0;
 
     virtual void WriteRecordContent( std::ostream &ost ) = 0;
 
@@ -191,7 +200,7 @@ public:
     {
     }
 
-    inline virtual FEATURE_TYPE GetFeatureType() const override
+    inline virtual FEATURE_TYPE GetFeatureType() override
     {
         return FEATURE_TYPE::LINE;
     }
@@ -211,7 +220,7 @@ class ODB_ARC : public ODB_FEATURE
 {
 public:
 
-    inline virtual FEATURE_TYPE GetFeatureType() const override
+    inline virtual FEATURE_TYPE GetFeatureType() override
     {
         return FEATURE_TYPE::ARC;
     }
@@ -250,7 +259,7 @@ public:
     {
     }
 
-    inline virtual FEATURE_TYPE GetFeatureType() const override
+    inline virtual FEATURE_TYPE GetFeatureType() override
     {
         return FEATURE_TYPE::PAD;
     }
@@ -266,6 +275,7 @@ private:
     double m_resize;
 };
 
+class ODB_SURFACE_DATA;
 class ODB_SURFACE : public ODB_FEATURE
 {
 public:
@@ -274,9 +284,7 @@ public:
 
     virtual ~ODB_SURFACE() = default;
 
-    virtual void WriteFeatures( std::ostream &ost ) override;
-
-    inline virtual FEATURE_TYPE GetFeatureType() const override
+    inline virtual FEATURE_TYPE GetFeatureType() override
     {
         return FEATURE_TYPE::SURFACE;
     }
@@ -300,6 +308,7 @@ public:
             SEGMENT,
             ARC
         };
+        SURFACE_LINE() = default;
 
         SURFACE_LINE( const VECTOR2I& aEnd ) : m_end( aEnd )
         {
@@ -320,7 +329,7 @@ public:
         ODB_DIRECTION m_direction;
     };
 
-    bool AddPolygonHoles( const SHAPE_POLY_SET::POLYGON& aPolygon );
+    void AddPolygonHoles( const SHAPE_POLY_SET::POLYGON& aPolygon );
     void WriteData( std::ostream &ost ) const;
 
     // void append_polygon(const Polygon &poly, const Placement &transform = Placement());
@@ -358,3 +367,5 @@ public:
 //     uint32_t m_symIndex;
 
 // };
+
+#endif // _ODB_FEATURE_H_

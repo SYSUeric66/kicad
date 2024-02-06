@@ -1,16 +1,113 @@
+#include <locale>
+#include <codecvt>
 #include "odb_util.h"
 #include <wx/chartype.h>
 #include <wx/dir.h>
 #include "idf_helpers.h"
+#include "odb_defines.h"
+
+namespace ODB
+{
+
+    wxString GenString( const wxString& aStr )
+    {
+        std::wstring_convert<std::codecvt_utf8<wchar_t>> converter;
+        std::wstring wstr = converter.from_bytes( aStr.ToStdString() );
+
+        wxString str;
+
+        std::transform( wstr.begin(), wstr.end(), std::back_inserter(str),
+                   []( wchar_t ch )
+                   {
+                       return  ch <= 0x7f ? ch : '_';
+                   } );
+
+        return str;
+    }
+
+
+    // The names of these ODB++ entities must comply with
+    // the rules for legal entity names: 
+    // product, model, step, layer, symbol, and attribute.
+    wxString GenLegalEntityName( const wxString& aStr )
+    {
+        std::wstring_convert<std::codecvt_utf8<wchar_t>> converter;
+        std::wstring wstr = converter.from_bytes( aStr.ToStdString() );
+
+        wxString str;
+
+        std::transform( wstr.begin(), wstr.end(), std::back_inserter(str),
+                   []( wchar_t ch )
+                   {
+                       return  ch <= 0x7f ? ch : '_';
+                   } );
+
+        return str;
+    }
+
+
+    wxString Float2StrVal( double aVal )
+    {
+        // We don't want to output -0.0 as this value is just 0 for fabs
+        if( aVal == -0.0 )
+            aVal = 0.0;
+
+        wxString str = wxString::FromCDouble( aVal, 4/*m_sigfig*/ );
+
+        // Remove all but the last trailing zeros from str
+        while( str.EndsWith( wxT( "00" ) ) )
+            str.RemoveLast();
+
+        return str;
+    }
+
+    std::pair<wxString, wxString> AddXY( const VECTOR2I& aVec )
+    {
+        std::pair<wxString, wxString> xy = std::pair<wxString, wxString>(
+                                     Float2StrVal( m_ODBScale * aVec.x ),
+                                     Float2StrVal( m_ODBScale * aVec.y ) );
+
+        return xy;
+    }
+
+    VECTOR2I GetShapePosition( const PCB_SHAPE& aShape )
+    {
+        VECTOR2D pos{};
+
+        switch( aShape.GetShape() )
+        {
+        // Rectangles in KiCad are mapped by their corner while IPC2581 uses the center
+        case SHAPE_T::RECTANGLE:
+            pos = aShape.GetPosition()
+                + VECTOR2I( aShape.GetRectangleWidth() / 2.0, aShape.GetRectangleHeight() / 2.0 );
+            break;
+        // Both KiCad and IPC2581 use the center of the circle
+        case SHAPE_T::CIRCLE:
+            pos = aShape.GetPosition();
+            break;
+
+        // KiCad uses the exact points on the board, so we want the reference location to be 0,0
+        case SHAPE_T::POLY:
+        case SHAPE_T::BEZIER:
+        case SHAPE_T::SEGMENT:
+        case SHAPE_T::ARC:
+            pos = VECTOR2D( 0, 0 );
+            break;
+        }
+
+        return pos;
+    }
+}
+
 
 
 void ODB_TREE_WRITER::CreateEntityDirectory( const wxString& aPareDir,
-                                             const wxString& aSubDir = wxEmptyString )
+                                             const wxString& aSubDir /*= wxEmptyString*/ )
 {
     wxFileName path;
 
     path.AssignDir( aPareDir );
-    path.AppendDir( aSubDir );
+    path.AppendDir( aSubDir.Lower() );
 
     if( !path.DirExists() )
     {
@@ -26,23 +123,27 @@ void ODB_TREE_WRITER::CreateEntityDirectory( const wxString& aPareDir,
 
 }
 
+ODB_FILE_WRITER::ODB_FILE_WRITER( ODB_TREE_WRITER& aTreeWriter,
+                 const wxString& aFileName ) : m_treeWriter(aTreeWriter)
+{
+    CreateFile( aFileName );
+}
+
 void ODB_FILE_WRITER::CreateFile( const wxString& aFileName )
 {
-    wxString filename = m_treeWriter.GetCurrentPath()
-                        + wxFileName::GetPathSeparator()
-                        + aFileName;
-    
-    if( filename.IsEmpty() )
+    if( aFileName.IsEmpty() || m_treeWriter.GetCurrentPath().IsEmpty() )
         return;
     
-    wxFileName fn( filename );
-
-    wxString abspath = fn.GetAbsolutePath();
+    wxFileName fn;
+    fn.SetPath( m_treeWriter.GetCurrentPath() );
+    fn.SetFullName( aFileName );
     
-    if( !wxDir::Exists( abspath ) )
+    wxString dirPath = fn.GetPath();
+
+    if( !wxDir::Exists( dirPath ) )
     {
-        if( !wxDir::Make( abspath ) )
-            throw( std::runtime_error( "Could not create directory" + abspath ) );
+        if( !wxDir::Make( dirPath ) )
+            throw( std::runtime_error( "Could not create directory" + dirPath ) );
     }
     
     if( !fn.IsDirWritable() || ( fn.Exists() && !fn.IsFileWritable() ) )
@@ -59,7 +160,6 @@ void ODB_FILE_WRITER::CreateFile( const wxString& aFileName )
     if ( !m_ostream.is_open() || !m_ostream.good() )
         throw std::runtime_error( fn.GetFullPath() + " open failed");
     
-    // return m_ostream;
 }
 
 bool ODB_FILE_WRITER::CloseFile()
@@ -121,6 +221,39 @@ ODB_TEXT_WRITER::ArrayProxy::~ArrayProxy()
 {
     writer.end_array();
 }
+
+
+
+bool ODB_DRILL_TOOLS::GenerateFile( std::ostream& aStream )
+{
+    ODB_TEXT_WRITER twriter( aStream );
+    twriter.write_line( "UNITS", m_units );
+    twriter.write_line( "THICKNESS", m_thickness );
+    twriter.write_line( "USER_PARAMS", m_userParams );
+
+    for ( const auto& tool : m_tools )
+    {
+        const auto array_proxy = twriter.make_array_proxy( "TOOLS" );
+        twriter.write_line( "NUM", tool.m_num );
+        twriter.write_line( "TYPE", tool.m_type );
+        twriter.write_line( "TYPE2", tool.m_type2 );
+        twriter.write_line( "MIN_TOL", tool.m_minTol );
+        twriter.write_line( "MAX_TOL", tool.m_maxTol );
+        twriter.write_line( "BIT", tool.m_bit );
+        twriter.write_line( "FINISH_SIZE", tool.m_finishSize );
+        twriter.write_line( "DRILL_SIZE", tool.m_drillSize );
+    }
+
+    return fileproxy.CloseFile();
+}
+
+
+
+
+
+
+
+
 
 
 // TreeWriter::FileProxy::FileProxy(TreeWriter &wr, const fs::path &p) : writer(wr), stream(writer.create_file_internal(p))

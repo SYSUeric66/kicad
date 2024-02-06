@@ -271,7 +271,7 @@ static IO_MGR::REGISTER_PLUGIN registerIPC2581Plugin(
         []() -> PLUGIN* { return new IPC2581_PLUGIN; } );
 
 static IO_MGR::REGISTER_PLUGIN registerODBPlugin(
-        IO_MGR::ODB,
-        wxT( "ODB++" ),
+        IO_MGR::ODBPP,
+        wxT( "ODB Plus Plus" ),
         []() -> PLUGIN* { return new ODB_PLUGIN; } );
 // clang-format on

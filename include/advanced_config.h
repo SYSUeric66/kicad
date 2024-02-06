@@ -295,7 +295,7 @@ public:
     bool m_Enable2581;
 
    /**
-    * When true, enable output to odb++
+    * When true, enable output to odbpp
    */
    bool m_EnableODB;
 

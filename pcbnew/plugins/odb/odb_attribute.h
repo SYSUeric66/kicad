@@ -1,6 +1,11 @@
+
+#ifndef _ATTRIBUTE_PROVIDER_H_
+#define _ATTRIBUTE_PROVIDER_H_
+
 #include "odb_util.h"
 #include "stroke_params.h"
 #include <wx/string.h>
+
 
 // class ODB_ATTRIBUTE
 // {
@@ -77,32 +82,32 @@
 //     virtual ~SYSATTR_GEN();
 // };
 
-struct ODB_ATTR_NAME
-{
-    std::map<std::string, unsigned int> m_names;
-};
+// struct ODB_ATTR_NAME
+// {
+//     std::map<std::string, unsigned int> m_names;
+// };
 
-struct ODB_ATTR_VALUE
-{
-    std::map<std::string, unsigned int> m_values;
-};
+// struct ODB_ATTR_VALUE
+// {
+//     std::map<std::string, unsigned int> m_values;
+// };
 
 namespace ODB
 {
-
     template <typename T> struct attribute_name {};
 
-    enum class Type { FLOAT, BOOLEAN, TEXT };
+    enum class ATTRTYPE { FLOAT, BOOLEAN, TEXT };
 
-    template <typename T, unsigned int n> struct float_attribute {
+    template <typename T, unsigned int n> struct float_attribute
+    {
         double value;
         static constexpr unsigned int ndigits = n;
-        static constexpr Type type = Type::FLOAT;
+        static constexpr ATTRTYPE type = ATTRTYPE::FLOAT;
     };
 
     template <typename T> struct boolean_attribute {
         bool value = true;
-        static constexpr Type type = Type::BOOLEAN;
+        static constexpr ATTRTYPE type = ATTRTYPE::BOOLEAN;
     };
 
     template <typename T> struct text_attribute {
@@ -110,7 +115,7 @@ namespace ODB
         {
         }
         std::string value;
-        static constexpr Type type = Type::TEXT;
+        static constexpr ATTRTYPE type = ATTRTYPE::TEXT;
     };
 
     #define ATTR_NAME(n)                                                                                                   \
@@ -118,79 +123,84 @@ namespace ODB
             static constexpr const char *name = "." #n;                                                                    \
         };
 
-    #define MAKE_FLOAT_ATTR(n, nd)                                                                                         \
-        using n = float_attribute<struct n##_t, nd>;                                                                       \
-        ATTR_NAME(n)
 
-    #define MAKE_TEXT_ATTR(n)                                                                                              \
-        using n = text_attribute<struct n##_t>;                                                                            \
-        ATTR_NAME(n)
+//     #define MAKE_FLOAT_ATTR(n, nd)                                                                                         \
+//         using n = float_attribute<struct n##_t, nd>;                                                                       \
+//         ATTR_NAME(n)
 
-    #define MAKE_BOOLEAN_ATTR(n)                                                                                           \
-        using n = boolean_attribute<struct n##_t>;                                                                         \
-        ATTR_NAME(n)
+//     #define MAKE_TEXT_ATTR(n)                                                                                              \
+//         using n = text_attribute<struct n##_t>;                                                                            \
+//         ATTR_NAME(n)
 
-    template <typename T> struct is_feature : std::false_type {};
-    template <typename T> struct is_net : std::false_type {};
-    template <typename T> struct is_pkg : std::false_type {};
+//     #define MAKE_BOOLEAN_ATTR(n)                                                                                           \
+//         using n = boolean_attribute<struct n##_t>;                                                                         \
+//         ATTR_NAME(n)
 
-    template <class T> inline constexpr bool is_feature_v = is_feature<T>::value;
-    template <class T> inline constexpr bool is_net_v = is_net<T>::value;
-    template <class T> inline constexpr bool is_pkg_v = is_pkg<T>::value;
+//     template <typename T> struct is_feature : std::false_type {};
+//     template <typename T> struct is_net : std::false_type {};
+//     template <typename T> struct is_pkg : std::false_type {};
 
-    #define ATTR_IS_FEATURE(a)                                                                                             \
-        template <> struct is_feature<a> : std::true_type {};
+//     template <class T> inline constexpr bool is_feature_v = is_feature<T>::value;
+//     template <class T> inline constexpr bool is_net_v = is_net<T>::value;
+//     template <class T> inline constexpr bool is_pkg_v = is_pkg<T>::value;
 
-    #define ATTR_IS_NET(a)                                                                                                 \
-        template <> struct is_net<a> : std::true_type {};
+//     #define ATTR_IS_FEATURE(a)                                                                                             \
+//         template <> struct is_feature<a> : std::true_type {};
 
-    #define ATTR_IS_PKG(a)                                                                                                 \
-        template <> struct is_pkg<a> : std::true_type {};
+//     #define ATTR_IS_NET(a)                                                                                                 \
+//         template <> struct is_net<a> : std::true_type {};
 
-    enum class drill { PLATED, NON_PLATED, VIA };
-    ATTR_NAME(drill)
-    ATTR_IS_FEATURE(drill)
+//     #define ATTR_IS_PKG(a)                                                                                                 \
+//         template <> struct is_pkg<a> : std::true_type {};
 
-    enum class primary_side { TOP, BOTTOM };
-    ATTR_NAME(primary_side)
+//     enum class drill { PLATED, NON_PLATED, VIA };
+//     ATTR_NAME(drill)
+//     ATTR_IS_FEATURE(drill)
 
-    enum class pad_usage { TOEPRINT, VIA, G_FIDUCIAL, L_FIDUCIAL, TOOLING_HOLE };
-    ATTR_NAME(pad_usage)
-    ATTR_IS_FEATURE(pad_usage)
+//     enum class primary_side { TOP, BOTTOM };
+//     ATTR_NAME(primary_side)
 
-    ATTR_NAME( LINE_STYLE )
-    ATTR_IS_FEATURE( LINE_STYLE )
+//     enum class pad_usage { TOEPRINT, VIA, G_FIDUCIAL, L_FIDUCIAL, TOOLING_HOLE };
+//     ATTR_NAME(pad_usage)
+//     ATTR_IS_FEATURE(pad_usage)
+
+//     ATTR_NAME( LINE_STYLE )
+//     ATTR_IS_FEATURE( LINE_STYLE )
 
 
-    MAKE_FLOAT_ATTR(drc_max_height, 3)
-    ATTR_IS_FEATURE(drc_max_height)
+//     MAKE_FLOAT_ATTR(drc_max_height, 3)
+//     ATTR_IS_FEATURE(drc_max_height)
 
-    MAKE_BOOLEAN_ATTR(smd)
-    ATTR_IS_FEATURE(smd)
+//     MAKE_BOOLEAN_ATTR(smd)
+//     ATTR_IS_FEATURE(smd)
 
-    MAKE_TEXT_ATTR(electrical_class)
-    ATTR_IS_NET(electrical_class)
+//     MAKE_TEXT_ATTR(electrical_class)
+//     ATTR_IS_NET(electrical_class)
 
-    MAKE_TEXT_ATTR(net_type)
-    ATTR_IS_NET(net_type)
+//     MAKE_TEXT_ATTR(net_type)
+//     ATTR_IS_NET(net_type)
 
-    MAKE_TEXT_ATTR(diff_pair)
-    ATTR_IS_NET(diff_pair)
+//     MAKE_TEXT_ATTR(diff_pair)
+//     ATTR_IS_NET(diff_pair)
 
-    MAKE_TEXT_ATTR(string)
-    ATTR_IS_FEATURE(string)
+//     MAKE_TEXT_ATTR(string)
+//     ATTR_IS_FEATURE(string)
 
 }
 
-class AttributeProvider {
-
+class AttributeProvider
+{
 public:
+    AttributeProvider() = default;
+    virtual ~AttributeProvider() = default;
+
     template <typename Tr, typename Ta> void AddFeatureAttribute(Tr &r, Ta v)
     {
         using Tc = typename Tr::template check_type<Ta>;
         static_assert(Tc::value);
 
         const auto id = get_or_create_attribute_name(ODB::attribute_name<Ta>::name);
+
         if constexpr (std::is_enum_v<Ta>)
             r.attributes.emplace_back(id, std::to_string(static_cast<int>(v)));
         else
@@ -201,6 +211,8 @@ protected:
     unsigned int get_or_create_attribute_name(const std::string &name);
 
     void write_attributes(std::ostream &ost, const std::string &prefix = "") const;
+    void WriteAttributesName(std::ostream &ost, const std::string &prefix = "") const;
+    void WriteAttributesText(std::ostream &ost, const std::string &prefix = "") const;
 
 
 private:
@@ -231,8 +243,8 @@ private:
 class ATTR_RECORD_WRITER
 {
 public:
-    ATTR_RECORD_WRITER();
-    virtual ~ATTR_RECORD_WRITER() {}
+    ATTR_RECORD_WRITER() = default;
+    virtual ~ATTR_RECORD_WRITER() = default;
 
     void write_attributes(std::ostream &ost) const;
 
@@ -251,79 +263,69 @@ private:
 
 
 
-struct STEP_HDR
-{
-    STEP_HDR( const wxString &aUnit ) : m_unit( aUnit ) {}
-    STEP_HDR() : m_unit( wxS( "mm" ) ) {}
-    ~STEP_HDR() {}
+// struct STEP_HDR
+// {
+//     STEP_HDR( const wxString &aUnit ) : m_unit( aUnit ) {}
+//     STEP_HDR() : m_unit( wxS( "mm" ) ) {}
+//     ~STEP_HDR() {}
 
-    static const char* m_general_fields[];
-    static const char* m_stepRepeat_fields[];
+//     static const char* m_general_fields[];
+//     static const char* m_stepRepeat_fields[];
 
-    struct STEP_REPEAT
-    {
-        const wxString m_structuredText_name = wxS( "STEP-REPEAT" );
+//     struct STEP_REPEAT
+//     {
+//         const wxString m_structuredText_name = wxS( "STEP-REPEAT" );
 
-    };
+//     };
 
-    wxString GetFileName()
-    {
-        return "stephdr";
-    }
+//     wxString GetFileName()
+//     {
+//         return "stephdr";
+//     }
 
-    bool GenerateFiles( ODB_TREE_WRITER& writer )
-    {
-        auto filewriter = writer.CreateFileProxy( GetFileName() );
-        filewriter.GetStream();
+//     // bool GenerateFiles( ODB_TREE_WRITER& writer )
+//     // {
+//     //     auto filewriter = writer.CreateFileProxy( GetFileName() );
+//     //     filewriter.GetStream();
 
-    }
+//     // }
 
-    std::vector<STEP_REPEAT> m_repeat;
-    wxString m_unit;
-};
-
-
-const char* STEP_HDR::m_general_fields[] =
-{
-    "X_DATUM",
-    "Y_DATUM",
-    "ID",
-    "X_ORIGIN",
-    "Y_ORIGIN",
-    "TOP_ACTIVE",
-    "BOTTOM_ACTIVE",
-    "RIGHT_ACTIVE",
-    "LEFT_ACTIVE",
-    "AFFECTING_BOM",
-    "AFFECTING_BOM_CHANGED"
-};
-
-const char* STEP_HDR::m_stepRepeat_fields[] =
-{
-    "NAME",
-    "X",
-    "Y",
-    "DX",
-    "DY",
-    "NX",
-    "NY",
-    "ANGLE",
-    "FLIP",
-    "MIRROR"
-};
+//     std::vector<STEP_REPEAT> m_repeat;
+//     wxString m_unit;
+// };
 
 
+// const char* STEP_HDR::m_general_fields[] =
+// {
+//     "X_DATUM",
+//     "Y_DATUM",
+//     "ID",
+//     "X_ORIGIN",
+//     "Y_ORIGIN",
+//     "TOP_ACTIVE",
+//     "BOTTOM_ACTIVE",
+//     "RIGHT_ACTIVE",
+//     "LEFT_ACTIVE",
+//     "AFFECTING_BOM",
+//     "AFFECTING_BOM_CHANGED"
+// };
 
-namespace ODB
-{   
-    struct XY
-    {
-        XY() : m_x(), m_y() {}
-        wxString m_x;
-        wxString m_y;
-    };
+// const char* STEP_HDR::m_stepRepeat_fields[] =
+// {
+//     "NAME",
+//     "X",
+//     "Y",
+//     "DX",
+//     "DY",
+//     "NX",
+//     "NY",
+//     "ANGLE",
+//     "FLIP",
+//     "MIRROR"
+// };
 
-}
+
+
 
 
 // struct ODB_COMPONENTS
@@ -373,3 +375,4 @@ namespace ODB
 // };
 
 
+#endif // ATTRIBUTE_PROVIDER_H_

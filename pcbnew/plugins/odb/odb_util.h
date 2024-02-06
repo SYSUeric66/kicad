@@ -1,3 +1,6 @@
+#ifndef _ODB_UTIL_H_
+#define _ODB_UTIL_H_
+
 #include <map>
 #include <iostream>
 #include <fstream>
@@ -6,67 +9,203 @@
 #include <wx/string.h>
 #include "pcb_shape.h"
 #include <wx/filename.h>
-#include "odb_defines.h"
+
+
 
 //<! Scale factor from IU to IPC2581 units (mm, micron, in)
 static double m_ODBScale = 1.0 / PCB_IU_PER_MM; 
 
+enum class ODB_POLARITY
+{
+    POSITIVE,
+    NEGATIVE
+};
+
+enum class ODB_CONTEXT
+{ 
+    BOARD,
+    MISC
+};
+
+enum class ODB_DIELECTRIC_TYPE
+{ 
+    NONE,
+    PREPREG,
+    CORE
+};
+
+enum class ODB_TYPE
+{
+    UNDEFINED,
+
+    SIGNAL,
+    POWER_GROUND,
+    DIELECTRIC,
+    MIXED,
+    SOLDER_MASK,
+    SOLDER_PASTE,
+    SILK_SCREEN,
+    DRILL,
+    ROUT,
+    DOCUMENT,
+    COMPONENT,
+    MASK,
+    CONDUCTIVE_PASTE,
+};
+
+enum class ODB_SUBTYPE
+{
+    COVERLAY,
+    COVERCOAT,
+    STIFFENER,
+    BEND_AREA,
+    FLEX_AREA,
+    RIGID_AREA,
+    PSA,
+    SILVER_MASK,
+    CARBON_MASK,
+};
+
+enum class ODB_FID_TYPE
+{
+    COPPER,
+    LAMINATE,
+    HOLE
+};
+
+
+
 namespace ODB
 {
-    
-    wxString Float2StrVal( double aVal )
+    wxString Float2StrVal( double aVal );
+
+    std::pair<wxString, wxString> AddXY( const VECTOR2I& aVec );
+
+    VECTOR2I GetShapePosition( const PCB_SHAPE& aShape );
+
+
+    template<typename T>
+    class EnumStringMap
     {
-        // We don't want to output -0.0 as this value is just 0 for fabs
-        if( aVal == -0.0 )
-            aVal = 0.0;
-
-        wxString str = wxString::FromCDouble( aVal, 4/*m_sigfig*/ );
-
-        // Remove all but the last trailing zeros from str
-        while( str.EndsWith( wxT( "00" ) ) )
-            str.RemoveLast();
-
-        return str;
-    }
-
-    std::pair<wxString, wxString>& AddXY( const VECTOR2I& aVec )
-    {
-        std::pair<wxString, wxString> xy = std::pair<wxString, wxString>(
-                                     Float2StrVal( m_ODBScale * aVec.x ),
-                                     Float2StrVal( m_ODBScale * aVec.y ) );
-
-        return xy;
-    }
-
-    VECTOR2I GetShapePosition( const PCB_SHAPE& aShape )
-    {
-        VECTOR2D pos{};
-
-        switch( aShape.GetShape() )
+    public:
+        static std::map<T, std::string>& GetMap()
         {
-        // Rectangles in KiCad are mapped by their corner while IPC2581 uses the center
-        case SHAPE_T::RECTANGLE:
-            pos = aShape.GetPosition()
-                + VECTOR2I( aShape.GetRectangleWidth() / 2.0, aShape.GetRectangleHeight() / 2.0 );
-            break;
-        // Both KiCad and IPC2581 use the center of the circle
-        case SHAPE_T::CIRCLE:
-            pos = aShape.GetPosition();
-            break;
+            static_assert( std::is_enum_v<T>,
+                 "Template parameter T must be an enum type" );
 
-        // KiCad uses the exact points on the board, so we want the reference location to be 0,0
-        case SHAPE_T::POLY:
-        case SHAPE_T::BEZIER:
-        case SHAPE_T::SEGMENT:
-        case SHAPE_T::ARC:
-            pos = VECTOR2D( 0, 0 );
-            break;
+            static std::map<T, std::string> map = []()
+            {
+                std::map<T, std::string> result;
+
+                if constexpr( std::is_same_v<T, ODB_POLARITY> )
+                {
+                    result[ODB_POLARITY::POSITIVE] = "POSITIVE";
+                    result[ODB_POLARITY::NEGATIVE] = "NEGATIVE";
+                }
+
+                if constexpr( std::is_same_v<T, ODB_CONTEXT> )
+                {
+                    result[ODB_CONTEXT::BOARD] = "BOARD";
+                    result[ODB_CONTEXT::MISC] = "MISC";
+                }
+
+                if constexpr( std::is_same_v<T, ODB_TYPE> )
+                {
+                    //just for logical reasons.TYPE field must be defined.
+                    result[ODB_TYPE::UNDEFINED] = "";
+
+                    result[ODB_TYPE::SIGNAL] = "SIGNAL";
+                    result[ODB_TYPE::POWER_GROUND] = "POWER_GROUND";
+                    result[ODB_TYPE::DIELECTRIC] = "DIELECTRIC";
+                    result[ODB_TYPE::MIXED] = "MIXED";
+                    result[ODB_TYPE::SOLDER_MASK] = "SOLDER_MASK";
+                    result[ODB_TYPE::SOLDER_PASTE] = "SOLDER_PASTE";
+                    result[ODB_TYPE::SILK_SCREEN] = "SILK_SCREEN";
+                    result[ODB_TYPE::DRILL] = "DRILL";
+                    result[ODB_TYPE::ROUT] = "ROUT";
+                    result[ODB_TYPE::DOCUMENT] = "DOCUMENT";
+                    result[ODB_TYPE::COMPONENT] = "COMPONENT";
+                    result[ODB_TYPE::MASK] = "MASK";
+                    result[ODB_TYPE::CONDUCTIVE_PASTE] = "CONDUCTIVE_PASTE";
+                }
+
+                if constexpr( std::is_same_v<T, ODB_SUBTYPE> )
+                {
+                    result[ODB_SUBTYPE::COVERLAY] = "COVERLAY";
+                    result[ODB_SUBTYPE::COVERCOAT] = "COVERCOAT";
+                    result[ODB_SUBTYPE::STIFFENER] = "STIFFENER";
+                    result[ODB_SUBTYPE::BEND_AREA] = "BEND_AREA";
+                    result[ODB_SUBTYPE::FLEX_AREA] = "FLEX_AREA";
+                    result[ODB_SUBTYPE::RIGID_AREA] = "RIGID_AREA";
+                    result[ODB_SUBTYPE::PSA] = "PSA";
+                    result[ODB_SUBTYPE::SILVER_MASK] = "SILVER_MASK";
+                    result[ODB_SUBTYPE::CARBON_MASK] = "CARBON_MASK";
+                }
+
+                if constexpr( std::is_same_v<T, ODB_DIELECTRIC_TYPE> )
+                {
+                    result[ODB_DIELECTRIC_TYPE::NONE] = "NONE";
+                    result[ODB_DIELECTRIC_TYPE::PREPREG] = "PREPREG";
+                    result[ODB_DIELECTRIC_TYPE::CORE] = "CORE";
+                }
+
+                if constexpr( std::is_same_v<T, ODB_FID_TYPE> )
+                {
+                    result[ODB_FID_TYPE::COPPER] = "C";
+                    result[ODB_FID_TYPE::LAMINATE] = "L";
+                    result[ODB_FID_TYPE::HOLE] = "H";
+                }
+
+                return result;
+            }();
+
+            return map;
         }
+    };
 
-        return VECTOR2I( pos.x, pos.y );
+    template<typename T>
+    std::string Enum2String( T value )
+    {
+        const auto& map = EnumStringMap<T>::GetMap();
+        auto it = map.find( value );
+        if( it != map.end() )
+        {
+            return it->second;
+        }
+        else
+        {
+            throw std::out_of_range("Enum value not found in map");
+        }
     }
 
 }
+
+class ODB_TREE_WRITER;
+class ODB_FILE_WRITER
+{
+public:
+    ODB_FILE_WRITER( ODB_TREE_WRITER& aTreeWriter, const wxString& aFileName );
+
+    virtual ~ODB_FILE_WRITER()
+    {
+        if( m_ostream.is_open() )
+            m_ostream.close();
+    }
+
+    ODB_FILE_WRITER( ODB_FILE_WRITER && ) = delete;
+    ODB_FILE_WRITER &operator=( ODB_FILE_WRITER && ) = delete;
+
+    ODB_FILE_WRITER( ODB_FILE_WRITER const & ) = delete;
+    ODB_FILE_WRITER &operator=( ODB_FILE_WRITER const & ) = delete;
+
+    void CreateFile( const wxString& aFileName );
+    bool CloseFile();
+    inline std::ostream& GetStream() { return m_ostream; }
+
+private:
+    ODB_TREE_WRITER& m_treeWriter;
+    std::ofstream m_ostream;
+};
 
 
 class ODB_TREE_WRITER
@@ -117,37 +256,6 @@ private:
     wxString m_rootPath;
 };
 
-class ODB_FILE_WRITER
-{
-public:
-    ODB_FILE_WRITER( ODB_TREE_WRITER& aTreeWriter, const wxString& aFileName )
-     : m_treeWriter(aTreeWriter)
-    {
-        CreateFile( aFileName );
-    }
-
-    virtual ~ODB_FILE_WRITER()
-    {
-        if( m_ostream.is_open() )
-            m_ostream.close();
-    }
-
-    ODB_FILE_WRITER( ODB_FILE_WRITER && ) = delete;
-    ODB_FILE_WRITER &operator=( ODB_FILE_WRITER && ) = delete;
-
-    ODB_FILE_WRITER( ODB_FILE_WRITER const & ) = delete;
-    ODB_FILE_WRITER &operator=( ODB_FILE_WRITER const & ) = delete;
-
-    void CreateFile( const wxString& aFileName );
-    bool CloseFile();
-    inline std::ostream& GetStream() { return m_ostream; }
-
-private:
-    ODB_TREE_WRITER& m_treeWriter;
-    std::ofstream m_ostream;
-
-};
-
 
 class ODB_TEXT_WRITER
 {
@@ -158,9 +266,9 @@ public:
     // void write_line( const std::string &var, const std::string &value );
     void write_line( const std::string &var, int value );
     void write_line(const wxString &var, const wxString &value);
-    template <typename T> void write_line_enum( const std::string &var, const T &value )
+    template <typename T> void write_line_enum(const std::string &var, const T &value)
     {
-        write_line(var, enum_to_string(value));
+        write_line(var, ODB::Enum2String(value));
     }
 
     class ArrayProxy {
@@ -210,4 +318,66 @@ private:
     bool first = true;
 };
 
+
+
+class ODB_DRILL_TOOLS
+{
+public:
+
+    struct TOOLS
+    {
+        uint32_t m_num;
+        wxString m_type;
+        wxString m_type2 = "STANDARD";
+        uint32_t m_minTol;
+        uint32_t m_maxTol;
+        wxString m_bit = wxEmptyString();
+        wxString m_finishSize;
+        wxString m_drillSize;
+
+
+        TOOLS() : m_num( 0 ), m_minTol( 0 ), m_maxTol( 0 ) {}
+    }
+
+    wxString m_units = "MM";
+    wxString m_thickness;
+    wxString m_userParams;
+
+    std::vector<ODB_DRILL_TOOLS::TOOLS> m_tools;
+
+    ODB_DRILL_TOOLS( const wxString& aUnits,
+        const wxString& aThickness,
+        const wxString& aUserParams = wxEmptyString() )
+    : m_units( aUnits ), m_thickness( aThickness ), m_userParams( aUserParams ) {};
+
+    void AddDrillTools( const wxString& aType, const wxString& aFinishSize )
+    {
+        TOOLS tool;
+        tool.m_num = m_tools.size() + 1;
+        tool.m_type = aType;
+        tool.m_finishSize = aFinishSize;
+        tool.m_drillSize = aFinishSize;
+
+        m_tools.push_back( tool );
+    }
+
+    bool GenerateFile( ODB_TREE_WRITER& writer );
+
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+#endif  // _ODB_UTIL_H_
 
