@@ -34,13 +34,13 @@ class ODB_ARC;
 class ODB_PAD;
 class ODB_SURFACE;
 class ODB_FEATURE;
+class ODB_PLUGIN;
 
 class FEATURES_MANAGER : public AttributeProvider
 {
 public:
-    FEATURES_MANAGER( BOARD* aBoard ) : m_board( aBoard )
-    {
-    }
+    FEATURES_MANAGER(  BOARD* aBoard, ODB_PLUGIN* aPlugin, const wxString& aLayerName )
+        : m_board( aBoard ), m_plugin( aPlugin ), m_layerName( aLayerName ) {}
 
     virtual ~FEATURES_MANAGER()
     {
@@ -155,6 +155,8 @@ private:
 
 
     BOARD*   m_board;
+    ODB_PLUGIN* m_plugin;
+    wxString m_layerName;
     uint32_t m_symIndex = 0;
 
     std::list<std::unique_ptr<ODB_FEATURE>> m_featuresList;

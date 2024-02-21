@@ -187,6 +187,24 @@ public:
         return m_slot_holes;
     }
 
+    inline std::map<PAD*, EDAData::SubnetToeprint*>&
+           GetPadSubnetMap()
+    {
+        return m_toeprint_subnets;
+    }
+
+    inline std::map<std::pair<PCB_LAYER_ID, ZONE*>, EDAData::SubnetPlane*>&
+           GetPlaneSubnetMap()
+    {
+        return m_plane_subnets;
+    }
+
+    inline std::map<PCB_TRACK*, EDAData::Subnet*>&
+           GetViaTraceSubnetMap()
+    {
+        return m_via_trace_subnets;
+    }
+
 
     std::shared_ptr<ODB_TREE_WRITER> m_writer;
 
@@ -263,6 +281,15 @@ private:
     
     std::map<PCB_LAYER_ID, std::map<int, std::vector<BOARD_ITEM*>>> 
             m_layer_elements; //<! Storage map of layer to element list
+
+    std::map<PAD*, EDAData::SubnetToeprint*>
+            m_topeprint_subnets;
+            
+    std::map<std::pair<PCB_LAYER_ID, ZONE*>, EDAData::SubnetPlane*>
+            m_plane_subnets;
+
+    std::map<PCB_TRACK*, EDAData::Subnet*>
+            m_via_trace_subnets;
 
     std::vector<std::shared_ptr<ODB_ENTITY_BASE>> m_entities;
     PROGRESS_REPORTER*      m_progress_reporter;

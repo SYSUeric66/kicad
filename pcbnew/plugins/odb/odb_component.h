@@ -11,25 +11,32 @@
 class COMPONENTS_MANAGER : public AttributeProvider
 {
 public:
-    COMPONENTS_MANAGER( BOARD* aBoard ) {}
+    COMPONENTS_MANAGER() = default;
 
     virtual ~COMPONENTS_MANAGER()
     {
         m_compList.clear();
     }
 
+    ODB_COMPONENT& AddComponent( FOOTPRINT* aFp, EDAData& eda_data );
+
+    void write(std::ostream &ost) const;
+private:
     std::list<ODB_COMPONENT> m_compList;
 
 };
 
 class ODB_COMPONENT : public RecordWithAttributes 
 {
+public:
     ODB_COMPONENT(unsigned int i, unsigned int r) : m_index(i), m_pkg_ref(r)
     {
     }
     const unsigned int m_index;
     unsigned int m_pkg_ref;
-    // Placement placement;
+    std::pair<wxString, wxString> m_center;
+    wxString m_rot = wxT( "0" );
+    wxString m_mirror = wxT( "N" );
 
     wxString m_comp_name;
     wxString m_part_name;
@@ -45,10 +52,12 @@ class ODB_COMPONENT : public RecordWithAttributes
 
         unsigned int pin_num;
 
-        // Placement placement;
+        std::pair<wxString, wxString> m_center;
+        wxString m_rot = wxT( "0" );
+        wxString m_mirror = wxT( "N" );
         unsigned int net_num = 0;
         unsigned int subnet_num = 0;
-        std::string toeprint_name = 0;
+        wxString toeprint_name;
 
         void write(std::ostream &ost) const;
     };

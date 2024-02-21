@@ -17,6 +17,7 @@ class ODB_TREE_WRITER;
 class BOARD_ITEM;
 class ODB_PLUGIN;
 class EDAData;
+class COMPONENTS_MANAGER;
 
 class ODB_ENTITY_BASE
 {
@@ -99,6 +100,7 @@ private:
     std::vector<MATRIX_LAYER> m_matrixLayers;
     unsigned int m_row = 1;
     unsigned int m_col = 1;
+    bool m_hasBotComp = false;
 
 };
 
@@ -144,7 +146,7 @@ public:
     // bool AddAttrList();
     // bool AddBom();
     void InitEdaData();
-    void InitPackage( FOOTPRINT* aFp )
+    void InitPackage();
     void InitNetListData();
     void InitLayerEntityData();
     bool AddNetList();
@@ -157,7 +159,7 @@ public:
     virtual void InitEntityData();
     bool GenerateLayerFiles( ODB_TREE_WRITER& writer );
     bool GenerateEdaFiles( ODB_TREE_WRITER& writer );
-    bool GenerateNetlistsFiles( ODB_TREE_WRITER& writer );
+    bool GenerateNetlistsFiles( ODB_TREE_WRITER& writer ) { return true; }
     bool GenerateProfileFile( ODB_TREE_WRITER& writer );
     bool GenerateStepHeaderFile( ODB_TREE_WRITER& writer );
     bool GenerateAttrListFile( ODB_TREE_WRITER& writer ) { return true; }
@@ -174,9 +176,10 @@ private:
     std::unordered_map<wxString, wxString> m_stephdr;
 
 
+
 };
 
-
+class ODB_COMPONENT;
 class ODB_LAYER_ENTITY : public ODB_ENTITY_BASE
 {
 public:
@@ -198,7 +201,7 @@ public:
     }
     virtual void InitEntityData();
     void InitFeatureData();
-    void InitComponentData();
+    ODB_COMPONENT& InitComponentData( FOOTPRINT* aFp, EDAData& aEDAData );
     void InitDrillData();
     void InitSlotData();
     
@@ -219,8 +222,8 @@ private:
     wxString m_matrixLayerName;
     // ODB_ATTRLIST m_attrList;
     std::optional<ODB_DRILL_TOOLS> m_tools;
-    std::optional<ODB_COMPONENTS> m_compTop;
-    std::optional<ODB_COMPONENTS> m_compBot;
+    std::optional<COMPONENTS_MANAGER> m_compTop;
+    std::optional<COMPONENTS_MANAGER> m_compBot;
     std::unique_ptr<FEATURES_MANAGER> m_featuresMgr;
      std::map<size_t, wxString>
             m_footprint_dict; //<! Map between the footprint hash values and reference id string (<fpid>_##)

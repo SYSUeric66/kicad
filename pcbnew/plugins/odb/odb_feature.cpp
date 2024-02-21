@@ -10,6 +10,9 @@
 #include "board.h"
 #include "board_design_settings.h"
 #include "geometry/eda_angle.h"
+#include "odb_eda_data.h"
+#include <map>
+
 
 void FEATURES_MANAGER::AddFeatureLine( const VECTOR2I& aStart,
                                        const VECTOR2I& aEnd,
@@ -268,6 +271,12 @@ void FEATURES_MANAGER::AddShape( const PCB_SHAPE& aShape )
         
         break;
     }
+    
+    case default:
+    {
+        wxLogError( _( "Unknown shape when adding ODBPP layer feature" ) );
+        break;
+    }
     }
 }
 
@@ -442,6 +451,8 @@ void FEATURES_MANAGER::InitFeatureList( PCB_LAYER_ID aLayer,
 {
     auto add_track = [&]( PCB_TRACK* track )
     {
+        auto subnet = m_plugin->GetViaTraceSubnetMap().at( track );
+
         if( track->Type() == PCB_TRACE_T )
         {
             PCB_SHAPE shape( nullptr, SHAPE_T::SEGMENT );
@@ -449,6 +460,9 @@ void FEATURES_MANAGER::InitFeatureList( PCB_LAYER_ID aLayer,
             shape.SetEnd( track->GetEnd() );
             shape.SetWidth( track->GetWidth() );
             AddShape( shape );
+
+            subnet->AddFeatureID( EDAData::FeatureID::Type::COPPER,
+                      m_layerName, m_featuresList.size() - 1 );
         }
         else if( track->Type() == PCB_ARC_T )
         {
@@ -457,6 +471,9 @@ void FEATURES_MANAGER::InitFeatureList( PCB_LAYER_ID aLayer,
             shape.SetArcGeometry( arc->GetStart(), arc->GetMid(), arc->GetEnd() );
             shape.SetWidth( arc->GetWidth() );
             AddShape( shape );
+
+            subnet->AddFeatureID( EDAData::FeatureID::Type::COPPER,
+                      m_layerName, m_featuresList.size() - 1 );
         }
         else
         {
@@ -464,7 +481,11 @@ void FEATURES_MANAGER::InitFeatureList( PCB_LAYER_ID aLayer,
             PCB_VIA* via = static_cast<PCB_VIA*>( track );
 
             AddVia( via );
+
+            subnet->AddFeatureID( EDAData::FeatureID::Type::HOLE,
+                      m_layerName, m_featuresList.size() - 1 );
         }
+
     };
 
     auto add_zone = [&]( ZONE* zone )
@@ -472,7 +493,15 @@ void FEATURES_MANAGER::InitFeatureList( PCB_LAYER_ID aLayer,
         SHAPE_POLY_SET& zone_shape = *zone->GetFilledPolysList( aLayer );
 
         for( int ii = 0; ii < zone_shape.OutlineCount(); ++ii )
+        {
             AddContour( zone_shape, ii );
+            auto subnet = m_plugin->GetPlaneSubnetMap().at(
+                std::make_pair( aLayer, zone ) );
+
+            subnet->AddFeatureID( EDAData::FeatureID::Type::COPPER,
+                      m_layerName, m_featuresList.size() - 1 );
+        }
+            
     };
 
     auto add_text = [&] ( BOARD_ITEM* text )
@@ -544,6 +573,12 @@ void FEATURES_MANAGER::InitFeatureList( PCB_LAYER_ID aLayer,
             AddPadShape( *pad, FlipLayer( aLayer ) );
         else
             AddPadShape( *pad, aLayer );
+
+        auto subnet = m_plugin->GetPadSubnetMap().at( pad );
+
+        auto& type = pad->HasHole() ? EDAData::FeatureID::Type::HOLE
+                                   : EDAData::FeatureID::Type::COPPER;
+        subnet->AddFeatureID( type, m_layerName, m_featuresList.size() - 1 );
     };
 
     for( BOARD_ITEM* item : aItems )

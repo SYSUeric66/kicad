@@ -1,5 +1,7 @@
+
+#include <string>
+#include <algorithm>
 #include <locale>
-#include <codecvt>
 #include "odb_util.h"
 #include <wx/chartype.h>
 #include <wx/dir.h>
@@ -9,40 +11,55 @@
 namespace ODB
 {
 
-    wxString GenString( const wxString& aStr )
-    {
-        std::wstring_convert<std::codecvt_utf8<wchar_t>> converter;
-        std::wstring wstr = converter.from_bytes( aStr.ToStdString() );
+    // wxString GenString( const wxString& aStr )
+    // {
+    //     wxString tmp = aStr.ToAscii();
+    //     std::wstring_convert<std::codecvt_utf8<wchar_t>> converter;
+    //     std::wstring wstr = converter.from_bytes( tmp.ToStdString() );
 
-        wxString str;
+    //     wxString str;
 
-        std::transform( wstr.begin(), wstr.end(), std::back_inserter(str),
-                   []( wchar_t ch )
-                   {
-                       return  ch <= 0x7f ? ch : '_';
-                   } );
+    //     std::transform( wstr.begin(), wstr.end(), std::back_inserter(str),
+    //                []( wchar_t ch )
+    //                {
+    //                     if( ch == ';' || isspace( ch ) )
+    //                         ch = '_';
 
-        return str;
-    }
+    //                     return  ch;
+    //                } );
+
+    //     return str;
+    // }
 
 
     // The names of these ODB++ entities must comply with
     // the rules for legal entity names: 
     // product, model, step, layer, symbol, and attribute.
-    wxString GenLegalEntityName( const wxString& aStr )
+    std::string GenLegalEntityName( const wxString& aStr )
     {
-        std::wstring_convert<std::codecvt_utf8<wchar_t>> converter;
-        std::wstring wstr = converter.from_bytes( aStr.ToStdString() );
+        std::string s = aStr.ToStdString();
+        std::locale loc;
+        std::string out;
+        out.reserve(s.size());
 
-        wxString str;
+        std::transform(s.begin(), s.end(), std::back_inserter(out),
+            [&loc](unsigned char c)
+            {
+                if (std::isalnum(c, loc) || (c == '-') || (c == '_') || (c == '+'))
+                {
+                    return c;
+                }
+                return '_';
+            });
 
-        std::transform( wstr.begin(), wstr.end(), std::back_inserter(str),
-                   []( wchar_t ch )
-                   {
-                       return  ch <= 0x7f ? ch : '_';
-                   } );
+        std::transform(out.begin(), out.end(), out.begin(), [&loc](unsigned char c) {
+            if (std::isalpha(c, loc)) {
+                return std::tolower(c, loc);
+            }
+            return c;
+        });
 
-        return str;
+        return out;
     }
 
 

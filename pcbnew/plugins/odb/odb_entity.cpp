@@ -39,6 +39,7 @@
 #include "odb_util.h"
 #include "odb_plugin.h"
 #include "odb_eda_data.h"
+#include "odb_component.h"
 
 
 bool ODB_ENTITY_BASE::CreateDirectiryTree( ODB_TREE_WRITER& writer )
@@ -275,6 +276,9 @@ void ODB_MATRIX_ENTITY::AddDrillMatrixLayer()
 
     for( FOOTPRINT* fp : m_board->Footprints() )
     {
+        if( fp->IsFlipped() )
+            m_hasBotComp = true;
+
         for( PAD* pad : fp->Pads() )
         {
             if( pad->HasHole() && pad->GetDrillSizeX() != pad->GetDrillSizeY() )
@@ -327,9 +331,23 @@ void ODB_MATRIX_ENTITY::AddDrillMatrixLayer()
 
 void ODB_MATRIX_ENTITY::AddCOMPMatrixLayer()
 {
-            aMLayer.m_type = ODB_TYPE::COMPONENT;
-        aMLayer.m_layerName = wxString::Format( "COMP_+_%s",
-                               aLayer == F_Fab ? "TOP" : "BOT" );
+    MATRIX_LAYER mLayer( m_row++, "COMP_+_TOP" );
+    mLayer.m_type = ODB_TYPE::COMPONENT;
+    mLayer.m_context = ODB_CONTEXT::BOARD;
+    
+    m_matrixLayers.push_back( mLayer );
+    m_plugin->GetLayerNameList().emplace_back( std::make_pair(
+                            PCB_LAYER_ID::UNDEFINED_LAYER,
+                            mLayer.m_layerName ) );
+
+    if( m_hasBotComp )
+    {
+        mLayer.m_layerName = "COMP_+_BOT";
+        m_matrixLayers.push_back( mLayer );
+        m_plugin->GetLayerNameList().emplace_back( std::make_pair(
+                            PCB_LAYER_ID::UNDEFINED_LAYER,
+                            mLayer.m_layerName ) );
+    }
 }
 
 
@@ -407,7 +425,7 @@ ODB_LAYER_ENTITY::ODB_LAYER_ENTITY( BOARD* aBoard, ODB_PLUGIN* aPlugin,
        : ODB_ENTITY_BASE( aBoard, aPlugin ),
          m_layerItems( aMap ), m_layerID( aLayerID ), m_matrixLayerName( aLayerName )
 {
-    m_featuresMgr = std::make_unique<FEATURES_MANAGER>( aBoard );
+    m_featuresMgr = std::make_unique<FEATURES_MANAGER>( aBoard, aPlugin, aLayerName );
     // m_shape_std_node = appendNode( m_layer_node, "ShapeStandard" );
     // m_profile = std::make_unique<FEATURES_MANAGER>( aBoard );
 
@@ -415,12 +433,6 @@ ODB_LAYER_ENTITY::ODB_LAYER_ENTITY( BOARD* aBoard, ODB_PLUGIN* aPlugin,
 
 void ODB_LAYER_ENTITY::InitEntityData()
 {
-    if ( m_matrixLayerName.Contains( "COMP" ) )
-    {
-        InitComponentData();
-        return;
-    }
-
     if( m_matrixLayerName.Contains( "DRILL" ) )
     {
         InitDrillData();
@@ -467,19 +479,33 @@ void ODB_LAYER_ENTITY::InitFeatureData()
 }
 
 
-void ODB_LAYER_ENTITY::InitComponentData()
-{
+ODB_COMPONENT& ODB_LAYER_ENTITY::InitComponentData( FOOTPRINT* aFp, EDAData& aEDAData )
+{   
+    if( m_matrixLayerName == "COMP_+_BOT" )
+    {
+        if( !m_compBot.has_value() )
+        {
+            m_compBot.emplace();
+        }
+        return m_compBot.AddComponent( aFp, aEDAData );
+    }
+    else
+    {
+        if( !m_compTop.has_value() )
+        {
+            m_compTop.emplace();
+        }
 
-    
-
+        return m_compTop.AddComponent( aFp, aEDAData );
+    }
 }
+
 
 void ODB_LAYER_ENTITY::InitDrillData()
 {
     std::map<std::pair<PCB_LAYER_ID, PCB_LAYER_ID>, std::vector<BOARD_ITEM*>>&
             drill_layers = m_plugin->GetDrillLayerItemsMap();
 
-    
     if( !m_layerItems.empty() )
     {
         m_layerItems.clear();
@@ -494,7 +520,6 @@ void ODB_LAYER_ENTITY::InitDrillData()
                         m_board->GetLayerName( layer_pair.second ) );
         if( dLayerName == m_matrixLayerName )
         {
-            
             for( BOARD_ITEM* item : vec )
             {
                 //for drill tools
@@ -573,299 +598,23 @@ void ODB_STEP_ENTITY::InitEntityData()
     InitEdaData();
     InitNetListData();
     InitLayerEntityData();
+                auto& eda_net = m_edaData.GetNet( pad->GetNetCode() );
+
+            auto &subnet = eda_net.AddSubnet<EDAData::SubnetToeprint>(
+                    fp->IsFlipped() ? EDAData::SubnetToeprint::Side::BOTTOM 
+                                    : EDAData::SubnetToeprint::Side::TOP,
+                    comp.m_index, comp.toeprints.size() );
+
+    
 }
 
-void ODB_STEP_ENTITY::InitPackage( FOOTPRINT* aFp )
+void ODB_STEP_ENTITY::InitPackage()
 {
-    std::unique_ptr<FOOTPRINT> fp( static_cast<FOOTPRINT*>( aFp->Clone() ) );
-    fp->SetParentGroup( nullptr );
-    fp->SetPosition( { 0, 0 } );
-
-    if( fp->GetLayer() != F_Cu )
-        fp->Flip( fp->GetPosition(), false );
-
-    fp->SetOrientation( EDA_ANGLE::m_Angle0 );
-
-
-    size_t hash = hash_fp_item( fp.get(), HASH_POS | REL_COORD );
-    wxString name = wxString::Format( "%s_%zu", fp->GetFPID().GetLibItemName().wx_str(),
-                             m_footprint_dict.size() + 1 ).ToAscii();
-
-    auto [ iter, success ] = m_footprint_dict.emplace( hash, name );
-
-    if( !success )
-        return;
-
-    // Package and Component nodes are at the same level, so we need to find the parent
-    // which should be the Step node
-    wxXmlNode* packageNode = new wxXmlNode( wxXML_ELEMENT_NODE, "Package" );
-    wxXmlNode* otherSideViewNode = nullptr; // Only set this if we have elements on the back side
-
-    addAttribute( packageNode,  "name", name );
-    addAttribute( packageNode,  "type", "OTHER" ); // TODO: Replace with actual package type once we encode this
-
-    // We don't specially identify pin 1 in our footprints, so we need to guess
-    if( fp->FindPadByNumber( "1" ) )
-        addAttribute( packageNode,  "pinOne", "1" );
-    else if ( fp->FindPadByNumber( "A1" ) )
-        addAttribute( packageNode,  "pinOne", "A1" );
-    else if ( fp->FindPadByNumber( "A" ) )
-        addAttribute( packageNode,  "pinOne", "A" );
-    else if ( fp->FindPadByNumber( "a" ) )
-        addAttribute( packageNode,  "pinOne", "a" );
-    else if ( fp->FindPadByNumber( "a1" ) )
-        addAttribute( packageNode,  "pinOne", "a1" );
-    else if ( fp->FindPadByNumber( "Anode" ) )
-        addAttribute( packageNode,  "pinOne", "Anode" );
-    else if ( fp->FindPadByNumber( "ANODE" ) )
-        addAttribute( packageNode,  "pinOne", "ANODE" );
-    else
-        addAttribute( packageNode,  "pinOne", "UNKNOWN" );
-
-    addAttribute( packageNode,  "pinOneOrientation", "OTHER" );
-
-    const SHAPE_POLY_SET& courtyard = fp->GetCourtyard( F_CrtYd );
-    const SHAPE_POLY_SET& courtyard_back = fp->GetCourtyard( B_CrtYd );
-
-    if( courtyard.OutlineCount() > 0 )
-        addOutlineNode( packageNode, courtyard, courtyard.Outline( 0 ).Width(), LINE_STYLE::SOLID );
-
-    if( courtyard_back.OutlineCount() > 0 )
+    for( FOOTPRINT* fp : m_board->Footprints() )
     {
-        otherSideViewNode = appendNode( packageNode, "OtherSideView" );
-        addOutlineNode( otherSideViewNode, courtyard_back, courtyard_back.Outline( 0 ).Width(), LINE_STYLE::SOLID );
+        m_edaData.add_package( fp );
     }
-
-    if( !courtyard.OutlineCount() && !courtyard_back.OutlineCount() )
-    {
-        SHAPE_POLY_SET bbox = fp->GetBoundingHull();
-        addOutlineNode( packageNode, bbox );
-    }
-
-    wxXmlNode* pickupPointNode = appendNode( packageNode, "PickupPoint" );
-    addAttribute( pickupPointNode,  "x", "0.0" );
-    addAttribute( pickupPointNode,  "y", "0.0" );
-
-    std::map<PCB_LAYER_ID, std::map<bool, std::vector<BOARD_ITEM*>>> elements;
-
-    for( BOARD_ITEM* item : fp->GraphicalItems() )
-    {
-        PCB_LAYER_ID layer = item->GetLayer();
-
-        /// IPC2581 only supports the documentation layers for production and post-production
-        /// All other layers are ignored
-        /// TODO: Decide if we should place the other layers from footprints on the board
-        if( layer != F_SilkS && layer != B_SilkS && layer != F_Fab && layer != B_Fab )
-            continue;
-
-        bool is_abs = true;
-
-        if( item->Type() == PCB_SHAPE_T )
-        {
-            PCB_SHAPE* shape = static_cast<PCB_SHAPE*>( item );
-
-            // Circles and Rectanges only have size information so we need to place them in
-            // a separate node that has a location
-            if( shape->GetShape() == SHAPE_T::CIRCLE || shape->GetShape() == SHAPE_T::RECTANGLE )
-                is_abs = false;
-        }
-
-        elements[item->GetLayer()][is_abs].push_back( item );
-    }
-
-    auto add_base_node = [&]( PCB_LAYER_ID aLayer ) -> wxXmlNode*
-    {
-        wxXmlNode* parent = packageNode;
-        bool is_back = aLayer == B_SilkS || aLayer == B_Fab;
-
-        if( is_back )
-        {
-            if( !otherSideViewNode )
-                otherSideViewNode = appendNode( packageNode, "OtherSideView" );
-
-            parent = otherSideViewNode;
-        }
-
-        wxString name;
-
-        if( aLayer == F_SilkS || aLayer == B_SilkS )
-            name = "SilkScreen";
-        else if( aLayer == F_Fab || aLayer == B_Fab )
-            name = "AssemblyDrawing";
-        else
-            wxASSERT( false );
-
-        wxXmlNode* new_node = appendNode( parent, name );
-        return new_node;
-    };
-
-    auto add_marking_node = [&]( wxXmlNode* aNode ) -> wxXmlNode*
-    {
-        wxXmlNode* marking_node = appendNode( aNode, "Marking" );
-        addAttribute( marking_node,  "markingUsage", "NONE" );
-        return marking_node;
-    };
-
-    std::map<PCB_LAYER_ID, wxXmlNode*> layer_nodes;
-    std::map<PCB_LAYER_ID, BOX2I> layer_bbox;
-
-    for( auto layer : { F_Fab, B_Fab } )
-    {
-        if( elements.find( layer ) != elements.end() )
-        {
-            if( elements[layer][true].size() > 0 )
-                layer_bbox[layer] = elements[layer][true][0]->GetBoundingBox();
-            else if( elements[layer][false].size() > 0 )
-                layer_bbox[layer] = elements[layer][false][0]->GetBoundingBox();
-        }
-    }
-
-    for( auto& [layer, map] : elements )
-    {
-        wxXmlNode* layer_node = add_base_node( layer );
-        wxXmlNode* marking_node = add_marking_node( layer_node );
-        wxXmlNode* group_node = appendNode( marking_node, "UserSpecial" );
-        bool update_bbox = false;
-
-        if( layer == F_Fab || layer == B_Fab )
-        {
-            layer_nodes[layer] = layer_node;
-            update_bbox = true;
-        }
-
-        for( auto& [is_abs, vec] : map )
-        {
-            for( BOARD_ITEM* item : vec )
-            {
-                wxXmlNode* output_node = nullptr;
-
-                if( update_bbox )
-                    layer_bbox[layer].Merge( item->GetBoundingBox() );
-
-                if( !is_abs )
-                    output_node = add_marking_node( layer_node );
-                else
-                    output_node = group_node;
-
-                switch( item->Type() )
-                {
-                case PCB_TEXT_T:
-                {
-                    PCB_TEXT* text = static_cast<PCB_TEXT*>( item );
-                    addText( output_node, text, text->GetFontMetrics() );
-                    break;
-                }
-
-                case PCB_TEXTBOX_T:
-                {
-                    PCB_TEXTBOX* text = static_cast<PCB_TEXTBOX*>( item );
-                    addText( output_node, text, text->GetFontMetrics() );
-
-                    // We want to force this to be a polygon to get absolute coordinates
-                    if( text->IsBorderEnabled() )
-                    {
-                        SHAPE_POLY_SET poly_set;
-                        text->GetEffectiveShape()->TransformToPolygon( poly_set, 0, ERROR_INSIDE );
-                        addContourNode( output_node, poly_set, 0, FILL_T::NO_FILL,
-                                        text->GetBorderWidth() );
-                    }
-
-                    break;
-                }
-
-                case PCB_SHAPE_T:
-                {
-                    if( !is_abs )
-                        addLocationNode( output_node, static_cast<PCB_SHAPE*>( item ) );
-
-                    addShape( output_node, *static_cast<PCB_SHAPE*>( item ) );
-
-                    break;
-                }
-
-                default: break;
-                }
-            }
-        }
-
-        if( group_node->GetChildren() == nullptr )
-        {
-            marking_node->RemoveChild( group_node );
-            layer_node->RemoveChild( marking_node );
-            delete group_node;
-            delete marking_node;
-        }
-    }
-
-    for( auto&[layer, bbox] : layer_bbox)
-    {
-        if( bbox.GetWidth() > 0 )
-        {
-            wxXmlNode* outlineNode = insertNode( layer_nodes[layer], "Outline" );
-
-            SHAPE_POLY_SET::POLYGON outline( 1 );
-            std::vector<VECTOR2I> points( 4 );
-            points[0] = bbox.GetPosition();
-            points[2] = bbox.GetEnd();
-            points[1].x = points[0].x;
-            points[1].y = points[2].y;
-            points[3].x = points[2].x;
-            points[3].y = points[0].y;
-
-            outline[0].Append( points );
-            addPolygonNode( outlineNode, outline, FILL_T::NO_FILL, 0 );
-            addLineDesc( outlineNode, 0, LINE_STYLE::SOLID );
-        }
-    }
-
-    for( size_t ii = 0; ii < fp->Pads().size(); ++ii )
-    {
-        PAD* pad = fp->Pads()[ii];
-        wxXmlNode* pinNode = appendNode( packageNode, "Pin" );
-        wxString name = pad->GetNumber();
-
-        // Pins are required to have names, so if our pad doesn't have a name, we need to
-        // generate one that is unique
-        if( pad->GetAttribute() == PAD_ATTRIB::NPTH )
-            name = wxString::Format( "NPTH%zu", ii );
-        else if( name.empty() )
-            name = wxString::Format( "PAD%zu", ii );
-
-        addAttribute( pinNode,  "number", name );
-
-        m_net_pin_dict[pad->GetNetCode()].emplace_back(
-                genString( fp->GetReference(), "CMP" ), genString( name, "PIN" ) );
-
-        if( pad->GetAttribute() == PAD_ATTRIB::NPTH )
-            addAttribute( pinNode,  "electricalType", "MECHANICAL" );
-        else if( pad->IsOnCopperLayer() )
-            addAttribute( pinNode,  "electricalType", "ELECTRICAL" );
-        else
-            addAttribute( pinNode,  "electricalType", "UNDEFINED" );
-
-        if( pad->HasHole() )
-            addAttribute( pinNode,  "type", "THRU" );
-        else
-            addAttribute( pinNode,  "type", "SURFACE" );
-
-        if( pad->GetFPRelativeOrientation() != EDA_ANGLE::m_Angle0 )
-        {
-            wxXmlNode* xformNode = appendNode( pinNode, "Xform" );
-            xformNode->AddAttribute(
-                    "rotation",
-                    floatVal( pad->GetFPRelativeOrientation().Normalize().AsDegrees() ) );
-        }
-
-        addLocationNode( pinNode, *pad, true );
-        addShape( pinNode, *pad, pad->GetLayer() );
-
-        // We just need the padstack, we don't need the reference here.  The reference will be created
-        // in the LayerFeature set
-        wxXmlNode dummy;
-        addPadStack( &dummy, pad );
-    }
-
-    return packageNode;
+    
 }
 
 
@@ -896,6 +645,22 @@ bool ODB_LAYER_ENTITY::GenerateFiles( ODB_TREE_WRITER &writer )
 
 }
 
+bool ODB_LAYER_ENTITY::GenComponents( ODB_TREE_WRITER &writer )
+{
+    auto fileproxy = writer.CreateFileProxy( "component" );
+    
+    if ( m_compTop.has_value() )
+    {
+        m_compTop->write( fileproxy.GetStream() );
+    }
+    else
+    {
+        m_compBot->write( fileproxy.GetStream() );
+    }
+
+    return true;
+}
+
 bool ODB_LAYER_ENTITY::GenFeatures( ODB_TREE_WRITER &writer )
 {
     auto fileproxy = writer.CreateFileProxy( "features" );
@@ -915,79 +680,84 @@ bool ODB_LAYER_ENTITY::GenTools( ODB_TREE_WRITER &writer )
 
 void ODB_STEP_ENTITY::InitEdaData()
 {
-    std::vector<wxXmlNode*> componentNodes;
-    std::vector<wxXmlNode*> packageNodes;
-    std::set<wxString> packageNames;
+    InitPackage();
 
-    bool generate_unique = m_OEMRef.empty();
+    const NETINFO_LIST& nets = m_board->GetNetInfo();
+    for( const NETINFO_ITEM* net : nets )
+    {
+        m_edaData.AddNET( net );
+    }
 
     for( FOOTPRINT* fp : m_board->Footprints() )
     {
-        wxXmlNode* componentNode = new wxXmlNode( wxXML_ELEMENT_NODE, "Component" );
-        addAttribute( componentNode,  "refDes", genString( fp->GetReference(), "CMP" ) );
-        wxXmlNode* pkg = addPackage( componentNode, fp );
+        wxString compName = "COMP_+_TOP";
+        if( fp->IsFlipped() )
+            compName = "COMP_+_BOT";
 
-        if( pkg )
-            packageNodes.push_back( pkg );
-
-        wxString name;
-
-        PCB_FIELD* field = nullptr;
-
-        if( !generate_unique )
-            field = fp->GetFieldByName( m_OEMRef );
-
-        if( field && !field->GetText().empty() )
+        auto iter = m_layerEntityMap.find( compName );
+        if( iter == m_layerEntityMap.end() )
         {
-            name = field->GetShownText( false );
-        }
-        else
-        {
-            name = wxString::Format( "%s_%s_%s", fp->GetFPID().GetFullLibraryName(),
-                                     fp->GetFPID().GetLibItemName().wx_str(),
-                                     fp->GetValue() );
+            wxLogError( _( "Failed to add component data" ) );
+            return;
         }
 
-        if( !m_OEMRef_dict.emplace( fp, name ).second )
-            wxLogError( "Duplicate footprint pointers.  Please report this bug." );
+        ODB_COMPONENT& comp = 
+                    iter->second->InitComponentData( fp.get(), m_edaData );
 
-        addAttribute( componentNode,  "part", name );
-        addAttribute( componentNode,  "layerRef", m_layer_name_map[fp->GetLayer()] );
+        auto& eda_pkg = m_edaData.get_package( hash_fp_item( fp, HASH_POS | REL_COORD ) );
 
-        if( fp->GetAttributes() & FP_THROUGH_HOLE )
-            addAttribute( componentNode,  "mountType", "THMT" );
-        else if( fp->GetAttributes() & FP_SMD )
-            addAttribute( componentNode,  "mountType", "SMT" );
-        else
-            addAttribute( componentNode,  "mountType", "OTHER" );
-
-        if( fp->GetOrientation() != EDA_ANGLE::m_Angle0 || fp->GetLayer() != F_Cu )
+        for( PAD* pad : fp->Pads() )
         {
-            wxXmlNode* xformNode = appendNode( componentNode, "Xform" );
+            auto& eda_net = m_edaData.GetNet( pad->GetNetCode() );
 
-            if( fp->GetOrientation() != EDA_ANGLE::m_Angle0 )
-                addAttribute( xformNode,  "rotation", floatVal( fp->GetOrientation().Normalize().AsDegrees() ) );
+            auto &subnet = eda_net.AddSubnet<EDAData::SubnetToeprint>(
+                    fp->IsFlipped() ? EDAData::SubnetToeprint::Side::BOTTOM 
+                                    : EDAData::SubnetToeprint::Side::TOP,
+                    comp.m_index, comp.toeprints.size() );
 
-            if( fp->GetLayer() != F_Cu )
-                addAttribute( xformNode,  "mirror", "true" );
+            m_plugin->GetPadSubnetMap().emplace( pad, &subnet );
+            
+            auto &toep = comp.toeprints.emplace_back(
+                            eda_pkg.GetEdaPkgPin( hash_fp_item( pad, 0 ) ) );
+
+            toep.net_num = eda_net.index;
+            toep.subnet_num = subnet.index;
+
+            toep.m_center = ODB::AddXY( pad->GetCenter() );
+
+            toep.m_rot = ODB::Float2StrVal(
+                        pad->GetOrientation().Normalize().AsDegrees() );
+
+            if( pad->IsFlipped() )
+                toep.m_mirror = wxT( "M" );
         }
-
-        addLocationNode( componentNode, fp->GetPosition().x, fp->GetPosition().y );
-
-        componentNodes.push_back( componentNode );
     }
 
-    for( wxXmlNode* padstack : m_padstacks )
+    for( const PCB_TRACK* track : m_board->Tracks() )
     {
-        insertNode( aStepNode, padstack );
-        m_last_padstack = padstack;
+        auto& eda_net = m_edaData.GetNet( track->GetNetCode() );
+        EDAData::Subnet& subnet = track->Type() == PCB_VIA_T ? 
+                    eda_net.AddSubnet<EDAData::SubnetVia>() :
+                    eda_net.AddSubnet<EDAData::SubnetTrace>();
+
+        m_plugin->GetViaTraceSubnetMap.emplace( track, &subnet );
     }
 
-    for( wxXmlNode* pkg : packageNodes )
-        aStepNode->AddChild( pkg );
+    for( ZONE* zone : m_board->Zones() )
+    {
+        for( PCB_LAYER_ID layer : zone->GetLayerSet().Seq() )
+        {
+            auto& eda_net = m_edaData.GetNet( zone->GetNetCode() );
+            auto& subnet = eda_net.AddSubnet<EDAData::SubnetPlane>(
+                EDAData::SubnetPlane::FillType::SOLID,
+                EDAData::SubnetPlane::CutoutType::CIRCLE,
+                0.00 );
+            m_plugin->GetPlaneSubnetMap.emplace( std::piecewise_construct,
+                    std::forward_as_tuple( layer, zone ),
+                    std::forward_as_tuple( &subnet ) );
+        }
+    }
 
-    for( wxXmlNode* cmp : componentNodes )
-        aStepNode->AddChild( cmp );
 }
 
 
@@ -1100,6 +870,7 @@ bool ODB_STEP_ENTITY::GenerateStepHeaderFile( ODB_TREE_WRITER& writer )
 bool ODB_STEP_ENTITY::GenerateLayerFiles( ODB_TREE_WRITER& writer )
 {
     wxString layers_root = writer.GetCurrentPath();
+
     for( auto& [layerName, layerEntity] : m_layerEntityMap )
     {
         writer.CreateEntityDirectory( layers_root, layerName );
@@ -1109,6 +880,15 @@ bool ODB_STEP_ENTITY::GenerateLayerFiles( ODB_TREE_WRITER& writer )
             return false;
         }
     }
+
+    return true;
+}
+
+bool ODB_STEP_ENTITY::GenerateEdaFiles( ODB_TREE_WRITER& writer )
+{
+    auto fileproxy = writer.CreateFileProxy( "data" );
+    
+    m_edaData->write( fileproxy.GetStream() );
     return true;
 }
 
