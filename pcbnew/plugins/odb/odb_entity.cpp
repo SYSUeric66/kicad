@@ -39,7 +39,9 @@
 #include "odb_util.h"
 #include "odb_plugin.h"
 #include "odb_eda_data.h"
-#include "odb_component.h"
+
+
+
 
 
 bool ODB_ENTITY_BASE::CreateDirectiryTree( ODB_TREE_WRITER& writer )
@@ -276,9 +278,14 @@ void ODB_MATRIX_ENTITY::AddDrillMatrixLayer()
 
     for( FOOTPRINT* fp : m_board->Footprints() )
     {
-        if( fp->IsFlipped() )
-            m_hasBotComp = true;
+        // std::shared_ptr<FOOTPRINT> fp( static_cast<FOOTPRINT*>( it_fp->Clone() ) );
 
+        if( fp->IsFlipped() )
+        {
+            // fp->Flip( fp->GetPosition(), false );
+            m_hasBotComp = true;
+        }
+            
         for( PAD* pad : fp->Pads() )
         {
             if( pad->HasHole() && pad->GetDrillSizeX() != pad->GetDrillSizeY() )
@@ -487,7 +494,7 @@ ODB_COMPONENT& ODB_LAYER_ENTITY::InitComponentData( FOOTPRINT* aFp, EDAData& aED
         {
             m_compBot.emplace();
         }
-        return m_compBot.AddComponent( aFp, aEDAData );
+        return m_compBot.value().AddComponent( aFp, aEDAData );
     }
     else
     {
@@ -496,7 +503,7 @@ ODB_COMPONENT& ODB_LAYER_ENTITY::InitComponentData( FOOTPRINT* aFp, EDAData& aED
             m_compTop.emplace();
         }
 
-        return m_compTop.AddComponent( aFp, aEDAData );
+        return m_compTop.value().AddComponent( aFp, aEDAData );
     }
 }
 
@@ -518,6 +525,9 @@ void ODB_LAYER_ENTITY::InitDrillData()
         wxString dLayerName = wxString::Format( "DRILL_%s-%s",
                         m_board->GetLayerName( layer_pair.first ),
                         m_board->GetLayerName( layer_pair.second ) );
+
+        dLayerName.MakeUpper().Replace( wxT( "." ), wxT( "_" ) );
+
         if( dLayerName == m_matrixLayerName )
         {
             for( BOARD_ITEM* item : vec )
@@ -527,23 +537,25 @@ void ODB_LAYER_ENTITY::InitDrillData()
                 {
                     PCB_VIA* via = static_cast<PCB_VIA*>( item );
 
-                    m_tools.AddDrillTools(
+                    m_tools.value().AddDrillTools(
                         "VIA",
                         ODB::Float2StrVal( m_ODBScale * via->GetDrillValue() ) );
 
+                    //for drill features
+                    m_layerItems[via->GetNetCode()].push_back( item );
                 }
                 else if( item->Type() == PCB_PAD_T )
                 {
                     PAD* pad = static_cast<PAD*>( item );
 
-                    m_tools.AddDrillTools(
+                    m_tools.value().AddDrillTools(
                         pad->GetAttribute() == PAD_ATTRIB::PTH ? "PLATED" : "NON_PLATED",
                         ODB::Float2StrVal( m_ODBScale * pad->GetDrillSizeX() ) );
-
+                    
+                    //for drill features
+                    m_layerItems[pad->GetNetCode()].push_back( item );
                 }
 
-                //for drill features
-                m_layerItems[item->GetNetCode()].push_back( item );
             }
 
             break;
@@ -563,7 +575,7 @@ void ODB_LAYER_ENTITY::InitSlotData()
         m_layerItems.clear();
     }
 
-    m_tools.emplace();
+    m_tools.emplace( "MM" );
     
     for( const auto& [layer_pair, vec] : slot_holes )
     {
@@ -571,12 +583,14 @@ void ODB_LAYER_ENTITY::InitSlotData()
                         m_board->GetLayerName( layer_pair.first ),
                         m_board->GetLayerName( layer_pair.second ) );
 
+        sLayerName.MakeUpper().Replace( wxT( "." ), wxT( "_" ) );
+
         if( sLayerName == m_matrixLayerName )
         {
             for( PAD* pad : vec )
             {
                 //for slot tools
-                m_tools.AddDrillTools(
+                m_tools.value().AddDrillTools(
                     pad->GetAttribute() == PAD_ATTRIB::PTH ? "PLATED" : "NON_PLATED",
                     ODB::Float2StrVal( m_ODBScale * pad->GetDrillSizeX() ) );
 
@@ -595,17 +609,11 @@ void ODB_LAYER_ENTITY::InitSlotData()
 
 void ODB_STEP_ENTITY::InitEntityData()
 {
+    MakeLayerEntity();
     InitEdaData();
     InitNetListData();
     InitLayerEntityData();
-                auto& eda_net = m_edaData.GetNet( pad->GetNetCode() );
 
-            auto &subnet = eda_net.AddSubnet<EDAData::SubnetToeprint>(
-                    fp->IsFlipped() ? EDAData::SubnetToeprint::Side::BOTTOM 
-                                    : EDAData::SubnetToeprint::Side::TOP,
-                    comp.m_index, comp.toeprints.size() );
-
-    
 }
 
 void ODB_STEP_ENTITY::InitPackage()
@@ -620,15 +628,15 @@ void ODB_STEP_ENTITY::InitPackage()
 
 bool ODB_LAYER_ENTITY::GenerateFiles( ODB_TREE_WRITER &writer )
 {
-
+    //TODO
     if ( !GenAttrList() )
     {
         /* code */
     }
     
-    if ( !GenComponents( writer ))
+    if ( m_compTop.has_value() || m_compBot.has_value() )
     {
-        /* code */
+        GenComponents( writer );
     }
     
     if ( !GenFeatures( writer ) )
@@ -636,9 +644,9 @@ bool ODB_LAYER_ENTITY::GenerateFiles( ODB_TREE_WRITER &writer )
         /* code */
     }
 
-    if ( !GenTools( writer ) )
+    if ( m_tools.has_value() )
     {
-        /* code */
+        GenTools( writer );
     }
     
     return true;
@@ -649,11 +657,11 @@ bool ODB_LAYER_ENTITY::GenComponents( ODB_TREE_WRITER &writer )
 {
     auto fileproxy = writer.CreateFileProxy( "component" );
     
-    if ( m_compTop.has_value() )
+    if( m_compTop.has_value() )
     {
         m_compTop->write( fileproxy.GetStream() );
     }
-    else
+    else if( m_compBot.has_value() )
     {
         m_compBot->write( fileproxy.GetStream() );
     }
@@ -673,7 +681,7 @@ bool ODB_LAYER_ENTITY::GenTools( ODB_TREE_WRITER &writer )
 {
     auto fileproxy = writer.CreateFileProxy( "tools" );
 
-    return m_tools.GenerateFile( fileproxy.GetStream() );
+    return m_tools.value().GenerateFile( fileproxy.GetStream() );
 
 }
 
@@ -682,12 +690,14 @@ void ODB_STEP_ENTITY::InitEdaData()
 {
     InitPackage();
 
+    // for NET
     const NETINFO_LIST& nets = m_board->GetNetInfo();
     for( const NETINFO_ITEM* net : nets )
     {
         m_edaData.AddNET( net );
     }
 
+    // for CMP
     for( FOOTPRINT* fp : m_board->Footprints() )
     {
         wxString compName = "COMP_+_TOP";
@@ -701,16 +711,16 @@ void ODB_STEP_ENTITY::InitEdaData()
             return;
         }
 
-        ODB_COMPONENT& comp = 
-                    iter->second->InitComponentData( fp.get(), m_edaData );
+        ODB_COMPONENT& comp = iter->second->InitComponentData( fp, m_edaData );
 
-        auto& eda_pkg = m_edaData.get_package( hash_fp_item( fp, HASH_POS | REL_COORD ) );
+        const EDAData::Package& eda_pkg = m_edaData.get_package( hash_fp_item( fp, HASH_POS | REL_COORD ) );
 
         for( PAD* pad : fp->Pads() )
         {
             auto& eda_net = m_edaData.GetNet( pad->GetNetCode() );
 
-            auto &subnet = eda_net.AddSubnet<EDAData::SubnetToeprint>(
+            auto& subnet = eda_net.AddSubnet<EDAData::SubnetToeprint>(
+                    &m_edaData,
                     fp->IsFlipped() ? EDAData::SubnetToeprint::Side::BOTTOM 
                                     : EDAData::SubnetToeprint::Side::TOP,
                     comp.m_index, comp.toeprints.size() );
@@ -733,14 +743,16 @@ void ODB_STEP_ENTITY::InitEdaData()
         }
     }
 
-    for( const PCB_TRACK* track : m_board->Tracks() )
+    for( PCB_TRACK* track : m_board->Tracks() )
     {
         auto& eda_net = m_edaData.GetNet( track->GetNetCode() );
-        EDAData::Subnet& subnet = track->Type() == PCB_VIA_T ? 
-                    eda_net.AddSubnet<EDAData::SubnetVia>() :
-                    eda_net.AddSubnet<EDAData::SubnetTrace>();
+        EDAData::Subnet* subnet = nullptr;
+        if( track->Type() == PCB_VIA_T )
+            subnet = &( eda_net.AddSubnet<EDAData::SubnetVia>( &m_edaData ) );
+        else
+            subnet = &( eda_net.AddSubnet<EDAData::SubnetTrace>( &m_edaData ) );
 
-        m_plugin->GetViaTraceSubnetMap.emplace( track, &subnet );
+        m_plugin->GetViaTraceSubnetMap().emplace( track, subnet );
     }
 
     for( ZONE* zone : m_board->Zones() )
@@ -749,10 +761,11 @@ void ODB_STEP_ENTITY::InitEdaData()
         {
             auto& eda_net = m_edaData.GetNet( zone->GetNetCode() );
             auto& subnet = eda_net.AddSubnet<EDAData::SubnetPlane>(
+                &m_edaData,
                 EDAData::SubnetPlane::FillType::SOLID,
                 EDAData::SubnetPlane::CutoutType::CIRCLE,
                 0.00 );
-            m_plugin->GetPlaneSubnetMap.emplace( std::piecewise_construct,
+            m_plugin->GetPlaneSubnetMap().emplace( std::piecewise_construct,
                     std::forward_as_tuple( layer, zone ),
                     std::forward_as_tuple( &subnet ) );
         }
@@ -811,10 +824,10 @@ bool ODB_STEP_ENTITY::GenerateProfileFile( ODB_TREE_WRITER& writer )
 {
     auto fileproxy = writer.CreateFileProxy( "profile" );
         
-    std::map<PCB_LAYER_ID, std::map<int, std::vector<BOARD_ITEM*>>>&
-                layerElementMap = m_plugin->GetLayerElementsMap();
+    // std::map<PCB_LAYER_ID, std::map<int, std::vector<BOARD_ITEM*>>>&
+    //             layerElementMap = m_plugin->GetLayerElementsMap();
 
-    m_profile = std::make_unique<FEATURES_MANAGER>( m_board );
+    m_profile = std::make_unique<FEATURES_MANAGER>( m_board, m_plugin, wxEmptyString );
 
     SHAPE_POLY_SET board_outline;
 
@@ -888,7 +901,7 @@ bool ODB_STEP_ENTITY::GenerateEdaFiles( ODB_TREE_WRITER& writer )
 {
     auto fileproxy = writer.CreateFileProxy( "data" );
     
-    m_edaData->write( fileproxy.GetStream() );
+    m_edaData.write( fileproxy.GetStream() );
     return true;
 }
 
@@ -896,6 +909,7 @@ ODB_STEP_ENTITY::ODB_STEP_ENTITY( BOARD* aBoard, ODB_PLUGIN* aPlugin )
      : ODB_ENTITY_BASE( aBoard, aPlugin )
 {
     m_profile = nullptr;
+    m_edaData = EDAData();
 }
 
 bool ODB_STEP_ENTITY::CreateDirectiryTree( ODB_TREE_WRITER& writer )
@@ -913,11 +927,12 @@ bool ODB_STEP_ENTITY::CreateDirectiryTree( ODB_TREE_WRITER& writer )
     }
 }
 
-void ODB_STEP_ENTITY::InitLayerEntityData()
+void ODB_STEP_ENTITY::MakeLayerEntity()
 {
     LSEQ layers = m_board->GetEnabledLayers().Seq();
     const NETINFO_LIST& nets = m_board->GetNetInfo();
-    std::vector<std::unique_ptr<FOOTPRINT>> footprints;
+    std::vector<std::shared_ptr<FOOTPRINT>>& footprints =
+            m_plugin->GetLoadedFootprintList();
 
     // To avoid the overhead of repeatedly cycling through the layers and nets,
     // we pre-sort the board items into a map of layer -> net -> items
@@ -966,9 +981,9 @@ void ODB_STEP_ENTITY::InitLayerEntityData()
             elements[item->GetLayer()][0].push_back( item );
     }
 
-    for( FOOTPRINT* it_fp : m_board->Footprints() )
+    for( FOOTPRINT* fp : m_board->Footprints() )
     {
-        std::unique_ptr<FOOTPRINT> fp( static_cast<FOOTPRINT*>( it_fp->Clone() ) );
+        // std::shared_ptr<FOOTPRINT> fp( static_cast<FOOTPRINT*>( it_fp->Clone() ) );
 
         if( fp->GetLayer() != F_Cu )
             fp->Flip( fp->GetPosition(), false );
@@ -993,7 +1008,7 @@ void ODB_STEP_ENTITY::InitLayerEntityData()
             }
         }
 
-        footprints.push_back( std::move( fp ) );
+        // footprints.push_back( std::move( fp ) );
     }
 
     for( const auto& [layerID, layerName] : m_plugin->GetLayerNameList() )
@@ -1006,10 +1021,23 @@ void ODB_STEP_ENTITY::InitLayerEntityData()
         std::shared_ptr<ODB_LAYER_ENTITY> layer_entity_ptr = std::make_shared<ODB_LAYER_ENTITY>(
              m_board, m_plugin, elements[layerID], layerID, layerName );
 
-        layer_entity_ptr->InitEntityData();
+        // layer_entity_ptr->InitEntityData();
 
         m_layerEntityMap.emplace( layerName, layer_entity_ptr );
     }
 }
+
+void ODB_STEP_ENTITY::InitLayerEntityData()
+{
+    for( const auto& [layerName, layer_entity_ptr] : m_layerEntityMap )
+    {
+        // if( m_progress_reporter )
+        //     m_progress_reporter->SetMaxProgress( nets.GetNetCount() * layers.size() );
+
+        // m_layer_name_map.emplace( layer, m_board->GetLayerName( layer ) );
+        layer_entity_ptr->InitEntityData();
+    }
+}
+
 
 

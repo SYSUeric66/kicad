@@ -5,9 +5,10 @@
 #include "odb_util.h"
 #include <list>
 #include <wx/string.h>
+#include "odb_attribute.h"
+#include "odb_eda_data.h"
 
-
-
+class ODB_COMPONENT;
 class COMPONENTS_MANAGER : public AttributeProvider
 {
 public:
@@ -26,7 +27,8 @@ private:
 
 };
 
-class ODB_COMPONENT : public RecordWithAttributes 
+
+class ODB_COMPONENT : public ATTR_RECORD_WRITER 
 {
 public:
     ODB_COMPONENT(unsigned int i, unsigned int r) : m_index(i), m_pkg_ref(r)

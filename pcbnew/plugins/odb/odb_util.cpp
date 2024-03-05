@@ -43,21 +43,23 @@ namespace ODB
         out.reserve(s.size());
 
         std::transform(s.begin(), s.end(), std::back_inserter(out),
-            [&loc](unsigned char c)
+            [&loc](unsigned char c) -> unsigned char
             {
                 if (std::isalnum(c, loc) || (c == '-') || (c == '_') || (c == '+'))
                 {
                     return c;
                 }
                 return '_';
-            });
+            } );
 
-        std::transform(out.begin(), out.end(), out.begin(), [&loc](unsigned char c) {
-            if (std::isalpha(c, loc)) {
-                return std::tolower(c, loc);
-            }
-            return c;
-        });
+        std::transform(out.begin(), out.end(), out.begin(),
+            [&loc](unsigned char c) -> unsigned char
+            {
+                if (std::isalpha(c, loc)) {
+                    return std::tolower(c, loc);
+                }
+                return c;
+            } );
 
         return out;
     }
@@ -82,7 +84,7 @@ namespace ODB
     {
         std::pair<wxString, wxString> xy = std::pair<wxString, wxString>(
                                      Float2StrVal( m_ODBScale * aVec.x ),
-                                     Float2StrVal( m_ODBScale * aVec.y ) );
+                                     Float2StrVal( -m_ODBScale * aVec.y ) );
 
         return xy;
     }
@@ -93,22 +95,19 @@ namespace ODB
 
         switch( aShape.GetShape() )
         {
-        // Rectangles in KiCad are mapped by their corner while IPC2581 uses the center
+        // Rectangles in KiCad are mapped by their corner while ODBPP uses the center
         case SHAPE_T::RECTANGLE:
             pos = aShape.GetPosition()
                 + VECTOR2I( aShape.GetRectangleWidth() / 2.0, aShape.GetRectangleHeight() / 2.0 );
             break;
-        // Both KiCad and IPC2581 use the center of the circle
+        // Both KiCad and ODBPP use the center of the circle
         case SHAPE_T::CIRCLE:
-            pos = aShape.GetPosition();
-            break;
-
-        // KiCad uses the exact points on the board, so we want the reference location to be 0,0
+        // KiCad uses the exact points on the board
         case SHAPE_T::POLY:
         case SHAPE_T::BEZIER:
         case SHAPE_T::SEGMENT:
         case SHAPE_T::ARC:
-            pos = VECTOR2D( 0, 0 );
+            pos = aShape.GetPosition();
             break;
         }
 
@@ -239,11 +238,16 @@ ODB_TEXT_WRITER::ArrayProxy::~ArrayProxy()
     writer.end_array();
 }
 
-
+ODB_DRILL_TOOLS::ODB_DRILL_TOOLS( const wxString& aUnits,
+        const wxString& aThickness, const wxString& aUserParams )
+         : m_units( aUnits ), m_thickness( aThickness ), m_userParams( aUserParams )
+{
+}
 
 bool ODB_DRILL_TOOLS::GenerateFile( std::ostream& aStream )
-{
+{   
     ODB_TEXT_WRITER twriter( aStream );
+
     twriter.write_line( "UNITS", m_units );
     twriter.write_line( "THICKNESS", m_thickness );
     twriter.write_line( "USER_PARAMS", m_userParams );
@@ -261,7 +265,7 @@ bool ODB_DRILL_TOOLS::GenerateFile( std::ostream& aStream )
         twriter.write_line( "DRILL_SIZE", tool.m_drillSize );
     }
 
-    return fileproxy.CloseFile();
+    return true;
 }
 
 

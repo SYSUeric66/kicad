@@ -14,7 +14,7 @@
 // class Package;
 // } // namespace horizon
 
-enum class ODB_FID_TYPE;
+// enum class ODB_FID_TYPE;
 
 
 class EDAData : public AttributeProvider {
@@ -22,7 +22,7 @@ public:
     EDAData();
 
     void write(std::ostream &ost) const;
-
+    unsigned int GetLyrIdx( const wxString& aLayerName );
     class FeatureID {
         friend EDAData;
 
@@ -42,7 +42,7 @@ public:
 
     class Subnet {
     public:
-        Subnet(unsigned int i) : index(i)
+        Subnet(unsigned int i, EDAData *eda) : index(i), m_edadata( eda )
         {
         }
         const unsigned int index;
@@ -50,24 +50,33 @@ public:
 
         std::list<FeatureID> feature_ids;
         void AddFeatureID( FeatureID::Type type,
-                           const std::string &layer,
+                           const wxString &layer,
                            unsigned int feature_id );
 
-        virtual ~Subnet() = default;
+        virtual ~Subnet()
+        {
+        }
 
     protected:
         virtual void write_subnet(std::ostream &ost) const = 0;
+        EDAData *m_edadata;
     };
 
-    class SubnetVia : public Subnet {
+    class SubnetVia : public Subnet
+    {
     public:
-        using Subnet::Subnet;
+        SubnetVia( unsigned int i, EDAData* aEda ) : Subnet( i, aEda )
+        {
+        }
         void write_subnet(std::ostream &ost) const override;
     };
 
-    class SubnetTrace : public Subnet {
+    class SubnetTrace : public Subnet
+    {
     public:
-        using Subnet::Subnet;
+        SubnetTrace( unsigned int i,  EDAData* aEda ) : Subnet( i, aEda )
+        {
+        }
         void write_subnet(std::ostream &ost) const override;
     };
 
@@ -76,8 +85,8 @@ public:
         enum class FillType { SOLID, OUTLINE };
         enum class CutoutType { CIRCLE, RECT, OCTAGON, EXACT };
 
-        SubnetPlane(unsigned int i, FillType ft, CutoutType ct, double fs)
-            : Subnet(i), fill_type(ft), cutout_type(ct), fill_size(fs)
+        SubnetPlane(unsigned int i, EDAData* aEda, FillType ft, CutoutType ct, double fs)
+            : Subnet( i, aEda ), fill_type(ft), cutout_type(ct), fill_size(fs)
         {
         }
 
@@ -92,8 +101,12 @@ public:
     public:
         enum class Side { TOP, BOTTOM };
 
-        SubnetToeprint(unsigned int i, Side s, unsigned int c, unsigned int t)
-            : Subnet(i), side(s), comp_num(c), toep_num(t)
+        SubnetToeprint(unsigned int i, EDAData* aEda, Side s, unsigned int c, unsigned int t)
+            : Subnet( i, aEda ), side(s), comp_num(c), toep_num(t)
+        {
+        }
+
+        ~SubnetToeprint()
         {
         }
 
@@ -105,14 +118,14 @@ public:
         void write_subnet(std::ostream &ost) const override;
     };
 
-    class Net : public RecordWithAttributes {
+    class Net : public ATTR_RECORD_WRITER {
     public:
         // template <typename T> using check_type = attribute::is_net<T>;
 
-        Net(unsigned int index, const std::string &name);
+        Net(unsigned int index, const wxString &name);
         const unsigned int index;
 
-        std::string name;
+        wxString name;
 
         std::list<std::unique_ptr<Subnet>> subnets;
 
@@ -127,7 +140,7 @@ public:
         void write(std::ostream &ost) const;
     };
 
-    Net& AddNET( const NETINFO_ITEM* aNet );
+    void AddNET( const NETINFO_ITEM* aNet );
     Net& GetNet( size_t aNetcode )
     {
         return nets_map.at( aNetcode );
@@ -136,8 +149,8 @@ public:
 
     class Pin {
     public:
-        Pin(unsigned int i, const std::string &n);
-        std::string name;
+        Pin(unsigned int i, const wxString &n);
+        wxString name;
         const unsigned int index;
 
         std::pair<wxString, wxString> center;
@@ -165,14 +178,14 @@ public:
         void write(std::ostream &ost) const;
     };
 
-    class Package : public RecordWithAttributes {
+    class Package : public ATTR_RECORD_WRITER {
     public:
         // template <typename T> using check_type = attribute::is_pkg<T>;
 
-        Package(const unsigned int i, const std::string &n)
+        Package(const unsigned int i, const wxString &n)
          : index( i ), name( n ) {}
         const unsigned int index;
-        std::string name;
+        wxString name;
 
         uint64_t pitch;
         int64_t xmin, ymin, xmax, ymax;
@@ -199,17 +212,15 @@ public:
         return packages_map.at( aHash );
     }
 
-private:
+public:
     std::map<size_t, Net> nets_map;
     std::list<const Net *> nets;
 
     std::map<size_t, Package> packages_map;    //hash value, package
     std::list<const Package *> packages;
 
-    unsigned int GetLayerIndex( const std::string &l );
-
-    std::map<std::string, unsigned int> layers_map;
-    std::vector<std::string> layers;
+    std::map<wxString, unsigned int> layers_map;
+    std::vector<wxString> layers;
 
 };
 

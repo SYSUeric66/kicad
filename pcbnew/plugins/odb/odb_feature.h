@@ -35,6 +35,7 @@ class ODB_PAD;
 class ODB_SURFACE;
 class ODB_FEATURE;
 class ODB_PLUGIN;
+class PCB_VIA;
 
 class FEATURES_MANAGER : public AttributeProvider
 {
@@ -69,11 +70,11 @@ public:
 
     void AddShape( const PCB_SHAPE& aShape );
 
-    void AddVia( const PCB_VIA* aVia, PCB_LAYER_ID aLayer );
+    void AddVia( const PCB_VIA* aVia );
 
-    void AddPadStack( const PAD* aPad );
+    // void AddPadStack( const PAD* aPad );
 
-    void AddPadStack( const PCB_VIA* aVia );
+    // void AddPadStack( const PCB_VIA* aVia );
 
     bool AddContour( const SHAPE_POLY_SET& aPolySet, int aOutline = 0,
                      FILL_T aFillType = FILL_T::FILLED_SHAPE );
@@ -152,7 +153,7 @@ private:
 
     }
 
-
+    inline ODB_PLUGIN* GetODBPlugin() { return m_plugin; }
 
     BOARD*   m_board;
     ODB_PLUGIN* m_plugin;

@@ -43,6 +43,8 @@ class PCB_VIA;
 class PROGRESS_REPORTER;
 class SHAPE_POLY_SET;
 class SHAPE_SEGMENT;
+class EDAData::Subnet;
+
 
 
 
@@ -170,7 +172,7 @@ public:
         return m_layer_elements;
     }
 
-    inline std::vector<std::unique_ptr<FOOTPRINT>>& GetLoadedFootprintList()
+    inline std::vector<std::shared_ptr<FOOTPRINT>>& GetLoadedFootprintList()
     {
         return m_loaded_footprints;
     }
@@ -190,7 +192,7 @@ public:
     inline std::map<PAD*, EDAData::SubnetToeprint*>&
            GetPadSubnetMap()
     {
-        return m_toeprint_subnets;
+        return m_topeprint_subnets;
     }
 
     inline std::map<std::pair<PCB_LAYER_ID, ZONE*>, EDAData::SubnetPlane*>&
@@ -248,7 +250,7 @@ private:
 
 
     BOARD*                  m_board;
-    std::vector<std::unique_ptr<FOOTPRINT>> m_loaded_footprints;
+    std::vector<std::shared_ptr<FOOTPRINT>> m_loaded_footprints;
     // std::vector<FOOTPRINT*> m_loaded_footprints;
     // const STRING_UTF8_MAP*  m_props;
 

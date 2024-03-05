@@ -8,16 +8,15 @@
 #include <wx/string.h>
 #include <iostream>
 #include <functional>
-
 #include "odb_feature.h"
+#include "odb_eda_data.h"
+#include "odb_component.h"
 
 
 class BOARD;
 class ODB_TREE_WRITER;
 class BOARD_ITEM;
 class ODB_PLUGIN;
-class EDAData;
-class COMPONENTS_MANAGER;
 
 class ODB_ENTITY_BASE
 {
@@ -139,15 +138,12 @@ public:
         return "pcb";
     }
 
-
-
-
-
     // bool AddAttrList();
     // bool AddBom();
     void InitEdaData();
     void InitPackage();
     void InitNetListData();
+    void MakeLayerEntity();
     void InitLayerEntityData();
     bool AddNetList();
     bool AddProfile();
@@ -175,11 +171,10 @@ private:
     EDAData m_edaData;
     std::unordered_map<wxString, wxString> m_stephdr;
 
-
-
 };
 
-class ODB_COMPONENT;
+// class ODB_COMPONENT;
+// class COMPONENTS_MANAGER;
 class ODB_LAYER_ENTITY : public ODB_ENTITY_BASE
 {
 public:

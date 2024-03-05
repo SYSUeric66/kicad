@@ -1,6 +1,5 @@
 #include "odb_component.h"
 #include "odb_util.h"
-#include "odb_eda_data.h"
 #include "hash_eda.h"
 // #include "board/board_package.hpp"
 
@@ -12,7 +11,7 @@ ODB_COMPONENT& COMPONENTS_MANAGER::AddComponent( FOOTPRINT* aFp, EDAData& eda_da
 
     auto &comp = m_compList.emplace_back( m_compList.size(), pkg.index );
 
-    comp.center = ODB::AddXY( aFp->GetPosition() );
+    comp.m_center = ODB::AddXY( aFp->GetPosition() );
 
     if( aFp->GetOrientation() != EDA_ANGLE::m_Angle0 )
     {
@@ -27,9 +26,9 @@ ODB_COMPONENT& COMPONENTS_MANAGER::AddComponent( FOOTPRINT* aFp, EDAData& eda_da
         
     comp.m_comp_name = aFp->GetReference().ToAscii();
     comp.m_part_name = wxString::Format( "%s_%s_%s",
-                                fp->GetFPID().GetFullLibraryName(),
-                                fp->GetFPID().GetLibItemName().wx_str(),
-                                fp->GetValue() );
+                                aFp->GetFPID().GetFullLibraryName(),
+                                aFp->GetFPID().GetLibItemName().wx_str(),
+                                aFp->GetValue() );
             
     return comp;
 }

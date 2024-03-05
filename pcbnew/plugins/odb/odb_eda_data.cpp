@@ -1,17 +1,17 @@
 #include "odb_eda_data.h"
 #include "hash_eda.h"
-
+#include "netinfo.h"
 
 
 EDAData::EDAData()
 {
-    auto &x = nets_map.emplace(std::piecewise_construct, std::forward_as_tuple(0),
-                               std::forward_as_tuple(nets.size(), "$NONE$"))
+    auto &x = nets_map.emplace( std::piecewise_construct, std::forward_as_tuple( 0 ),
+                               std::forward_as_tuple( nets.size(), "$NONE$" ) )
                       .first->second;
-    nets.push_back(&x);
+    nets.push_back( &x );
 }
 
-EDAData::Net::Net(unsigned int i, const std::string &n) : index( i ), name( n )
+EDAData::Net::Net(unsigned int i, const wxString &n) : index( i ), name( n )
 {
 }
 
@@ -26,24 +26,28 @@ void EDAData::Net::write(std::ostream &ost) const
     }
 }
 
-static std::string get_net_name(const Net &net)
-{
-    std::string net_name;
-    if (net.is_named())
-        return net.name;
-    else
-        return "$" + static_cast<std::string>(net.uuid);
-}
+// static std::string get_net_name(const Net &net)
+// {
+//     std::string net_name;
+//     if (net.is_named())
+//         return net.name;
+//     else
+//         return "$" + static_cast<std::string>(net.uuid);
+// }
 
-EDAData::Net &EDAData::AddNET( const NETINFO_ITEM* aNet )
+void EDAData::AddNET( const NETINFO_ITEM* aNet )
 {
-    auto &net = nets_map.emplace( std::piecewise_construct,
+    if( nets_map.end() == nets_map.find( aNet->GetNetCode() ) )
+    {
+        auto &net = nets_map.emplace( std::piecewise_construct,
                     std::forward_as_tuple( aNet->GetNetCode() ),
                     std::forward_as_tuple( nets.size(), aNet->GetNetname() ) )
                         .first->second;
-    nets.push_back( &net );
-    //TODO: netname check
-    return net;
+
+        nets.push_back( &net );
+        //TODO: netname check
+    }
+
 }
 
 
@@ -85,7 +89,7 @@ void EDAData::SubnetPlane::write_subnet(std::ostream &ost) const
     static const std::map<CutoutType, std::string> cutout_type_map = {
             {CutoutType::CIRCLE, "C"},
     };
-    ost << "PLN " << fill_type_map.at( fill_type ) << " " << cutout_type_map.at(cutout_type) << " " << Dim{fill_size};
+    ost << "PLN " << fill_type_map.at( fill_type ) << " " << cutout_type_map.at(cutout_type) << " " << fill_size;
 }
 
 void EDAData::SubnetToeprint::write_subnet( std::ostream &ost ) const
@@ -98,13 +102,13 @@ void EDAData::SubnetToeprint::write_subnet( std::ostream &ost ) const
 }
 
 void EDAData::Subnet::AddFeatureID( FeatureID::Type type,
-                         const std::string &layer, unsigned int feature_id )
+                         const wxString &layer, unsigned int feature_id )
 {
-    feature_ids.emplace_back( type, GetLayerIndex( layer ), feature_id );
+    feature_ids.emplace_back( type, m_edadata->GetLyrIdx( layer ), feature_id );
 }
 
 
-unsigned int EDAData::GetLayerIndex( const std::string& l )
+unsigned int EDAData::GetLyrIdx( const wxString& l )
 {
     if( layers_map.count( l ) )
     {
@@ -430,14 +434,14 @@ EDAData::Package &EDAData::add_package( FOOTPRINT* aFp )
 
     for( size_t ii = 0; ii < aFp->Pads().size(); ++ii )
     {
-        PAD* pad = fp->Pads()[ii];
+        PAD* pad = aFp->Pads()[ii];
         x.add_pin( pad, ii );
     }
 
     return x;
 }
 
-EDAData::Pin::Pin(unsigned int i, const std::string &n) : name(n), index(i)
+EDAData::Pin::Pin(unsigned int i, const wxString &n) : name(n), index(i)
 {
 }
 
@@ -463,12 +467,15 @@ EDAData::Pin &EDAData::Package::add_pin( PAD* pad, size_t ii )
     pin.center = ODB::AddXY( pad->GetCenter() );
 
     if( pad->HasHole() )
+    {
         pin.type = Pin::Type::THROUGH_HOLE;
         pin.mtype = Pin::MountType::THROUGH_HOLE;
+    }
     else
+    {
         pin.type = Pin::Type::SURFACE;
         pin.mtype = Pin::MountType::SMT;
-    
+    }
 
     if( pad->GetAttribute() == PAD_ATTRIB::NPTH )
         pin.etype = Pin::ElectricalType::MECHANICAL;
@@ -519,7 +526,7 @@ void EDAData::Pin::write( std::ostream &ost ) const
     };
 
     ost << "PIN " << name << " " << type_map.at( type ) << " "
-        << center.first << " " << center.second << " "
+        << center.first << " " << center.second
         << " 0 " << etype_map.at( etype ) << " "
         << mtype_map.at( mtype ) << std::endl;
 
@@ -566,7 +573,7 @@ void EDAData::write(std::ostream &ost) const
 
     for (const auto &net : nets)
     {
-        ost << "#NET " << layers_map.at( net->name ) << std::endl;
+        ost << "#NET " << net->index << std::endl;
         net->write(ost);
     }
     

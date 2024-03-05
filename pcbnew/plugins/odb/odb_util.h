@@ -328,27 +328,19 @@ public:
     {
         uint32_t m_num;
         wxString m_type;
-        wxString m_type2 = "STANDARD";
+        wxString m_type2 = wxT( "STANDARD" );
         uint32_t m_minTol;
         uint32_t m_maxTol;
-        wxString m_bit = wxEmptyString();
+        wxString m_bit = wxEmptyString;
         wxString m_finishSize;
         wxString m_drillSize;
 
 
         TOOLS() : m_num( 0 ), m_minTol( 0 ), m_maxTol( 0 ) {}
-    }
+    };
 
-    wxString m_units = "MM";
-    wxString m_thickness;
-    wxString m_userParams;
-
-    std::vector<ODB_DRILL_TOOLS::TOOLS> m_tools;
-
-    ODB_DRILL_TOOLS( const wxString& aUnits,
-        const wxString& aThickness,
-        const wxString& aUserParams = wxEmptyString() )
-    : m_units( aUnits ), m_thickness( aThickness ), m_userParams( aUserParams ) {};
+    ODB_DRILL_TOOLS( const wxString& aUnits, const wxString& aThickness = "0",
+        const wxString& aUserParams = wxEmptyString );
 
     void AddDrillTools( const wxString& aType, const wxString& aFinishSize )
     {
@@ -361,9 +353,13 @@ public:
         m_tools.push_back( tool );
     }
 
-    bool GenerateFile( ODB_TREE_WRITER& writer );
+    bool GenerateFile( std::ostream& aStream );
 
-}
+    wxString m_units = wxT( "MM" );
+    wxString m_thickness;
+    wxString m_userParams;
+    std::vector<ODB_DRILL_TOOLS::TOOLS> m_tools;
+};
 
 
 
