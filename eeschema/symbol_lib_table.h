@@ -297,6 +297,10 @@ public:
      */
     static bool LoadGlobalTable( SYMBOL_LIB_TABLE& aTable );
 
+    static bool LoadHQGlobalTable( SYMBOL_LIB_TABLE& aTable );
+
+    static bool LoadFileToInserterRow( SYMBOL_LIB_TABLE& aTable, wxString aFilePath );
+
     /**
      *
      * Fetch the global symbol library table file name.
@@ -304,6 +308,8 @@ public:
      * @return the platform specific global symbol library path and file name.
      */
     static wxString GetGlobalTableFileName();
+
+    static wxString GetHQGlobalTableFileName();
 
     /**
      * Return the name of the environment variable used to hold the directory of locally
@@ -317,8 +323,11 @@ public:
 
     static SYMBOL_LIB_TABLE& GetGlobalLibTable();
 
+    static SYMBOL_LIB_TABLE& GetHQGlobalLibTable();
+
     static const wxString& GetSymbolLibTableFileName();
 
+    static const wxString& GetHQSymbolLibTableFileName();
    /**
      * Compares this table against another.
      * This compares the row *contents* against each other.

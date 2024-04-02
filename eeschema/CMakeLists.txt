@@ -275,6 +275,7 @@ set( EESCHEMA_SIM_SRCS
 set( EESCHEMA_WIDGETS
     widgets/hierarchy_pane.cpp
     widgets/panel_symbol_chooser.cpp
+    widgets/panel_hq_symbol_chooser.cpp
     widgets/pin_shape_combobox.cpp
     widgets/pin_type_combobox.cpp
     widgets/symbol_diff_widget.cpp

@@ -24,7 +24,7 @@
 
 #include <pgm_base.h>
 #include <symbol_library.h>         // For SYMBOL_LIBRARY_FILTER
-#include <panel_symbol_chooser.h>
+#include <panel_hq_symbol_chooser.h>
 #include <kiface_base.h>
 #include <sch_base_frame.h>
 #include <project_sch.h>
@@ -45,11 +45,11 @@
 #include <wx/wxhtml.h>
 
 
-wxString PANEL_SYMBOL_CHOOSER::g_symbolSearchString;
-wxString PANEL_SYMBOL_CHOOSER::g_powerSearchString;
+// wxString PANEL_HQ_SYMBOL_CHOOSER::g_symbolSearchString;
+// wxString PANEL_HQ_SYMBOL_CHOOSER::g_powerSearchString;
 
 
-PANEL_SYMBOL_CHOOSER::PANEL_SYMBOL_CHOOSER( SCH_BASE_FRAME* aFrame, wxWindow* aParent,
+PANEL_HQ_SYMBOL_CHOOSER::PANEL_HQ_SYMBOL_CHOOSER( SCH_BASE_FRAME* aFrame, wxWindow* aParent,
                                             const SYMBOL_LIBRARY_FILTER* aFilter,
                                             std::vector<PICKED_SYMBOL>&  aHistoryList,
                                             std::vector<PICKED_SYMBOL>&  aAlreadyPlaced,
@@ -71,7 +71,10 @@ PANEL_SYMBOL_CHOOSER::PANEL_SYMBOL_CHOOSER( SCH_BASE_FRAME* aFrame, wxWindow* aP
         m_allow_field_edits( aAllowFieldEdits ),
         m_show_footprints( aShowFootprints )
 {
-    SYMBOL_LIB_TABLE*         libs = PROJECT_SCH::SchSymbolLibTable( &m_frame->Prj() );
+    // SYMBOL_LIB_TABLE*         libs = PROJECT_SCH::SchSymbolLibTable( &m_frame->Prj() );
+    // SYMBOL_LIB_TABLE::LoadHQGlobalTable( SYMBOL_LIB_TABLE::GetHQGlobalLibTable() );
+    SYMBOL_LIB_TABLE::GetHQGlobalLibTable().Clear();
+    SYMBOL_LIB_TABLE*         libs = &SYMBOL_LIB_TABLE::GetHQGlobalLibTable();
     COMMON_SETTINGS::SESSION& session = Pgm().GetCommonSettings()->m_Session;
     PROJECT_FILE&             project = m_frame->Prj().GetProjectFile();
 
@@ -173,7 +176,10 @@ PANEL_SYMBOL_CHOOSER::PANEL_SYMBOL_CHOOSER( SCH_BASE_FRAME* aFrame, wxWindow* aP
 
     adapter->DoAddLibrary( wxT( "-- " ) + _( "Already Placed" ) + wxT( " --" ), wxEmptyString,
                            already_placed, false, true );
-
+    
+    adapter->RequestCategories();
+    adapter->LoadCategories();
+    
     const std::vector< wxString > libNicknames = libs->GetLogicalLibs();
 
     if( !loaded )
@@ -235,7 +241,7 @@ PANEL_SYMBOL_CHOOSER::PANEL_SYMBOL_CHOOSER( SCH_BASE_FRAME* aFrame, wxWindow* aP
     wxBoxSizer* treeSizer = new wxBoxSizer( wxVERTICAL );
     treePanel->SetSizer( treeSizer );
 
-    m_tree = new LIB_TREE( treePanel, m_showPower ? wxT( "power" ) : wxT( "symbols" ),
+    m_tree = new HQ_LIB_TREE( treePanel, m_showPower ? wxT( "power" ) : wxT( "symbols" ),
                            libs, m_adapter, LIB_TREE::FLAGS::ALL_WIDGETS, m_details );
 
     treeSizer->Add( m_tree, 1, wxEXPAND, 5 );
@@ -244,10 +250,10 @@ PANEL_SYMBOL_CHOOSER::PANEL_SYMBOL_CHOOSER( SCH_BASE_FRAME* aFrame, wxWindow* aP
 
     m_adapter->FinishTreeInitialization();
 
-    if( m_showPower )
-        m_tree->SetSearchString( g_powerSearchString );
-    else
-        m_tree->SetSearchString( g_symbolSearchString );
+    // if( m_showPower )
+    //     m_tree->SetSearchString( g_powerSearchString );
+    // else
+    //     m_tree->SetSearchString( g_symbolSearchString );
 
     m_hsplitter->SetSashGravity( 0.8 );
     m_hsplitter->SetMinimumPaneSize( 20 );
@@ -260,22 +266,22 @@ PANEL_SYMBOL_CHOOSER::PANEL_SYMBOL_CHOOSER( SCH_BASE_FRAME* aFrame, wxWindow* aP
 
     Layout();
 
-    Bind( wxEVT_TIMER, &PANEL_SYMBOL_CHOOSER::onCloseTimer, this, m_dbl_click_timer->GetId() );
-    Bind( wxEVT_TIMER, &PANEL_SYMBOL_CHOOSER::onOpenLibsTimer, this, m_open_libs_timer->GetId() );
-    Bind( EVT_LIBITEM_SELECTED, &PANEL_SYMBOL_CHOOSER::onSymbolSelected, this );
-    Bind( EVT_LIBITEM_CHOSEN, &PANEL_SYMBOL_CHOOSER::onSymbolChosen, this );
-    Bind( wxEVT_CHAR_HOOK, &PANEL_SYMBOL_CHOOSER::OnChar, this );
+    Bind( wxEVT_TIMER, &PANEL_HQ_SYMBOL_CHOOSER::onCloseTimer, this, m_dbl_click_timer->GetId() );
+    Bind( wxEVT_TIMER, &PANEL_HQ_SYMBOL_CHOOSER::onOpenLibsTimer, this, m_open_libs_timer->GetId() );
+    Bind( EVT_LIBITEM_SELECTED, &PANEL_HQ_SYMBOL_CHOOSER::onSymbolSelected, this );
+    Bind( EVT_LIBITEM_CHOSEN, &PANEL_HQ_SYMBOL_CHOOSER::onSymbolChosen, this );
+    Bind( wxEVT_CHAR_HOOK, &PANEL_HQ_SYMBOL_CHOOSER::OnChar, this );
 
     if( m_fp_sel_ctrl )
     {
-        m_fp_sel_ctrl->Bind( EVT_FOOTPRINT_SELECTED, &PANEL_SYMBOL_CHOOSER::onFootprintSelected,
+        m_fp_sel_ctrl->Bind( EVT_FOOTPRINT_SELECTED, &PANEL_HQ_SYMBOL_CHOOSER::onFootprintSelected,
                              this );
     }
 
     if( m_details )
     {
         m_details->Connect( wxEVT_CHAR_HOOK,
-                            wxKeyEventHandler( PANEL_SYMBOL_CHOOSER::OnDetailsCharHook ),
+                            wxKeyEventHandler( PANEL_HQ_SYMBOL_CHOOSER::OnDetailsCharHook ),
                             nullptr, this );
     }
 
@@ -286,12 +292,12 @@ PANEL_SYMBOL_CHOOSER::PANEL_SYMBOL_CHOOSER( SCH_BASE_FRAME* aFrame, wxWindow* aP
 }
 
 
-PANEL_SYMBOL_CHOOSER::~PANEL_SYMBOL_CHOOSER()
+PANEL_HQ_SYMBOL_CHOOSER::~PANEL_HQ_SYMBOL_CHOOSER()
 {
-    Unbind( wxEVT_TIMER, &PANEL_SYMBOL_CHOOSER::onCloseTimer, this );
-    Unbind( EVT_LIBITEM_SELECTED, &PANEL_SYMBOL_CHOOSER::onSymbolSelected, this );
-    Unbind( EVT_LIBITEM_CHOSEN, &PANEL_SYMBOL_CHOOSER::onSymbolChosen, this );
-    Unbind( wxEVT_CHAR_HOOK, &PANEL_SYMBOL_CHOOSER::OnChar, this );
+    Unbind( wxEVT_TIMER, &PANEL_HQ_SYMBOL_CHOOSER::onCloseTimer, this );
+    Unbind( EVT_LIBITEM_SELECTED, &PANEL_HQ_SYMBOL_CHOOSER::onSymbolSelected, this );
+    Unbind( EVT_LIBITEM_CHOSEN, &PANEL_HQ_SYMBOL_CHOOSER::onSymbolChosen, this );
+    Unbind( wxEVT_CHAR_HOOK, &PANEL_HQ_SYMBOL_CHOOSER::OnChar, this );
 
     // Stop the timer during destruction early to avoid potential race conditions (that do happen)
     m_dbl_click_timer->Stop();
@@ -299,21 +305,21 @@ PANEL_SYMBOL_CHOOSER::~PANEL_SYMBOL_CHOOSER()
     delete m_dbl_click_timer;
     delete m_open_libs_timer;
 
-    if( m_showPower )
-        g_powerSearchString = m_tree->GetSearchString();
-    else
-        g_symbolSearchString = m_tree->GetSearchString();
+    // if( m_showPower )
+    //     g_powerSearchString = m_tree->GetSearchString();
+    // else
+    //     g_symbolSearchString = m_tree->GetSearchString();
 
     if( m_fp_sel_ctrl )
     {
-        m_fp_sel_ctrl->Unbind( EVT_FOOTPRINT_SELECTED, &PANEL_SYMBOL_CHOOSER::onFootprintSelected,
+        m_fp_sel_ctrl->Unbind( EVT_FOOTPRINT_SELECTED, &PANEL_HQ_SYMBOL_CHOOSER::onFootprintSelected,
                                this );
     }
 
     if( m_details )
     {
         m_details->Disconnect( wxEVT_CHAR_HOOK,
-                               wxKeyEventHandler( PANEL_SYMBOL_CHOOSER::OnDetailsCharHook ),
+                               wxKeyEventHandler( PANEL_HQ_SYMBOL_CHOOSER::OnDetailsCharHook ),
                                nullptr, this );
     }
 
@@ -335,7 +341,7 @@ PANEL_SYMBOL_CHOOSER::~PANEL_SYMBOL_CHOOSER()
 }
 
 
-void PANEL_SYMBOL_CHOOSER::OnChar( wxKeyEvent& aEvent )
+void PANEL_HQ_SYMBOL_CHOOSER::OnChar( wxKeyEvent& aEvent )
 {
     if( aEvent.GetKeyCode() == WXK_ESCAPE )
     {
@@ -361,7 +367,7 @@ void PANEL_SYMBOL_CHOOSER::OnChar( wxKeyEvent& aEvent )
 }
 
 
-wxPanel* PANEL_SYMBOL_CHOOSER::constructRightPanel( wxWindow* aParent )
+wxPanel* PANEL_HQ_SYMBOL_CHOOSER::constructRightPanel( wxWindow* aParent )
 {
     EDA_DRAW_PANEL_GAL::GAL_TYPE backend;
 
@@ -415,7 +421,7 @@ wxPanel* PANEL_SYMBOL_CHOOSER::constructRightPanel( wxWindow* aParent )
 }
 
 
-void PANEL_SYMBOL_CHOOSER::FinishSetup()
+void PANEL_HQ_SYMBOL_CHOOSER::FinishSetup()
 {
     if( EESCHEMA_SETTINGS* cfg = dynamic_cast<EESCHEMA_SETTINGS*>( Kiface().KifaceSettings() ) )
     {
@@ -462,7 +468,7 @@ void PANEL_SYMBOL_CHOOSER::FinishSetup()
 }
 
 
-void PANEL_SYMBOL_CHOOSER::OnDetailsCharHook( wxKeyEvent& e )
+void PANEL_HQ_SYMBOL_CHOOSER::OnDetailsCharHook( wxKeyEvent& e )
 {
     if( m_details && e.GetKeyCode() == 'C' && e.ControlDown() &&
         !e.AltDown() && !e.ShiftDown() && !e.MetaDown() )
@@ -484,21 +490,21 @@ void PANEL_SYMBOL_CHOOSER::OnDetailsCharHook( wxKeyEvent& e )
 }
 
 
-void PANEL_SYMBOL_CHOOSER::SetPreselect( const LIB_ID& aPreselect )
+void PANEL_HQ_SYMBOL_CHOOSER::SetPreselect( const LIB_ID& aPreselect )
 {
     m_adapter->SetPreselectNode( aPreselect, 0 );
 }
 
 
-LIB_ID PANEL_SYMBOL_CHOOSER::GetSelectedLibId( int* aUnit ) const
+LIB_ID PANEL_HQ_SYMBOL_CHOOSER::GetSelectedLibId( int* aUnit ) const
 {
     return m_tree->GetSelectedLibId( aUnit );
 }
 
 
-void PANEL_SYMBOL_CHOOSER::onCloseTimer( wxTimerEvent& aEvent )
+void PANEL_HQ_SYMBOL_CHOOSER::onCloseTimer( wxTimerEvent& aEvent )
 {
-    // Hack because of eaten MouseUp event. See PANEL_SYMBOL_CHOOSER::onSymbolChosen
+    // Hack because of eaten MouseUp event. See PANEL_HQ_SYMBOL_CHOOSER::onSymbolChosen
     // for the beginning of this spaghetti noodle.
 
     wxMouseState state = wxGetMouseState();
@@ -507,7 +513,7 @@ void PANEL_SYMBOL_CHOOSER::onCloseTimer( wxTimerEvent& aEvent )
     {
         // Mouse hasn't been raised yet, so fire the timer again. Otherwise the
         // purpose of this timer is defeated.
-        m_dbl_click_timer->StartOnce( PANEL_SYMBOL_CHOOSER::DBLCLICK_DELAY );
+        m_dbl_click_timer->StartOnce( PANEL_HQ_SYMBOL_CHOOSER::DBLCLICK_DELAY );
     }
     else
     {
@@ -516,14 +522,14 @@ void PANEL_SYMBOL_CHOOSER::onCloseTimer( wxTimerEvent& aEvent )
 }
 
 
-void PANEL_SYMBOL_CHOOSER::onOpenLibsTimer( wxTimerEvent& aEvent )
+void PANEL_HQ_SYMBOL_CHOOSER::onOpenLibsTimer( wxTimerEvent& aEvent )
 {
     if( EESCHEMA_SETTINGS* cfg = dynamic_cast<EESCHEMA_SETTINGS*>( Kiface().KifaceSettings() ) )
         m_adapter->OpenLibs( cfg->m_LibTree.open_libs );
 }
 
 
-void PANEL_SYMBOL_CHOOSER::showFootprintFor( LIB_ID const& aLibId )
+void PANEL_HQ_SYMBOL_CHOOSER::showFootprintFor( LIB_ID const& aLibId )
 {
     if( !m_fp_preview || !m_fp_preview->IsInitialized() )
         return;
@@ -532,7 +538,8 @@ void PANEL_SYMBOL_CHOOSER::showFootprintFor( LIB_ID const& aLibId )
 
     try
     {
-        symbol = PROJECT_SCH::SchSymbolLibTable( &m_frame->Prj() )->LoadSymbol( aLibId );
+        symbol = SYMBOL_LIB_TABLE::GetHQGlobalLibTable().LoadSymbol( aLibId );
+        // PROJECT_SCH::SchSymbolLibTable( &m_frame->Prj() )->LoadSymbol( aLibId );
     }
     catch( const IO_ERROR& ioe )
     {
@@ -552,7 +559,7 @@ void PANEL_SYMBOL_CHOOSER::showFootprintFor( LIB_ID const& aLibId )
 }
 
 
-void PANEL_SYMBOL_CHOOSER::showFootprint( wxString const& aFootprint )
+void PANEL_HQ_SYMBOL_CHOOSER::showFootprint( wxString const& aFootprint )
 {
     if( !m_fp_preview || !m_fp_preview->IsInitialized() )
         return;
@@ -568,7 +575,7 @@ void PANEL_SYMBOL_CHOOSER::showFootprint( wxString const& aFootprint )
         if( lib_id.Parse( aFootprint ) == -1 && lib_id.IsValid() )
         {
             m_fp_preview->ClearStatus();
-            m_fp_preview->DisplayFootprint( lib_id );
+            m_fp_preview->DisplayHQFootprint( lib_id );
         }
         else
         {
@@ -578,7 +585,7 @@ void PANEL_SYMBOL_CHOOSER::showFootprint( wxString const& aFootprint )
 }
 
 
-void PANEL_SYMBOL_CHOOSER::populateFootprintSelector( LIB_ID const& aLibId )
+void PANEL_HQ_SYMBOL_CHOOSER::populateFootprintSelector( LIB_ID const& aLibId )
 {
     if( !m_fp_sel_ctrl )
         return;
@@ -591,7 +598,7 @@ void PANEL_SYMBOL_CHOOSER::populateFootprintSelector( LIB_ID const& aLibId )
     {
         try
         {
-            symbol = PROJECT_SCH::SchSymbolLibTable( &m_frame->Prj() )->LoadSymbol( aLibId );
+            symbol = SYMBOL_LIB_TABLE::GetHQGlobalLibTable().LoadSymbol( aLibId );
         }
         catch( const IO_ERROR& ioe )
         {
@@ -619,6 +626,13 @@ void PANEL_SYMBOL_CHOOSER::populateFootprintSelector( LIB_ID const& aLibId )
         m_fp_sel_ctrl->SetDefaultFootprint( fp_name );
         m_fp_sel_ctrl->UpdateList();
         m_fp_sel_ctrl->Enable();
+
+        alg::delete_if( m_field_edits, []( std::pair<int, wxString> const& i )
+                                   {
+                                       return i.first == FOOTPRINT_FIELD;
+                                   } );
+
+        m_field_edits.emplace_back( std::make_pair( FOOTPRINT_FIELD, fp_name ) );
     }
     else
     {
@@ -628,7 +642,7 @@ void PANEL_SYMBOL_CHOOSER::populateFootprintSelector( LIB_ID const& aLibId )
 }
 
 
-void PANEL_SYMBOL_CHOOSER::onFootprintSelected( wxCommandEvent& aEvent )
+void PANEL_HQ_SYMBOL_CHOOSER::onFootprintSelected( wxCommandEvent& aEvent )
 {
     m_fp_override = aEvent.GetString();
 
@@ -643,13 +657,13 @@ void PANEL_SYMBOL_CHOOSER::onFootprintSelected( wxCommandEvent& aEvent )
 }
 
 
-void PANEL_SYMBOL_CHOOSER::onSymbolSelected( wxCommandEvent& aEvent )
+void PANEL_HQ_SYMBOL_CHOOSER::onSymbolSelected( wxCommandEvent& aEvent )
 {
     LIB_TREE_NODE* node = m_tree->GetCurrentTreeNode();
 
     if( node && node->m_LibId.IsValid() )
     {
-        m_symbol_preview->DisplaySymbol( node->m_LibId, node->m_Unit );
+        m_symbol_preview->DisplayHQSymbol( node->m_LibId, node->m_Unit );
 
         if( !node->m_Footprint.IsEmpty() )
             showFootprint( node->m_Footprint );
@@ -657,6 +671,58 @@ void PANEL_SYMBOL_CHOOSER::onSymbolSelected( wxCommandEvent& aEvent )
             showFootprintFor( node->m_LibId );
 
         populateFootprintSelector( node->m_LibId );
+    }
+    else if( node && node->m_Type == LIB_TREE_NODE::TYPE::LIBRARY && node->m_Children.empty() )
+    {
+        // query parts by open category
+        SYMBOL_TREE_MODEL_ADAPTER* adapter = static_cast<SYMBOL_TREE_MODEL_ADAPTER*>( m_adapter.get() );
+        auto category = adapter->GetHQCategory( node->m_Name );
+        adapter->RequestQueryParts( category.id, category.displayName );
+        LIB_TREE_NODE_LIBRARY* node_lib = static_cast<LIB_TREE_NODE_LIBRARY*>( node );
+
+        adapter->AddHQPartsToLibraryNode( *node_lib, true );
+        adapter->UpdateSearchString( "", true );
+        adapter->UpdateTreeAfterAddHQPart( node );
+
+        m_symbol_preview->SetStatusText( _( "No symbol selected" ) );
+
+        if( m_fp_preview && m_fp_preview->IsInitialized() )
+            m_fp_preview->SetStatusText( wxEmptyString );
+
+        populateFootprintSelector( LIB_ID() );
+    }
+    else if( node && !node->m_LibId.IsValid() && node->m_Type == LIB_TREE_NODE::TYPE::ITEM )
+    {
+        // to query product details, after download, reload lib symbols
+        SYMBOL_TREE_MODEL_ADAPTER* adapter = static_cast<SYMBOL_TREE_MODEL_ADAPTER*>( m_adapter.get() );
+        
+        if( adapter->RequestPartDetail( ( node->m_Name ).ToStdString() ) )
+        {
+            // to make lib id valid after request
+            LIB_TREE_NODE_ITEM* node_item = static_cast<LIB_TREE_NODE_ITEM*>( node );
+            adapter->UpdateTreeItemLibSymbol( node_item );
+            adapter->UpdateTreeAfterAddHQPart( node );
+
+            if( node->m_LibId.IsValid() )
+            {
+                // to download footprint file after UpdateTreeItemLibSymbol 
+                // because need to use valid part.pretty_name to mkdir *.pretty
+
+                adapter->RequestPartDetail( ( node->m_Name ).ToStdString(), true );
+
+                // to re-entry onSymbolSelected, to display symbol and showFootprint
+                m_tree->UpdateSelectItem();
+            }
+        }
+        else
+        {
+            m_symbol_preview->SetStatusText( _( "No symbol selected" ) );
+
+            if( m_fp_preview && m_fp_preview->IsInitialized() )
+                m_fp_preview->SetStatusText( wxEmptyString );
+
+            populateFootprintSelector( LIB_ID() );
+        }
     }
     else
     {
@@ -670,7 +736,7 @@ void PANEL_SYMBOL_CHOOSER::onSymbolSelected( wxCommandEvent& aEvent )
 }
 
 
-void PANEL_SYMBOL_CHOOSER::onSymbolChosen( wxCommandEvent& aEvent )
+void PANEL_HQ_SYMBOL_CHOOSER::onSymbolChosen( wxCommandEvent& aEvent )
 {
     if( m_tree->GetSelectedLibId().IsValid() )
     {
@@ -682,7 +748,7 @@ void PANEL_SYMBOL_CHOOSER::onSymbolChosen( wxCommandEvent& aEvent )
         // might not be fully possible (docs are vague). To get around this, we use a one-shot
         // timer to schedule the dialog close.
         //
-        // See PANEL_SYMBOL_CHOOSER::onCloseTimer for the other end of this spaghetti noodle.
-        m_dbl_click_timer->StartOnce( PANEL_SYMBOL_CHOOSER::DBLCLICK_DELAY );
+        // See PANEL_HQ_SYMBOL_CHOOSER::onCloseTimer for the other end of this spaghetti noodle.
+        m_dbl_click_timer->StartOnce( PANEL_HQ_SYMBOL_CHOOSER::DBLCLICK_DELAY );
     }
 }
