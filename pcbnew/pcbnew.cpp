@@ -381,6 +381,7 @@ PGM_BASE* PgmOrNull()
 }
 #endif
 
+FP_LIB_TABLE          GHQFootprintTable;
 
 /// The global footprint library table.  This is not dynamically allocated because
 /// in a multiple project environment we must keep its address constant (since it is

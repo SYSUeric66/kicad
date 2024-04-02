@@ -21,13 +21,14 @@
  * or you may write to the Free Software Foundation, Inc.,
  * 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA
  */
-#ifndef PANEL_SYMBOL_CHOOSER_H
-#define PANEL_SYMBOL_CHOOSER_H
+#ifndef PANEL_HQ_SYMBOL_CHOOSER_H
+#define PANEL_HQ_SYMBOL_CHOOSER_H
 
 #include <widgets/lib_tree.h>
 #include <symbol_tree_model_adapter.h>
 #include <footprint_info.h>
 #include <widgets/html_window.h>
+#include <wx/srchctrl.h>
 
 class wxPanel;
 class wxTimer;
@@ -39,8 +40,7 @@ class FOOTPRINT_SELECT_WIDGET;
 class SCH_BASE_FRAME;
 struct PICKED_SYMBOL;
 
-
-class PANEL_SYMBOL_CHOOSER : public wxPanel
+class PANEL_HQ_SYMBOL_CHOOSER : public wxPanel
 {
 public:
 /**
@@ -55,7 +55,7 @@ public:
  * @param aAcceptHandler a handler to be called on double-click of a footprint
  * @param aEscapeHandler a handler to be called on <ESC>
  */
-    PANEL_SYMBOL_CHOOSER( SCH_BASE_FRAME* aFrame, wxWindow* aParent,
+    PANEL_HQ_SYMBOL_CHOOSER( SCH_BASE_FRAME* aFrame, wxWindow* aParent,
                           const SYMBOL_LIBRARY_FILTER* aFilter,
                           std::vector<PICKED_SYMBOL>& aHistoryList,
                           std::vector<PICKED_SYMBOL>& aAlreadyPlaced,
@@ -64,7 +64,7 @@ public:
                           std::function<void()> aEscapeHandler );
 
 
-    ~PANEL_SYMBOL_CHOOSER();
+    virtual ~PANEL_HQ_SYMBOL_CHOOSER();
 
     void OnChar( wxKeyEvent& aEvent );
 
@@ -109,7 +109,7 @@ protected:
     void onOpenLibsTimer( wxTimerEvent& aEvent );
 
     void onFootprintSelected( wxCommandEvent& aEvent );
-    void onSymbolSelected( wxCommandEvent& aEvent );
+    virtual void onSymbolSelected( wxCommandEvent& aEvent );
 
     /**
      * Handle the selection of an item. This is called when either the search box or the tree
@@ -168,4 +168,118 @@ protected:
     std::vector<std::pair<int, wxString>>  m_field_edits;
 };
 
-#endif /* PANEL_SYMBOL_CHOOSER_H */
+
+class HQ_LIB_TREE : public LIB_TREE
+{
+public:
+    HQ_LIB_TREE( wxWindow* aParent, const wxString& aRecentSearchesKey, LIB_TABLE* aLibTable,
+              wxObjectDataPtr<LIB_TREE_MODEL_ADAPTER>& aAdapter, int aFlags = ALL_WIDGETS,
+              HTML_WINDOW* aDetails = nullptr )
+       : LIB_TREE( aParent, aRecentSearchesKey, aLibTable, aAdapter, aFlags, aDetails )
+    {
+        // m_query_ctrl->Unbind( wxEVT_TEXT, &LIB_TREE::onQueryText, this );
+        // m_query_ctrl->Unbind( wxEVT_SEARCH_CANCEL, &LIB_TREE::onQueryText, this );
+
+        // m_query_ctrl->Bind( wxEVT_TEXT, &HQ_LIB_TREE::onQueryText, this );
+        // m_query_ctrl->Bind( wxEVT_SEARCH_CANCEL, &HQ_LIB_TREE::onQueryText, this );
+
+
+    }
+
+    ~HQ_LIB_TREE()
+    {
+        m_query_ctrl->Unbind( wxEVT_TEXT, &HQ_LIB_TREE::onQueryText, this );
+        m_query_ctrl->Unbind( wxEVT_SEARCH_CANCEL, &HQ_LIB_TREE::onQueryText, this );
+
+    }
+
+public:
+    /**
+     * Regenerate the tree.
+     */
+
+    virtual void onQueryText( wxCommandEvent& aEvent )
+    {
+        wxString filter = m_query_ctrl->GetValue();
+        SYMBOL_TREE_MODEL_ADAPTER* adapter = static_cast<SYMBOL_TREE_MODEL_ADAPTER*>( m_adapter.get() );
+        if( filter.IsEmpty() )
+        {
+            //TODO: to remove HQ HTTP node in m_tree.m_children if exist
+            adapter->UpdateSearchString( filter, true );
+            postPreselectEvent();
+
+            // m_debounceTimer->StartOnce( 200 );
+
+            // // Required to avoid interaction with SetHint()
+            // // See documentation for wxTextEntry::SetHint
+            // aEvent.Skip();
+        }
+        else
+        {
+            std::string args = "";
+            adapter->RequestQueryParts( args, args, filter.ToStdString() );
+            wxString hq_node = wxT("HQ Online Search Results");
+            //to check node in m_tree.m_children,if dont't exist,add it .
+            //if exist, do not add twice
+            wxDataViewItem item = adapter->FindItem( LIB_ID( hq_node, wxEmptyString ) );
+            LIB_TREE_NODE_LIBRARY* http_node = nullptr;
+            if( !item.IsOk() )
+            {
+                http_node = &( adapter->AddSubLibraryNode( hq_node, wxEmptyString, false) );
+            }
+            else
+            {
+                http_node = static_cast<LIB_TREE_NODE_LIBRARY*>( adapter->GetTreeNodeFor( item ) );
+                http_node->m_Children.clear(); 
+            }
+            adapter->AddHQPartsToLibraryNode( *http_node, true );
+
+            // m_adapter->UpdateSearchString( filter, aKeepState );
+            adapter->UpdateSearchString( "", true );
+            adapter->UpdateTreeAfterAddHQPart( http_node );
+
+        
+            // postPreselectEvent();
+
+            // // Restore the state
+            // if( aKeepState )
+            //     setState( current );
+        }
+    }
+
+
+    virtual void UpdateSelectItem()
+    {
+        // SYMBOL_TREE_MODEL_ADAPTER* adapter = static_cast<SYMBOL_TREE_MODEL_ADAPTER*>( m_adapter.get() );
+        selectIfValid( m_tree_ctrl->GetSelection() );
+        // STATE current;
+
+        // // Store the state
+        // if( aKeepState )
+        //     current = getState();
+
+        // wxString filter = m_query_ctrl->GetValue();
+        // m_adapter->UpdateSearchString( filter, aKeepState );
+        // postPreselectEvent();
+
+        // // Restore the state
+        // if( aKeepState )
+        //     setState( current );
+    }
+
+    // virtual void Regenerate( bool aKeepState )
+    // {
+    //     if( aKeepState )
+    //     {
+    //         LIB_TREE::Regenerate( aKeepState );
+    //     }
+    //     else
+    //     {
+    //         
+    //     }
+    // }
+
+};
+
+#endif /* PANEL_HQ_SYMBOL_CHOOSER */
+
