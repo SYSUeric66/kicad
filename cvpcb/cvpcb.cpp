@@ -34,8 +34,40 @@
 #include <settings/cvpcb_settings.h>
 #include <display_footprints_frame.h>
 #include <kiface_ids.h>
+#include <project_pcb.h>
 
 namespace CV {
+
+int testFootprintLink( const wxString& aFootprint, PROJECT* aProject )
+{
+    FP_LIB_TABLE*           libTable = PROJECT_PCB::PcbFootprintLibs( aProject );
+    const FP_LIB_TABLE_ROW* libTableRow = nullptr;
+    LIB_ID                  fpID;
+
+    fpID.Parse( aFootprint );
+
+    wxString libName = fpID.GetLibNickname();
+    wxString fpName = fpID.GetLibItemName();
+
+    try
+    {
+        libTableRow = libTable->FindRow( libName );
+    }
+    catch( const IO_ERROR& )
+    {
+        // Error state processed below
+    }
+
+    if( !libTableRow )
+        return KIFACE_TEST_FOOTPRINT_LINK_NO_LIBRARY;
+    else if( !libTable->HasLibrary( libName, true ) )
+        return KIFACE_TEST_FOOTPRINT_LINK_LIBRARY_NOT_ENABLED;
+    else if( !libTable->FootprintExists( libName, fpName ) )
+        return KIFACE_TEST_FOOTPRINT_LINK_NO_FOOTPRINT;
+    else
+        return 0;
+}
+
 
 static struct IFACE : public KIFACE_BASE
 {
@@ -45,7 +77,7 @@ static struct IFACE : public KIFACE_BASE
             KIFACE_BASE( aName, aType )
     {}
 
-    bool OnKifaceStart( PGM_BASE* aProgram, int aCtlBits ) override;
+    bool OnKifaceStart( PGM_BASE* aProgram, int aCtlBits, KIWAY* aKiway ) override;
 
     void OnKifaceEnd() override;
 
@@ -86,6 +118,9 @@ static struct IFACE : public KIFACE_BASE
         case KIFACE_GLOBAL_FOOTPRINT_TABLE:
             return (void*) &GFootprintTable;
 
+        case KIFACE_TEST_FOOTPRINT_LINK:
+            return (void*) testFootprintLink;
+
         default:
             return nullptr;
         }
@@ -98,9 +133,6 @@ static struct IFACE : public KIFACE_BASE
 using namespace CV;
 
 
-static PGM_BASE* process;
-
-
 KIFACE_BASE& Kiface() { return kiface; }
 
 
@@ -108,23 +140,7 @@ KIFACE_BASE& Kiface() { return kiface; }
 // KIFACE_GETTER will not have name mangling due to declaration in kiway.h.
 KIFACE_API KIFACE* KIFACE_GETTER(  int* aKIFACEversion, int aKIWAYversion, PGM_BASE* aProgram )
 {
-    process = (PGM_BASE*) aProgram;
     return &kiface;
-}
-
-
-PGM_BASE& Pgm()
-{
-    wxASSERT( process );    // KIFACE_GETTER has already been called.
-    return *process;
-}
-
-
-// Similar to PGM_BASE& Pgm(), but return nullptr when a *.ki_face
-// is run from a python script, mot from a Kicad application
-PGM_BASE* PgmOrNull()
-{
-    return process;
 }
 
 
@@ -145,7 +161,7 @@ FOOTPRINT_LIST_IMPL GFootprintList;
 // A short lived implementation.  cvpcb will get combine into Pcbnew shortly, so
 // we skip setting KICAD7_FOOTPRINT_DIR here for now.  User should set the environment
 // variable.
-bool IFACE::OnKifaceStart( PGM_BASE* aProgram, int aCtlBits )
+bool IFACE::OnKifaceStart( PGM_BASE* aProgram, int aCtlBits, KIWAY* aKiway )
 {
     // This is process level, not project level, initialization of the DSO.
 
@@ -184,6 +200,9 @@ bool IFACE::OnKifaceStart( PGM_BASE* aProgram, int aCtlBits )
     }
     catch( const IO_ERROR& ioe )
     {
+        // we didnt get anywhere deregister the settings
+        aProgram->GetSettingsManager().FlushAndRelease( KifaceSettings(), false );
+
         DisplayErrorMessage( nullptr, _( "An error occurred attempting to load the global "
                                          "footprint library table." ),
                              ioe.What() );

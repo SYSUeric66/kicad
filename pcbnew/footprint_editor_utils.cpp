@@ -32,6 +32,7 @@
 #include <pcb_group.h>
 #include <pcb_marker.h>
 #include <pcb_textbox.h>
+#include <pcb_table.h>
 #include <pcb_shape.h>
 #include <pad.h>
 #include <zone.h>
@@ -45,6 +46,7 @@
 #include <pcb_dimension.h>
 #include <project_pcb.h>
 #include <dialogs/dialog_dimension_properties.h>
+#include <dialogs/dialog_table_properties.h>
 
 using namespace std::placeholders;
 
@@ -204,6 +206,15 @@ void FOOTPRINT_EDIT_FRAME::OnEditItemRequest( BOARD_ITEM* aItem )
         ShowTextBoxPropertiesDialog( static_cast<PCB_TEXTBOX*>( aItem ) );
         break;
 
+    case PCB_TABLE_T:
+    {
+        DIALOG_TABLE_PROPERTIES dlg( this, static_cast<PCB_TABLE*>( aItem ) );
+
+        //QuasiModal required for Scintilla auto-complete
+        dlg.ShowQuasiModal();
+        break;
+    }
+
     case PCB_SHAPE_T :
         ShowGraphicItemPropertiesDialog( static_cast<PCB_SHAPE*>( aItem ) );
         break;
@@ -215,6 +226,8 @@ void FOOTPRINT_EDIT_FRAME::OnEditItemRequest( BOARD_ITEM* aItem )
     case PCB_DIM_LEADER_T:
     {
         DIALOG_DIMENSION_PROPERTIES dlg( this, static_cast<PCB_DIMENSION_BASE*>( aItem ) );
+
+        // TODO: why is this QuasiModal?
         dlg.ShowQuasiModal();
         break;
     }
@@ -323,9 +336,9 @@ void FOOTPRINT_EDIT_FRAME::KiwayMailIn( KIWAY_EXPRESS& mail )
 
             if( !libTableRow )
             {
-                msg.Printf( _( "The current configuration does not include a library named '%s'.\n"
-                               "Use Manage Footprint Libraries to edit the configuration." ),
+                msg.Printf( _( "The current configuration does not include the footprint library '%s'." ),
                             fpFileName.GetPath() );
+                msg += wxS( "\n" ) + _( "Use Manage Footprint Libraries to edit the configuration." );
                 DisplayErrorMessage( this, _( "Library not found in footprint library table." ),
                                      msg );
                 break;
@@ -335,9 +348,9 @@ void FOOTPRINT_EDIT_FRAME::KiwayMailIn( KIWAY_EXPRESS& mail )
 
             if( !libTable->HasLibrary( libNickname, true ) )
             {
-                msg.Printf( _( "The library '%s' is not enabled in the current configuration.\n"
-                               "Use Manage Footprint Libraries to edit the configuration." ),
+                msg.Printf( _( "The footprint library '%s' is not enabled in the current configuration." ),
                             libNickname );
+                msg += wxS( "\n" ) + _( "Use Manage Footprint Libraries to edit the configuration." );
                 DisplayErrorMessage( this, _( "Footprint library not enabled." ), msg );
                 break;
             }

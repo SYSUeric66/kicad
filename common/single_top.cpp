@@ -58,9 +58,13 @@
 #include <sentry.h>
 #endif
 
+#ifdef KICAD_IPC_API
+#include <api/api_server.h>
+#endif
+
 // Only a single KIWAY is supported in this single_top top level component,
 // which is dedicated to loading only a single DSO.
-KIWAY    Kiway( &Pgm(), KFCTL_STANDALONE );
+KIWAY    Kiway( KFCTL_STANDALONE );
 
 
 // implement a PGM_BASE and a wxApp side by side:
@@ -77,6 +81,10 @@ static struct PGM_SINGLE_TOP : public PGM_BASE
     {
 
         Kiway.OnKiwayEnd();
+
+#ifdef KICAD_IPC_API
+        m_api_server.reset();
+#endif
 
         if( m_settings_manager && m_settings_manager->IsOK() )
         {
@@ -115,12 +123,6 @@ static struct PGM_SINGLE_TOP : public PGM_BASE
 
 } program;
 
-
-PGM_BASE& Pgm()
-{
-    return program;
-}
-
 // A module to allow Html module initialization/cleanup
 // When a wxHtmlWindow is used *only* in a dll/so module, the Html text is displayed
 // as plain text.
@@ -158,6 +160,7 @@ struct APP_SINGLE_TOP : public wxApp
 {
     APP_SINGLE_TOP() : wxApp()
     {
+        SetPgm( &program );
         // Init the environment each platform wants
         KIPLATFORM::ENV::Init();
     }
@@ -175,6 +178,17 @@ struct APP_SINGLE_TOP : public wxApp
         // Perform platform-specific init tasks
         if( !KIPLATFORM::APP::Init() )
             return false;
+
+#ifndef DEBUG
+        // Enable logging traces to the console in release build.
+        // This is usually disabled, but it can be useful for users to run to help
+        // debug issues and other problems.
+        if( wxGetEnv( wxS( "KICAD_ENABLE_WXTRACE" ), nullptr ) )
+        {
+            wxLog::EnableLogging( true );
+            wxLog::SetLogLevel( wxLOG_Trace );
+        }
+#endif
 
         // Force wxHtmlWinParser initialization when a wxHtmlWindow is used only
         // in a shared library (.so or .dll file)
@@ -344,6 +358,11 @@ bool PGM_SINGLE_TOP::OnPgmInit()
 
     GetSettingsManager().RegisterSettings( new KICAD_SETTINGS );
 
+#ifdef KICAD_IPC_API
+    // Create the API server thread once the app event loop exists
+    m_api_server = std::make_unique<KICAD_API_SERVER>();
+#endif
+
     // Use KIWAY to create a top window, which registers its existence also.
     // "TOP_FRAME" is a macro that is passed on compiler command line from CMake,
     // and is one of the types in FRAME_T.
@@ -351,6 +370,8 @@ bool PGM_SINGLE_TOP::OnPgmInit()
 
     if( frame == nullptr )
     {
+        // Clean up
+        OnPgmExit();
         return false;
     }
 
@@ -415,6 +436,10 @@ bool PGM_SINGLE_TOP::OnPgmInit()
 
         frame->OpenProjectFiles( fileArgs );
     }
+
+#ifdef KICAD_IPC_API
+    m_api_server->SetReadyToReply();
+#endif
 
     return true;
 }

@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2017 Jean-Pierre Charras, jp.charras at wanadoo.fr
- * Copyright (C) 2004-2019 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2004-2024 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -168,8 +168,13 @@ bool GERBVIEW_FRAME::LoadFileOrShowDialog( const wxString& aFileName,
     // Auto zoom / sort is only applied when no other files have been loaded
     if( isFirstFile )
     {
+        int ly = GetActiveLayer();
+
         SortLayersByFileExtension();
         Zoom_Automatique( false );
+
+        // Ensure the initial active graphic layer is updated after sorting.
+        SetActiveLayer( ly, true );
     }
 
     return success;
@@ -179,7 +184,7 @@ bool GERBVIEW_FRAME::LoadFileOrShowDialog( const wxString& aFileName,
 bool GERBVIEW_FRAME::LoadAutodetectedFiles( const wxString& aFileName )
 {
     // 2 = autodetect files
-    return LoadFileOrShowDialog( aFileName, AllFilesWildcard(), _( "Open Autodetected File(s)" ),
+    return LoadFileOrShowDialog( aFileName, FILEEXT::AllFilesWildcard(), _( "Open Autodetected File(s)" ),
                                  2 );
 }
 
@@ -219,7 +224,7 @@ bool GERBVIEW_FRAME::LoadGerberFiles( const wxString& aFileName )
     filetypes += _( "Bottom Pad Master" ) + AddFileExtListToFilter( { "gpb" } ) + wxT( "|" );
 
     // All filetypes
-    filetypes += AllFilesWildcard();
+    filetypes += FILEEXT::AllFilesWildcard();
 
     // 0 = gerber files
     return LoadFileOrShowDialog( aFileName, filetypes, _( "Open Gerber File(s)" ), 0 );
@@ -228,9 +233,9 @@ bool GERBVIEW_FRAME::LoadGerberFiles( const wxString& aFileName )
 
 bool GERBVIEW_FRAME::LoadExcellonFiles( const wxString& aFileName )
 {
-    wxString filetypes = DrillFileWildcard();
+    wxString filetypes = FILEEXT::DrillFileWildcard();
     filetypes << wxT( "|" );
-    filetypes += AllFilesWildcard();
+    filetypes += FILEEXT::AllFilesWildcard();
 
     // 1 = drill files
     return LoadFileOrShowDialog( aFileName, filetypes, _( "Open NC (Excellon) Drill File(s)" ), 1 );
@@ -278,7 +283,7 @@ bool GERBVIEW_FRAME::LoadListOfGerberAndDrillFiles( const wxString&      aPath,
             continue;
         }
 
-        if( filename.GetExt() == GerberJobFileExtension.c_str() )
+        if( filename.GetExt() == FILEEXT::GerberJobFileExtension.c_str() )
         {
             //We cannot read a gerber job file as a gerber plot file: skip it
             wxString txt;
@@ -473,7 +478,7 @@ bool GERBVIEW_FRAME::unarchiveFiles( const wxString& aFullFileName, REPORTER* aR
         // The archive contains Gerber and/or Excellon drill files. Use the right loader.
         // However it can contain a few other files (reports, pdf files...),
         // which will be skipped.
-        if( curr_ext == GerberJobFileExtension.c_str() )
+        if( curr_ext == FILEEXT::GerberJobFileExtension.c_str() )
         {
             //We cannot read a gerber job file as a gerber plot file: skip it
             if( aReporter )
@@ -636,7 +641,8 @@ bool GERBVIEW_FRAME::LoadZipArchiveFile( const wxString& aFullFileName )
             currentPath = m_mruPath;
 
         wxFileDialog dlg( this, _( "Open Zip File" ), currentPath, filename.GetFullName(),
-                          ZipFileWildcard(), wxFD_OPEN | wxFD_FILE_MUST_EXIST | wxFD_CHANGE_DIR );
+                          FILEEXT::ZipFileWildcard(),
+                          wxFD_OPEN | wxFD_FILE_MUST_EXIST | wxFD_CHANGE_DIR );
 
         if( dlg.ShowModal() == wxID_CANCEL )
             return false;
@@ -683,11 +689,11 @@ void GERBVIEW_FRAME::DoWithAcceptedFiles()
 
     for( const wxFileName& file : m_AcceptedFiles )
     {
-        if( file.GetExt() == ArchiveFileExtension )
+        if( file.GetExt() == FILEEXT::ArchiveFileExtension )
         {
             wxString fn = file.GetFullPath();
             // Open zip archive in editor
-            m_toolManager->RunAction<wxString*>( *m_acceptedExts.at( ArchiveFileExtension ), &fn );
+            m_toolManager->RunAction<wxString*>( *m_acceptedExts.at( FILEEXT::ArchiveFileExtension ), &fn );
         }
         else
         {
@@ -698,5 +704,5 @@ void GERBVIEW_FRAME::DoWithAcceptedFiles()
 
     // Open files in editor
     if( !gerbFn.IsEmpty() )
-        m_toolManager->RunAction<wxString*>( *m_acceptedExts.at( GerberFileExtension ), &gerbFn );
+        m_toolManager->RunAction<wxString*>( *m_acceptedExts.at( FILEEXT::GerberFileExtension ), &gerbFn );
 }

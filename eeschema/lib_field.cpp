@@ -3,7 +3,7 @@
  *
  * Copyright (C) 2018 Jean-Pierre Charras, jp.charras at wanadoo.fr
  * Copyright (C) 2022 CERN
- * Copyright (C) 2004-2023 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2004-2024 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -39,9 +39,9 @@
 #include <settings/color_settings.h>
 
 
-LIB_FIELD::LIB_FIELD( LIB_SYMBOL* aParent, int aId, const wxString& aName ) :
-    LIB_ITEM( LIB_FIELD_T, aParent ),
-    EDA_TEXT( schIUScale )
+LIB_FIELD::LIB_FIELD( SCH_ITEM* aParent, int aId, const wxString& aName ) :
+        SCH_ITEM( aParent, LIB_FIELD_T ),
+        EDA_TEXT( schIUScale )
 {
     Init( aId );
     m_name = aName;
@@ -49,16 +49,16 @@ LIB_FIELD::LIB_FIELD( LIB_SYMBOL* aParent, int aId, const wxString& aName ) :
 
 
 LIB_FIELD::LIB_FIELD( int aId ) :
-    LIB_ITEM( LIB_FIELD_T, nullptr ),
-    EDA_TEXT( schIUScale )
+        SCH_ITEM( nullptr, LIB_FIELD_T ),
+        EDA_TEXT( schIUScale )
 {
     Init( aId );
 }
 
 
 LIB_FIELD::LIB_FIELD( int aId, const wxString& aName ) :
-    LIB_ITEM( LIB_FIELD_T, nullptr ),
-    EDA_TEXT( schIUScale )
+        SCH_ITEM( nullptr, LIB_FIELD_T ),
+        EDA_TEXT( schIUScale )
 {
     Init( aId );
     m_name = aName;
@@ -127,16 +127,15 @@ KIFONT::FONT* LIB_FIELD::getDrawFont() const
 }
 
 
-void LIB_FIELD::print( const RENDER_SETTINGS* aSettings, const VECTOR2I& aOffset, void* aData,
-                       const TRANSFORM& aTransform, bool aDimmed )
+void LIB_FIELD::Print( const SCH_RENDER_SETTINGS* aSettings, int aUnit, int aBodyStyle,
+                       const VECTOR2I& aOffset, bool aForceNoFill, bool aDimmed )
 {
     wxDC*    DC = aSettings->GetPrintDC();
     COLOR4D  color = aSettings->GetLayerColor( IsVisible() ? GetDefaultLayer() : LAYER_HIDDEN );
     COLOR4D  bg = aSettings->GetBackgroundColor();
     bool     blackAndWhiteMode = GetGRForceBlackPenState();
     int      penWidth = GetEffectivePenWidth( aSettings );
-    VECTOR2I text_pos = aTransform.TransformCoordinate( GetTextPos() ) + aOffset;
-    wxString text = aData ? *static_cast<wxString*>( aData ) : GetText();
+    VECTOR2I text_pos = aSettings->TransformCoordinate( GetTextPos() ) + aOffset;
 
     if( blackAndWhiteMode || bg == COLOR4D::UNSPECIFIED )
         bg = COLOR4D::WHITE;
@@ -155,7 +154,7 @@ void LIB_FIELD::print( const RENDER_SETTINGS* aSettings, const VECTOR2I& aOffset
     if( !font )
         font = KIFONT::FONT::GetFont( aSettings->GetDefaultFont(), IsBold(), IsItalic() );
 
-    GRPrintText( DC, text_pos, color, text, GetTextAngle(), GetTextSize(), GetHorizJustify(),
+    GRPrintText( DC, text_pos, color, GetText(), GetTextAngle(), GetTextSize(), GetHorizJustify(),
                  GetVertJustify(), penWidth, IsItalic(), IsBold(), font, GetFontMetrics() );
 }
 
@@ -194,13 +193,26 @@ bool LIB_FIELD::HitTest( const VECTOR2I& aPosition, int aAccuracy ) const
 }
 
 
+bool LIB_FIELD::HitTest( const BOX2I& aRect, bool aContained, int aAccuracy ) const
+{
+    if( m_flags & (STRUCT_DELETED | SKIP_STRUCT ) )
+        return false;
+
+    BOX2I sel = aRect;
+
+    if ( aAccuracy )
+        sel.Inflate( aAccuracy );
+
+    if( aContained )
+        return sel.Contains( GetBoundingBox() );
+
+    return sel.Intersects( GetBoundingBox() );
+}
+
+
 EDA_ITEM* LIB_FIELD::Clone() const
 {
-    LIB_FIELD* newfield = new LIB_FIELD( m_id );
-
-    Copy( newfield );
-
-    return (EDA_ITEM*) newfield;
+    return new LIB_FIELD( *this );
 }
 
 
@@ -218,11 +230,11 @@ void LIB_FIELD::Copy( LIB_FIELD* aTarget ) const
 }
 
 
-int LIB_FIELD::compare( const LIB_ITEM& aOther, int aCompareFlags ) const
+int LIB_FIELD::compare( const SCH_ITEM& aOther, int aCompareFlags ) const
 {
     wxASSERT( aOther.Type() == LIB_FIELD_T );
 
-    int retv = LIB_ITEM::compare( aOther, aCompareFlags );
+    int retv = SCH_ITEM::compare( aOther, aCompareFlags );
 
     if( retv )
         return retv;
@@ -231,7 +243,7 @@ int LIB_FIELD::compare( const LIB_ITEM& aOther, int aCompareFlags ) const
 
     // Equality test will vary depending whether or not the field is mandatory.  Otherwise,
     // sorting is done by ordinal.
-    if( aCompareFlags & LIB_ITEM::COMPARE_FLAGS::EQUALITY )
+    if( aCompareFlags & SCH_ITEM::COMPARE_FLAGS::EQUALITY )
     {
         // Mandatory fields have fixed ordinals and their names can vary due to translated field
         // names.  Optional fields have fixed names and their ordinals can vary.
@@ -256,10 +268,10 @@ int LIB_FIELD::compare( const LIB_ITEM& aOther, int aCompareFlags ) const
 
     bool ignoreFieldText = false;
 
-    if( m_id == REFERENCE_FIELD && ( aCompareFlags & COMPARE_FLAGS::EQUALITY ) )
+    if( m_id == REFERENCE_FIELD && !( aCompareFlags & SCH_ITEM::COMPARE_FLAGS::EQUALITY ) )
         ignoreFieldText = true;
 
-    if( m_id == VALUE_FIELD && ( aCompareFlags & COMPARE_FLAGS::ERC ) )
+    if( m_id == VALUE_FIELD && ( aCompareFlags & SCH_ITEM::COMPARE_FLAGS::ERC ) )
         ignoreFieldText = true;
 
     if( !ignoreFieldText )
@@ -270,7 +282,7 @@ int LIB_FIELD::compare( const LIB_ITEM& aOther, int aCompareFlags ) const
             return retv;
     }
 
-    if( aCompareFlags & LIB_ITEM::COMPARE_FLAGS::EQUALITY )
+    if( aCompareFlags & SCH_ITEM::COMPARE_FLAGS::EQUALITY )
     {
         if( GetTextPos().x != tmp->GetTextPos().x )
             return GetTextPos().x - tmp->GetTextPos().x;
@@ -289,37 +301,37 @@ int LIB_FIELD::compare( const LIB_ITEM& aOther, int aCompareFlags ) const
 }
 
 
-void LIB_FIELD::Offset( const VECTOR2I& aOffset )
+void LIB_FIELD::Move( const VECTOR2I& aOffset )
 {
     EDA_TEXT::Offset( aOffset );
 }
 
 
-void LIB_FIELD::MoveTo( const VECTOR2I& newPosition )
+void LIB_FIELD::SetPosition( const VECTOR2I& newPosition )
 {
     EDA_TEXT::SetTextPos( newPosition );
 }
 
 
-void LIB_FIELD::MirrorHorizontal( const VECTOR2I& center )
+void LIB_FIELD::MirrorHorizontally( int aCenter )
 {
     int x = GetTextPos().x;
 
-    x -= center.x;
+    x -= aCenter;
     x *= -1;
-    x += center.x;
+    x += aCenter;
 
     SetTextX( x );
 }
 
 
-void LIB_FIELD::MirrorVertical( const VECTOR2I& center )
+void LIB_FIELD::MirrorVertically( int aCenter )
 {
     int y = GetTextPos().y;
 
-    y -= center.y;
+    y -= aCenter;
     y *= -1;
-    y += center.y;
+    y += aCenter;
 
     SetTextY( y );
 }
@@ -337,18 +349,21 @@ void LIB_FIELD::Rotate( const VECTOR2I& center, bool aRotateCCW )
 }
 
 
-void LIB_FIELD::Plot( PLOTTER* aPlotter, bool aBackground, const VECTOR2I& aOffset,
-                      const TRANSFORM& aTransform, bool aDimmed ) const
+void LIB_FIELD::Plot( PLOTTER* aPlotter, bool aBackground, const SCH_PLOT_OPTS& aPlotOpts,
+                      int aUnit, int aBodyStyle, const VECTOR2I& aOffset, bool aDimmed )
 {
     if( GetText().IsEmpty() || aBackground )
         return;
 
-    RENDER_SETTINGS* renderSettings = aPlotter->RenderSettings();
+    SCH_RENDER_SETTINGS* renderSettings = getRenderSettings( aPlotter );
+
+    if( !IsVisible() && !renderSettings->m_ShowHiddenFields )
+        return;
 
     // Calculate the text orientation, according to the symbol orientation/mirror.
     EDA_ANGLE orient = GetTextAngle();
 
-    if( aTransform.y1 )  // Rotate symbol 90 deg.
+    if( renderSettings->m_Transform.y1 )  // Rotate symbol 90 deg.
     {
         if( orient.IsHorizontal() )
             orient = ANGLE_VERTICAL;
@@ -361,7 +376,7 @@ void LIB_FIELD::Plot( PLOTTER* aPlotter, bool aBackground, const VECTOR2I& aOffs
 
     GR_TEXT_H_ALIGN_T hjustify = GR_TEXT_H_ALIGN_CENTER;
     GR_TEXT_V_ALIGN_T vjustify = GR_TEXT_V_ALIGN_CENTER;
-    VECTOR2I          textpos = aTransform.TransformCoordinate( bbox.Centre() ) + aOffset;
+    VECTOR2I          textpos = renderSettings->TransformCoordinate( bbox.Centre() ) + aOffset;
 
     COLOR4D color;
     COLOR4D bg;
@@ -415,9 +430,7 @@ wxString LIB_FIELD::GetFullText( int unit ) const
     wxString text = GetText();
     text << wxT( "?" );
 
-    wxCHECK( GetParent(), text );
-
-    if( GetParent()->IsMulti() )
+    if( GetParentSymbol() && GetParentSymbol()->IsMulti() )
         text << LIB_SYMBOL::LetterSubReference( unit, 'A' );
 
     return text;
@@ -541,7 +554,7 @@ void LIB_FIELD::GetMsgPanelInfo( EDA_DRAW_FRAME* aFrame, std::vector<MSG_PANEL_I
 {
     wxString msg;
 
-    LIB_ITEM::GetMsgPanelInfo( aFrame, aList );
+    getSymbolEditorMsgPanelInfo( aFrame, aList );
 
     // Don't use GetShownText(); we want to see the variable references here
     aList.emplace_back( _( "Field" ), UnescapeString( GetName() ) );
@@ -559,18 +572,20 @@ void LIB_FIELD::GetMsgPanelInfo( EDA_DRAW_FRAME* aFrame, std::vector<MSG_PANEL_I
 
     switch ( GetHorizJustify() )
     {
-    case GR_TEXT_H_ALIGN_LEFT:   msg = _( "Left" );   break;
-    case GR_TEXT_H_ALIGN_CENTER: msg = _( "Center" ); break;
-    case GR_TEXT_H_ALIGN_RIGHT:  msg = _( "Right" );  break;
+    case GR_TEXT_H_ALIGN_LEFT:          msg = _( "Left" );         break;
+    case GR_TEXT_H_ALIGN_CENTER:        msg = _( "Center" );       break;
+    case GR_TEXT_H_ALIGN_RIGHT:         msg = _( "Right" );        break;
+    case GR_TEXT_H_ALIGN_INDETERMINATE: msg = INDETERMINATE_STATE; break;
     }
 
     aList.emplace_back( _( "H Justification" ), msg );
 
     switch ( GetVertJustify() )
     {
-    case GR_TEXT_V_ALIGN_TOP:    msg = _( "Top" );    break;
-    case GR_TEXT_V_ALIGN_CENTER: msg = _( "Center" ); break;
-    case GR_TEXT_V_ALIGN_BOTTOM: msg = _( "Bottom" ); break;
+    case GR_TEXT_V_ALIGN_TOP:           msg = _( "Top" );          break;
+    case GR_TEXT_V_ALIGN_CENTER:        msg = _( "Center" );       break;
+    case GR_TEXT_V_ALIGN_BOTTOM:        msg = _( "Bottom" );       break;
+    case GR_TEXT_V_ALIGN_INDETERMINATE: msg = INDETERMINATE_STATE; break;
     }
 
     aList.emplace_back( _( "V Justification" ), msg );
@@ -589,7 +604,7 @@ bool LIB_FIELD::IsMandatory() const
 }
 
 
-bool LIB_FIELD::operator==( const LIB_ITEM& aItem ) const
+bool LIB_FIELD::operator==( const SCH_ITEM& aItem ) const
 {
     if( aItem.Type() != LIB_FIELD_T )
         return false;
@@ -602,10 +617,10 @@ bool LIB_FIELD::operator==( const LIB_ITEM& aItem ) const
     if( m_name != field.m_name )
         return false;
 
-    if( !m_parent || !aItem.GetParent() )
+    if( !m_parent || !aItem.GetParentSymbol() )
         return false;
 
-    if( m_parent->m_Uuid != aItem.GetParent()->m_Uuid )
+    if( m_parent->m_Uuid != aItem.GetParentSymbol()->m_Uuid )
         return false;
 
     if( m_id < MANDATORY_FIELDS )
@@ -618,7 +633,7 @@ bool LIB_FIELD::operator==( const LIB_ITEM& aItem ) const
 }
 
 
-double LIB_FIELD::Similarity( const LIB_ITEM& aItem ) const
+double LIB_FIELD::Similarity( const SCH_ITEM& aItem ) const
 {
     if( aItem.Type() != LIB_FIELD_T )
         return 0.0;
@@ -628,7 +643,10 @@ double LIB_FIELD::Similarity( const LIB_ITEM& aItem ) const
     if( m_id != field.m_id && m_id < MANDATORY_FIELDS )
         return 0.0;
 
-    if( m_parent->m_Uuid != aItem.GetParent()->m_Uuid )
+    if( !m_parent || !aItem.GetParentSymbol() )
+        return false;
+
+    if( m_parent->m_Uuid != aItem.GetParentSymbol()->m_Uuid )
         return 0.0;
 
     if( m_id < MANDATORY_FIELDS )
@@ -650,9 +668,9 @@ static struct LIB_FIELD_DESC
     {
         PROPERTY_MANAGER& propMgr = PROPERTY_MANAGER::Instance();
         REGISTER_TYPE( LIB_FIELD );
-        propMgr.AddTypeCast( new TYPE_CAST<LIB_FIELD, LIB_ITEM> );
+        propMgr.AddTypeCast( new TYPE_CAST<LIB_FIELD, SCH_ITEM> );
         propMgr.AddTypeCast( new TYPE_CAST<LIB_FIELD, EDA_TEXT> );
-        propMgr.InheritsAfter( TYPE_HASH( LIB_FIELD ), TYPE_HASH( LIB_ITEM ) );
+        propMgr.InheritsAfter( TYPE_HASH( LIB_FIELD ), TYPE_HASH( SCH_ITEM ) );
         propMgr.InheritsAfter( TYPE_HASH( LIB_FIELD ), TYPE_HASH( EDA_TEXT ) );
 
         propMgr.AddProperty( new PROPERTY<LIB_FIELD, bool>( _HKI( "Show Field Name" ),

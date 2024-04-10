@@ -31,9 +31,13 @@
 
 class wxTimer;
 class wxSplitterWindow;
+class wxBoxSizer;
 
 class PCB_BASE_FRAME;
 
+// When a new footprint is selected, a custom event is sent, for instance to update
+// 3D viewer. So declare a FP_SELECTION_EVENT event
+wxDECLARE_EVENT(FP_SELECTION_EVENT, wxCommandEvent);
 
 class PANEL_FOOTPRINT_CHOOSER : public wxPanel
 {
@@ -43,12 +47,14 @@ public:
      *
      * @param aFrame  the parent frame (usually a PCB_EDIT_FRAME or FOOTPRINT_CHOOSER_FRAME)
      * @param aParent the parent window (usually a DIALOG_SHIM or FOOTPRINT_CHOOSER_FRAME)
-     * @param aCloseHandler a handler to be called on double-click of a footprint
+     * @param aAcceptHandler a handler to be called on double-click of a footprint
+     * @param aEscapeHandler a handler to be called on <ESC>
      */
     PANEL_FOOTPRINT_CHOOSER( PCB_BASE_FRAME* aFrame, wxTopLevelWindow* aParent,
                              const wxArrayString& aFootprintHistoryList,
                              std::function<bool( LIB_TREE_NODE& )> aFilter,
-                             std::function<void()> aCloseHandler );
+                             std::function<void()> aAcceptHandler,
+                             std::function<void()> aEscapeHandler );
 
     ~PANEL_FOOTPRINT_CHOOSER();
 
@@ -67,12 +73,18 @@ public:
 
     wxWindow* GetFocusTarget() const { return m_tree->GetFocusTarget(); }
 
+    wxSizer* GetFiltersSizer() const { return m_tree->GetFiltersSizer(); }
+
     void Regenerate() { m_tree->Regenerate( true ); }
+
+    FOOTPRINT_PREVIEW_WIDGET* GetViewerPanel() const { return m_preview_ctrl; }
 
 protected:
     static constexpr int DblClickDelay = 100; // milliseconds
 
+    void OnDetailsCharHook( wxKeyEvent& aEvt );
     void onCloseTimer( wxTimerEvent& aEvent );
+    void onOpenLibsTimer( wxTimerEvent& aEvent );
 
     void onFootprintSelected( wxCommandEvent& aEvent );
 
@@ -84,8 +96,15 @@ protected:
      */
     void onFootprintChosen( wxCommandEvent& aEvent );
 
+public:
+    wxPanel*                  m_RightPanel;
+    wxBoxSizer*               m_RightPanelSizer;
+
+    const FOOTPRINT*          m_CurrFootprint;
+
 protected:
     wxTimer*                  m_dbl_click_timer;
+    wxTimer*                  m_open_libs_timer;
     wxSplitterWindow*         m_hsplitter;
     wxSplitterWindow*         m_vsplitter;
 
@@ -93,10 +112,12 @@ protected:
 
     FOOTPRINT_PREVIEW_WIDGET*               m_preview_ctrl;
     LIB_TREE*                               m_tree;
+    HTML_WINDOW*                            m_details;
 
     PCB_BASE_FRAME*                         m_frame;
     std::function<bool( LIB_TREE_NODE& )>   m_filter;
-    std::function<void()>                   m_closeHandler;
+    std::function<void()>                   m_acceptHandler;
+    std::function<void()>                   m_escapeHandler;
 };
 
 #endif /* PANEL_FOOTPRINT_CHOOSER_H */

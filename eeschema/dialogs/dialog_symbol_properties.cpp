@@ -313,7 +313,8 @@ DIALOG_SYMBOL_PROPERTIES::DIALOG_SYMBOL_PROPERTIES( SCH_EDIT_FRAME* aParent,
         m_symbol( nullptr ),
         m_part( nullptr ),
         m_fieldsSize( 0, 0 ),
-        m_lastRequestedSize( 0, 0 ),
+        m_lastRequestedFieldsSize( 0, 0 ),
+        m_lastRequestedPinsSize( 0, 0 ),
         m_editorShown( false ),
         m_fields( nullptr ),
         m_dataModel( nullptr )
@@ -347,7 +348,7 @@ DIALOG_SYMBOL_PROPERTIES::DIALOG_SYMBOL_PROPERTIES( SCH_EDIT_FRAME* aParent,
         m_shownColumns = m_fieldsGrid->GetShownColumns();
     }
 
-    if( m_part && m_part->HasConversion() )
+    if( m_part && m_part->HasAlternateBodyStyle() )
     {
         // DeMorgan conversions are a subclass of alternate pin assignments, so don't allow
         // free-form alternate assignments as well.  (We won't know how to map the alternates
@@ -451,6 +452,8 @@ bool DIALOG_SYMBOL_PROPERTIES::TransferDataToWindow()
         // change offset to be symbol-relative
         field.Offset( -m_symbol->GetPosition() );
 
+        field.SetText( m_symbol->Schematic()->ConvertKIIDsToRefs( field.GetText() ) );
+
         defined.insert( field.GetName() );
         m_fields->push_back( field );
     }
@@ -477,7 +480,7 @@ bool DIALOG_SYMBOL_PROPERTIES::TransferDataToWindow()
     {
         // Ensure symbol unit is the currently selected unit (mandatory in complex hierarchies)
         // from the current sheet path, because it can be modified by previous calculations
-        m_symbol->UpdateUnit( m_symbol->GetUnitSelection( &GetParent()->GetCurrentSheet() ) );
+        m_symbol->SetUnit( m_symbol->GetUnitSelection( &GetParent()->GetCurrentSheet() ) );
 
         for( int ii = 1; ii <= m_symbol->GetUnitCount(); ii++ )
         {
@@ -496,9 +499,9 @@ bool DIALOG_SYMBOL_PROPERTIES::TransferDataToWindow()
         m_unitChoice->Enable( false );
     }
 
-    if( m_part && m_part->HasConversion() )
+    if( m_part && m_part->HasAlternateBodyStyle() )
     {
-        if( m_symbol->GetConvert() > LIB_ITEM::LIB_CONVERT::BASE )
+        if( m_symbol->GetBodyStyle() > BODY_STYLE::BASE )
             m_cbAlternateSymbol->SetValue( true );
     }
     else
@@ -534,8 +537,8 @@ bool DIALOG_SYMBOL_PROPERTIES::TransferDataToWindow()
 
     if( m_part )
     {
-        m_ShowPinNumButt->SetValue( m_part->ShowPinNumbers() );
-        m_ShowPinNameButt->SetValue( m_part->ShowPinNames() );
+        m_ShowPinNumButt->SetValue( m_part->GetShowPinNumbers() );
+        m_ShowPinNameButt->SetValue( m_part->GetShowPinNames() );
     }
 
     // Set the symbol's library name.
@@ -559,7 +562,7 @@ void DIALOG_SYMBOL_PROPERTIES::OnEditSpiceModel( wxCommandEvent& event )
     for( const SCH_FIELD& field : *m_fields )
         fields.emplace_back( field );
 
-    DIALOG_SIM_MODEL dialog( this, *m_symbol, fields );
+    DIALOG_SIM_MODEL dialog( this, m_parentFrame, *m_symbol, fields );
 
     if( dialog.ShowModal() != wxID_OK )
         return;
@@ -677,11 +680,12 @@ bool DIALOG_SYMBOL_PROPERTIES::TransferDataFromWindow()
 
     SCH_COMMIT  commit( GetParent() );
     SCH_SCREEN* currentScreen = GetParent()->GetScreen();
+    bool        replaceOnCurrentScreen;
     wxCHECK( currentScreen, false );
 
     // This needs to be done before the LIB_ID is changed to prevent stale library symbols in
     // the schematic file.
-    currentScreen->Remove( m_symbol );
+    replaceOnCurrentScreen = currentScreen->Remove( m_symbol );
 
     // save old cmp in undo list if not already in edit, or moving ...
     if( m_symbol->GetEditFlags() == 0 )
@@ -692,9 +696,9 @@ bool DIALOG_SYMBOL_PROPERTIES::TransferDataFromWindow()
 
     // For symbols with multiple shapes (De Morgan representation) Set the selected shape:
     if( m_cbAlternateSymbol->IsEnabled() && m_cbAlternateSymbol->GetValue() )
-        m_symbol->SetConvert( LIB_ITEM::LIB_CONVERT::DEMORGAN );
+        m_symbol->SetBodyStyle( BODY_STYLE::DEMORGAN );
     else
-        m_symbol->SetConvert( LIB_ITEM::LIB_CONVERT::BASE );
+        m_symbol->SetBodyStyle( BODY_STYLE::BASE );
 
     //Set the part selection in multiple part per package
     int unit_selection = m_unitChoice->IsEnabled() ? m_unitChoice->GetSelection() + 1 : 1;
@@ -728,7 +732,12 @@ bool DIALOG_SYMBOL_PROPERTIES::TransferDataFromWindow()
 
     // change all field positions from relative to absolute
     for( unsigned i = 0;  i < m_fields->size();  ++i )
-        m_fields->at( i ).Offset( m_symbol->GetPosition() );
+    {
+        SCH_FIELD& field = m_fields->at( i );
+
+        field.Offset( m_symbol->GetPosition() );
+        field.SetText( m_symbol->Schematic()->ConvertRefsToKIIDs( field.GetText() ) );
+    }
 
     SCH_FIELDS& fields = m_symbol->GetFields();
 
@@ -844,7 +853,8 @@ bool DIALOG_SYMBOL_PROPERTIES::TransferDataFromWindow()
         }
     }
 
-    currentScreen->Append( m_symbol );
+    if( replaceOnCurrentScreen )
+        currentScreen->Append( m_symbol );
 
     if( !commit.Empty() )
         commit.Push( _( "Edit Symbol Properties" ) );
@@ -1185,7 +1195,7 @@ void DIALOG_SYMBOL_PROPERTIES::OnSizeFieldsGrid( wxSizeEvent& event )
 {
     wxSize new_size = event.GetSize();
 
-    if( ( !m_editorShown || m_lastRequestedSize != new_size ) && m_fieldsSize != new_size )
+    if( ( !m_editorShown || m_lastRequestedFieldsSize != new_size ) && m_fieldsSize != new_size )
     {
         m_fieldsSize = new_size;
 
@@ -1193,9 +1203,9 @@ void DIALOG_SYMBOL_PROPERTIES::OnSizeFieldsGrid( wxSizeEvent& event )
     }
 
     // We store this value to check whether the dialog is changing size.  This might indicate
-    // that the user is scaling the dialog with an editor shown.  Some editors do not close
-    // (at least on GTK) when the user drags a dialog corner
-    m_lastRequestedSize = new_size;
+    // that the user is scaling the dialog with a grid-cell-editor shown.  Some editors do not
+    // close (at least on GTK) when the user drags a dialog corner
+    m_lastRequestedFieldsSize = new_size;
 
     // Always propagate for a grid repaint (needed if the height changes, as well as width)
     event.Skip();
@@ -1206,12 +1216,17 @@ void DIALOG_SYMBOL_PROPERTIES::OnSizePinsGrid( wxSizeEvent& event )
 {
     wxSize new_size = event.GetSize();
 
-    if( m_pinsSize != new_size )
+    if( ( !m_editorShown || m_lastRequestedPinsSize != new_size ) && m_pinsSize != new_size )
     {
         m_pinsSize = new_size;
 
         AdjustPinsGridColumns();
     }
+
+    // We store this value to check whether the dialog is changing size.  This might indicate
+    // that the user is scaling the dialog with a grid-cell-editor shown.  Some editors do not
+    // close (at least on GTK) when the user drags a dialog corner
+    m_lastRequestedPinsSize = new_size;
 
     // Always propagate for a grid repaint (needed if the height changes, as well as width)
     event.Skip();

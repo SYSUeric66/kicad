@@ -84,6 +84,14 @@ SCH_CONNECTION::SCH_CONNECTION( CONNECTION_GRAPH* aGraph ) :
 }
 
 
+SCH_CONNECTION::SCH_CONNECTION( SCH_CONNECTION& aOther ) :
+        m_parent( nullptr )
+{
+    Reset();
+    Clone( aOther );
+}
+
+
 bool SCH_CONNECTION::operator==( const SCH_CONNECTION& aOther ) const
 {
     // NOTE: Not comparing m_dirty or net/bus/subgraph codes
@@ -236,6 +244,7 @@ void SCH_CONNECTION::Clone( const SCH_CONNECTION& aOther )
     m_sheet  = aOther.Sheet();
     // Note: m_local_sheet is not cloned
     m_name   = aOther.m_name;
+    m_type   = aOther.m_type;
     // Note: m_local_name is not cloned if not set yet
     if( m_local_name.IsEmpty() )
     {
@@ -317,10 +326,11 @@ bool SCH_CONNECTION::IsDriver() const
 
     case SCH_PIN_T:
     {
-        SCH_PIN* pin = static_cast<SCH_PIN*>( Parent() );
+        const SCH_PIN*    pin = static_cast<const SCH_PIN*>( Parent() );
+        const SCH_SYMBOL* symbol = static_cast<const SCH_SYMBOL*>( pin->GetParentSymbol() );
 
         // Only annotated symbols should drive nets.
-        return pin->IsGlobalPower() || pin->GetParentSymbol()->IsAnnotated( &m_sheet );
+        return pin->IsGlobalPower() || symbol->IsAnnotated( &m_sheet );
     }
 
     default:

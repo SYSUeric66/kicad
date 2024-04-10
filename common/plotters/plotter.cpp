@@ -191,8 +191,8 @@ void PLOTTER::polyArc( const VECTOR2D& aCenter, const EDA_ANGLE& aStartAngle,
 
     SetCurrentLineWidth( aWidth );
 
-    start.x = aCenter.x + KiROUND( aRadius * startAngle.Cos() );
-    start.y = aCenter.y + sign * KiROUND( aRadius * startAngle.Sin() );
+    start.x = KiROUND( aCenter.x + aRadius * startAngle.Cos() );
+    start.y = KiROUND( aCenter.y + sign * aRadius * startAngle.Sin() );
 
     if( aFill != FILL_T::NO_FILL )
     {
@@ -206,13 +206,13 @@ void PLOTTER::polyArc( const VECTOR2D& aCenter, const EDA_ANGLE& aStartAngle,
 
     for( EDA_ANGLE ii = startAngle + delta; ii < endAngle; ii += delta )
     {
-        end.x = aCenter.x + KiROUND( aRadius * ii.Cos() );
-        end.y = aCenter.y + sign * KiROUND( aRadius * ii.Sin() );
+        end.x = KiROUND( aCenter.x + aRadius * ii.Cos() );
+        end.y = KiROUND( aCenter.y + sign * aRadius * ii.Sin() );
         LineTo( end );
     }
 
-    end.x = aCenter.x + KiROUND( aRadius * endAngle.Cos() );
-    end.y = aCenter.y + sign * KiROUND( aRadius * endAngle.Sin() );
+    end.x = KiROUND( aCenter.x + aRadius * endAngle.Cos() );
+    end.y = KiROUND( aCenter.y + sign * aRadius * endAngle.Sin() );
 
     if( aFill != FILL_T::NO_FILL )
     {
@@ -706,7 +706,6 @@ void PLOTTER::Text( const VECTOR2I&       aPos,
     KIGFX::GAL_DISPLAY_OPTIONS empty_opts;
 
     SetColor( aColor );
-    SetCurrentLineWidth( aPenWidth, aData );
 
     if( aPenWidth == 0 && aBold ) // Use default values if aPenWidth == 0
         aPenWidth = GetPenSizeForBold( std::min( aSize.x, aSize.y ) );
@@ -718,6 +717,7 @@ void PLOTTER::Text( const VECTOR2I&       aPos,
             // Stroke callback
             [&]( const VECTOR2I& aPt1, const VECTOR2I& aPt2 )
             {
+                SetCurrentLineWidth( aPenWidth );
                 MoveTo( aPt1 );
                 LineTo( aPt2 );
                 PenFinish();

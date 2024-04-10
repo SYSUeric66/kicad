@@ -23,6 +23,8 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA
  */
 
+#include <unordered_set>
+
 #include <trigo.h>
 #include <macros.h>
 
@@ -49,6 +51,21 @@
  * @ingroup trace_env_vars
  */
 const wxChar* traceBoardOutline = wxT( "KICAD_BOARD_OUTLINE" );
+
+
+class SCOPED_FLAGS_CLEANER : public std::unordered_set<EDA_ITEM*>
+{
+    EDA_ITEM_FLAGS m_flagsToClear;
+
+public:
+    SCOPED_FLAGS_CLEANER( const EDA_ITEM_FLAGS& aFlagsToClear ) : m_flagsToClear( aFlagsToClear ) {}
+
+    ~SCOPED_FLAGS_CLEANER()
+    {
+        for( EDA_ITEM* item : *this )
+            item->ClearFlags( m_flagsToClear );
+    }
+};
 
 
 /**
@@ -163,9 +180,10 @@ static bool isCopperOutside( const FOOTPRINT* aFootprint, SHAPE_POLY_SET& aShape
 }
 
 
-bool ConvertOutlineToPolygon( std::vector<PCB_SHAPE*>& aShapeList, SHAPE_POLY_SET& aPolygons,
-                              int aErrorMax, int aChainingEpsilon, bool aAllowDisjoint,
-                              OUTLINE_ERROR_HANDLER* aErrorHandler, bool aAllowUseArcsInPolygons )
+bool doConvertOutlineToPolygon( std::vector<PCB_SHAPE*>& aShapeList, SHAPE_POLY_SET& aPolygons,
+                                int aErrorMax, int aChainingEpsilon, bool aAllowDisjoint,
+                                OUTLINE_ERROR_HANDLER* aErrorHandler, bool aAllowUseArcsInPolygons,
+                                SCOPED_FLAGS_CLEANER& aCleaner )
 {
     if( aShapeList.size() == 0 )
         return true;
@@ -200,6 +218,7 @@ bool ConvertOutlineToPolygon( std::vector<PCB_SHAPE*>& aShapeList, SHAPE_POLY_SE
     {
         graphic = (PCB_SHAPE*) *startCandidates.begin();
         graphic->SetFlags( SKIP_STRUCT );
+        aCleaner.insert( graphic );
         startCandidates.erase( startCandidates.begin() );
 
         contours.emplace_back();
@@ -419,6 +438,7 @@ bool ConvertOutlineToPolygon( std::vector<PCB_SHAPE*>& aShapeList, SHAPE_POLY_SE
                     prevGraphic = graphic;
                     graphic = nextGraphic;
                     graphic->SetFlags( SKIP_STRUCT );
+                    aCleaner.insert( graphic );
                     startCandidates.erase( graphic );
                     continue;
                 }
@@ -473,7 +493,7 @@ bool ConvertOutlineToPolygon( std::vector<PCB_SHAPE*>& aShapeList, SHAPE_POLY_SE
                 parents.push_back( jj );
         }
 
-        contourToParentIndexesMap[ii] = parents;
+        contourToParentIndexesMap[ii] = std::move( parents );
     }
 
     // Next add those that are top-level outlines to the SHAPE_POLY_SET
@@ -564,6 +584,18 @@ bool ConvertOutlineToPolygon( std::vector<PCB_SHAPE*>& aShapeList, SHAPE_POLY_SE
     }
 
     return !selfIntersecting;
+}
+
+
+bool ConvertOutlineToPolygon( std::vector<PCB_SHAPE*>& aShapeList, SHAPE_POLY_SET& aPolygons,
+                              int aErrorMax, int aChainingEpsilon, bool aAllowDisjoint,
+                              OUTLINE_ERROR_HANDLER* aErrorHandler, bool aAllowUseArcsInPolygons )
+{
+    SCOPED_FLAGS_CLEANER cleaner( SKIP_STRUCT );
+
+    return doConvertOutlineToPolygon( aShapeList, aPolygons, aErrorMax, aChainingEpsilon,
+                                      aAllowDisjoint, aErrorHandler, aAllowUseArcsInPolygons,
+                                      cleaner );
 }
 
 
@@ -704,10 +736,11 @@ bool BuildBoardPolygonOutlines( BOARD* aBoard, SHAPE_POLY_SET& aOutlines, int aE
                                 int aChainingEpsilon, OUTLINE_ERROR_HANDLER* aErrorHandler,
                                 bool aAllowUseArcsInPolygons )
 {
-    PCB_TYPE_COLLECTOR  items;
-    bool                success = false;
+    PCB_TYPE_COLLECTOR items;
+    SHAPE_POLY_SET     fpHoles;
+    bool               success = false;
 
-    SHAPE_POLY_SET      fpHoles;
+    SCOPED_FLAGS_CLEANER cleaner( SKIP_STRUCT );
 
     // Get all the shapes into 'items', then keep only those on layer == Edge_Cuts.
     items.Collect( aBoard, { PCB_SHAPE_T } );
@@ -733,11 +766,11 @@ bool BuildBoardPolygonOutlines( BOARD* aBoard, SHAPE_POLY_SET& aOutlines, int aE
         if( !fpSegList.empty() )
         {
             SHAPE_POLY_SET fpOutlines;
-            success = ConvertOutlineToPolygon( fpSegList, fpOutlines, aErrorMax, aChainingEpsilon,
-                                               false,
-                                               // don't report errors here; the second pass also
-                                               // gets an opportunity to use these segments
-                                               nullptr, aAllowUseArcsInPolygons );
+            success = doConvertOutlineToPolygon( fpSegList, fpOutlines, aErrorMax, aChainingEpsilon,
+                                                 false,
+                                                 // don't report errors here; the second pass also
+                                                 // gets an opportunity to use these segments
+                                                 nullptr, aAllowUseArcsInPolygons, cleaner );
 
             // Test to see if we should make holes or outlines.  Holes are made if the footprint
             // has copper outside of a single, closed outline.  If there are multiple outlines,
@@ -775,8 +808,8 @@ bool BuildBoardPolygonOutlines( BOARD* aBoard, SHAPE_POLY_SET& aOutlines, int aE
 
     if( segList.size() )
     {
-        success = ConvertOutlineToPolygon( segList, aOutlines, aErrorMax, aChainingEpsilon,
-                                           true, aErrorHandler, aAllowUseArcsInPolygons );
+        success = doConvertOutlineToPolygon( segList, aOutlines, aErrorMax, aChainingEpsilon, true,
+                                             aErrorHandler, aAllowUseArcsInPolygons, cleaner );
     }
 
     if( !success || !aOutlines.OutlineCount() )
@@ -956,9 +989,11 @@ bool BuildFootprintPolygonOutlines( BOARD* aBoard, SHAPE_POLY_SET& aOutlines, in
         return false;
     }
 
-    PCB_TYPE_COLLECTOR  items;
-    SHAPE_POLY_SET      outlines;
-    bool                success = false;
+    PCB_TYPE_COLLECTOR items;
+    SHAPE_POLY_SET     outlines;
+    bool               success = false;
+
+    SCOPED_FLAGS_CLEANER cleaner( SKIP_STRUCT );
 
     // Get all the SHAPEs into 'items', then keep only those on layer == Edge_Cuts.
     items.Collect( aBoard, { PCB_SHAPE_T } );
@@ -974,8 +1009,8 @@ bool BuildFootprintPolygonOutlines( BOARD* aBoard, SHAPE_POLY_SET& aOutlines, in
 
     if( !segList.empty() )
     {
-        success = ConvertOutlineToPolygon( segList, outlines, aErrorMax, aChainingEpsilon,
-                                           true, aErrorHandler );
+        success = doConvertOutlineToPolygon( segList, outlines, aErrorMax, aChainingEpsilon, true,
+                                             aErrorHandler, false, cleaner );
     }
 
     // A closed outline was found on Edge_Cuts

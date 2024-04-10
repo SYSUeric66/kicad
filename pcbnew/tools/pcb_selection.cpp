@@ -44,7 +44,7 @@ using namespace std::placeholders;
 #include "pcb_selection_tool.h"
 #include "pcb_actions.h"
 
-#include "plugins/kicad/pcb_plugin.h"
+#include <pcb_io/kicad_sexpr/pcb_io_kicad_sexpr.h>
 
 
 
@@ -104,18 +104,4 @@ const std::vector<KIGFX::VIEW_ITEM*> PCB_SELECTION::updateDrawList() const
         addItem( item );
 
     return items;
-}
-
-
-const LSET PCB_SELECTION::GetSelectionLayers()
-{
-    LSET retval;
-
-    for( EDA_ITEM* item : m_items )
-    {
-        if( BOARD_ITEM* board_item = dynamic_cast<BOARD_ITEM*>( item ) )
-            retval |= board_item->GetLayerSet();
-    }
-
-    return retval;
 }

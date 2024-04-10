@@ -30,12 +30,16 @@
  * NET_SETTINGS stores various net-related settings in a project context.  These settings are
  * accessible and editable from both the schematic and PCB editors.
  */
-class NET_SETTINGS : public NESTED_SETTINGS
+class KICOMMON_API NET_SETTINGS : public NESTED_SETTINGS
 {
 public:
     NET_SETTINGS( JSON_SETTINGS* aParent, const std::string& aPath );
 
     virtual ~NET_SETTINGS();
+
+    bool operator==( const NET_SETTINGS& aOther ) const;
+
+    bool operator!=( const NET_SETTINGS& aOther ) const { return !operator==( aOther ); }
 
 public:
     std::map<wxString, std::shared_ptr<NETCLASS>> m_NetClasses;
@@ -57,6 +61,14 @@ public:
 
 public:
     std::shared_ptr<NETCLASS> GetEffectiveNetClass( const wxString& aNetName ) const;
+
+    /**
+     * Get a NETCLASS object from a given Netclass name string
+     *
+     * @param aNetClassName the Netclass name to resolve
+     * @return shared pointer to the requested NETCLASS object, or the default NETCLASS
+    */
+    std::shared_ptr<NETCLASS> GetNetClassByName( const wxString& aNetName ) const;
 
     /**
      * Parse a bus vector (e.g. A[7..0]) into name, begin, and end.

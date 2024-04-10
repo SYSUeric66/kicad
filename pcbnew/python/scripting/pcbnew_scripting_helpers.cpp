@@ -42,7 +42,7 @@
 #include <drc/drc_item.h>
 #include <fp_lib_table.h>
 #include <core/ignore.h>
-#include <io_mgr.h>
+#include <pcb_io/pcb_io_mgr.h>
 #include <string_utils.h>
 #include <macros.h>
 #include <pcbnew_scripting_helpers.h>
@@ -84,15 +84,22 @@ void ScriptingOnDestructPcbEditFrame( PCB_EDIT_FRAME* aPcbEditFrame )
         s_PcbEditFrame = nullptr;
 }
 
-BOARD* LoadBoard( wxString& aFileName )
+
+BOARD* LoadBoard( wxString& aFileName, bool aSetActive )
 {
-    if( aFileName.EndsWith( KiCadPcbFileExtension ) )
-        return LoadBoard( aFileName, IO_MGR::KICAD_SEXP );
-    else if( aFileName.EndsWith( LegacyPcbFileExtension ) )
-        return LoadBoard( aFileName, IO_MGR::LEGACY );
+    if( aFileName.EndsWith( FILEEXT::KiCadPcbFileExtension ) )
+        return LoadBoard( aFileName, PCB_IO_MGR::KICAD_SEXP, aSetActive );
+    else if( aFileName.EndsWith( FILEEXT::LegacyPcbFileExtension ) )
+        return LoadBoard( aFileName, PCB_IO_MGR::LEGACY, aSetActive );
 
     // as fall back for any other kind use the legacy format
-    return LoadBoard( aFileName, IO_MGR::LEGACY );
+    return LoadBoard( aFileName, PCB_IO_MGR::LEGACY, aSetActive );
+}
+
+
+BOARD* LoadBoard( wxString& aFileName )
+{
+    return LoadBoard( aFileName, false );
 }
 
 
@@ -133,11 +140,15 @@ PROJECT* GetDefaultProject()
     return project;
 }
 
+BOARD* LoadBoard( wxString& aFileName, PCB_IO_MGR::PCB_FILE_T aFormat )
+{
+    return LoadBoard( aFileName, aFormat, false );
+}
 
-BOARD* LoadBoard( wxString& aFileName, IO_MGR::PCB_FILE_T aFormat )
+BOARD* LoadBoard( wxString& aFileName, PCB_IO_MGR::PCB_FILE_T aFormat, bool aSetActive )
 {
     wxFileName pro = aFileName;
-    pro.SetExt( ProjectFileExtension );
+    pro.SetExt( FILEEXT::ProjectFileExtension );
     pro.MakeAbsolute();
     wxString projectPath = pro.GetFullPath();
 
@@ -151,7 +162,8 @@ BOARD* LoadBoard( wxString& aFileName, IO_MGR::PCB_FILE_T aFormat )
     {
         if( wxFileExists( projectPath ) )
         {
-            GetSettingsManager()->LoadProject( projectPath, false );
+            // cli
+            GetSettingsManager()->LoadProject( projectPath, aSetActive );
             project = GetSettingsManager()->GetProject( projectPath );
         }
     }
@@ -175,10 +187,25 @@ BOARD* LoadBoard( wxString& aFileName, IO_MGR::PCB_FILE_T aFormat )
     if( !DS_DATA_MODEL::GetTheInstance().LoadDrawingSheet( filename ) )
         wxFprintf( stderr, _( "Error loading drawing sheet." ) );
 
-    BOARD* brd = IO_MGR::Load( aFormat, aFileName );
+    BOARD* brd = PCB_IO_MGR::Load( aFormat, aFileName );
 
     if( brd )
     {
+        // JEY TODO: move this global to the board
+        ENUM_MAP<PCB_LAYER_ID>& layerEnum = ENUM_MAP<PCB_LAYER_ID>::Instance();
+
+        layerEnum.Choices().Clear();
+        layerEnum.Undefined( UNDEFINED_LAYER );
+
+        for( LSEQ seq = LSET::AllLayersMask().Seq(); seq; ++seq )
+        {
+            // Canonical name
+            layerEnum.Map( *seq, LSET::Name( *seq ) );
+
+            // User name
+            layerEnum.Map( *seq, brd->GetLayerName( *seq ) );
+        }
+
         brd->SetProject( project );
 
         // Move legacy view settings to local project settings
@@ -194,7 +221,7 @@ BOARD* LoadBoard( wxString& aFileName, IO_MGR::PCB_FILE_T aFormat )
         try
         {
             wxFileName rules = pro;
-            rules.SetExt( DesignRulesFileExtension );
+            rules.SetExt( FILEEXT::DesignRulesFileExtension );
             bds.m_DRCEngine->InitEngine( rules );
         }
         catch( ... )
@@ -219,7 +246,7 @@ BOARD* NewBoard( wxString& aFileName )
 {
     wxFileName boardFn = aFileName;
     wxFileName proFn   = aFileName;
-    proFn.SetExt( ProjectFileExtension );
+    proFn.SetExt( FILEEXT::ProjectFileExtension );
     proFn.MakeAbsolute();
 
     wxString projectPath = proFn.GetFullPath();
@@ -257,7 +284,7 @@ BOARD* CreateEmptyBoard()
 }
 
 
-bool SaveBoard( wxString& aFileName, BOARD* aBoard, IO_MGR::PCB_FILE_T aFormat, bool aSkipSettings )
+bool SaveBoard( wxString& aFileName, BOARD* aBoard, PCB_IO_MGR::PCB_FILE_T aFormat, bool aSkipSettings )
 {
     aBoard->BuildConnectivity();
     aBoard->SynchronizeNetsAndNetClasses( false );
@@ -268,7 +295,7 @@ bool SaveBoard( wxString& aFileName, BOARD* aBoard, IO_MGR::PCB_FILE_T aFormat, 
 
     try
     {
-        IO_MGR::Save( aFormat, aFileName, aBoard, nullptr );
+        PCB_IO_MGR::Save( aFormat, aFileName, aBoard, nullptr );
     }
     catch( ... )
     {
@@ -278,7 +305,7 @@ bool SaveBoard( wxString& aFileName, BOARD* aBoard, IO_MGR::PCB_FILE_T aFormat, 
     if( !aSkipSettings )
     {
         wxFileName pro = aFileName;
-        pro.SetExt( ProjectFileExtension );
+        pro.SetExt( FILEEXT::ProjectFileExtension );
         pro.MakeAbsolute();
 
         GetSettingsManager()->SaveProjectAs( pro.GetFullPath(), aBoard->GetProject() );
@@ -290,7 +317,7 @@ bool SaveBoard( wxString& aFileName, BOARD* aBoard, IO_MGR::PCB_FILE_T aFormat, 
 
 bool SaveBoard( wxString& aFileName, BOARD* aBoard, bool aSkipSettings )
 {
-    return SaveBoard( aFileName, aBoard, IO_MGR::KICAD_SEXP, aSkipSettings );
+    return SaveBoard( aFileName, aBoard, PCB_IO_MGR::KICAD_SEXP, aSkipSettings );
 }
 
 
@@ -370,12 +397,14 @@ bool ExportSpecctraDSN( BOARD* aBoard, wxString& aFullFilename )
 }
 
 
-bool ExportVRML( const wxString& aFullFileName, double aMMtoWRMLunit, bool aExport3DFiles,
+bool ExportVRML( const wxString& aFullFileName, double aMMtoWRMLunit, bool aIncludeUnspecified,
+                 bool aIncludeDNP, bool aExport3DFiles,
                  bool aUseRelativePaths, const wxString& a3D_Subdir, double aXRef, double aYRef )
 {
     if( s_PcbEditFrame )
     {
         bool ok = s_PcbEditFrame->ExportVRML_File( aFullFileName, aMMtoWRMLunit,
+                                                   aIncludeUnspecified, aIncludeDNP,
                                                    aExport3DFiles, aUseRelativePaths,
                                                    a3D_Subdir, aXRef, aYRef );
         return ok;
@@ -503,7 +532,7 @@ bool WriteDRCReport( BOARD* aBoard, const wxString& aFileName, EDA_UNITS aUnits,
     wxCHECK( engine, false );
 
     wxFileName fn = aBoard->GetFileName();
-    fn.SetExt( DesignRulesFileExtension );
+    fn.SetExt( FILEEXT::DesignRulesFileExtension );
     PROJECT* prj = nullptr;
 
     if( aBoard->GetProject() )
@@ -556,7 +585,8 @@ bool WriteDRCReport( BOARD* aBoard, const wxString& aFileName, EDA_UNITS aUnits,
                 if( aItem->GetErrorCode() == DRCE_MISSING_FOOTPRINT
                     || aItem->GetErrorCode() == DRCE_DUPLICATE_FOOTPRINT
                     || aItem->GetErrorCode() == DRCE_EXTRA_FOOTPRINT
-                    || aItem->GetErrorCode() == DRCE_NET_CONFLICT )
+                    || aItem->GetErrorCode() == DRCE_NET_CONFLICT
+                    || aItem->GetErrorCode() == DRCE_SCHEMATIC_PARITY_ISSUES )
                 {
                     footprints.push_back( aItem );
                 }
@@ -570,8 +600,13 @@ bool WriteDRCReport( BOARD* aBoard, const wxString& aFileName, EDA_UNITS aUnits,
                 }
             } );
 
+    aBoard->RecordDRCExclusions();
+    aBoard->DeleteMARKERs( true, true );
     engine->RunTests( aUnits, aReportAllTrackErrors, false );
     engine->ClearViolationHandler();
+
+    // Update the exclusion status on any excluded markers that still exist.
+    aBoard->ResolveDRCExclusions( false );
 
     // TODO: Unify this with DIALOG_DRC::writeReport
 

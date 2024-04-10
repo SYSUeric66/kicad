@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2015-2016 Mario Luzeiro <mrluzeiro@ua.pt>
- * Copyright (C) 1992-2023 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2024 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -29,7 +29,7 @@
 #include "../common_ogl/ogl_utils.h"
 #include "eda_3d_canvas.h"
 #include <eda_3d_viewer_frame.h>
-#include <3d_rendering/raytracing/render_3d_raytrace.h>
+#include <3d_rendering/raytracing/render_3d_raytrace_gl.h>
 #include <3d_rendering/opengl/render_3d_opengl.h>
 #include <3d_viewer_id.h>
 #include <advanced_config.h>
@@ -81,11 +81,11 @@ BEGIN_EVENT_TABLE( EDA_3D_CANVAS, HIDPI_GL_3D_CANVAS )
 END_EVENT_TABLE()
 
 
-EDA_3D_CANVAS::EDA_3D_CANVAS( wxWindow* aParent, const int* aAttribList,
+EDA_3D_CANVAS::EDA_3D_CANVAS( wxWindow* aParent, const wxGLAttributes& aGLAttribs,
                               BOARD_ADAPTER& aBoardAdapter, CAMERA& aCamera,
                               S3D_CACHE* a3DCachePointer ) :
-        HIDPI_GL_3D_CANVAS( EDA_DRAW_PANEL_GAL::GetVcSettings(), aCamera, aParent, wxID_ANY,
-                            aAttribList, wxDefaultPosition,
+        HIDPI_GL_3D_CANVAS( EDA_DRAW_PANEL_GAL::GetVcSettings(), aCamera, aParent, aGLAttribs,
+                            wxID_ANY, wxDefaultPosition,
                             wxDefaultSize, wxFULL_REPAINT_ON_RESIZE ),
         m_eventDispatcher( nullptr ),
         m_parentStatusBar( nullptr ),
@@ -119,7 +119,7 @@ EDA_3D_CANVAS::EDA_3D_CANVAS( wxWindow* aParent, const int* aAttribList,
 
     m_is_currently_painting.clear();
 
-    m_3d_render_raytracing = new RENDER_3D_RAYTRACE( this, m_boardAdapter, m_camera );
+    m_3d_render_raytracing = new RENDER_3D_RAYTRACE_GL( this, m_boardAdapter, m_camera );
     m_3d_render_opengl = new RENDER_3D_OPENGL( this, m_boardAdapter, m_camera );
 
     wxASSERT( m_3d_render_raytracing != nullptr );
@@ -366,13 +366,10 @@ void EDA_3D_CANVAS::DoRePaint()
     if( !GetParent()->GetParent()->IsShownOnScreen() )
         return; // The parent board editor frame is no more alive
 
-    wxString err_messages;
-
-    // !TODO: implement error reporter
+    wxString           err_messages;
     INFOBAR_REPORTER   warningReporter( m_parentInfoBar );
     STATUSBAR_REPORTER activityReporter( m_parentStatusBar, EDA_3D_VIEWER_STATUSBAR::ACTIVITY );
-
-    unsigned strtime = GetRunningMicroSecs();
+    int64_t            start_time = GetRunningMicroSecs();
 
     // "Makes the OpenGL state that is represented by the OpenGL rendering
     //  context context current, i.e. it will be used by all subsequent OpenGL calls.
@@ -464,7 +461,7 @@ void EDA_3D_CANVAS::DoRePaint()
 
     if( m_camera_is_moving )
     {
-        const unsigned curtime_delta = GetRunningMicroSecs() - m_strtime_camera_movement;
+        const int64_t curtime_delta = GetRunningMicroSecs() - m_strtime_camera_movement;
         curtime_delta_s = (curtime_delta / 1e6) * m_camera_moving_speed;
         m_camera.Interpolate( curtime_delta_s );
 
@@ -548,7 +545,7 @@ void EDA_3D_CANVAS::DoRePaint()
     if( m_mouse_was_moved || m_camera_is_moving )
     {
         // Calculation time in milliseconds
-        const double calculation_time = (double)( GetRunningMicroSecs() - strtime) / 1e3;
+        const double calculation_time = (double)( GetRunningMicroSecs() - start_time ) / 1e3;
 
         activityReporter.Report( wxString::Format( _( "Last render time %.0f ms" ),
                                  calculation_time ) );
@@ -841,7 +838,7 @@ void EDA_3D_CANVAS::OnTimerTimeout_Redraw( wxTimerEvent& aEvent )
 
 void EDA_3D_CANVAS::OnRefreshRequest( wxEvent& aEvent )
 {
-   DoRePaint();
+    Refresh();
 }
 
 
@@ -921,7 +918,6 @@ bool EDA_3D_CANVAS::SetView3D( VIEW3D_TYPE aRequestedView )
 
     const float delta_move = m_delta_move_step_factor * m_camera.GetZoom();
     const float arrow_moving_time_speed = 8.0f;
-    bool        handled = false;
 
     switch( aRequestedView )
     {
@@ -983,78 +979,27 @@ bool EDA_3D_CANVAS::SetView3D( VIEW3D_TYPE aRequestedView )
         return true;
 
     case VIEW3D_TYPE::VIEW3D_RIGHT:
-        m_camera.SetInterpolateMode( CAMERA_INTERPOLATION::BEZIER );
-        m_camera.SetT0_and_T1_current_T();
-        m_camera.Reset_T1();
-        m_camera.RotateZ_T1( glm::radians( -90.0f ) );
-        m_camera.RotateX_T1( glm::radians( -90.0f ) );
-        request_start_moving_camera();
-        return true;
-
     case VIEW3D_TYPE::VIEW3D_LEFT:
-        m_camera.SetInterpolateMode( CAMERA_INTERPOLATION::BEZIER );
-        m_camera.SetT0_and_T1_current_T();
-        m_camera.Reset_T1();
-        m_camera.RotateZ_T1( glm::radians(  90.0f ) );
-        m_camera.RotateX_T1( glm::radians( -90.0f ) );
-        request_start_moving_camera();
-        return true;
-
     case VIEW3D_TYPE::VIEW3D_FRONT:
-        m_camera.SetInterpolateMode( CAMERA_INTERPOLATION::BEZIER );
-        m_camera.SetT0_and_T1_current_T();
-        m_camera.Reset_T1();
-        m_camera.RotateX_T1( glm::radians( -90.0f ) );
-        request_start_moving_camera();
-        return true;
-
     case VIEW3D_TYPE::VIEW3D_BACK:
+    case VIEW3D_TYPE::VIEW3D_FLIP:
         m_camera.SetInterpolateMode( CAMERA_INTERPOLATION::BEZIER );
         m_camera.SetT0_and_T1_current_T();
-        m_camera.Reset_T1();
-        m_camera.RotateX_T1( glm::radians( -90.0f ) );
-
-        // The rotation angle should be 180.
-        // We use 179.999 (180 - epsilon) to avoid a full 360 deg rotation when
-        // using 180 deg if the previous rotated position was already 180 deg
-        m_camera.RotateZ_T1( glm::radians( 179.999f ) );
+        m_camera.ViewCommand_T1( aRequestedView );
         request_start_moving_camera();
         return true;
 
     case VIEW3D_TYPE::VIEW3D_TOP:
-        m_camera.SetInterpolateMode( CAMERA_INTERPOLATION::BEZIER );
-        m_camera.SetT0_and_T1_current_T();
-        m_camera.Reset_T1();
-        request_start_moving_camera( glm::min( glm::max( m_camera.GetZoom(), 0.5f ), 1.125f ) );
-        return true;
-
     case VIEW3D_TYPE::VIEW3D_BOTTOM:
         m_camera.SetInterpolateMode( CAMERA_INTERPOLATION::BEZIER );
         m_camera.SetT0_and_T1_current_T();
-        m_camera.Reset_T1();
-        m_camera.RotateY_T1( glm::radians( 179.999f ) );    // Rotation = 180 - epsilon
+        m_camera.ViewCommand_T1( aRequestedView );
         request_start_moving_camera( glm::min( glm::max( m_camera.GetZoom(), 0.5f ), 1.125f ) );
-        return true;
-
-    case VIEW3D_TYPE::VIEW3D_FLIP:
-        m_camera.SetInterpolateMode( CAMERA_INTERPOLATION::BEZIER );
-        m_camera.SetT0_and_T1_current_T();
-        m_camera.RotateY_T1( glm::radians( 179.999f ) );
-        request_start_moving_camera();
         return true;
 
     default:
         return false;
     }
-
-    m_mouse_was_moved = true;
-
-    restart_editingTimeOut_Timer();
-
-    DisplayStatus();
-    Request_refresh();
-
-    return handled;
 }
 
 

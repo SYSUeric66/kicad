@@ -3,7 +3,7 @@
  *
  * Copyright (C) 2016 Jean-Pierre Charras, jp.charras at wanadoo.fr
  * Copyright (C) 2023 CERN
- * Copyright (C) 1992-2023 Kicad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2024 Kicad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -83,6 +83,11 @@ SCH_SHEET::SCH_SHEET( EDA_ITEM* aParent, const VECTOR2I& aPos, VECTOR2I aSize,
     m_size = aSize;
     m_screen = nullptr;
 
+    m_borderWidth = 0;
+    m_borderColor = COLOR4D::UNSPECIFIED;
+    m_backgroundColor = COLOR4D::UNSPECIFIED;
+    m_fieldsAutoplaced = aAutoplaceFields;
+
     for( int i = 0; i < SHEET_MANDATORY_FIELDS; ++i )
     {
         m_fields.emplace_back( aPos, i, this, GetDefaultFieldName( i ) );
@@ -96,12 +101,7 @@ SCH_SHEET::SCH_SHEET( EDA_ITEM* aParent, const VECTOR2I& aPos, VECTOR2I aSize,
             m_fields.back().SetLayer( LAYER_SHEETFIELDS );
     }
 
-    m_fieldsAutoplaced = aAutoplaceFields;
     AutoAutoplaceFields( nullptr );
-
-    m_borderWidth = 0;
-    m_borderColor = COLOR4D::UNSPECIFIED;
-    m_backgroundColor = COLOR4D::UNSPECIFIED;
 }
 
 
@@ -116,6 +116,11 @@ SCH_SHEET::SCH_SHEET( const SCH_SHEET& aSheet ) :
     m_fieldsAutoplaced = aSheet.m_fieldsAutoplaced;
     m_screen = aSheet.m_screen;
 
+    m_borderWidth = aSheet.m_borderWidth;
+    m_borderColor = aSheet.m_borderColor;
+    m_backgroundColor = aSheet.m_backgroundColor;
+    m_instances = aSheet.m_instances;
+
     for( SCH_SHEET_PIN* pin : aSheet.m_pins )
     {
         m_pins.emplace_back( new SCH_SHEET_PIN( *pin ) );
@@ -124,11 +129,6 @@ SCH_SHEET::SCH_SHEET( const SCH_SHEET& aSheet ) :
 
     for( SCH_FIELD& field : m_fields )
         field.SetParent( this );
-
-    m_borderWidth = aSheet.m_borderWidth;
-    m_borderColor = aSheet.m_borderColor;
-    m_backgroundColor = aSheet.m_backgroundColor;
-    m_instances = aSheet.m_instances;
 
     if( m_screen )
         m_screen->IncRefCount();
@@ -842,12 +842,12 @@ void SCH_SHEET::Move( const VECTOR2I& aMoveVector )
 }
 
 
-void SCH_SHEET::Rotate( const VECTOR2I& aCenter )
+void SCH_SHEET::Rotate( const VECTOR2I& aCenter, bool aRotateCCW )
 {
     VECTOR2I prev = m_pos;
 
-    RotatePoint( m_pos, aCenter, ANGLE_90 );
-    RotatePoint( &m_size.x, &m_size.y, ANGLE_90 );
+    RotatePoint( m_pos, aCenter, aRotateCCW ? ANGLE_270 : ANGLE_90 );
+    RotatePoint( &m_size.x, &m_size.y, aRotateCCW ? ANGLE_270 : ANGLE_90 );
 
     if( m_size.x < 0 )
     {
@@ -864,7 +864,7 @@ void SCH_SHEET::Rotate( const VECTOR2I& aCenter )
     // Pins must be rotated first as that's how we determine vertical vs horizontal
     // orientation for auto-placement
     for( SCH_SHEET_PIN* sheetPin : m_pins )
-        sheetPin->Rotate( aCenter );
+        sheetPin->Rotate( aCenter, aRotateCCW );
 
     if( m_fieldsAutoplaced == FIELDS_AUTOPLACED_AUTO )
     {
@@ -1000,15 +1000,50 @@ void SCH_SHEET::GetEndPoints( std::vector <DANGLING_END_ITEM>& aItemList )
 }
 
 
-bool SCH_SHEET::UpdateDanglingState( std::vector<DANGLING_END_ITEM>& aItemList,
-                                     const SCH_SHEET_PATH* aPath )
+bool SCH_SHEET::UpdateDanglingState( std::vector<DANGLING_END_ITEM>& aItemListByType,
+                                     std::vector<DANGLING_END_ITEM>& aItemListByPos,
+                                     const SCH_SHEET_PATH*           aPath )
 {
     bool changed = false;
 
     for( SCH_SHEET_PIN* sheetPin : m_pins )
-        changed |= sheetPin->UpdateDanglingState( aItemList );
+        changed |= sheetPin->UpdateDanglingState( aItemListByType, aItemListByPos );
 
     return changed;
+}
+
+
+bool SCH_SHEET::HasConnectivityChanges( const SCH_ITEM* aItem,
+                                        const SCH_SHEET_PATH* aInstance ) const
+{
+    // Do not compare to ourself.
+    if( aItem == this )
+        return false;
+
+    const SCH_SHEET* sheet = dynamic_cast<const SCH_SHEET*>( aItem );
+
+    // Don't compare against a different SCH_ITEM.
+    wxCHECK( sheet, false );
+
+    if( GetPosition() != sheet->GetPosition() )
+        return true;
+
+    // Technically this cannot happen because undo/redo does not support reloading sheet
+    // file association changes.  This was just added so that it doesn't get missed should
+    // we ever fix the undo/redo issue.
+    if( ( GetFileName() != sheet->GetFileName() ) || ( GetName() != sheet->GetName() ) )
+        return true;
+
+    if( m_pins.size() != sheet->m_pins.size() )
+        return true;
+
+    for( size_t i = 0; i < m_pins.size(); i++ )
+    {
+        if( m_pins[i]->HasConnectivityChanges( sheet->m_pins[i] ) )
+            return true;
+    }
+
+    return false;
 }
 
 
@@ -1106,21 +1141,20 @@ bool SCH_SHEET::HitTest( const BOX2I& aRect, bool aContained, int aAccuracy ) co
 }
 
 
-void SCH_SHEET::Plot( PLOTTER* aPlotter, bool aBackground,
-                      const SCH_PLOT_SETTINGS& aPlotSettings ) const
+void SCH_SHEET::Plot( PLOTTER* aPlotter, bool aBackground, const SCH_PLOT_OPTS& aPlotOpts,
+                      int aUnit, int aBodyStyle, const VECTOR2I& aOffset, bool aDimmed )
 {
     if( aBackground && !aPlotter->GetColorMode() )
         return;
 
-    auto*    settings = dynamic_cast<KIGFX::SCH_RENDER_SETTINGS*>( aPlotter->RenderSettings() );
-    bool     override = settings ? settings->m_OverrideItemColors : false;
-    COLOR4D  borderColor = GetBorderColor();
-    COLOR4D  backgroundColor = GetBackgroundColor();
+    SCH_RENDER_SETTINGS* renderSettings = getRenderSettings( aPlotter );
+    COLOR4D              borderColor = GetBorderColor();
+    COLOR4D              backgroundColor = GetBackgroundColor();
 
-    if( override || borderColor == COLOR4D::UNSPECIFIED )
+    if( renderSettings->m_OverrideItemColors || borderColor == COLOR4D::UNSPECIFIED )
         borderColor = aPlotter->RenderSettings()->GetLayerColor( LAYER_SHEET );
 
-    if( override || backgroundColor == COLOR4D::UNSPECIFIED )
+    if( renderSettings->m_OverrideItemColors || backgroundColor == COLOR4D::UNSPECIFIED )
         backgroundColor = aPlotter->RenderSettings()->GetLayerColor( LAYER_SHEET_BACKGROUND );
 
     if( aBackground && backgroundColor.a > 0.0 )
@@ -1132,7 +1166,7 @@ void SCH_SHEET::Plot( PLOTTER* aPlotter, bool aBackground,
     {
         aPlotter->SetColor( borderColor );
 
-        int penWidth = std::max( GetPenWidth(), aPlotter->RenderSettings()->GetMinPenWidth() );
+        int penWidth = GetEffectivePenWidth( getRenderSettings( aPlotter ) );
         aPlotter->Rect( m_pos, m_pos + m_size, FILL_T::NO_FILL, penWidth );
     }
 
@@ -1152,28 +1186,27 @@ void SCH_SHEET::Plot( PLOTTER* aPlotter, bool aBackground,
 
     // Plot sheet pins
     for( SCH_SHEET_PIN* sheetPin : m_pins )
-        sheetPin->Plot( aPlotter, aBackground, aPlotSettings );
+        sheetPin->Plot( aPlotter, aBackground, aPlotOpts, aUnit, aBodyStyle, aOffset, aDimmed );
 
     // Plot the fields
-    for( const SCH_FIELD& field : m_fields )
-        field.Plot( aPlotter, aBackground, aPlotSettings );
+    for( SCH_FIELD& field : m_fields )
+        field.Plot( aPlotter, aBackground, aPlotOpts, aUnit, aBodyStyle, aOffset, aDimmed );
 }
 
 
-void SCH_SHEET::Print( const RENDER_SETTINGS* aSettings, const VECTOR2I& aOffset )
+void SCH_SHEET::Print( const SCH_RENDER_SETTINGS* aSettings, int aUnit, int aBodyStyle,
+                       const VECTOR2I& aOffset, bool aForceNoFill, bool aDimmed )
 {
-    wxDC*       DC = aSettings->GetPrintDC();
-    VECTOR2I    pos = m_pos + aOffset;
-    int         lineWidth = std::max( GetPenWidth(), aSettings->GetDefaultPenWidth() );
-    const auto* settings = dynamic_cast<const KIGFX::SCH_RENDER_SETTINGS*>( aSettings );
-    bool        override = settings && settings->m_OverrideItemColors;
-    COLOR4D     border = GetBorderColor();
-    COLOR4D     background = GetBackgroundColor();
+    wxDC*    DC = aSettings->GetPrintDC();
+    VECTOR2I pos = m_pos + aOffset;
+    int      lineWidth = GetEffectivePenWidth( aSettings );
+    COLOR4D  border = GetBorderColor();
+    COLOR4D  background = GetBackgroundColor();
 
-    if( override || border == COLOR4D::UNSPECIFIED )
+    if( aSettings->m_OverrideItemColors || border == COLOR4D::UNSPECIFIED )
         border = aSettings->GetLayerColor( LAYER_SHEET );
 
-    if( override || background == COLOR4D::UNSPECIFIED )
+    if( aSettings->m_OverrideItemColors || background == COLOR4D::UNSPECIFIED )
         background = aSettings->GetLayerColor( LAYER_SHEET_BACKGROUND );
 
     if( GetGRForceBlackPenState() )     // printing in black & white
@@ -1185,10 +1218,10 @@ void SCH_SHEET::Print( const RENDER_SETTINGS* aSettings, const VECTOR2I& aOffset
     GRRect( DC, pos, pos + m_size, lineWidth, border );
 
     for( SCH_FIELD& field : m_fields )
-        field.Print( aSettings, aOffset );
+        field.Print( aSettings, aUnit, aBodyStyle, aOffset, aForceNoFill, aDimmed );
 
     for( SCH_SHEET_PIN* sheetPin : m_pins )
-        sheetPin->Print( aSettings, aOffset );
+        sheetPin->Print( aSettings, aUnit, aBodyStyle, aOffset, aForceNoFill, aDimmed );
 }
 
 
@@ -1236,6 +1269,39 @@ bool SCH_SHEET::operator <( const SCH_ITEM& aItem ) const
         return m_fields[ SHEETFILENAME ].GetText() < sheet->m_fields[ SHEETFILENAME ].GetText();
 
     return false;
+}
+
+
+void SCH_SHEET::RemoveInstance( const KIID_PATH& aInstancePath )
+{
+    // Search for an existing path and remove it if found (should not occur)
+    for( unsigned ii = 0; ii < m_instances.size(); ii++ )
+    {
+        if( m_instances[ii].m_Path == aInstancePath )
+        {
+            wxLogTrace( traceSchSheetPaths, "Removing sheet instance:\n"
+                                            "  sheet path %s\n"
+                                            "  page %s, from project %s.",
+                        aInstancePath.AsString(),
+                        m_instances[ii].m_PageNumber,
+                        m_instances[ii].m_ProjectName );
+
+            m_instances.erase( m_instances.begin() + ii );
+            ii--;
+        }
+    }
+}
+
+
+void SCH_SHEET::AddInstance( const SCH_SHEET_INSTANCE& aInstance )
+{
+    SCH_SHEET_INSTANCE oldInstance;
+
+    if( getInstance( oldInstance, aInstance.m_Path ) )
+        RemoveInstance( aInstance.m_Path );
+
+    m_instances.emplace_back( aInstance );
+
 }
 
 

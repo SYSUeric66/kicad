@@ -1,7 +1,7 @@
 /*
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
- * Copyright (C) 2022 KiCad Developers.
+ * Copyright (C) 2022-2024 KiCad Developers.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -30,6 +30,7 @@
 #include <drc/drc_engine.h>
 #include <drc/drc_rtree.h>
 #include <drc/drc_cache_generator.h>
+#include <mutex>
 
 bool DRC_CACHE_GENERATOR::Run()
 {
@@ -39,6 +40,8 @@ bool DRC_CACHE_GENERATOR::Run()
     int&           largestPhysicalClearance = m_board->m_DRCMaxPhysicalClearance;
     DRC_CONSTRAINT worstConstraint;
     LSET           boardCopperLayers = LSET::AllCuMask( m_board->GetCopperLayerCount() );
+    thread_pool&   tp = GetKiCadThreadPool();
+
 
     largestClearance = std::max( largestClearance, m_board->GetMaxClearanceValue() );
 
@@ -81,11 +84,8 @@ bool DRC_CACHE_GENERATOR::Run()
         }
     }
 
-    // This is the number of tests between 2 calls to the progress bar.
-    // Note that zones are -not- done here, so it's reasonably fast.
-    size_t progressDelta = 500;
-    size_t count = 0;
-    size_t ii = 0;
+    size_t              count = 0;
+    std::atomic<size_t> done( 1 );
 
     auto countItems =
             [&]( BOARD_ITEM* item ) -> bool
@@ -97,7 +97,7 @@ bool DRC_CACHE_GENERATOR::Run()
     auto addToCopperTree =
             [&]( BOARD_ITEM* item ) -> bool
             {
-                if( !reportProgress( ii++, count, progressDelta ) )
+                if( m_drcEngine->IsCancelled() )
                     return false;
 
                 LSET copperLayers = item->GetLayerSet() & boardCopperLayers;
@@ -117,6 +117,7 @@ bool DRC_CACHE_GENERATOR::Run()
                         m_board->m_CopperItemRTreeCache->Insert( item, layer, largestClearance );
                 }
 
+                done.fetch_add( 1 );
                 return true;
             };
 
@@ -133,13 +134,23 @@ bool DRC_CACHE_GENERATOR::Run()
 
     forEachGeometryItem( itemTypes, LSET::AllCuMask(), countItems );
 
+    std::future<void> retn = tp.submit(
+            [&]()
+            {
+                std::unique_lock<std::shared_mutex> writeLock( m_board->m_CachesMutex );
+
+                if( !m_board->m_CopperItemRTreeCache )
+                    m_board->m_CopperItemRTreeCache = std::make_shared<DRC_RTREE>();
+
+                forEachGeometryItem( itemTypes, LSET::AllCuMask(), addToCopperTree );
+            } );
+
+    std::future_status status = retn.wait_for( std::chrono::milliseconds( 250 ) );
+
+    while( status != std::future_status::ready )
     {
-        std::unique_lock<std::mutex> cacheLock( m_board->m_CachesMutex );
-
-        if( !m_board->m_CopperItemRTreeCache )
-            m_board->m_CopperItemRTreeCache = std::make_shared<DRC_RTREE>();
-
-        forEachGeometryItem( itemTypes, LSET::AllCuMask(), addToCopperTree );
+        reportProgress( done, count );
+        status = retn.wait_for( std::chrono::milliseconds( 250 ) );
     }
 
     if( !reportPhase( _( "Tessellating copper zones..." ) ) )
@@ -151,9 +162,7 @@ bool DRC_CACHE_GENERATOR::Run()
     for( FOOTPRINT* footprint : m_board->Footprints() )
         footprint->BuildCourtyardCaches();
 
-    thread_pool&                     tp = GetKiCadThreadPool();
     std::vector<std::future<size_t>> returns;
-    std::atomic<size_t>              done( 1 );
 
     returns.reserve( allZones.size() );
 
@@ -176,8 +185,10 @@ bool DRC_CACHE_GENERATOR::Run()
                            rtree->Insert( aZone, layer );
                    }
 
-                   std::unique_lock<std::mutex> cacheLock( m_board->m_CachesMutex );
-                   m_board->m_CopperZoneRTreeCache[ aZone ] = std::move( rtree );
+                   {
+                       std::unique_lock<std::shared_mutex> writeLock( m_board->m_CachesMutex );
+                       m_board->m_CopperZoneRTreeCache[ aZone ] = std::move( rtree );
+                   }
 
                    done.fetch_add( 1 );
                 }
@@ -188,13 +199,15 @@ bool DRC_CACHE_GENERATOR::Run()
     for( ZONE* zone : allZones )
         returns.emplace_back( tp.submit( cache_zones, zone ) );
 
+    done.store( 1 );
+
     for( const std::future<size_t>& ret : returns )
     {
-        std::future_status status = ret.wait_for( std::chrono::milliseconds( 250 ) );
+        status = ret.wait_for( std::chrono::milliseconds( 250 ) );
 
         while( status != std::future_status::ready )
         {
-            m_drcEngine->ReportProgress( static_cast<double>( done ) / allZones.size() );
+            reportProgress( done, allZones.size() );
             status = ret.wait_for( std::chrono::milliseconds( 250 ) );
         }
     }

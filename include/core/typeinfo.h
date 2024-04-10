@@ -91,6 +91,8 @@ enum KICAD_T
     PCB_GENERATOR_T,         ///< class PCB_GENERATOR, generator on a layer
     PCB_TEXT_T,              ///< class PCB_TEXT, text on a layer
     PCB_TEXTBOX_T,           ///< class PCB_TEXTBOX, wrapped text on a layer
+    PCB_TABLE_T,             ///< class PCB_TABLE, table of PCB_TABLECELLs
+    PCB_TABLECELL_T,         ///< class PCB_TABLECELL, PCB_TEXTBOX for use in tables
     PCB_TRACE_T,             ///< class PCB_TRACK, a track segment (segment on a copper layer)
     PCB_VIA_T,               ///< class PCB_VIA, a via (like a track segment on a copper layer)
     PCB_ARC_T,               ///< class PCB_ARC, an arc track segment on a copper layer
@@ -148,6 +150,8 @@ enum KICAD_T
     SCH_BITMAP_T,
     SCH_TEXTBOX_T,
     SCH_TEXT_T,
+    SCH_TABLE_T,
+    SCH_TABLECELL_T,
     SCH_LABEL_T,
     SCH_GLOBAL_LABEL_T,
     SCH_HIER_LABEL_T,
@@ -382,6 +386,8 @@ constexpr bool IsEeschemaType( const KICAD_T aType )
     case SCH_BITMAP_T:
     case SCH_TEXT_T:
     case SCH_TEXTBOX_T:
+    case SCH_TABLE_T:
+    case SCH_TABLECELL_T:
     case SCH_LABEL_T:
     case SCH_DIRECTIVE_LABEL_T:
     case SCH_GLOBAL_LABEL_T:
@@ -438,6 +444,8 @@ constexpr bool IsPcbnewType( const KICAD_T aType )
     case PCB_FIELD_T:
     case PCB_TEXT_T:
     case PCB_TEXTBOX_T:
+    case PCB_TABLE_T:
+    case PCB_TABLECELL_T:
     case PCB_TRACE_T:
     case PCB_VIA_T:
     case PCB_ARC_T:

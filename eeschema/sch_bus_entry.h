@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2004 Jean-Pierre Charras, jaen-pierre.charras@gipsa-lab.inpg.com
- * Copyright (C) 2004-2021 KiCad Developers, see change_log.txt for contributors.
+ * Copyright (C) 2004-2024 KiCad Developers, see change_log.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -91,8 +91,6 @@ public:
 
     void ViewGetLayers( int aLayers[], int& aCount ) const override;
 
-    void Print( const RENDER_SETTINGS* aSettings, const VECTOR2I& aOffset ) override;
-
     const BOX2I GetBoundingBox() const override;
 
     void Move( const VECTOR2I& aMoveVector ) override
@@ -102,11 +100,14 @@ public:
 
     void MirrorHorizontally( int aCenter ) override;
     void MirrorVertically( int aCenter ) override;
-    void Rotate( const VECTOR2I& aCenter ) override;
+    void Rotate( const VECTOR2I& aCenter, bool aRotateCCW ) override;
 
     bool IsDangling() const override;
 
     bool IsConnectable() const override { return true; }
+
+    bool HasConnectivityChanges( const SCH_ITEM* aItem,
+                                 const SCH_SHEET_PATH* aInstance = nullptr ) const override;
 
     std::vector<VECTOR2I> GetConnectionPoints() const override;
 
@@ -122,8 +123,11 @@ public:
 
     bool HitTest( const BOX2I& aRect, bool aContained, int aAccuracy = 0 ) const override;
 
-    void Plot( PLOTTER* aPlotter, bool aBackground,
-               const SCH_PLOT_SETTINGS& aPlotSettings ) const override;
+    void Print( const SCH_RENDER_SETTINGS* aSettings, int aUnit, int aBodyStyle,
+                const VECTOR2I& aOffset, bool aForceNoFill, bool aDimmed ) override;
+
+    void Plot( PLOTTER* aPlotter, bool aBackground, const SCH_PLOT_OPTS& aPlotOpts,
+               int aUnit, int aBodyStyle, const VECTOR2I& aOffset, bool aDimmed ) override;
 
     void GetMsgPanelInfo( EDA_DRAW_FRAME* aFrame, std::vector<MSG_PANEL_ITEM>& aList ) override;
 
@@ -195,8 +199,9 @@ public:
 
     BITMAPS GetMenuImage() const override;
 
-    bool UpdateDanglingState( std::vector<DANGLING_END_ITEM>& aItemList,
-                              const SCH_SHEET_PATH* aPath = nullptr ) override;
+    bool UpdateDanglingState( std::vector<DANGLING_END_ITEM>& aItemListByType,
+                              std::vector<DANGLING_END_ITEM>& aItemListByPos,
+                              const SCH_SHEET_PATH*           aPath = nullptr ) override;
 
     /**
      * Pointer to the bus item (usually a bus wire) connected to this bus-wire
@@ -240,8 +245,9 @@ public:
 
     BITMAPS GetMenuImage() const override;
 
-    bool UpdateDanglingState( std::vector<DANGLING_END_ITEM>& aItemList,
-                              const SCH_SHEET_PATH* aPath = nullptr ) override;
+    bool UpdateDanglingState( std::vector<DANGLING_END_ITEM>& aItemListByType,
+                              std::vector<DANGLING_END_ITEM>& aItemListByPos,
+                              const SCH_SHEET_PATH*           aPath = nullptr ) override;
 
     /**
      * Pointer to the bus items (usually bus wires) connected to this bus-bus

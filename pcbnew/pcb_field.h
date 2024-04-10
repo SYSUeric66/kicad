@@ -37,6 +37,9 @@ public:
 
     PCB_FIELD( const PCB_TEXT& aText, int aFieldId, const wxString& aName = wxEmptyString );
 
+    void Serialize( google::protobuf::Any &aContainer ) const override;
+    bool Deserialize( const google::protobuf::Any &aContainer ) override;
+
     static inline bool ClassOf( const EDA_ITEM* aItem )
     {
         return aItem && PCB_FIELD_T == aItem->Type();
@@ -103,19 +106,19 @@ public:
 
     void SetName( const wxString& aName ) { m_name = aName; }
 
-    /**
-     * Get the initial name of the field set at creation (or set by SetName()).
-     * This is the raw field name with no translation and no change.
-     */
-    const wxString& GetInternalName() { return m_name; }
-
     int GetId() const { return m_id; }
+    void SetId( int aId ) { m_id = aId; }
 
     double Similarity( const BOARD_ITEM& aOther ) const override;
 
     bool operator==( const BOARD_ITEM& aOther ) const override;
 
+protected:
+    void swapData( BOARD_ITEM* aImage ) override;
+
 private:
+    void setId( int aId ) { m_id = aId; }
+
     int m_id; ///< Field index, @see enum MANDATORY_FIELD_T
 
     wxString m_name;

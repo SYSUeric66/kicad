@@ -22,7 +22,7 @@
 
 #include <pcb_base_frame.h>
 #include <pcb_base_edit_frame.h>
-#include <io_mgr.h>
+#include <pcb_io/pcb_io_mgr.h>
 #include <fp_tree_synchronizing_adapter.h>
 
 class PCB_LAYER_BOX_SELECTOR;
@@ -145,7 +145,7 @@ public:
     /**
      * Save a library to a new name and/or library type.
      *
-     * @see #PLUGIN::FootprintSave and #PLUGIN::FootprintLibCreate
+     * @see #PCB_IO::FootprintSave and #IO_BASE::LibraryCreate
      *
      * @note Saving as a new library type requires the plug-in to support saving libraries
      */

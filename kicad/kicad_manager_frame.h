@@ -35,6 +35,7 @@ class PANEL_KICAD_LAUNCHER;
 class PLUGIN_CONTENT_MANAGER;
 class PROJECT_TREE;
 class PROJECT_TREE_PANE;
+class UPDATE_MANAGER;
 
 /**
  * The main KiCad project manager frame.  It is not a KIWAY_PLAYER.
@@ -62,6 +63,11 @@ public:
     void OnFileHistory( wxCommandEvent& event );
     void OnClearFileHistory( wxCommandEvent& aEvent );
     void OnExit( wxCommandEvent& event );
+
+    /** Create the status line (like a wxStatusBar). This is actually a KISTATUSBAR status bar.
+     * the specified number of fields is the extra number of fields, not the full field count.
+     * @return a KISTATUSBAR (derived from wxStatusBar)
+     */
     wxStatusBar* OnCreateStatusBar( int number, long style, wxWindowID id,
                                     const wxString& name ) override;
 
@@ -167,6 +173,9 @@ public:
 
     void CreatePCM();   // creates the PLUGIN_CONTENT_MANAGER
 
+    // Used only on Windows: stores the info message about file watcher
+    wxString m_FileWatcherInfo;
+
     DECLARE_EVENT_TABLE()
 
 protected:
@@ -206,6 +215,7 @@ private:
     std::shared_ptr<PLUGIN_CONTENT_MANAGER> m_pcm;
     BITMAP_BUTTON*                          m_pcmButton;
     int                                     m_pcmUpdateCount;
+    std::unique_ptr<UPDATE_MANAGER>         m_updateManager;
 };
 
 

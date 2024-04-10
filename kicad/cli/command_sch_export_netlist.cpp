@@ -32,13 +32,13 @@
 
 CLI::SCH_EXPORT_NETLIST_COMMAND::SCH_EXPORT_NETLIST_COMMAND() : COMMAND( "netlist" )
 {
-    m_argParser.add_description( UTF8STDSTR( _( "Export a Netlist" ) ) );
+    m_argParser.add_description( UTF8STDSTR( _( "Export a netlist" ) ) );
     addCommonArgs( true, true, false, false );
 
     m_argParser.add_argument( ARG_FORMAT )
             .default_value( std::string( "kicadsexpr" ) )
             .help( UTF8STDSTR( _( "Netlist output format, valid options: kicadsexpr, kicadxml, "
-                                  "cadstar, orcadpcb2, spice, spicemodel" ) ) )
+                                  "cadstar, orcadpcb2, spice, spicemodel, pads, allegro" ) ) )
             .metavar( "FORMAT" );
 }
 
@@ -81,6 +81,14 @@ int CLI::SCH_EXPORT_NETLIST_COMMAND::doPerform( KIWAY& aKiway )
     else if( format == "spicemodel" )
     {
         netJob->format = JOB_EXPORT_SCH_NETLIST::FORMAT::SPICEMODEL;
+    }
+    else if( format == "pads" )
+    {
+        netJob->format = JOB_EXPORT_SCH_NETLIST::FORMAT::PADS;
+    }
+    else if( format == "allegro" )
+    {
+        netJob->format = JOB_EXPORT_SCH_NETLIST::FORMAT::ALLEGRO;
     }
     else
     {

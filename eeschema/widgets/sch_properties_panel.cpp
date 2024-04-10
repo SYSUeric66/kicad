@@ -87,6 +87,8 @@ SCH_PROPERTIES_PANEL::SCH_PROPERTIES_PANEL( wxWindow* aParent, SCH_BASE_FRAME* a
     {
         m_colorEditorInstance = static_cast<PG_COLOR_EDITOR*>( it->second );
     }
+
+    updateFontList();
 }
 
 
@@ -102,10 +104,6 @@ void SCH_PROPERTIES_PANEL::UpdateData()
     EE_SELECTION_TOOL* selectionTool = m_frame->GetToolManager()->GetTool<EE_SELECTION_TOOL>();
     const SELECTION& selection = selectionTool->GetSelection();
 
-    // TODO perhaps it could be called less often? use PROPERTIES_TOOL and catch MODEL_RELOAD?
-    if( SCH_EDIT_FRAME* schFrame = dynamic_cast<SCH_EDIT_FRAME*>( m_frame ) )
-        updateLists( schFrame->Schematic() );
-
     // Will actually just be updatePropertyValues() if selection hasn't changed
     rebuildProperties( selection );
 }
@@ -118,7 +116,7 @@ void SCH_PROPERTIES_PANEL::AfterCommit()
 
     rebuildProperties( selection );
 
-    CallAfter( [&]()
+    CallAfter( [this]()
                {
                    m_frame->GetCanvas()->SetFocus();
                } );
@@ -192,6 +190,8 @@ void SCH_PROPERTIES_PANEL::valueChanged( wxPropertyGridEvent& aEvent )
     SCH_COMMIT changes( m_frame );
     SCH_SCREEN* screen = m_frame->GetScreen();
 
+    PROPERTY_COMMIT_HANDLER handler( &changes );
+
     for( EDA_ITEM* edaItem : selection )
     {
         SCH_ITEM* item = static_cast<SCH_ITEM*>( edaItem );
@@ -199,7 +199,7 @@ void SCH_PROPERTIES_PANEL::valueChanged( wxPropertyGridEvent& aEvent )
         item->Set( property, newValue );
     }
 
-    changes.Push( _( "Change property" ) );
+    changes.Push( _( "Edit Properties" ) );
     m_frame->Refresh();
 
     // Perform grid updates as necessary based on value change
@@ -207,7 +207,14 @@ void SCH_PROPERTIES_PANEL::valueChanged( wxPropertyGridEvent& aEvent )
 }
 
 
-void SCH_PROPERTIES_PANEL::updateLists( const SCHEMATIC& aSchematic )
+void SCH_PROPERTIES_PANEL::OnLanguageChanged( wxCommandEvent& aEvent )
+{
+    PROPERTIES_PANEL::OnLanguageChanged( aEvent );
+    updateFontList();
+}
+
+
+void SCH_PROPERTIES_PANEL::updateFontList()
 {
     wxPGChoices fonts;
 

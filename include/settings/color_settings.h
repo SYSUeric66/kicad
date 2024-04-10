@@ -48,7 +48,7 @@ using KIGFX::COLOR4D;
  * Each application (eeschema, gerbview, pcbnew) can have a different active color scheme selected.
  * The "child applications" (library editors) inherit from either eeschema or pcbnew.
  */
-class COLOR_SETTINGS : public JSON_SETTINGS
+class KICOMMON_API COLOR_SETTINGS : public JSON_SETTINGS
 {
 public:
     explicit COLOR_SETTINGS( const wxString& aFilename = wxT( "user" ),
@@ -78,9 +78,6 @@ public:
     bool GetOverrideSchItemColors() const { return m_overrideSchItemColors; }
     void SetOverrideSchItemColors( bool aFlag ) { m_overrideSchItemColors = aFlag; }
 
-    bool GetUseBoardStackupColors() const { return m_useBoardStackupColors; }
-    void SetUseBoardStackupColors( bool aFlag ) { m_useBoardStackupColors = aFlag; }
-
     /**
      * Constructs and returns a list of color settings objects based on the built-in color themes.
      * These color settings are not backed by a file and cannot be modified by the user.
@@ -99,10 +96,9 @@ private:
 
     void initFromOther( const COLOR_SETTINGS& aOther );
 
+private:
     wxString m_displayName;
-
     bool     m_overrideSchItemColors;
-    bool     m_useBoardStackupColors;
 
     /**
      * Map of all layer colors.

@@ -37,13 +37,15 @@
 #define ARG_SEVERITY_WARNING "--severity-warning"
 #define ARG_SEVERITY_EXCLUSIONS "--severity-exclusions"
 #define ARG_EXIT_CODE_VIOLATIONS "--exit-code-violations"
+#define ARG_PARITY "--schematic-parity"
 
 CLI::PCB_DRC_COMMAND::PCB_DRC_COMMAND() : COMMAND( "drc" )
 {
     addCommonArgs( true, true, false, false );
     addDefineArg();
 
-    m_argParser.add_description( UTF8STDSTR( _( "Runs the Design Rules Check (DRC) on the PCB and creates a report" ) ) );
+    m_argParser.add_description( UTF8STDSTR( _( "Runs the Design Rules Check (DRC) on the PCB "
+                                                "and creates a report" ) ) );
 
     m_argParser.add_argument( ARG_FORMAT )
             .default_value( std::string( "report" ) )
@@ -52,8 +54,11 @@ CLI::PCB_DRC_COMMAND::PCB_DRC_COMMAND() : COMMAND( "drc" )
 
     m_argParser.add_argument( ARG_ALL_TRACK_ERRORS )
             .help( UTF8STDSTR( _( "Report all errors for each track" ) ) )
-            .implicit_value( true )
-            .default_value( false );
+            .flag();
+
+    m_argParser.add_argument( ARG_PARITY )
+            .help( UTF8STDSTR( _( "Test for parity between PCB and schematic" ) ) )
+            .flag();
 
     m_argParser.add_argument( ARG_UNITS )
             .default_value( std::string( "mm" ) )
@@ -61,29 +66,28 @@ CLI::PCB_DRC_COMMAND::PCB_DRC_COMMAND() : COMMAND( "drc" )
             .metavar( "UNITS" );
 
     m_argParser.add_argument( ARG_SEVERITY_ALL )
-            .help( UTF8STDSTR( _( "Report all DRC violations, this is equivalent to including all the other severity arguments" ) ) )
-            .implicit_value( true )
-            .default_value( false );
+            .help( UTF8STDSTR( _( "Report all DRC violations, this is equivalent to including "
+                                  "all the other severity arguments" ) ) )
+            .flag();
 
     m_argParser.add_argument( ARG_SEVERITY_ERROR )
-            .help( UTF8STDSTR( _( "Report all DRC error level violations, this can be combined with the other severity arguments" ) ) )
-            .implicit_value( true )
-            .default_value( false );
+            .help( UTF8STDSTR( _( "Report all DRC error level violations, this can be combined "
+                                  "with the other severity arguments" ) ) )
+            .flag();
 
     m_argParser.add_argument( ARG_SEVERITY_WARNING )
-            .help( UTF8STDSTR( _( "Report all DRC warning level violations, this can be combined with the other severity arguments" ) ) )
-            .implicit_value( true )
-            .default_value( false );
+            .help( UTF8STDSTR( _( "Report all DRC warning level violations, this can be combined "
+                                  "with the other severity arguments" ) ) )
+            .flag();
 
     m_argParser.add_argument( ARG_SEVERITY_EXCLUSIONS )
-            .help( UTF8STDSTR( _( "Report all excluded DRC violations, this can be combined with the other severity arguments" ) ) )
-            .implicit_value( true )
-            .default_value( false );
+            .help( UTF8STDSTR( _( "Report all excluded DRC violations, this can be combined with "
+                                  "the other severity arguments" ) ) )
+            .flag();
 
     m_argParser.add_argument( ARG_EXIT_CODE_VIOLATIONS )
-            .help( UTF8STDSTR( _( "Return a exit code depending on whether or not violations exist" ) ) )
-            .implicit_value( true )
-            .default_value( false );
+            .help( UTF8STDSTR( _( "Return a nonzero exit code if DRC violations exist" ) ) )
+            .flag();
 }
 
 
@@ -97,25 +101,29 @@ int CLI::PCB_DRC_COMMAND::doPerform( KIWAY& aKiway )
     drcJob->m_reportAllTrackErrors = m_argParser.get<bool>( ARG_ALL_TRACK_ERRORS );
     drcJob->m_exitCodeViolations = m_argParser.get<bool>( ARG_EXIT_CODE_VIOLATIONS );
 
+    int severity = 0;
     if( m_argParser.get<bool>( ARG_SEVERITY_ALL ) )
     {
-        drcJob->m_severity = RPT_SEVERITY_ERROR | RPT_SEVERITY_WARNING | RPT_SEVERITY_EXCLUSION;
+        severity = RPT_SEVERITY_ERROR | RPT_SEVERITY_WARNING | RPT_SEVERITY_EXCLUSION;
     }
 
     if( m_argParser.get<bool>( ARG_SEVERITY_ERROR ) )
     {
-        drcJob->m_severity |= RPT_SEVERITY_ERROR;
+        severity |= RPT_SEVERITY_ERROR;
     }
 
     if( m_argParser.get<bool>( ARG_SEVERITY_WARNING ) )
     {
-        drcJob->m_severity |= RPT_SEVERITY_WARNING;
+        severity |= RPT_SEVERITY_WARNING;
     }
 
     if( m_argParser.get<bool>( ARG_SEVERITY_EXCLUSIONS ) )
     {
-        drcJob->m_severity |= RPT_SEVERITY_EXCLUSION;
+        severity |= RPT_SEVERITY_EXCLUSION;
     }
+
+    if( severity ) // override the default only if something we configured
+        drcJob->m_severity = severity;
 
     drcJob->m_reportAllTrackErrors = m_argParser.get<bool>( ARG_ALL_TRACK_ERRORS );
 
@@ -153,6 +161,8 @@ int CLI::PCB_DRC_COMMAND::doPerform( KIWAY& aKiway )
         wxFprintf( stderr, _( "Invalid report format\n" ) );
         return EXIT_CODES::ERR_ARGS;
     }
+
+    drcJob->m_parity = m_argParser.get<bool>( ARG_PARITY );
 
     int exitCode = aKiway.ProcessJob( KIWAY::FACE_PCB, drcJob.get() );
 

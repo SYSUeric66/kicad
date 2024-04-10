@@ -54,8 +54,8 @@ int     KIWAY::m_kiface_version[KIWAY_FACE_COUNT];
 
 
 
-KIWAY::KIWAY( PGM_BASE* aProgram, int aCtlBits, wxFrame* aTop ):
-    m_program( aProgram ), m_ctl( aCtlBits ), m_top( nullptr ), m_blockingDialog( wxID_NONE )
+KIWAY::KIWAY( int aCtlBits, wxFrame* aTop ):
+     m_ctl( aCtlBits ), m_top( nullptr ), m_blockingDialog( wxID_NONE )
 {
     SetTop( aTop );     // hook player_destroy_handler() into aTop.
 
@@ -296,7 +296,7 @@ KIFACE* KIWAY::KiFACE( FACE_T aFaceId, bool doLoad )
         {
             KIFACE_GETTER_FUNC* ki_getter = (KIFACE_GETTER_FUNC*) addr;
 
-            KIFACE* kiface = ki_getter( &m_kiface_version[aFaceId], KIFACE_VERSION, m_program );
+            KIFACE* kiface = ki_getter( &m_kiface_version[aFaceId], KIFACE_VERSION, &Pgm() );
 
             // KIFACE_GETTER_FUNC function comment (API) says the non-NULL is unconditional.
             wxASSERT_MSG( kiface,
@@ -311,7 +311,7 @@ KIFACE* KIWAY::KiFACE( FACE_T aFaceId, bool doLoad )
 
             try
             {
-                startSuccess = kiface->OnKifaceStart( m_program, m_ctl );
+                startSuccess = kiface->OnKifaceStart( &Pgm(), m_ctl, this );
             }
             catch (...)
             {
@@ -335,32 +335,6 @@ KIFACE* KIWAY::KiFACE( FACE_T aFaceId, bool doLoad )
                 return nullptr;
             }
         }
-
-        // In any of the failure cases above, dso.Unload() should be called here
-        // by dso destructor.
-        // However:
-
-        // There is a file installation bug. We only look for KIFACE's which we know
-        // to exist, and we did not find one.  If we do not find one, this is an
-        // installation bug.
-
-        msg = wxString::Format( _( "Fatal Installation Bug. File:\n"
-                                   "'%s'\ncould not be loaded\n" ), dname );
-
-        if( ! wxFileExists( dname ) )
-            msg << _( "It is missing.\n" );
-        else
-            msg << _( "Perhaps a shared library (.dll or .so) file is missing.\n" );
-
-        msg << _( "From command line: argv[0]:\n'" );
-        msg << wxStandardPaths::Get().GetExecutablePath() << wxT( "'\n" );
-
-        // This is a fatal error, one from which we cannot recover, nor do we want
-        // to protect against in client code which would require numerous noisy
-        // tests in numerous places.  So we inform the user that the installation
-        // is bad.  This exception will likely not get caught until way up in the
-        // wxApp derivative, at which point the process will exit gracefully.
-        THROW_IO_ERROR( msg );
     }
 
     return nullptr;
@@ -617,8 +591,12 @@ void KIWAY::SetLanguage( int aLanguage )
         // so a static_cast is used.
         EDA_BASE_FRAME* top = static_cast<EDA_BASE_FRAME*>( m_top );
 
-        if( top )
+        if ( top )
+        {
             top->ShowChangedLanguage();
+            wxCommandEvent e( EDA_LANG_CHANGED );
+            top->GetEventHandler()->ProcessEvent( e );
+        }
     }
 #endif
 
@@ -629,6 +607,8 @@ void KIWAY::SetLanguage( int aLanguage )
         if( frame )
         {
             frame->ShowChangedLanguage();
+            wxCommandEvent e( EDA_LANG_CHANGED );
+            frame->GetEventHandler()->ProcessEvent( e );
         }
     }
 }

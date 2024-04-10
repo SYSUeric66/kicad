@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2007-2017 Jean-Pierre Charras, jp.charras at wanadoo.fr
- * Copyright (C) 1992-2022 KiCad Developers, see AUTHORS.TXT for contributors.
+ * Copyright (C) 1992-2024 KiCad Developers, see AUTHORS.TXT for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -41,6 +41,7 @@ enum class BITMAPS : unsigned int
     about,
     add_aligned_dimension,
     add_arc,
+    add_bezier,
     add_board,
     add_bus,
     add_bus2bus,
@@ -77,6 +78,7 @@ enum class BITMAPS : unsigned int
     add_via,
     add_zone,
     add_zone_cutout,
+    align_elements_to_grid,
     align_items,
     align_items_bottom,
     align_items_center,
@@ -119,6 +121,8 @@ enum class BITMAPS : unsigned int
     change_label,
     change_text,
     checked_ok,
+    cleanup_graphics,
+    cleanup_tracks_and_vias,
     creepage_clearance,
     coax,
     color_code_multiplier,
@@ -155,6 +159,7 @@ enum class BITMAPS : unsigned int
     distribute_vertical,
     down,
     drag,
+    drag_segment,
     drag_segment_withslope,
     drc,
     drc_off,
@@ -184,6 +189,7 @@ enum class BITMAPS : unsigned int
     export_dsn,
     export_file,
     export_footprint_names,
+    export_gltf,
     export_idf,
     export_module,
     export_part,
@@ -193,6 +199,7 @@ enum class BITMAPS : unsigned int
     export_to_pcbnew,
     fabrication,
     file_bom,
+    file_cir,
     file_drl,
     file_dsn,
     file_gbr,
@@ -647,6 +654,10 @@ enum class BITMAPS : unsigned int
     zoom_fit_to_objects,
     zoom_in,
     zoom_out,
+    zoom_in_horizontally,
+    zoom_out_horizontally,
+    zoom_in_vertically,
+    zoom_out_vertically,
     zoom_page,
     zoom_selection,
 };

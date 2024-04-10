@@ -220,6 +220,22 @@ void EDA_TEXT::SetItalic( bool aItalic )
 
 void EDA_TEXT::SetBold( bool aBold )
 {
+    if( m_attributes.m_Bold != aBold )
+    {
+        int size = std::min( m_attributes.m_Size.x, m_attributes.m_Size.y );
+
+        if( aBold )
+            m_attributes.m_StrokeWidth = GetPenSizeForBold( size );
+        else
+            m_attributes.m_StrokeWidth = GetPenSizeForNormal( size );
+    }
+
+    SetBoldFlag( aBold );
+}
+
+
+void EDA_TEXT::SetBoldFlag( bool aBold )
+{
     m_attributes.m_Bold = aBold;
     ClearRenderCache();
     m_bounding_box_cache_valid = false;
@@ -355,15 +371,17 @@ void EDA_TEXT::SetLineSpacing( double aLineSpacing )
 }
 
 
-void EDA_TEXT::SetTextSize( VECTOR2I aNewSize )
+void EDA_TEXT::SetTextSize( VECTOR2I aNewSize, bool aEnforceMinTextSize )
 {
-    if( m_IuScale.get().IU_PER_MM != unityScale.IU_PER_MM )
-    {
-        // Plotting uses unityScale and independently scales the text.  If we clamp here we'll
-        // clamp to *really* small values.
+    // Plotting uses unityScale and independently scales the text.  If we clamp here we'll
+    // clamp to *really* small values.
+    if( m_IuScale.get().IU_PER_MM == unityScale.IU_PER_MM )
+        aEnforceMinTextSize = false;
 
-        int min = m_IuScale.get().MilsToIU( TEXT_MIN_SIZE_MILS );
-        int max = m_IuScale.get().MilsToIU( TEXT_MAX_SIZE_MILS );
+    if( aEnforceMinTextSize )
+    {
+        int min = m_IuScale.get().mmToIU( TEXT_MIN_SIZE_MM );
+        int max = m_IuScale.get().mmToIU( TEXT_MAX_SIZE_MM );
 
         aNewSize = VECTOR2I( alg::clamp( min, aNewSize.x, max ),
                              alg::clamp( min, aNewSize.y, max ) );
@@ -378,8 +396,8 @@ void EDA_TEXT::SetTextSize( VECTOR2I aNewSize )
 
 void EDA_TEXT::SetTextWidth( int aWidth )
 {
-    int min = m_IuScale.get().MilsToIU( TEXT_MIN_SIZE_MILS );
-    int max = m_IuScale.get().MilsToIU( TEXT_MAX_SIZE_MILS );
+    int min = m_IuScale.get().mmToIU( TEXT_MIN_SIZE_MM );
+    int max = m_IuScale.get().mmToIU( TEXT_MAX_SIZE_MM );
 
     m_attributes.m_Size.x = alg::clamp( min, aWidth, max );
     ClearRenderCache();
@@ -389,8 +407,8 @@ void EDA_TEXT::SetTextWidth( int aWidth )
 
 void EDA_TEXT::SetTextHeight( int aHeight )
 {
-    int min = m_IuScale.get().MilsToIU( TEXT_MIN_SIZE_MILS );
-    int max = m_IuScale.get().MilsToIU( TEXT_MAX_SIZE_MILS );
+    int min = m_IuScale.get().mmToIU( TEXT_MIN_SIZE_MM );
+    int max = m_IuScale.get().mmToIU( TEXT_MAX_SIZE_MM );
 
     m_attributes.m_Size.y = alg::clamp( min, aHeight, max );
     ClearRenderCache();
@@ -647,6 +665,10 @@ BOX2I EDA_TEXT::GetTextBox( int aLine, bool aInvertY ) const
         if( !IsMirrored() )
             bbox.SetX( bbox.GetX() - ( bbox.GetWidth() - italicOffset ) );
         break;
+
+    case GR_TEXT_H_ALIGN_INDETERMINATE:
+        wxFAIL_MSG( wxT( "Indeterminate state legal only in dialogs." ) );
+        break;
     }
 
     switch( GetVertJustify() )
@@ -662,6 +684,10 @@ BOX2I EDA_TEXT::GetTextBox( int aLine, bool aInvertY ) const
     case GR_TEXT_V_ALIGN_BOTTOM:
         bbox.SetY( bbox.GetY() - bbox.GetHeight() );
         bbox.Offset( 0, fudgeFactor );
+        break;
+
+    case GR_TEXT_V_ALIGN_INDETERMINATE:
+        wxFAIL_MSG( wxT( "Indeterminate state legal only in dialogs." ) );
         break;
     }
 
@@ -748,6 +774,10 @@ void EDA_TEXT::GetLinePositions( std::vector<VECTOR2I>& aPositions, int aLineCou
 
         case GR_TEXT_V_ALIGN_BOTTOM:
             pos.y -= ( aLineCount - 1 ) * offset.y;
+            break;
+
+        case GR_TEXT_V_ALIGN_INDETERMINATE:
+            wxFAIL_MSG( wxT( "Indeterminate state legal only in dialogs." ) );
             break;
         }
     }
@@ -857,7 +887,10 @@ void EDA_TEXT::SetFontIndex( int aIdx )
         std::vector<std::string> fontNames;
         Fontconfig()->ListFonts( fontNames, std::string( Pgm().GetLanguageTag().utf8_str() ) );
 
-        SetFont( KIFONT::FONT::GetFont( fontNames[ aIdx ], IsBold(), IsItalic() ) );
+        if( aIdx >= 0 && aIdx < static_cast<int>( fontNames.size() ) )
+            SetFont( KIFONT::FONT::GetFont( fontNames[ aIdx ], IsBold(), IsItalic() ) );
+        else
+            SetFont( nullptr );
     }
 }
 
@@ -904,10 +937,10 @@ void EDA_TEXT::Format( OUTPUTFORMATTER* aFormatter, int aNestLevel, int aControl
     }
 
     if( IsBold() )
-        aFormatter->Print( 0, " bold" );
+        aFormatter->Print( 0, " (bold yes)" );
 
     if( IsItalic() )
-        aFormatter->Print( 0, " italic" );
+        aFormatter->Print( 0, " (italic yes)" );
 
     if( GetTextColor() != COLOR4D::UNSPECIFIED )
     {
@@ -938,7 +971,7 @@ void EDA_TEXT::Format( OUTPUTFORMATTER* aFormatter, int aNestLevel, int aControl
     }
 
     if( !( aControlBits & CTL_OMIT_HIDE ) && !IsVisible() )
-        aFormatter->Print( 0, " hide" );
+        aFormatter->Print( 0, " (hide yes)" );
 
     if( HasHyperlink() )
     {
@@ -1171,66 +1204,62 @@ static struct EDA_TEXT_DESC
                 &EDA_TEXT::SetTextAngleDegrees, &EDA_TEXT::GetTextAngleDegrees,
                 PROPERTY_DISPLAY::PT_DEGREE ) );
 
-        const wxString textProps = _( "Text Properties" );
+        const wxString textProps = _HKI( "Text Properties" );
 
         propMgr.AddProperty( new PROPERTY<EDA_TEXT, wxString>( _HKI( "Text" ),
-                                                               &EDA_TEXT::SetText,
-                                                               &EDA_TEXT::GetText ),
-                             textProps );
+                &EDA_TEXT::SetText, &EDA_TEXT::GetText ),
+                textProps );
 
+        // This must be a PROPERTY_ENUM to get a choice list.
+        // SCH_ and PCB_PROPERTIES_PANEL::updateFontList() fill in the enum values.
         propMgr.AddProperty( new PROPERTY_ENUM<EDA_TEXT, int>( _HKI( "Font" ),
-                                                               &EDA_TEXT::SetFontIndex,
-                                                               &EDA_TEXT::GetFontIndex ),
-                             textProps )
-                .SetIsHiddenFromRulesEditor();
+                &EDA_TEXT::SetFontIndex, &EDA_TEXT::GetFontIndex ),
+                textProps )
+            .SetIsHiddenFromRulesEditor();
 
         propMgr.AddProperty( new PROPERTY<EDA_TEXT, int>( _HKI( "Thickness" ),
-                                                          &EDA_TEXT::SetTextThickness,
-                                                          &EDA_TEXT::GetTextThickness,
-                                                          PROPERTY_DISPLAY::PT_SIZE ),
-                             textProps );
+                &EDA_TEXT::SetTextThickness, &EDA_TEXT::GetTextThickness,
+                PROPERTY_DISPLAY::PT_SIZE ),
+                textProps );
         propMgr.AddProperty( new PROPERTY<EDA_TEXT, bool>( _HKI( "Italic" ),
-                                                         &EDA_TEXT::SetItalic,
-                                                         &EDA_TEXT::IsItalic ),
-                             textProps );
+                &EDA_TEXT::SetItalic,
+                &EDA_TEXT::IsItalic ),
+                textProps );
         propMgr.AddProperty( new PROPERTY<EDA_TEXT, bool>( _HKI( "Bold" ),
-                                                         &EDA_TEXT::SetBold, &EDA_TEXT::IsBold ),
-                             textProps );
+                &EDA_TEXT::SetBold, &EDA_TEXT::IsBold ),
+                textProps );
         propMgr.AddProperty( new PROPERTY<EDA_TEXT, bool>( _HKI( "Mirrored" ),
-                                                         &EDA_TEXT::SetMirrored,
-                                                         &EDA_TEXT::IsMirrored ),
-                             textProps );
+                &EDA_TEXT::SetMirrored, &EDA_TEXT::IsMirrored ),
+                textProps );
         propMgr.AddProperty( new PROPERTY<EDA_TEXT, bool>( _HKI( "Visible" ),
-                                                         &EDA_TEXT::SetVisible,
-                                                         &EDA_TEXT::IsVisible ),
-                             textProps );
+                &EDA_TEXT::SetVisible, &EDA_TEXT::IsVisible ),
+                textProps );
         propMgr.AddProperty( new PROPERTY<EDA_TEXT, int>( _HKI( "Width" ),
-                                                          &EDA_TEXT::SetTextWidth,
-                                                          &EDA_TEXT::GetTextWidth,
-                                                          PROPERTY_DISPLAY::PT_SIZE ),
-                             textProps );
+                &EDA_TEXT::SetTextWidth, &EDA_TEXT::GetTextWidth,
+                PROPERTY_DISPLAY::PT_SIZE ),
+                textProps );
 
         propMgr.AddProperty( new PROPERTY<EDA_TEXT, int>( _HKI( "Height" ),
-                                                          &EDA_TEXT::SetTextHeight,
-                                                          &EDA_TEXT::GetTextHeight,
-                                                          PROPERTY_DISPLAY::PT_SIZE ),
-                             textProps );
+                &EDA_TEXT::SetTextHeight, &EDA_TEXT::GetTextHeight,
+                PROPERTY_DISPLAY::PT_SIZE ),
+                textProps );
 
-        propMgr.AddProperty( new PROPERTY_ENUM<EDA_TEXT,
-                             GR_TEXT_H_ALIGN_T>( _HKI( "Horizontal Justification" ),
-                                                 &EDA_TEXT::SetHorizJustify,
-                                                 &EDA_TEXT::GetHorizJustify ),
-                             textProps );
-        propMgr.AddProperty( new PROPERTY_ENUM<EDA_TEXT,
-                             GR_TEXT_V_ALIGN_T>( _HKI( "Vertical Justification" ),
-                                                 &EDA_TEXT::SetVertJustify,
-                                                 &EDA_TEXT::GetVertJustify ),
-                             textProps );
+        propMgr.AddProperty( new PROPERTY_ENUM<EDA_TEXT, GR_TEXT_H_ALIGN_T>(
+                _HKI( "Horizontal Justification" ),
+                &EDA_TEXT::SetHorizJustify, &EDA_TEXT::GetHorizJustify ),
+                textProps );
+        propMgr.AddProperty( new PROPERTY_ENUM<EDA_TEXT, GR_TEXT_V_ALIGN_T>(
+                _HKI( "Vertical Justification" ),
+                &EDA_TEXT::SetVertJustify, &EDA_TEXT::GetVertJustify ),
+                textProps );
+
+        propMgr.AddProperty( new PROPERTY<EDA_TEXT, COLOR4D>( _HKI( "Color" ),
+                &EDA_TEXT::SetTextColor, &EDA_TEXT::GetTextColor ),
+                textProps );
 
         propMgr.AddProperty( new PROPERTY<EDA_TEXT, wxString>( _HKI( "Hyperlink" ),
-                                                               &EDA_TEXT::SetHyperlink,
-                                                               &EDA_TEXT::GetHyperlink ),
-                             textProps );
+                &EDA_TEXT::SetHyperlink, &EDA_TEXT::GetHyperlink ),
+                textProps );
     }
 } _EDA_TEXT_DESC;
 

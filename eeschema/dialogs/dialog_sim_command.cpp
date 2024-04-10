@@ -51,7 +51,10 @@ static void setStringSelection( wxChoice* aCtrl, const wxString& aStr )
 
 static wxString getStringSelection( const wxChoice* aCtrl )
 {
-    return aCtrl->GetString( aCtrl->GetSelection() );
+    if( aCtrl->GetSelection() >= 0 )
+        return aCtrl->GetString( aCtrl->GetSelection() );
+    else
+        return wxEmptyString;
 }
 
 
@@ -194,7 +197,7 @@ void DIALOG_SIM_COMMAND::SetPlotSettings( const SIM_TAB* aSimTab )
             m_lockY1->SetLabel( wxString::Format( m_lockY1->GetLabel(), plotTab->GetLabelY1() ) );
             m_y1Units->SetLabel( plotTab->GetUnitsY1() );
 
-            double min, max;
+            double min = 0.0, max = 0.0;
             bool   locked = plotTab->GetY1Scale( &min, &max );
             m_lockY1->SetValue( locked );
 
@@ -211,7 +214,7 @@ void DIALOG_SIM_COMMAND::SetPlotSettings( const SIM_TAB* aSimTab )
             m_lockY2->SetLabel( wxString::Format( m_lockY2->GetLabel(), plotTab->GetLabelY2() ) );
             m_y2Units->SetLabel( plotTab->GetUnitsY2() );
 
-            double min, max;
+            double min = 0.0, max = 0.0;
             bool   locked = plotTab->GetY2Scale( &min, &max );
             m_lockY2->SetValue( locked );
 
@@ -228,7 +231,7 @@ void DIALOG_SIM_COMMAND::SetPlotSettings( const SIM_TAB* aSimTab )
             m_lockY3->SetLabel( wxString::Format( m_lockY3->GetLabel(), plotTab->GetLabelY3() ) );
             m_y3Units->SetLabel( plotTab->GetUnitsY3() );
 
-            double min, max;
+            double min = 0.0, max = 0.0;
             bool   locked = plotTab->GetY3Scale( &min, &max );
             m_lockY3->SetValue( locked );
 
@@ -419,7 +422,10 @@ bool DIALOG_SIM_COMMAND::TransferDataFromWindow()
         }
 
         if( !ref.IsEmpty() )
-            ref = wxS( "," ) + m_circuitModel->GetItemName( std::string( ref.ToUTF8() ) );
+        {
+            ref = wxS( "," )
+                  + wxString( m_circuitModel->GetItemName( std::string( ref.ToUTF8() ) ) );
+        }
 
         m_simCommand.Printf( ".noise v(%s%s) %s %s %s %s %s %s",
                              output,
@@ -511,6 +517,7 @@ void DIALOG_SIM_COMMAND::ApplySettings( SIM_TAB* aTab )
         options &= ~NETLIST_EXPORTER_SPICE::OPTION_SAVE_ALL_DISSIPATIONS;
 
     aTab->SetSimOptions( options );
+    m_simulatorFrame->ReloadSimulator( m_simCommand, options );
 
 #define TO_INT( ctrl ) (int) EDA_UNIT_UTILS::UI::ValueFromString( unityScale, EDA_UNITS::UNSCALED, \
                                                                   ctrl->GetValue() )
@@ -914,7 +921,15 @@ void DIALOG_SIM_COMMAND::onDCSource2Selected( wxCommandEvent& event )
 void DIALOG_SIM_COMMAND::onDCEnableSecondSource( wxCommandEvent& event )
 {
     bool   is2ndSrcEnabled = m_dcEnable2->IsChecked();
-    wxChar type = getStringSelection( m_dcSourceType2 ).Upper().GetChar( 0 );
+    wxChar type = '?';
+
+    if( is2ndSrcEnabled )
+    {
+        wxString fullType = getStringSelection( m_dcSourceType2 ).Upper();
+
+        if( fullType.Length() > 0 )
+            type = fullType.GetChar( 0 );
+    }
 
     m_dcSourceType2->Enable( is2ndSrcEnabled );
     m_dcSource2->Enable( is2ndSrcEnabled && type != 'T' );

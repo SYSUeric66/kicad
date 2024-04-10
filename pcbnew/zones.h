@@ -40,10 +40,8 @@ struct CONVERT_SETTINGS;
 #define ZONE_BORDER_HATCH_MINDIST_MM 0.1        // Minimum for ZONE_SETTINGS::m_BorderHatchPitch
 #define ZONE_BORDER_HATCH_MAXDIST_MM 2.0        // Maximum for ZONE_SETTINGS::m_BorderHatchPitch
 
-#define ZONE_EXPORT_VALUES  1004        // Copper zone dialog reports wxID_OK, wxID_CANCEL or
-                                        // ZONE_EXPORT_VALUES
 
-
+#define ZONE_MANAGER_REPOUR 1005 //Reported if repour option is checked while clicking OK
 /// How pads are covered by copper in zone
 enum class ZONE_CONNECTION
 {
@@ -108,5 +106,15 @@ int InvokeCopperZonesEditor( PCB_BASE_FRAME* aCaller, ZONE_SETTINGS* aSettings,
  */
 int InvokeRuleAreaEditor( PCB_BASE_FRAME* aCaller, ZONE_SETTINGS* aSettings,
                           CONVERT_SETTINGS* aConvertSettings = nullptr );
+
+/**
+ * Function InvokeZonesManager
+ * invokes up a modal dialog window for zones manager.
+ *
+ * @param aCaller is the PCB_BASE_FRAME calling parent window for the modal dialog,
+ *                and it gives access to the BOARD through PCB_BASE_FRAME::GetBoard().
+ * @return int - tells if user aborted, or edited the zones
+ */
+int InvokeZonesManager( PCB_BASE_FRAME* aCall, ZONE_SETTINGS* aSettings );
 
 #endif  // ZONES_H_

@@ -1,7 +1,7 @@
 /*
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
- * Copyright (C) 1992-2023 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2024 KiCad Developers, see AUTHORS.txt for contributors.
  *
  *
  * This program is free software; you can redistribute it and/or
@@ -40,7 +40,7 @@
 
 using namespace KIGFX;
 
-static const wxString productName = wxT( "KiCad E.D.A.  " );
+static const wxString productName = wxT( "KiCad E.D.A." );
 
 DS_RENDER_SETTINGS::DS_RENDER_SETTINGS()
 {
@@ -102,6 +102,8 @@ void DS_DRAW_ITEM_LIST::GetTextVars( wxArrayString* aVars )
     aVars->push_back( wxT( "SHEETNAME" ) );
     aVars->push_back( wxT( "SHEETPATH" ) );
     aVars->push_back( wxT( "FILENAME" ) );
+    aVars->push_back( wxT( "FILEPATH" ) );
+    aVars->push_back( wxT( "PROJECTNAME" ) );
     aVars->push_back( wxT( "PAPER" ) );
     aVars->push_back( wxT( "LAYER" ) );
     TITLE_BLOCK::GetContextualTextVars( aVars );
@@ -113,19 +115,13 @@ void DS_DRAW_ITEM_LIST::GetTextVars( wxArrayString* aVars )
 wxString DS_DRAW_ITEM_LIST::BuildFullText( const wxString& aTextbase )
 {
     std::function<bool( wxString* )> wsResolver =
-            [ this ]( wxString* token ) -> bool
+            [&]( wxString* token ) -> bool
             {
                 bool tokenUpdated = false;
 
                 if( token->IsSameAs( wxT( "KICAD_VERSION" ) ) && PgmOrNull() )
                 {
-                    // TODO: it'd be nice to get the Python script name/version here for when
-                    // PgmOrNull() is null...
-
-                    *token = wxString::Format( wxT( "%s%s %s" ),
-                                               productName,
-                                               Pgm().App().GetAppName(),
-                                               GetBuildVersion() );
+                    *token = wxString::Format( wxT( "%s %s" ), productName, GetBaseVersion() );
                     tokenUpdated = true;
                 }
                 else if( token->IsSameAs( wxT( "#" ) ) )
@@ -154,6 +150,17 @@ wxString DS_DRAW_ITEM_LIST::BuildFullText( const wxString& aTextbase )
                     *token = fn.GetFullName();
                     tokenUpdated = true;
                 }
+                else if( token->IsSameAs( wxT( "FILEPATH" ) ) )
+                {
+                    wxFileName fn( m_fileName );
+                    *token = fn.GetFullPath();
+                    return true;
+                }
+                else if( token->IsSameAs( wxT( "PROJECTNAME" ) ) && m_project )
+                {
+                    *token = m_project->GetProjectName();
+                    return true;
+                }
                 else if( token->IsSameAs( wxT( "PAPER" ) ) )
                 {
                     *token = m_paperFormat;
@@ -166,10 +173,24 @@ wxString DS_DRAW_ITEM_LIST::BuildFullText( const wxString& aTextbase )
                 }
                 else if( m_titleBlock )
                 {
-                    // no need for tokenUpdated; TITLE_BLOCK::TextVarResolver() does a full
-                    // resolve
                     if( m_titleBlock->TextVarResolver( token, m_project ) )
+                    {
+                        // No need for tokenUpdated; TITLE_BLOCK::TextVarResolver() already goes
+                        // up to the project.
+                        //
+                        // However, the title block may have variables in it itself, so we need
+                        // to run the worksheet resolver again.
+                        //
+                        const TITLE_BLOCK* savedTitleBlock = m_titleBlock;
+
+                        m_titleBlock = nullptr;
+                        {
+                            *token = ExpandTextVars( *token, &wsResolver );
+                        }
+                        m_titleBlock = savedTitleBlock;
+
                         return true;
+                    }
                 }
                 else if( m_properties && m_properties->count( *token ) )
                 {
@@ -357,5 +378,6 @@ void KIGFX::DS_PAINTER::DrawBorder( const PAGE_INFO* aPageInfo, int aScaleFactor
     // Use a gray color for the border color
     m_gal->SetStrokeColor( m_renderSettings.m_pageBorderColor );
     m_gal->SetIsFill( false );
+    m_gal->SetLineWidth( m_renderSettings.GetDefaultPenWidth() );
     m_gal->DrawRectangle( origin, end );
 }

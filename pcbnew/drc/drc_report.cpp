@@ -30,15 +30,15 @@
 #include <rc_json_schema.h>
 
 
-DRC_REPORT::DRC_REPORT(BOARD* aBoard, EDA_UNITS aReportUnits,
-    std::shared_ptr<RC_ITEMS_PROVIDER> aMarkersProvider,
-    std::shared_ptr<RC_ITEMS_PROVIDER> aRatsnestProvider,
-    std::shared_ptr<RC_ITEMS_PROVIDER> aFpWarningsProvider) :
+DRC_REPORT::DRC_REPORT( BOARD* aBoard, EDA_UNITS aReportUnits,
+                        std::shared_ptr<RC_ITEMS_PROVIDER> aMarkersProvider,
+                        std::shared_ptr<RC_ITEMS_PROVIDER> aRatsnestProvider,
+                        std::shared_ptr<RC_ITEMS_PROVIDER> aFpWarningsProvider) :
         m_board( aBoard ),
         m_reportUnits( aReportUnits ),
-        m_markersProvider( aMarkersProvider ),
-        m_ratsnestProvider( aRatsnestProvider ),
-        m_fpWarningsProvider( aFpWarningsProvider )
+        m_markersProvider( std::move( aMarkersProvider ) ),
+        m_ratsnestProvider( std::move( aRatsnestProvider ) ),
+        m_fpWarningsProvider( std::move( aFpWarningsProvider ) )
 {
 
 }
@@ -58,7 +58,8 @@ bool DRC_REPORT::WriteTextReport( const wxString& aFullFileName )
     BOARD_DESIGN_SETTINGS& bds = m_board->GetDesignSettings();
     int                    count;
 
-    fprintf( fp, "** Drc report for %s **\n", TO_UTF8( m_board->GetFileName() ) );
+    wxFileName fn( m_board->GetFileName() );
+    fprintf( fp, "** Drc report for %s **\n", TO_UTF8( fn.GetFullName() ) );
 
     fprintf( fp, "** Created on %s **\n", TO_UTF8( GetISO8601CurrentDateTime() ) );
 
@@ -120,7 +121,10 @@ bool DRC_REPORT::WriteJsonReport( const wxString& aFullFileName )
     m_board->FillItemMap( itemMap );
 
     RC_JSON::DRC_REPORT reportHead;
-    reportHead.source = m_board->GetFileName();
+
+    wxFileName fn( m_board->GetFileName() );
+    reportHead.$schema = "https://schemas.kicad.org/drc.v1.json";
+    reportHead.source = fn.GetFullName();
     reportHead.date = GetISO8601CurrentDateTime();
     reportHead.kicad_version = GetMajorMinorPatchVersion();
     reportHead.coordinate_units = EDA_UNIT_UTILS::GetLabel( m_reportUnits );
@@ -153,7 +157,7 @@ bool DRC_REPORT::WriteJsonReport( const wxString& aFullFileName )
 
     for( int i = 0; i < m_fpWarningsProvider->GetCount(); ++i )
     {
-        const std::shared_ptr<RC_ITEM>& item = m_ratsnestProvider->GetItem( i );
+        const std::shared_ptr<RC_ITEM>& item = m_fpWarningsProvider->GetItem( i );
         SEVERITY                        severity = bds.GetSeverity( item->GetErrorCode() );
 
         RC_JSON::VIOLATION violation;

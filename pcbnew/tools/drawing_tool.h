@@ -157,6 +157,11 @@ public:
      */
     int PlaceText( const TOOL_EVENT& aEvent );
 
+    /*
+     * Start interactively drawing a table (rows & columns of TEXTBOXes).
+     */
+    int DrawTable( const TOOL_EVENT& aEvent );
+
     /**
      * Start interactively drawing a dimension.
      *
@@ -357,9 +362,6 @@ private:
     PCB_SELECTION             m_preview;
     BOARD_CONNECTED_ITEM*     m_pickerItem;
     PCB_TUNING_PATTERN*       m_tuningPattern;
-
-    std::unique_ptr<STATUS_MIN_MAX_POPUP>  m_statusPopup;
-
 
     static const unsigned int WIDTH_STEP;          // Amount of width change for one -/+ key press
     static const unsigned int COORDS_PADDING;      // Padding from coordinates limits for this tool

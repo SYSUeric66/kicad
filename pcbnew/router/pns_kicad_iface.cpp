@@ -2,7 +2,7 @@
  * KiRouter - a push-and-(sometimes-)shove PCB router
  *
  * Copyright (C) 2013-2016 CERN
- * Copyright (C) 2016-2023 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2016-2024 KiCad Developers, see AUTHORS.txt for contributors.
  * Author: Tomasz Wlostowski <tomasz.wlostowski@cern.ch>
  *
  * This program is free software: you can redistribute it and/or modify it
@@ -93,7 +93,9 @@ namespace std
     {
         std::size_t operator()( const CLEARANCE_CACHE_KEY& k ) const
         {
-            return hash<const void*>()( k.A ) ^ hash<const void*>()( k.B ) ^ hash<int>()( k.Flag );
+            size_t retval = 0xBADC0FFEE0DDF00D;
+            hash_combine( retval, hash<const void*>()( k.A ), hash<const void*>()( k.B ), hash<int>()( k.Flag ) );
+            return retval;
         }
     };
 }
@@ -119,6 +121,9 @@ public:
     bool IsInNetTie( const PNS::ITEM* aA ) override;
     bool IsNetTieExclusion( const PNS::ITEM* aItem, const VECTOR2I& aCollisionPos,
                             const PNS::ITEM* aCollidingItem ) override;
+
+    bool IsDrilledHole( const PNS::ITEM* aItem ) override;
+    bool IsNonPlatedSlot( const PNS::ITEM* aItem ) override;
 
     /**
      * @return true if \a aObstacle is a keepout.  Set \a aEnforce if said keepout's rules
@@ -281,7 +286,18 @@ static bool isHole( const PNS::ITEM* aItem )
 }
 
 
-static bool isDrilledHole( const PNS::ITEM* aItem )
+static bool isEdge( const PNS::ITEM* aItem )
+{
+    if ( !aItem )
+        return false;
+
+    const PCB_SHAPE *parent = dynamic_cast<PCB_SHAPE*>( aItem->BoardItem() );
+
+    return parent && ( parent->IsOnLayer( Edge_Cuts ) || parent->IsOnLayer( Margin ) );
+}
+
+
+bool PNS_PCBNEW_RULE_RESOLVER::IsDrilledHole( const PNS::ITEM* aItem )
 {
     if( !isHole( aItem ) )
         return false;
@@ -295,28 +311,30 @@ static bool isDrilledHole( const PNS::ITEM* aItem )
 }
 
 
-static bool isNonPlatedSlot( const PNS::ITEM* aItem )
+bool PNS_PCBNEW_RULE_RESOLVER::IsNonPlatedSlot( const PNS::ITEM* aItem )
 {
     if( !isHole( aItem ) )
         return false;
 
-    if( PAD* pad = dynamic_cast<PAD*>( aItem->Parent() ) )
-        return pad->GetAttribute() == PAD_ATTRIB::NPTH && pad->GetDrillSizeX() != pad->GetDrillSizeY();
+    BOARD_ITEM* parent = aItem->Parent();
 
-    // Via holes are (currently) always round
+    if( !parent && aItem->ParentPadVia() )
+        parent = aItem->ParentPadVia()->Parent();
+
+    if( parent )
+    {
+        if( parent->Type() == PCB_PAD_T )
+        {
+            PAD* pad = static_cast<PAD*>( parent );
+
+            return pad->GetAttribute() == PAD_ATTRIB::NPTH
+                        && pad->GetDrillSizeX() != pad->GetDrillSizeY();
+        }
+
+        // Via holes are (currently) always round, and always plated
+    }
 
     return false;
-}
-
-
-static bool isEdge( const PNS::ITEM* aItem )
-{
-    if ( !aItem )
-        return false;
-
-    const PCB_SHAPE *parent = dynamic_cast<PCB_SHAPE*>( aItem->BoardItem() );
-
-    return parent && ( parent->IsOnLayer( Edge_Cuts ) || parent->IsOnLayer( Margin ) );
 }
 
 
@@ -503,7 +521,7 @@ int PNS_PCBNEW_RULE_RESOLVER::Clearance( const PNS::ITEM* aA, const PNS::ITEM* a
 
     for( int layer = layers.Start(); layer <= layers.End(); ++layer )
     {
-        if( isDrilledHole( aA ) && isDrilledHole( aB) )
+        if( IsDrilledHole( aA ) && IsDrilledHole( aB ) )
         {
             if( QueryConstraint( PNS::CONSTRAINT_TYPE::CT_HOLE_TO_HOLE, aA, aB, layer, &constraint ) )
             {
@@ -529,7 +547,7 @@ int PNS_PCBNEW_RULE_RESOLVER::Clearance( const PNS::ITEM* aA, const PNS::ITEM* a
         }
 
         // No 'else'; non-plated milled holes get both HOLE_CLEARANCE and EDGE_CLEARANCE
-        if( isEdge( aA ) || isNonPlatedSlot( aA ) || isEdge( aB ) || isNonPlatedSlot( aB ) )
+        if( isEdge( aA ) || IsNonPlatedSlot( aA ) || isEdge( aB ) || IsNonPlatedSlot( aB ) )
         {
             if( QueryConstraint( PNS::CONSTRAINT_TYPE::CT_EDGE_CLEARANCE, aA, aB, layer, &constraint ) )
             {
@@ -1039,14 +1057,13 @@ PNS_KICAD_IFACE::PNS_KICAD_IFACE()
 
 PNS_KICAD_IFACE_BASE::~PNS_KICAD_IFACE_BASE()
 {
+    delete m_ruleResolver;
+    delete m_debugDecorator;
 }
 
 
 PNS_KICAD_IFACE::~PNS_KICAD_IFACE()
 {
-    delete m_ruleResolver;
-    delete m_debugDecorator;
-
     if( m_previewItems )
     {
         m_previewItems->FreeItems();
@@ -1258,9 +1275,9 @@ bool PNS_KICAD_IFACE_BASE::syncZone( PNS::NODE* aWorld, ZONE* aZone, SHAPE_POLY_
         if( !layers[ layer ] )
             continue;
 
-        for( int outline = 0; outline < poly->OutlineCount(); outline++ )
+        for( int polyId = 0; polyId < poly->TriangulatedPolyCount(); polyId++ )
         {
-            const SHAPE_POLY_SET::TRIANGULATED_POLYGON* tri = poly->TriangulatedPolygon( outline );
+            const SHAPE_POLY_SET::TRIANGULATED_POLYGON* tri = poly->TriangulatedPolygon( polyId );
 
             for( size_t i = 0; i < tri->GetTriangleCount(); i++)
             {
@@ -1539,7 +1556,10 @@ void PNS_KICAD_IFACE_BASE::SyncWorld( PNS::NODE *aWorld )
             if( std::unique_ptr<PNS::SOLID> solid = syncPad( pad ) )
                 aWorld->Add( std::move( solid ) );
 
-            worstClearance = std::max( worstClearance, pad->GetLocalClearance() );
+            std::optional<int> clearanceOverride = pad->GetClearanceOverrides( nullptr );
+
+            if( clearanceOverride.has_value() )
+                worstClearance = std::max( worstClearance, clearanceOverride.value() );
 
             if( pad->GetProperty() == PAD_PROP::CASTELLATED )
             {
@@ -1626,12 +1646,18 @@ void PNS_KICAD_IFACE_BASE::SetDebugDecorator( PNS::DEBUG_DECORATOR *aDec )
 }
 
 
-void PNS_KICAD_IFACE::DisplayItem( const PNS::ITEM* aItem, int aClearance, bool aEdit, bool aIsHeadTrace )
+void PNS_KICAD_IFACE::DisplayItem( const PNS::ITEM* aItem, int aClearance, bool aEdit, int aFlags )
 {
     if( aItem->IsVirtual() )
         return;
 
-    ROUTER_PREVIEW_ITEM* pitem = new ROUTER_PREVIEW_ITEM( aItem, m_view );
+    if( ZONE* zone = dynamic_cast<ZONE*>( aItem->Parent() ) )
+    {
+        if( zone->GetIsRuleArea() )
+            aFlags |= PNS_SEMI_SOLID;
+    }
+
+    ROUTER_PREVIEW_ITEM* pitem = new ROUTER_PREVIEW_ITEM( aItem, m_view, aFlags );
 
     // Note: SEGMENT_T is used for placed tracks; LINE_T is used for the routing head
     static int tracks = PNS::ITEM::SEGMENT_T | PNS::ITEM::ARC_T | PNS::ITEM::LINE_T;
@@ -1664,12 +1690,6 @@ void PNS_KICAD_IFACE::DisplayItem( const PNS::ITEM* aItem, int aClearance, bool 
         }
     }
 
-    if( aIsHeadTrace )
-    {
-        pitem->SetIsHeadTrace( true );
-        pitem->Update( aItem );
-    }
-
     m_previewItems->Add( pitem );
     m_view->Update( m_previewItems );
 }
@@ -1678,7 +1698,7 @@ void PNS_KICAD_IFACE::DisplayItem( const PNS::ITEM* aItem, int aClearance, bool 
 void PNS_KICAD_IFACE::DisplayPathLine( const SHAPE_LINE_CHAIN& aLine, int aImportance )
 {
     ROUTER_PREVIEW_ITEM* pitem = new ROUTER_PREVIEW_ITEM( aLine, m_view );
-    pitem->SetDepth( ROUTER_PREVIEW_ITEM::PathOverlayDepth );
+    pitem->SetDepth( pitem->GetOriginDepth() - ROUTER_PREVIEW_ITEM::PathOverlayDepth );
 
     COLOR4D color;
 
@@ -1798,6 +1818,9 @@ void PNS_KICAD_IFACE::modifyBoardItem( PNS::ITEM* aItem )
         PNS::ARC*        arc = static_cast<PNS::ARC*>( aItem );
         PCB_ARC*         arc_board = static_cast<PCB_ARC*>( board_item );
         const SHAPE_ARC* arc_shape = static_cast<const SHAPE_ARC*>( arc->Shape() );
+
+        m_commit->Modify( arc_board );
+
         arc_board->SetStart( VECTOR2I( arc_shape->GetP0() ) );
         arc_board->SetEnd( VECTOR2I( arc_shape->GetP1() ) );
         arc_board->SetMid( VECTOR2I( arc_shape->GetArcMid() ) );
@@ -1810,6 +1833,9 @@ void PNS_KICAD_IFACE::modifyBoardItem( PNS::ITEM* aItem )
         PNS::SEGMENT* seg = static_cast<PNS::SEGMENT*>( aItem );
         PCB_TRACK*    track = static_cast<PCB_TRACK*>( board_item );
         const SEG&    s = seg->Seg();
+
+        m_commit->Modify( track );
+
         track->SetStart( VECTOR2I( s.A.x, s.A.y ) );
         track->SetEnd( VECTOR2I( s.B.x, s.B.y ) );
         track->SetWidth( seg->Width() );
@@ -1820,6 +1846,9 @@ void PNS_KICAD_IFACE::modifyBoardItem( PNS::ITEM* aItem )
     {
         PCB_VIA*  via_board = static_cast<PCB_VIA*>( board_item );
         PNS::VIA* via = static_cast<PNS::VIA*>( aItem );
+
+        m_commit->Modify( via_board );
+
         via_board->SetPosition( VECTOR2I( via->Pos().x, via->Pos().y ) );
         via_board->SetWidth( via->Diameter() );
         via_board->SetDrill( via->Drill() );
@@ -1836,20 +1865,22 @@ void PNS_KICAD_IFACE::modifyBoardItem( PNS::ITEM* aItem )
         PAD*     pad = static_cast<PAD*>( aItem->Parent() );
         VECTOR2I pos = static_cast<PNS::SOLID*>( aItem )->Pos();
 
+        // Don't add to commit; we'll add the parent footprints when processing the m_fpOffsets
+
         m_fpOffsets[pad].p_old = pad->GetPosition();
         m_fpOffsets[pad].p_new = pos;
         break;
     }
 
-    default: break;
+    default:
+        m_commit->Modify( aItem->Parent() );
+        break;
     }
 }
 
 
 void PNS_KICAD_IFACE::UpdateItem( PNS::ITEM* aItem )
 {
-    BOARD_ITEM* board_item = aItem->Parent();
-    m_commit->Modify( board_item );
     modifyBoardItem( aItem );
 }
 
@@ -1861,7 +1892,11 @@ void PNS_KICAD_IFACE_BASE::AddItem( PNS::ITEM* aItem )
 
 BOARD_CONNECTED_ITEM* PNS_KICAD_IFACE::createBoardItem( PNS::ITEM* aItem )
 {
-    BOARD_CONNECTED_ITEM* newBI = nullptr;
+    BOARD_CONNECTED_ITEM* newBoardItem = nullptr;
+    NETINFO_ITEM* net = static_cast<NETINFO_ITEM*>( aItem->Net() );
+
+    if( !net )
+        net = NETINFO_LIST::OrphanedItem();
 
     switch( aItem->Kind() )
     {
@@ -1871,8 +1906,8 @@ BOARD_CONNECTED_ITEM* PNS_KICAD_IFACE::createBoardItem( PNS::ITEM* aItem )
         PCB_ARC*  new_arc = new PCB_ARC( m_board, static_cast<const SHAPE_ARC*>( arc->Shape() ) );
         new_arc->SetWidth( arc->Width() );
         new_arc->SetLayer( ToLAYER_ID( arc->Layers().Start() ) );
-        new_arc->SetNet( static_cast<NETINFO_ITEM*>( arc->Net() ) );
-        newBI = new_arc;
+        new_arc->SetNet( net );
+        newBoardItem = new_arc;
         break;
     }
 
@@ -1885,8 +1920,8 @@ BOARD_CONNECTED_ITEM* PNS_KICAD_IFACE::createBoardItem( PNS::ITEM* aItem )
         track->SetEnd( VECTOR2I( s.B.x, s.B.y ) );
         track->SetWidth( seg->Width() );
         track->SetLayer( ToLAYER_ID( seg->Layers().Start() ) );
-        track->SetNet( static_cast<NETINFO_ITEM*>( seg->Net() ) );
-        newBI = track;
+        track->SetNet( net );
+        newBoardItem = track;
         break;
     }
 
@@ -1897,12 +1932,12 @@ BOARD_CONNECTED_ITEM* PNS_KICAD_IFACE::createBoardItem( PNS::ITEM* aItem )
         via_board->SetPosition( VECTOR2I( via->Pos().x, via->Pos().y ) );
         via_board->SetWidth( via->Diameter() );
         via_board->SetDrill( via->Drill() );
-        via_board->SetNet( static_cast<NETINFO_ITEM*>( via->Net() ) );
+        via_board->SetNet( net );
         via_board->SetViaType( via->ViaType() ); // MUST be before SetLayerPair()
         via_board->SetIsFree( via->IsFree() );
         via_board->SetLayerPair( ToLAYER_ID( via->Layers().Start() ),
                                  ToLAYER_ID( via->Layers().End() ) );
-        newBI = via_board;
+        newBoardItem = via_board;
         break;
     }
 
@@ -1915,10 +1950,19 @@ BOARD_CONNECTED_ITEM* PNS_KICAD_IFACE::createBoardItem( PNS::ITEM* aItem )
         return nullptr;
     }
 
-    default: break;
+    default:
+        return nullptr;
     }
 
-    return newBI;
+    if( net->GetNetCode() <= 0 )
+    {
+        NETINFO_ITEM* newNetInfo = newBoardItem->GetNet();
+
+        newNetInfo->SetParent( m_board );
+        newNetInfo->SetNetClass( m_board->GetDesignSettings().m_NetSettings->m_DefaultNetClass );
+    }
+
+    return newBoardItem;
 }
 
 

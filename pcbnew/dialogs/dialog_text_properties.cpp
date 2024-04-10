@@ -72,18 +72,19 @@ DIALOG_TEXT_PROPERTIES::DIALOG_TEXT_PROPERTIES( PCB_BASE_EDIT_FRAME* aParent, PC
 #endif
 
     m_scintillaTricks = new SCINTILLA_TRICKS( m_MultiLineText, wxT( "{}" ), false,
-            // onAccept handler
+            // onAcceptFn
             [this]( wxKeyEvent& aEvent )
             {
                 wxPostEvent( this, wxCommandEvent( wxEVT_COMMAND_BUTTON_CLICKED, wxID_OK ) );
             },
-            // onCharAdded handler
+            // onCharFn
             [this]( wxStyledTextEvent& aEvent )
             {
                 m_scintillaTricks->DoTextVarAutocomplete(
-                        [this]( const wxString& crossRef, wxArrayString* tokens )
+                        // getTokensFn
+                        [this]( const wxString& xRef, wxArrayString* tokens )
                         {
-                            m_frame->GetContextualTextVars( m_item, crossRef, tokens );
+                            m_frame->GetContextualTextVars( m_item, xRef, tokens );
                         } );
             } );
 
@@ -255,6 +256,8 @@ DIALOG_TEXT_PROPERTIES::~DIALOG_TEXT_PROPERTIES()
 void PCB_BASE_EDIT_FRAME::ShowTextPropertiesDialog( PCB_TEXT* aText )
 {
     DIALOG_TEXT_PROPERTIES dlg( this, aText );
+
+    // QuasiModal required for Scintilla auto-complete
     dlg.ShowQuasiModal();
 }
 
@@ -285,10 +288,11 @@ bool DIALOG_TEXT_PROPERTIES::TransferDataToWindow()
 {
     BOARD*     board = m_frame->GetBoard();
     FOOTPRINT* parentFP = m_item->GetParentFootprint();
+    wxString   msg = board->ConvertKIIDsToCrossReferences( UnescapeString( m_item->GetText() ) );
 
     if( m_SingleLineText->IsShown() )
     {
-        m_SingleLineText->SetValue( m_item->GetText() );
+        m_SingleLineText->SetValue( msg );
 
         if( m_item->Type() == PCB_FIELD_T && static_cast<PCB_FIELD*>( m_item )->IsReference() )
             KIUI::SelectReferenceNumber( static_cast<wxTextEntry*>( m_SingleLineText ) );
@@ -297,8 +301,6 @@ bool DIALOG_TEXT_PROPERTIES::TransferDataToWindow()
     }
     else if( m_MultiLineText->IsShown() )
     {
-        wxString msg = board->ConvertKIIDsToCrossReferences( UnescapeString( m_item->GetText() ) );
-
         m_MultiLineText->SetValue( msg );
         m_MultiLineText->SetSelection( -1, -1 );
         m_MultiLineText->EmptyUndoBuffer();
@@ -341,16 +343,18 @@ bool DIALOG_TEXT_PROPERTIES::TransferDataToWindow()
 
     switch ( m_item->GetHorizJustify() )
     {
-    case GR_TEXT_H_ALIGN_LEFT:   m_alignLeft->Check( true );   break;
-    case GR_TEXT_H_ALIGN_CENTER: m_alignCenter->Check( true ); break;
-    case GR_TEXT_H_ALIGN_RIGHT:  m_alignRight->Check( true );  break;
+    case GR_TEXT_H_ALIGN_LEFT:          m_alignLeft->Check( true );    break;
+    case GR_TEXT_H_ALIGN_CENTER:        m_alignCenter->Check( true );  break;
+    case GR_TEXT_H_ALIGN_RIGHT:         m_alignRight->Check( true );   break;
+    case GR_TEXT_H_ALIGN_INDETERMINATE:                                break;
     }
 
     switch ( m_item->GetVertJustify() )
     {
-    case GR_TEXT_V_ALIGN_BOTTOM: m_valignBottom->Check( true ); break;
-    case GR_TEXT_V_ALIGN_CENTER: m_valignCenter->Check( true ); break;
-    case GR_TEXT_V_ALIGN_TOP:    m_valignTop->Check( true );    break;
+    case GR_TEXT_V_ALIGN_BOTTOM:        m_valignBottom->Check( true ); break;
+    case GR_TEXT_V_ALIGN_CENTER:        m_valignCenter->Check( true ); break;
+    case GR_TEXT_V_ALIGN_TOP:           m_valignTop->Check( true );    break;
+    case GR_TEXT_V_ALIGN_INDETERMINATE:                                break;
     }
 
     m_mirrored->Check( m_item->IsMirrored() );
@@ -429,12 +433,13 @@ bool DIALOG_TEXT_PROPERTIES::TransferDataFromWindow()
     if( !DIALOG_TEXT_PROPERTIES_BASE::TransferDataFromWindow() )
         return false;
 
-    int minSize = pcbIUScale.MilsToIU( TEXT_MIN_SIZE_MILS );
-    int maxSize = pcbIUScale.MilsToIU( TEXT_MAX_SIZE_MILS );
+    int minSize = pcbIUScale.mmToIU( TEXT_MIN_SIZE_MM );
+    int maxSize = pcbIUScale.mmToIU( TEXT_MAX_SIZE_MM );
 
     if( !m_textWidth.Validate( minSize, maxSize ) || !m_textHeight.Validate( minSize, maxSize ) )
         return false;
 
+    BOARD*       board = m_frame->GetBoard();
     BOARD_COMMIT commit( m_frame );
     commit.Modify( m_item );
 
@@ -451,13 +456,16 @@ bool DIALOG_TEXT_PROPERTIES::TransferDataFromWindow()
     if( m_SingleLineText->IsShown() )
     {
         if( !m_SingleLineText->GetValue().IsEmpty() )
-            m_item->SetText( m_SingleLineText->GetValue() );
+        {
+            wxString txt = board->ConvertCrossReferencesToKIIDs( m_SingleLineText->GetValue() );
+
+            m_item->SetText( txt );
+        }
     }
     else if( m_MultiLineText->IsShown() )
     {
         if( !m_MultiLineText->GetValue().IsEmpty() )
         {
-            BOARD*   board = m_frame->GetBoard();
             wxString txt = board->ConvertCrossReferencesToKIIDs( m_MultiLineText->GetValue() );
 
 #ifdef __WXMAC__
@@ -505,7 +513,7 @@ bool DIALOG_TEXT_PROPERTIES::TransferDataFromWindow()
     if( m_KeepUpright->IsShown() )
         m_item->SetKeepUpright( m_KeepUpright->GetValue() );
 
-    m_item->SetBold( m_bold->IsChecked() );
+    m_item->SetBoldFlag( m_bold->IsChecked() );
     m_item->SetItalic( m_italic->IsChecked() );
 
     if( m_alignLeft->IsChecked() )
@@ -525,7 +533,7 @@ bool DIALOG_TEXT_PROPERTIES::TransferDataFromWindow()
     m_item->SetMirrored( m_mirrored->IsChecked() );
 
     if( pushCommit )
-        commit.Push( _( "Change text properties" ) );
+        commit.Push( _( "Edit Text Properties" ) );
 
     return true;
 }

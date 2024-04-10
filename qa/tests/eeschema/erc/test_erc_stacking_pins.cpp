@@ -25,6 +25,7 @@
 #include <schematic.h>
 #include <erc_settings.h>
 #include <erc.h>
+#include <erc_report.h>
 #include <settings/settings_manager.h>
 #include <locale_io.h>
 
@@ -59,7 +60,8 @@ BOOST_FIXTURE_TEST_CASE( ERCStackingPins, ERC_REGRESSION_TEST_FIXTURE )
         SHEETLIST_ERC_ITEMS_PROVIDER errors( m_schematic.get() );
 
         // Skip the "Modified symbol" warning
-        settings.m_ERCSeverities[ERCE_LIB_SYMBOL_ISSUES]       = RPT_SEVERITY_IGNORE;
+        settings.m_ERCSeverities[ERCE_LIB_SYMBOL_ISSUES] = RPT_SEVERITY_IGNORE;
+        settings.m_ERCSeverities[ERCE_LIB_SYMBOL_MISMATCH] = RPT_SEVERITY_IGNORE;
 
         m_schematic->ConnectionGraph()->RunERC();
 
@@ -73,8 +75,11 @@ BOOST_FIXTURE_TEST_CASE( ERCStackingPins, ERC_REGRESSION_TEST_FIXTURE )
 
         errors.SetSeverities( RPT_SEVERITY_ERROR | RPT_SEVERITY_WARNING );
 
-        BOOST_CHECK_MESSAGE( errors.GetCount() == test.second, "Expected " << test.second
-            << " errors in " << test.first.ToStdString() << " but got " << errors.GetCount() );
+        ERC_REPORT reportWriter( m_schematic.get(), EDA_UNITS::MILLIMETRES );
+
+        BOOST_CHECK_MESSAGE( errors.GetCount() == test.second, "Expected " << test.second << " errors in " << test.first.ToStdString()
+                                         << " but got " << errors.GetCount() << "\n"
+                                         << reportWriter.GetTextReport() );
 
     }
 }

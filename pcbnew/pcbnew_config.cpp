@@ -99,9 +99,9 @@ bool PCB_EDIT_FRAME::LoadProjectSettings()
     m_appearancePanel->SetUserViewports( project.m_Viewports );
 
     PCB_SELECTION_TOOL*       selTool = GetToolManager()->GetTool<PCB_SELECTION_TOOL>();
-    SELECTION_FILTER_OPTIONS& filterOpts = selTool->GetFilter();
+    PCB_SELECTION_FILTER_OPTIONS& filterOpts = selTool->GetFilter();
 
-    filterOpts = localSettings.m_SelectionFilter;
+    filterOpts = localSettings.m_PcbSelectionFilter;
     m_selectionFilterPanel->SetCheckboxesFromFilter( filterOpts );
 
     PCB_DISPLAY_OPTIONS opts   = GetDisplayOptions();
@@ -149,7 +149,7 @@ void PCB_EDIT_FRAME::SaveProjectLocalSettings()
     project.m_LayerPresets = m_appearancePanel->GetUserLayerPresets();
     project.m_Viewports = m_appearancePanel->GetUserViewports();
 
-    RecordDRCExclusions();
+    GetBoard()->RecordDRCExclusions();
 
     // Save render settings that aren't stored in PCB_DISPLAY_OPTIONS
 
@@ -237,7 +237,7 @@ void PCB_EDIT_FRAME::saveProjectSettings()
     }
 
     PCB_SELECTION_TOOL*       selTool = GetToolManager()->GetTool<PCB_SELECTION_TOOL>();
-    SELECTION_FILTER_OPTIONS& filterOpts = selTool->GetFilter();
+    PCB_SELECTION_FILTER_OPTIONS& filterOpts = selTool->GetFilter();
 
-    localSettings.m_SelectionFilter = filterOpts;
+    localSettings.m_PcbSelectionFilter = filterOpts;
 }

@@ -332,7 +332,12 @@ SCH_FIELD::GetRenderCache( const wxString& forResolvedText, const VECTOR2I& forP
             VECTOR2I delta = forPosition - m_renderCachePos;
 
             for( std::unique_ptr<KIFONT::GLYPH>& glyph : m_renderCache )
-                static_cast<KIFONT::OUTLINE_GLYPH*>( glyph.get() )->Move( delta );
+            {
+                if( glyph->IsOutline() )
+                    static_cast<KIFONT::OUTLINE_GLYPH*>( glyph.get() )->Move( delta );
+                else
+                    static_cast<KIFONT::STROKE_GLYPH*>( glyph.get() )->Move( delta );
+            }
 
             m_renderCachePos = forPosition;
         }
@@ -344,15 +349,17 @@ SCH_FIELD::GetRenderCache( const wxString& forResolvedText, const VECTOR2I& forP
 }
 
 
-void SCH_FIELD::Print( const RENDER_SETTINGS* aSettings, const VECTOR2I& aOffset )
+void SCH_FIELD::Print( const SCH_RENDER_SETTINGS* aSettings, int aUnit, int aBodyStyle,
+                       const VECTOR2I& aOffset, bool aForceNoFill, bool aDimmed )
 {
-    wxDC*    DC = aSettings->GetPrintDC();
-    COLOR4D  color = aSettings->GetLayerColor( IsForceVisible() ? LAYER_HIDDEN : m_layer );
-    bool     blackAndWhiteMode = GetGRForceBlackPenState();
-    VECTOR2I textpos;
-    int      penWidth = GetEffectiveTextPenWidth( aSettings->GetDefaultPenWidth() );
+    SCH_SHEET_PATH* sheet = &Schematic()->CurrentSheet();
+    wxDC*           DC = aSettings->GetPrintDC();
+    COLOR4D         color = aSettings->GetLayerColor( IsForceVisible() ? LAYER_HIDDEN : m_layer );
+    bool            blackAndWhiteMode = GetGRForceBlackPenState();
+    VECTOR2I        textpos;
+    int             penWidth = GetEffectiveTextPenWidth( aSettings->GetDefaultPenWidth() );
 
-    if( ( !IsVisible() && !IsForceVisible() ) || GetShownText( true ).IsEmpty() )
+    if( ( !IsVisible() && !IsForceVisible() ) || GetShownText( sheet, true ).IsEmpty() )
         return;
 
     COLOR4D bg = aSettings->GetBackgroundColor();
@@ -411,7 +418,7 @@ void SCH_FIELD::Print( const RENDER_SETTINGS* aSettings, const VECTOR2I& aOffset
         textpos += label->GetSchematicTextOffset( aSettings );
     }
 
-    GRPrintText( DC, textpos, color, GetShownText( true ), orient, GetTextSize(),
+    GRPrintText( DC, textpos, color, GetShownText( sheet, true ), orient, GetTextSize(),
                  GR_TEXT_H_ALIGN_CENTER, GR_TEXT_V_ALIGN_CENTER, penWidth, IsItalic(), IsBold(),
                  font, GetFontMetrics() );
 }
@@ -886,10 +893,10 @@ bool SCH_FIELD::Replace( const EDA_SEARCH_DATA& aSearchData, void* aAuxData )
 }
 
 
-void SCH_FIELD::Rotate( const VECTOR2I& aCenter )
+void SCH_FIELD::Rotate( const VECTOR2I& aCenter, bool aRotateCCW )
 {
     VECTOR2I pt = GetPosition();
-    RotatePoint( pt, aCenter, ANGLE_90 );
+    RotatePoint( pt, aCenter, aRotateCCW ? ANGLE_270 : ANGLE_90 );
     SetPosition( pt );
 }
 
@@ -919,18 +926,20 @@ void SCH_FIELD::GetMsgPanelInfo( EDA_DRAW_FRAME* aFrame, std::vector<MSG_PANEL_I
 
     switch ( GetHorizJustify() )
     {
-    case GR_TEXT_H_ALIGN_LEFT:   msg = _( "Left" );   break;
-    case GR_TEXT_H_ALIGN_CENTER: msg = _( "Center" ); break;
-    case GR_TEXT_H_ALIGN_RIGHT:  msg = _( "Right" );  break;
+    case GR_TEXT_H_ALIGN_LEFT:          msg = _( "Left" );         break;
+    case GR_TEXT_H_ALIGN_CENTER:        msg = _( "Center" );       break;
+    case GR_TEXT_H_ALIGN_RIGHT:         msg = _( "Right" );        break;
+    case GR_TEXT_H_ALIGN_INDETERMINATE: msg = INDETERMINATE_STATE; break;
     }
 
     aList.emplace_back( _( "H Justification" ), msg );
 
     switch ( GetVertJustify() )
     {
-    case GR_TEXT_V_ALIGN_TOP:    msg = _( "Top" );    break;
-    case GR_TEXT_V_ALIGN_CENTER: msg = _( "Center" ); break;
-    case GR_TEXT_V_ALIGN_BOTTOM: msg = _( "Bottom" ); break;
+    case GR_TEXT_V_ALIGN_TOP:           msg = _( "Top" );          break;
+    case GR_TEXT_V_ALIGN_CENTER:        msg = _( "Center" );       break;
+    case GR_TEXT_V_ALIGN_BOTTOM:        msg = _( "Bottom" );       break;
+    case GR_TEXT_V_ALIGN_INDETERMINATE: msg = INDETERMINATE_STATE; break;
     }
 
     aList.emplace_back( _( "V Justification" ), msg );
@@ -943,12 +952,14 @@ void SCH_FIELD::DoHypertextAction( EDA_DRAW_FRAME* aFrame ) const
 
     if( IsHypertext() )
     {
-        SCH_LABEL_BASE*                            label = static_cast<SCH_LABEL_BASE*>( m_parent );
-        std::vector<std::pair<wxString, wxString>> pages;
-        wxMenu                                     menu;
-        wxString                                   href;
+        SCH_LABEL_BASE* label = static_cast<SCH_LABEL_BASE*>( m_parent );
+        SCH_SHEET_PATH* sheet = &label->Schematic()->CurrentSheet();
+        wxMenu          menu;
+        wxString        href;
 
-        label->GetIntersheetRefs( &pages );
+        std::vector<std::pair<wxString, wxString>> pages;
+
+        label->GetIntersheetRefs( sheet, &pages );
 
         for( int i = 0; i < (int) pages.size(); ++i )
         {
@@ -1033,7 +1044,7 @@ wxString SCH_FIELD::GetCanonicalName() const
 {
     if( m_parent && m_parent->Type() == SCH_SYMBOL_T )
     {
-        if( m_id < MANDATORY_FIELDS )
+        if( m_id >= 0 && m_id < MANDATORY_FIELDS )
             return GetCanonicalFieldName( m_id );
         else
             return m_name;
@@ -1051,13 +1062,19 @@ wxString SCH_FIELD::GetCanonicalName() const
     {
         // These should be stored in canonical format, but just in case:
         if( m_name == _( "Net Class" ) || m_name == wxT( "Net Class" ) )
+        {
             return wxT( "Netclass" );
+        }
         else if( m_name == _( "Sheet References" )
                  || m_name == wxT( "Sheet References" )
                  || m_name == wxT( "Intersheet References" ) )
+        {
             return wxT( "Intersheetrefs" );
+        }
         else
+        {
             return m_name;
+        }
     }
     else
     {
@@ -1132,17 +1149,19 @@ bool SCH_FIELD::HitTest( const BOX2I& aRect, bool aContained, int aAccuracy ) co
 }
 
 
-void SCH_FIELD::Plot( PLOTTER* aPlotter, bool aBackground,
-                      const SCH_PLOT_SETTINGS& aPlotSettings ) const
+void SCH_FIELD::Plot( PLOTTER* aPlotter, bool aBackground, const SCH_PLOT_OPTS& aPlotOpts,
+                      int aUnit, int aBodyStyle, const VECTOR2I& aOffset, bool aDimmed )
 {
-    if( GetShownText( true ).IsEmpty() || aBackground )
+    SCH_SHEET_PATH* sheet = &Schematic()->CurrentSheet();
+
+    if( GetShownText( sheet, true ).IsEmpty() || aBackground )
         return;
 
-    RENDER_SETTINGS* settings = aPlotter->RenderSettings();
-    COLOR4D          color = settings->GetLayerColor( GetLayer() );
-    int              penWidth = GetEffectiveTextPenWidth( settings->GetDefaultPenWidth() );
+    SCH_RENDER_SETTINGS* renderSettings = getRenderSettings( aPlotter );
+    COLOR4D              color = renderSettings->GetLayerColor( GetLayer() );
+    int                  penWidth = GetEffectiveTextPenWidth( renderSettings->GetDefaultPenWidth() );
 
-    COLOR4D bg = settings->GetBackgroundColor();;
+    COLOR4D bg = renderSettings->GetBackgroundColor();;
 
     if( bg == COLOR4D::UNSPECIFIED || !aPlotter->GetColorMode() )
         bg = COLOR4D::WHITE;
@@ -1150,12 +1169,12 @@ void SCH_FIELD::Plot( PLOTTER* aPlotter, bool aBackground,
     if( aPlotter->GetColorMode() && GetTextColor() != COLOR4D::UNSPECIFIED )
         color = GetTextColor();
 
-    penWidth = std::max( penWidth, settings->GetMinPenWidth() );
+    penWidth = std::max( penWidth, renderSettings->GetMinPenWidth() );
 
     // clamp the pen width to be sure the text is readable
     penWidth = std::min( penWidth, std::min( GetTextSize().x, GetTextSize().y ) / 4 );
 
-    if( !IsVisible() )
+    if( !IsVisible() && !renderSettings->m_ShowHiddenFields )
         return;
 
     // Calculate the text orientation, according to the symbol orientation/mirror
@@ -1200,13 +1219,13 @@ void SCH_FIELD::Plot( PLOTTER* aPlotter, bool aBackground,
     else if( m_parent && m_parent->Type() == SCH_GLOBAL_LABEL_T )
     {
         SCH_GLOBALLABEL* label = static_cast<SCH_GLOBALLABEL*>( m_parent );
-        textpos += label->GetSchematicTextOffset( settings );
+        textpos += label->GetSchematicTextOffset( renderSettings );
     }
 
     KIFONT::FONT* font = GetFont();
 
     if( !font )
-        font = KIFONT::FONT::GetFont( settings->GetDefaultFont(), IsBold(), IsItalic() );
+        font = KIFONT::FONT::GetFont( renderSettings->GetDefaultFont(), IsBold(), IsItalic() );
 
     TEXT_ATTRIBUTES attrs = GetAttributes();
     attrs.m_StrokeWidth = penWidth;
@@ -1215,7 +1234,7 @@ void SCH_FIELD::Plot( PLOTTER* aPlotter, bool aBackground,
     attrs.m_Angle = orient;
     attrs.m_Multiline = false;
 
-    aPlotter->PlotText( textpos, color, GetShownText( true ), attrs, font, GetFontMetrics() );
+    aPlotter->PlotText( textpos, color, GetShownText( sheet, true ), attrs, font, GetFontMetrics() );
 
     if( IsHypertext() )
     {
@@ -1226,12 +1245,12 @@ void SCH_FIELD::Plot( PLOTTER* aPlotter, bool aBackground,
 
         wxCHECK( label, /* void */ );
 
-        label->GetIntersheetRefs( &pages );
+        label->GetIntersheetRefs( sheet, &pages );
 
         for( const std::pair<wxString, wxString>& page : pages )
             pageHrefs.push_back( wxT( "#" ) + page.first );
 
-        bbox.Offset( label->GetSchematicTextOffset( settings ) );
+        bbox.Offset( label->GetSchematicTextOffset( renderSettings ) );
 
         aPlotter->HyperlinkMenu( bbox, pageHrefs );
     }
@@ -1341,7 +1360,7 @@ double SCH_FIELD::Similarity( const SCH_ITEM& aOther ) const
 
     const SCH_FIELD& field = static_cast<const SCH_FIELD&>( aOther );
 
-    double retval = 0.99; // The UUIDs are different, so we start with non-identity
+    double similarity = 0.99; // The UUIDs are different, so we start with non-identity
 
     if( GetId() != field.GetId() )
     {
@@ -1349,25 +1368,25 @@ double SCH_FIELD::Similarity( const SCH_ITEM& aOther ) const
         if( GetId() < MANDATORY_FIELDS || field.GetId() < MANDATORY_FIELDS )
             return 0.0;
         else
-            retval *= 0.5;
+            similarity *= 0.5;
     }
 
     if( GetPosition() != field.GetPosition() )
-        retval *= 0.5;
+        similarity *= 0.5;
 
     if( IsNamedVariable() != field.IsNamedVariable() )
-        retval *= 0.5;
+        similarity *= 0.5;
 
     if( IsNameShown() != field.IsNameShown() )
-        retval *= 0.5;
+        similarity *= 0.5;
 
     if( CanAutoplace() != field.CanAutoplace() )
-        retval *= 0.5;
+        similarity *= 0.5;
 
     if( GetText() != field.GetText() )
-        retval *= Levenshtein( field );
+        similarity *= Levenshtein( field );
 
-    return 1.0;
+    return similarity;
 }
 
 
@@ -1391,9 +1410,12 @@ static struct SCH_FIELD_DESC
         propMgr.Mask( TYPE_HASH( SCH_FIELD ), TYPE_HASH( EDA_TEXT ), _HKI( "Hyperlink" ) );
         propMgr.Mask( TYPE_HASH( SCH_FIELD ), TYPE_HASH( EDA_TEXT ), _HKI( "Thickness" ) );
         propMgr.Mask( TYPE_HASH( SCH_FIELD ), TYPE_HASH( EDA_TEXT ), _HKI( "Mirrored" ) );
-        propMgr.Mask( TYPE_HASH( SCH_FIELD ), TYPE_HASH( EDA_TEXT ), _HKI( "Visible" ) );
         propMgr.Mask( TYPE_HASH( SCH_FIELD ), TYPE_HASH( EDA_TEXT ), _HKI( "Width" ) );
         propMgr.Mask( TYPE_HASH( SCH_FIELD ), TYPE_HASH( EDA_TEXT ), _HKI( "Height" ) );
+
+        propMgr.AddProperty( new PROPERTY<SCH_FIELD, int>( _HKI( "Text Size" ),
+                &SCH_FIELD::SetSchTextSize, &SCH_FIELD::GetSchTextSize, PROPERTY_DISPLAY::PT_SIZE ),
+                _HKI( "Text Properties" ) );
 
         propMgr.Mask( TYPE_HASH( SCH_FIELD ), TYPE_HASH( EDA_TEXT ), _HKI( "Orientation" ) );
 

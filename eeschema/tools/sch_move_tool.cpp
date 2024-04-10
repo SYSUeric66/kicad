@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2019 CERN
- * Copyright (C) 2019-2023 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2019-2024 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -446,7 +446,8 @@ bool SCH_MOVE_TOOL::doMoveSelection( const TOOL_EVENT& aEvent, SCH_COMMIT* aComm
 
     // Be sure that there is at least one item that we can move. If there's no selection try
     // looking for the stuff under mouse cursor (i.e. Kicad old-style hover selection).
-    EE_SELECTION& selection = m_selectionTool->RequestSelection( EE_COLLECTOR::MovableItems );
+    EE_SELECTION& selection = m_selectionTool->RequestSelection( EE_COLLECTOR::MovableItems,
+                                                                 true );
     bool          unselect = selection.IsHover();
 
     // Keep an original copy of the starting points for cleanup after the move
@@ -586,8 +587,14 @@ bool SCH_MOVE_TOOL::doMoveSelection( const TOOL_EVENT& aEvent, SCH_COMMIT* aComm
                     for( EDA_ITEM* item : selection )
                         static_cast<SCH_ITEM*>( item )->GetEndPoints( internalPoints );
 
+                    std::vector<DANGLING_END_ITEM> endPointsByType = internalPoints;
+                    std::vector<DANGLING_END_ITEM> endPointsByPos = endPointsByType;
+                    DANGLING_END_ITEM_HELPER::sort_dangling_end_items( endPointsByType,
+                                                                       endPointsByPos );
+
                     for( EDA_ITEM* item : selection )
-                        static_cast<SCH_ITEM*>( item )->UpdateDanglingState( internalPoints );
+                        static_cast<SCH_ITEM*>( item )->UpdateDanglingState( endPointsByType,
+                                                                             endPointsByPos );
                 }
 
 
@@ -606,11 +613,13 @@ bool SCH_MOVE_TOOL::doMoveSelection( const TOOL_EVENT& aEvent, SCH_COMMIT* aComm
                     }
                     else
                     {
-                        aCommit->Modify( (SCH_ITEM*) item, m_frame->GetScreen() );
+                        aCommit->Modify( item, m_frame->GetScreen() );
                     }
 
-                    SCH_ITEM* schItem = (SCH_ITEM*) item;
-                    schItem->SetStoredPos( schItem->GetPosition() );
+                    item->SetFlags( IS_MOVING );
+
+                    if( SCH_ITEM* schItem = dynamic_cast<SCH_ITEM*>( item ) )
+                        schItem->SetStoredPos( schItem->GetPosition() );
                 }
 
                 // Set up the starting position and move/drag offset
@@ -1576,7 +1585,7 @@ void SCH_MOVE_TOOL::moveItem( EDA_ITEM* aItem, const VECTOR2I& aDelta )
 }
 
 
-int SCH_MOVE_TOOL::AlignElements( const TOOL_EVENT& aEvent )
+int SCH_MOVE_TOOL::AlignToGrid( const TOOL_EVENT& aEvent )
 {
     EE_GRID_HELPER    grid( m_toolMgr);
     EE_SELECTION&     selection = m_selectionTool->RequestSelection( EE_COLLECTOR::MovableItems );
@@ -1680,7 +1689,7 @@ int SCH_MOVE_TOOL::AlignElements( const TOOL_EVENT& aEvent )
                 else
                     newPos = pin->GetPosition() + br_delta;
 
-                VECTOR2I delta = grid.AlignGrid( newPos, selectionGrid ) - pin->GetPosition();
+                VECTOR2I delta = grid.AlignGrid( newPos - pin->GetPosition(), selectionGrid );
 
                 if( delta != VECTOR2I( 0, 0 ) )
                 {
@@ -1748,7 +1757,7 @@ int SCH_MOVE_TOOL::AlignElements( const TOOL_EVENT& aEvent )
     m_toolMgr->PostEvent( EVENTS::SelectedItemsMoved );
 
     m_frame->SchematicCleanUp( &commit );
-    commit.Push( _( "Align" ) );
+    commit.Push( _( "Align Items to Grid" ) );
     return 0;
 }
 
@@ -1770,7 +1779,7 @@ void SCH_MOVE_TOOL::setTransitions()
 {
     Go( &SCH_MOVE_TOOL::Main,               EE_ACTIONS::move.MakeEvent() );
     Go( &SCH_MOVE_TOOL::Main,               EE_ACTIONS::drag.MakeEvent() );
-    Go( &SCH_MOVE_TOOL::AlignElements,      EE_ACTIONS::alignToGrid.MakeEvent() );
+    Go( &SCH_MOVE_TOOL::AlignToGrid,        EE_ACTIONS::alignToGrid.MakeEvent() );
 }
 
 

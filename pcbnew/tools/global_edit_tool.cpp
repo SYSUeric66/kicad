@@ -24,6 +24,7 @@
 #include <footprint.h>
 #include <pcb_track.h>
 #include <zone.h>
+#include <zones.h>
 #include <tool/tool_manager.h>
 #include <tools/pcb_actions.h>
 #include <tools/edit_tool.h>
@@ -34,6 +35,9 @@
 #include <tools/global_edit_tool.h>
 #include <board_commit.h>
 #include <dialogs/dialog_cleanup_graphics.h>
+#include <tools/pcb_actions.h>
+#include <board_design_settings.h>
+
 
 GLOBAL_EDIT_TOOL::GLOBAL_EDIT_TOOL() :
         PCB_TOOL_BASE( "pcbnew.GlobalEdit" ),
@@ -107,12 +111,24 @@ int GLOBAL_EDIT_TOOL::ExchangeFootprints( const TOOL_EVENT& aEvent )
 }
 
 
-bool GLOBAL_EDIT_TOOL::swapBoardItem( BOARD_ITEM* aItem, PCB_LAYER_ID* aLayerMap )
+bool GLOBAL_EDIT_TOOL::swapBoardItem( BOARD_ITEM* aItem,
+                                      std::map<PCB_LAYER_ID, PCB_LAYER_ID>& aLayerMap )
 {
-    if( aLayerMap[ aItem->GetLayer() ] != aItem->GetLayer() )
+    LSET originalLayers = aItem->GetLayerSet();
+    LSET newLayers;
+
+    for( PCB_LAYER_ID original : originalLayers.Seq() )
+    {
+        if( aLayerMap.count( original ) )
+            newLayers.set( aLayerMap[ original ] );
+        else
+            newLayers.set( original );
+    }
+
+    if( originalLayers.Seq() != newLayers.Seq() )
     {
         m_commit->Modify( aItem );
-        aItem->SetLayer( aLayerMap[ aItem->GetLayer() ] );
+        aItem->SetLayerSet( newLayers );
         frame()->GetCanvas()->GetView()->Update( aItem, KIGFX::GEOMETRY );
         return true;
     }
@@ -123,7 +139,7 @@ bool GLOBAL_EDIT_TOOL::swapBoardItem( BOARD_ITEM* aItem, PCB_LAYER_ID* aLayerMap
 
 int GLOBAL_EDIT_TOOL::SwapLayers( const TOOL_EVENT& aEvent )
 {
-    PCB_LAYER_ID layerMap[PCB_LAYER_ID_COUNT];
+    std::map<PCB_LAYER_ID, PCB_LAYER_ID> layerMap;
 
     DIALOG_SWAP_LAYERS dlg( frame(), layerMap );
 
@@ -211,6 +227,55 @@ int GLOBAL_EDIT_TOOL::RemoveUnusedPads( const TOOL_EVENT& aEvent )
     return 0;
 }
 
+int GLOBAL_EDIT_TOOL::ZonesManager( const TOOL_EVENT& aEvent )
+{
+    PCB_EDIT_FRAME* editFrame = getEditFrame<PCB_EDIT_FRAME>();
+
+    BOARD_COMMIT      commit( editFrame );
+    BOARD*            board = editFrame->GetBoard();
+
+    for( ZONE* zone : board->Zones() )
+        commit.Modify( zone );
+
+    ZONE_SETTINGS zoneInfo = board->GetDesignSettings().GetDefaultZoneSettings();
+    int           dialogResult = InvokeZonesManager( editFrame, &zoneInfo );
+
+    if( dialogResult == wxID_CANCEL )
+        return 0;
+
+    wxBusyCursor dummy;
+
+    // Undraw old zone outlines
+    for( ZONE* zone : board->Zones() )
+        editFrame->GetCanvas()->GetView()->Update( zone );
+
+
+    board->GetDesignSettings().SetDefaultZoneSettings( zoneInfo );
+    commit.Push( _( "Modify zones properties with zone manager" ), SKIP_CONNECTIVITY );
+    editFrame->OnModify();
+
+    //rebuildConnectivity
+    board->BuildConnectivity();
+
+    if( TOOL_MANAGER* manger = GetManager() )
+    {
+        manger->PostEvent( EVENTS::ConnectivityChangedEvent );
+    }
+
+    editFrame->GetCanvas()->RedrawRatsnest();
+
+    if( dialogResult == ZONE_MANAGER_REPOUR )
+    {
+        if( TOOL_MANAGER* manger = GetManager() )
+        {
+            manger->PostAction( PCB_ACTIONS::zoneFillAll );
+        }
+    }
+
+    return 0;
+}
+
+
 
 void GLOBAL_EDIT_TOOL::setTransitions()
 {
@@ -228,6 +293,7 @@ void GLOBAL_EDIT_TOOL::setTransitions()
     Go( &GLOBAL_EDIT_TOOL::CleanupTracksAndVias, PCB_ACTIONS::cleanupTracksAndVias.MakeEvent() );
     Go( &GLOBAL_EDIT_TOOL::CleanupGraphics,      PCB_ACTIONS::cleanupGraphics.MakeEvent() );
     Go( &GLOBAL_EDIT_TOOL::RemoveUnusedPads,     PCB_ACTIONS::removeUnusedPads.MakeEvent() );
+    Go( &GLOBAL_EDIT_TOOL::ZonesManager,         PCB_ACTIONS::zonesManager.MakeEvent() );
 }
 
 

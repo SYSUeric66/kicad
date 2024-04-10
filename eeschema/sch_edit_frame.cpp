@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2017 Jean-Pierre Charras, jp.charras at wanadoo.fr
- * Copyright (C) 1992-2023 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2024 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -22,6 +22,8 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA
  */
 
+#include <api/api_handler_sch.h>
+#include <api/api_server.h>
 #include <base_units.h>
 #include <bitmaps.h>
 #include <symbol_library.h>
@@ -54,6 +56,7 @@
 #include <sch_painter.h>
 #include <sch_sheet.h>
 #include <sch_marker.h>
+#include <sch_sheet_pin.h>
 #include <schematic.h>
 #include <sch_commit.h>
 #include <settings/settings_manager.h>
@@ -75,6 +78,7 @@
 #include <tools/ee_selection_tool.h>
 #include <tools/sch_drawing_tools.h>
 #include <tools/sch_edit_tool.h>
+#include <tools/sch_edit_table_tool.h>
 #include <tools/sch_editor_conditions.h>
 #include <tools/sch_editor_control.h>
 #include <tools/sch_line_wire_bus_tool.h>
@@ -91,8 +95,13 @@
 #include <wx/app.h>
 #include <wx/filedlg.h>
 #include <wx/socket.h>
+#include <widgets/panel_sch_selection_filter.h>
 #include <widgets/wx_aui_utils.h>
 #include <drawing_sheet/ds_proxy_view_item.h>
+
+#ifdef KICAD_IPC_API
+#include <api/api_plugin_manager.h>
+#endif
 
 
 #define DIFF_SYMBOLS_DIALOG_NAME wxT( "DiffSymbolsDialog" )
@@ -118,6 +127,7 @@ BEGIN_EVENT_TABLE( SCH_EDIT_FRAME, SCH_BASE_FRAME )
 END_EVENT_TABLE()
 
 
+wxDEFINE_EVENT( EDA_EVT_SCHEMATIC_CHANGING, wxCommandEvent );
 wxDEFINE_EVENT( EDA_EVT_SCHEMATIC_CHANGED, wxCommandEvent );
 
 
@@ -147,7 +157,11 @@ SCH_EDIT_FRAME::SCH_EDIT_FRAME( KIWAY* aKiway, wxWindow* aParent ) :
     wxIcon icon;
     wxIconBundle icon_bundle;
 
-    icon.CopyFromBitmap( KiBitmap( BITMAPS::icon_eeschema ) );
+    icon.CopyFromBitmap( KiBitmap( BITMAPS::icon_eeschema, 48 ) );
+    icon_bundle.AddIcon( icon );
+    icon.CopyFromBitmap( KiBitmap( BITMAPS::icon_eeschema, 128 ) );
+    icon_bundle.AddIcon( icon );
+    icon.CopyFromBitmap( KiBitmap( BITMAPS::icon_eeschema, 256 ) );
     icon_bundle.AddIcon( icon );
     icon.CopyFromBitmap( KiBitmap( BITMAPS::icon_eeschema_32 ) );
     icon_bundle.AddIcon( icon );
@@ -169,6 +183,16 @@ SCH_EDIT_FRAME::SCH_EDIT_FRAME( KIWAY* aKiway, wxWindow* aParent ) :
     ReCreateVToolbar();
     ReCreateOptToolbar();
 
+#ifdef KICAD_IPC_API
+    wxTheApp->Bind( EDA_EVT_PLUGIN_AVAILABILITY_CHANGED,
+            [&]( wxCommandEvent& aEvt )
+            {
+                wxLogTrace( traceApi, "SCH frame: EDA_EVT_PLUGIN_AVAILABILITY_CHANGED" );
+                ReCreateHToolbar();
+                aEvt.Skip();
+            } );
+#endif
+
     m_hierarchy = new HIERARCHY_PANE( this );
 
     // Initialize common print setup dialog settings.
@@ -181,6 +205,8 @@ SCH_EDIT_FRAME::SCH_EDIT_FRAME( KIWAY* aKiway, wxWindow* aParent ) :
     m_propertiesPanel = new SCH_PROPERTIES_PANEL( this, this );
 
     m_propertiesPanel->SetSplitterProportion( eeconfig()->m_AuiPanels.properties_splitter );
+
+    m_selectionFilterPanel = new PANEL_SCH_SELECTION_FILTER( this );
 
     m_auimgr.SetManagedWindow( this );
 
@@ -196,17 +222,18 @@ SCH_EDIT_FRAME::SCH_EDIT_FRAME( KIWAY* aKiway, wxWindow* aParent ) :
     // Columns; layers 1 - 3
     m_auimgr.AddPane( m_hierarchy, EDA_PANE().Palette().Name( SchematicHierarchyPaneName() )
                       .Caption( _( "Schematic Hierarchy" ) )
-                      .Left().Layer( 3 )
+                      .Left().Layer( 3 ).Position( 1 )
                       .TopDockable( false )
                       .BottomDockable( false )
-                      .CloseButton( true )
-                      .MinSize( 120, 60 )
-                      .BestSize( 200, 200 )
-                      .FloatingSize( 200, 200 )
-                      .FloatingPosition( 50, 50 )
+                      .CloseButton( false )
+                      .MinSize( FromDIP( wxSize( 120, 60 ) ) )
+                      .BestSize( FromDIP( wxSize( 200, 200 ) ) )
+                      .FloatingSize( FromDIP( wxSize( 200, 200 ) ) )
+                      .FloatingPosition( FromDIP( wxPoint( 50, 50 ) ) )
                       .Show( false ) );
 
-    m_auimgr.AddPane( m_propertiesPanel, defaultPropertiesPaneInfo() );
+    m_auimgr.AddPane( m_propertiesPanel, defaultPropertiesPaneInfo( this ) );
+    m_auimgr.AddPane( m_selectionFilterPanel, defaultSchSelectionFilterPaneInfo( this ) );
 
     m_auimgr.AddPane( createHighlightedNetNavigator(), defaultNetNavigatorPaneInfo() );
 
@@ -225,10 +252,10 @@ SCH_EDIT_FRAME::SCH_EDIT_FRAME( KIWAY* aKiway, wxWindow* aParent ) :
                       .Bottom()
                       .Caption( _( "Search" ) )
                       .PaneBorder( false )
-                      .MinSize( 180, 60 )
-                      .BestSize( 180, 100 )
-                      .FloatingSize( 480, 200 )
-                      .CloseButton( true )
+                      .MinSize( FromDIP( wxSize( 180, 60 ) ) )
+                      .BestSize( FromDIP( wxSize( 180, 100 ) ) )
+                      .FloatingSize( FromDIP( wxSize( 480, 200 ) ) )
+                      .CloseButton( false )
                       .DestroyOnClose( false )
                       .Show( m_show_search ) );
 
@@ -242,14 +269,19 @@ SCH_EDIT_FRAME::SCH_EDIT_FRAME( KIWAY* aKiway, wxWindow* aParent ) :
     KIGFX::SCH_VIEW* view = GetCanvas()->GetView();
     static_cast<KIGFX::SCH_PAINTER*>( view->GetPainter() )->SetSchematic( m_schematic );
 
-    wxAuiPaneInfo&     hierarchy_pane = m_auimgr.GetPane( SchematicHierarchyPaneName() );
-    wxAuiPaneInfo&     netNavigatorPane = m_auimgr.GetPane( NetNavigatorPaneName() );
-    wxAuiPaneInfo&     propertiesPane = m_auimgr.GetPane( PropertiesPaneName() );
+    wxAuiPaneInfo& hierarchy_pane = m_auimgr.GetPane( SchematicHierarchyPaneName() );
+    wxAuiPaneInfo& netNavigatorPane = m_auimgr.GetPane( NetNavigatorPaneName() );
+    wxAuiPaneInfo& propertiesPane = m_auimgr.GetPane( PropertiesPaneName() );
+    wxAuiPaneInfo& selectionFilterPane = m_auimgr.GetPane( wxS( "SelectionFilter" ) );
     EESCHEMA_SETTINGS* cfg = eeconfig();
 
     hierarchy_pane.Show( cfg->m_AuiPanels.show_schematic_hierarchy );
     netNavigatorPane.Show( cfg->m_AuiPanels.show_net_nav_panel );
     propertiesPane.Show( cfg->m_AuiPanels.show_properties );
+    updateSelectionFilterVisbility();
+
+    // The selection filter doesn't need to grow in the vertical direction when docked
+    selectionFilterPane.dock_proportion = 0;
 
     if( cfg->m_AuiPanels.hierarchy_panel_float_width > 0
             && cfg->m_AuiPanels.hierarchy_panel_float_height > 0 )
@@ -263,6 +295,7 @@ SCH_EDIT_FRAME::SCH_EDIT_FRAME( KIWAY* aKiway, wxWindow* aParent ) :
       && cfg->m_AuiPanels.net_nav_panel_float_size.GetHeight() > 0 )
     {
         netNavigatorPane.FloatingSize( cfg->m_AuiPanels.net_nav_panel_float_size );
+        netNavigatorPane.FloatingPosition( cfg->m_AuiPanels.net_nav_panel_float_pos );
     }
 
     if( cfg->m_AuiPanels.properties_panel_width > 0 )
@@ -327,8 +360,8 @@ SCH_EDIT_FRAME::SCH_EDIT_FRAME( KIWAY* aKiway, wxWindow* aParent ) :
 
         // Note: DO NOT call m_auimgr.Update() anywhere after this; it will nuke the size
         // back to minimum.
-        hierarchy_pane.MinSize( 120, 60 );
-        netNavigatorPane.MinSize( 120, 60 );
+        hierarchy_pane.MinSize( FromDIP( wxSize( 120, 60 ) ) );
+        netNavigatorPane.MinSize( FromDIP( wxSize( 120, 60 ) ) );
     }
     else
     {
@@ -363,11 +396,16 @@ SCH_EDIT_FRAME::SCH_EDIT_FRAME( KIWAY* aKiway, wxWindow* aParent ) :
     updateTitle();
     m_toolManager->GetTool<SCH_NAVIGATE_TOOL>()->ResetHistory();
 
+#ifdef KICAD_IPC_API
+    m_apiHandler = std::make_unique<API_HANDLER_SCH>( this );
+    Pgm().GetApiServer().RegisterHandler( m_apiHandler.get() );
+#endif
+
     // Default shutdown reason until a file is loaded
     KIPLATFORM::APP::SetShutdownBlockReason( this, _( "New schematic file is unsaved" ) );
 
     // Init for dropping files
-    m_acceptedExts.emplace( KiCadSchematicFileExtension, &EE_ACTIONS::ddAppendFile );
+    m_acceptedExts.emplace( FILEEXT::KiCadSchematicFileExtension, &EE_ACTIONS::ddAppendFile );
     DragAcceptFiles( true );
 
     // Ensure the window is on top
@@ -416,6 +454,7 @@ SCH_EDIT_FRAME::~SCH_EDIT_FRAME()
     }
 
     delete m_hierarchy;
+    delete m_selectionFilterPanel;
 }
 
 
@@ -470,6 +509,7 @@ void SCH_EDIT_FRAME::setupTools()
     m_toolManager->RegisterTool( new SCH_LINE_WIRE_BUS_TOOL );
     m_toolManager->RegisterTool( new SCH_MOVE_TOOL );
     m_toolManager->RegisterTool( new SCH_EDIT_TOOL );
+    m_toolManager->RegisterTool( new SCH_EDIT_TABLE_TOOL );
     m_toolManager->RegisterTool( new EE_INSPECTION_TOOL );
     m_toolManager->RegisterTool( new SCH_EDITOR_CONTROL );
     m_toolManager->RegisterTool( new SCH_FIND_REPLACE_TOOL );
@@ -717,13 +757,15 @@ void SCH_EDIT_FRAME::setupUIConditions()
     CURRENT_TOOL( EE_ACTIONS::placeGlobalLabel );
     CURRENT_TOOL( EE_ACTIONS::placeHierLabel );
     CURRENT_TOOL( EE_ACTIONS::drawSheet );
-    CURRENT_TOOL( EE_ACTIONS::importSheetPin );
+    CURRENT_TOOL( EE_ACTIONS::placeSheetPin );
+    CURRENT_TOOL( EE_ACTIONS::syncSheetPins );
     CURRENT_TOOL( EE_ACTIONS::drawRectangle );
     CURRENT_TOOL( EE_ACTIONS::drawCircle );
     CURRENT_TOOL( EE_ACTIONS::drawArc );
     CURRENT_TOOL( EE_ACTIONS::drawLines );
     CURRENT_TOOL( EE_ACTIONS::placeSchematicText );
     CURRENT_TOOL( EE_ACTIONS::drawTextBox );
+    CURRENT_TOOL( EE_ACTIONS::drawTable );
     CURRENT_TOOL( EE_ACTIONS::placeImage );
 
 #undef CURRENT_TOOL
@@ -1002,6 +1044,9 @@ void SCH_EDIT_FRAME::doCloseWindow()
         m_symbolFieldsTableDialog = nullptr;
     }
 
+    // Make sure local settings are persisted
+    SaveProjectLocalSettings();
+
     // Shutdown all running tools
     if( m_toolManager )
     {
@@ -1047,9 +1092,6 @@ void SCH_EDIT_FRAME::doCloseWindow()
     if( !Schematic().GetFileName().IsEmpty() && !Schematic().RootScreen()->IsEmpty() )
         UpdateFileHistory( fileName );
 
-    // Make sure local settings are persisted
-    SaveProjectLocalSettings();
-
     Schematic().RootScreen()->Clear();
 
     // all sub sheets are deleted, only the main sheet is usable
@@ -1083,7 +1125,6 @@ void SCH_EDIT_FRAME::OnModify()
     m_autoSaveRequired = true;
 
     GetCanvas()->Refresh();
-    UpdateHierarchyNavigator();
 
     if( !GetTitle().StartsWith( wxS( "*" ) ) )
         updateTitle();
@@ -1105,7 +1146,7 @@ void SCH_EDIT_FRAME::OnUpdatePCB( wxCommandEvent& event )
     if( !frame )
     {
         wxFileName fn = Prj().GetProjectFullName();
-        fn.SetExt( PcbFileExtension );
+        fn.SetExt( FILEEXT::PcbFileExtension );
 
         frame = Kiway().Player( FRAME_PCB_EDITOR, true );
 
@@ -1135,6 +1176,14 @@ void SCH_EDIT_FRAME::UpdateHierarchyNavigator()
 {
     m_toolManager->GetTool<SCH_NAVIGATE_TOOL>()->CleanHistory();
     m_hierarchy->UpdateHierarchyTree();
+}
+
+
+void SCH_EDIT_FRAME::UpdateLabelsHierarchyNavigator()
+{
+    // Update only the hierarchy navigation tree labels.
+    // The tree list is expectyed to be up to date
+    m_hierarchy->UpdateLabelsHierarchyTree();
 }
 
 
@@ -1246,15 +1295,20 @@ void SCH_EDIT_FRAME::OnClearFileHistory( wxCommandEvent& aEvent )
 
 void SCH_EDIT_FRAME::NewProject()
 {
+    // Only standalone mode can directly load a new document
+    if( !Kiface().IsSingle() )
+        return;
+
     wxString pro_dir = m_mruPath;
 
     wxFileDialog dlg( this, _( "New Schematic" ), pro_dir, wxEmptyString,
-                      KiCadSchematicFileWildcard(), wxFD_SAVE );
+                      FILEEXT::KiCadSchematicFileWildcard(), wxFD_SAVE );
 
     if( dlg.ShowModal() != wxID_CANCEL )
     {
         // Enforce the extension, wxFileDialog is inept.
-        wxFileName create_me = EnsureFileExtension( dlg.GetPath(), KiCadSchematicFileExtension );
+        wxFileName create_me =
+                EnsureFileExtension( dlg.GetPath(), FILEEXT::KiCadSchematicFileExtension );
 
         if( create_me.FileExists() )
         {
@@ -1275,10 +1329,14 @@ void SCH_EDIT_FRAME::NewProject()
 
 void SCH_EDIT_FRAME::LoadProject()
 {
+    // Only standalone mode can directly load a new document
+    if( !Kiface().IsSingle() )
+        return;
+
     wxString pro_dir = m_mruPath;
-    wxString wildcards = AllSchematicFilesWildcard()
-                            + wxS( "|" ) + KiCadSchematicFileWildcard()
-                            + wxS( "|" ) + LegacySchematicFileWildcard();
+    wxString wildcards = FILEEXT::AllSchematicFilesWildcard()
+                            + wxS( "|" ) + FILEEXT::KiCadSchematicFileWildcard()
+                            + wxS( "|" ) + FILEEXT::LegacySchematicFileWildcard();
 
     wxFileDialog dlg( this, _( "Open Schematic" ), pro_dir, wxEmptyString,
                       wildcards, wxFD_OPEN | wxFD_FILE_MUST_EXIST );
@@ -1297,9 +1355,9 @@ void SCH_EDIT_FRAME::OnOpenPcbnew( wxCommandEvent& event )
 
     if( kicad_board.IsOk() && !Schematic().GetFileName().IsEmpty() )
     {
-        kicad_board.SetExt( PcbFileExtension );
+        kicad_board.SetExt( FILEEXT::PcbFileExtension );
         wxFileName legacy_board( kicad_board );
-        legacy_board.SetExt( LegacyPcbFileExtension );
+        legacy_board.SetExt( FILEEXT::LegacyPcbFileExtension );
         wxFileName& boardfn = legacy_board;
 
         if( !legacy_board.FileExists() || kicad_board.FileExists() )
@@ -1347,7 +1405,7 @@ void SCH_EDIT_FRAME::OnOpenPcbnew( wxCommandEvent& event )
 void SCH_EDIT_FRAME::OnOpenCvpcb( wxCommandEvent& event )
 {
     wxFileName fn = Prj().AbsolutePath( Schematic().GetFileName() );
-    fn.SetExt( NetlistFileExtension );
+    fn.SetExt( FILEEXT::NetlistFileExtension );
 
     if( !ReadyToNetlist( _( "Assigning footprints requires a fully annotated schematic." ) ) )
         return;
@@ -1368,6 +1426,8 @@ void SCH_EDIT_FRAME::OnOpenCvpcb( wxCommandEvent& event )
             player->Show( true );
         }
 
+        // Ensure the netlist (mainly info about symbols) is up to date
+        RecalculateConnections( nullptr, GLOBAL_CLEANUP );
         sendNetlistToCvpcb();
 
         player->Raise();
@@ -1391,17 +1451,16 @@ void SCH_EDIT_FRAME::OnExit( wxCommandEvent& event )
 
 void SCH_EDIT_FRAME::PrintPage( const RENDER_SETTINGS* aSettings )
 {
-    wxString fileName = Prj().AbsolutePath( GetScreen()->GetFileName() );
+    wxString                   fileName = Prj().AbsolutePath( GetScreen()->GetFileName() );
+    const SCH_RENDER_SETTINGS* cfg = static_cast<const SCH_RENDER_SETTINGS*>( aSettings );
+    COLOR4D                    bg = GetColorSettings()->GetColor( LAYER_SCHEMATIC_BACKGROUND );
 
-    const wxBrush& brush =
-            wxBrush( GetColorSettings()->GetColor( LAYER_SCHEMATIC_BACKGROUND ).ToColour() );
-    aSettings->GetPrintDC()->SetBackground( brush );
-    aSettings->GetPrintDC()->Clear();
+    cfg->GetPrintDC()->SetBackground( wxBrush( bg.ToColour() ) );
+    cfg->GetPrintDC()->Clear();
 
-    aSettings->GetPrintDC()->SetLogicalFunction( wxCOPY );
-    GetScreen()->Print( aSettings );
-    PrintDrawingSheet( aSettings, GetScreen(), Schematic().GetProperties(), schIUScale.IU_PER_MILS,
-                       fileName );
+    cfg->GetPrintDC()->SetLogicalFunction( wxCOPY );
+    GetScreen()->Print( cfg );
+    PrintDrawingSheet( cfg, GetScreen(), Schematic().GetProperties(), schIUScale.IU_PER_MILS, fileName );
 }
 
 
@@ -1680,7 +1739,8 @@ void SCH_EDIT_FRAME::RecalculateConnections( SCH_COMMIT* aCommit, SCH_CLEANUP_FL
 
                 SCH_CONNECTION* connection = aChangedItem->Connection();
 
-                if( connection && ( connection->Name() == highlightedConn ) )
+                if( connection
+                    && ( connection->Name() == highlightedConn || connection->HasDriverChanged() ) )
                     m_highlightedConnChanged = true;
             };
 
@@ -1698,21 +1758,21 @@ void SCH_EDIT_FRAME::RecalculateConnections( SCH_COMMIT* aCommit, SCH_CLEANUP_FL
 
         for( unsigned ii = 0; ii < changed_list->GetCount(); ++ii )
         {
-            EDA_ITEM* item = changed_list->GetPickedItem( ii );
+            SCH_ITEM* item = dynamic_cast<SCH_ITEM*>( changed_list->GetPickedItem( ii ) );
 
-            if( !item || !IsEeschemaType( item->Type() ) )
+            // Ignore objects that are not connectable.
+            if( !item || !item->IsConnectable() )
                 continue;
 
             SCH_SCREEN* screen = static_cast<SCH_SCREEN*>( changed_list->GetScreenForItem( ii ) );
-            SCH_ITEM* sch_item = static_cast<SCH_ITEM*>( item );
             SCH_SHEET_PATHS& paths = screen->GetClientSheetPaths();
 
-            std::vector<VECTOR2I> tmp_pts = sch_item->GetConnectionPoints();
+            std::vector<VECTOR2I> tmp_pts = item->GetConnectionPoints();
             pts.insert( pts.end(), tmp_pts.begin(), tmp_pts.end() );
-            changed_items.insert( sch_item );
+            changed_items.insert( item );
 
             for( SCH_SHEET_PATH& path : paths )
-                item_paths.insert( std::make_pair( path, sch_item ) );
+                item_paths.insert( std::make_pair( path, item ) );
         }
 
         for( VECTOR2I& pt: pts )
@@ -1731,8 +1791,18 @@ void SCH_EDIT_FRAME::RecalculateConnections( SCH_COMMIT* aCommit, SCH_CLEANUP_FL
 
                     changed_items.insert( pins.begin(), pins.end() );
                 }
-                else if( item->IsConnectable() )
+                else if( item->Type() == SCH_SHEET_T )
                 {
+                    SCH_SHEET* sheet = static_cast<SCH_SHEET*>( item );
+
+                    wxCHECK2( sheet, continue );
+
+                    std::vector<SCH_SHEET_PIN*> sheetPins = sheet->GetPins();
+                    changed_items.insert( sheetPins.begin(), sheetPins.end() );
+                }
+                else
+                {
+                    // Non-connectable objects have already been pruned.
                     if( item->IsConnected( pt ) )
                         changed_items.insert( item );
                 }
@@ -1750,12 +1820,18 @@ void SCH_EDIT_FRAME::RecalculateConnections( SCH_COMMIT* aCommit, SCH_CLEANUP_FL
 
         for( auto&[ path, item ] : all_items )
         {
+            wxCHECK2( item, continue );
+
             switch( item->Type() )
             {
             case SCH_FIELD_T:
             case SCH_PIN_T:
-                static_cast<SCH_ITEM*>( item->GetParent() )->SetConnectivityDirty();
+            {
+                SCH_ITEM* parent = static_cast<SCH_ITEM*>( item->GetParent() );
+                wxCHECK2( parent, continue );
+                parent->SetConnectivityDirty();
                 break;
+            }
 
             default:
                 item->SetConnectivityDirty();
@@ -1814,7 +1890,10 @@ void SCH_EDIT_FRAME::RecalculateConnections( SCH_COMMIT* aCommit, SCH_CLEANUP_FL
     {
         if( m_highlightedConnChanged
           || !Schematic().ConnectionGraph()->FindFirstSubgraphByName( highlightedConn ) )
+        {
+            GetToolManager()->RunAction( EE_ACTIONS::updateNetHighlighting );
             RefreshNetNavigator();
+        }
 
         m_highlightedConnChanged = false;
     }
@@ -1909,6 +1988,8 @@ void SCH_EDIT_FRAME::ShowChangedLanguage()
     RecreateToolbars();
 
     m_auimgr.GetPane( m_hierarchy ).Caption( _( "Schematic Hierarchy" ) );
+    m_auimgr.GetPane( m_selectionFilterPanel ).Caption( _( "Selection Filter" ) );
+    m_auimgr.GetPane( m_propertiesPanel ).Caption( _( "Properties" ) );
     m_auimgr.Update();
     m_hierarchy->UpdateHierarchyTree();
 
@@ -2214,7 +2295,7 @@ DIALOG_BOOK_REPORTER* SCH_EDIT_FRAME::GetSymbolDiffDialog()
 {
     if( !m_diffSymbolDialog )
         m_diffSymbolDialog = new DIALOG_BOOK_REPORTER( this, DIFF_SYMBOLS_DIALOG_NAME,
-                                                       _( "Diff Symbol with Library" ) );
+                                                       _( "Compare Symbol with Library" ) );
 
     return m_diffSymbolDialog;
 }
@@ -2334,4 +2415,21 @@ void SCH_EDIT_FRAME::unitsChangeRefresh()
     }
 
     UpdateProperties();
+}
+
+
+void SCH_EDIT_FRAME::updateSelectionFilterVisbility()
+{
+    wxAuiPaneInfo& hierarchyPane = m_auimgr.GetPane( SchematicHierarchyPaneName() );
+    wxAuiPaneInfo& netNavigatorPane = m_auimgr.GetPane( NetNavigatorPaneName() );
+    wxAuiPaneInfo& propertiesPane = m_auimgr.GetPane( PropertiesPaneName() );
+    wxAuiPaneInfo& selectionFilterPane = m_auimgr.GetPane( wxS( "SelectionFilter" ) );
+
+    // Don't give the selection filter its own visibility controls; instead show it if
+    // anything else is visible
+    bool showFilter = ( hierarchyPane.IsShown() && hierarchyPane.IsDocked() )
+                      || ( netNavigatorPane.IsShown() && netNavigatorPane.IsDocked() )
+                      || ( propertiesPane.IsShown() && propertiesPane.IsDocked() );
+
+    selectionFilterPane.Show( showFilter );
 }

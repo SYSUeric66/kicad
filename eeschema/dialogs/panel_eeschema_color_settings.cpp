@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2020 Jon Evans <jon@craftyjon.com>
- * Copyright (C) 2020-2023 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2020-2024 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software: you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -145,7 +145,8 @@ bool PANEL_EESCHEMA_COLOR_SETTINGS::validateSave( bool aQuiet )
                               "and they will not be seen on the screen.  Are you\n"
                               "sure you want to use these colors?" );
 
-            if( wxMessageBox( msg, _( "Warning" ), wxYES_NO | wxICON_QUESTION, this ) == wxNO )
+            if( wxMessageBox( msg, _( "Warning" ), wxYES_NO | wxICON_QUESTION,
+                              wxGetTopLevelParent( this ) ) == wxNO )
                 return false;
 
             break;
@@ -217,7 +218,7 @@ void PANEL_EESCHEMA_COLOR_SETTINGS::createSwatches()
     m_preview->ShowScrollbars( wxSHOW_SB_NEVER, wxSHOW_SB_NEVER );
     m_preview->GetGAL()->SetAxesEnabled( false );
 
-    KIGFX::SCH_RENDER_SETTINGS* settings = m_preview->GetRenderSettings();
+    SCH_RENDER_SETTINGS* settings = m_preview->GetRenderSettings();
     settings->m_IsSymbolEditor = true;
 
     m_colorsMainSizer->Add( m_preview, 1, wxTOP | wxEXPAND, 1 );
@@ -241,7 +242,7 @@ void PANEL_EESCHEMA_COLOR_SETTINGS::createPreviewItems()
 {
     KIGFX::VIEW* view = m_preview->GetView();
 
-    std::vector<DANGLING_END_ITEM> endPoints;
+    std::vector<DANGLING_END_ITEM> endPointsByType;
 
     m_page       = new PAGE_INFO( PAGE_INFO::Custom );
     m_titleBlock = new TITLE_BLOCK;
@@ -257,7 +258,6 @@ void PANEL_EESCHEMA_COLOR_SETTINGS::createPreviewItems()
     view->Add( m_drawingSheet );
 
     // TODO: It would be nice to parse a schematic file here.
-    // This is created from the color_settings.sch file in demos folder
 
     auto addItem = [&]( EDA_ITEM* aItem )
                    {
@@ -274,8 +274,8 @@ void PANEL_EESCHEMA_COLOR_SETTINGS::createPreviewItems()
                 { LAYER_WIRE,  { { 3075, 1600 }, { 3075, 2000 } } },
                 { LAYER_WIRE,  { { 3075, 1600 }, { 3250, 1600 } } },
                 { LAYER_WIRE,  { { 3075, 2000 }, { 2150, 2000 } } },
-                { LAYER_BUS,   { { 1750, 1400 }, { 1850, 1400 } } },
-                { LAYER_BUS,   { { 1850, 2500 }, { 1850, 1400 } } },
+                { LAYER_BUS,   { { 1750, 1300 }, { 1850, 1300 } } },
+                { LAYER_BUS,   { { 1850, 2500 }, { 1850, 1300 } } },
                 { LAYER_NOTES, { { 2350, 2125 }, { 2350, 2300 } } },
                 { LAYER_NOTES, { { 2350, 2125 }, { 2950, 2125 } } },
                 { LAYER_NOTES, { { 2950, 2125 }, { 2950, 2300 } } },
@@ -310,7 +310,7 @@ void PANEL_EESCHEMA_COLOR_SETTINGS::createPreviewItems()
 #define MILS_POINT( x, y ) VECTOR2I( schIUScale.MilsToIU( x ), schIUScale.MilsToIU( y ) )
 
     SCH_NO_CONNECT* nc = new SCH_NO_CONNECT;
-    nc->SetPosition( MILS_POINT( 2525, 1300 ) );
+    nc->SetPosition( MILS_POINT( 2350, 2600 ) );
     addItem( nc );
 
     SCH_BUS_WIRE_ENTRY* e1 = new SCH_BUS_WIRE_ENTRY;
@@ -321,7 +321,7 @@ void PANEL_EESCHEMA_COLOR_SETTINGS::createPreviewItems()
     e2->SetPosition( MILS_POINT( 1850, 2500 ) );
     addItem( e2 );
 
-    SCH_TEXT* t1 = new SCH_TEXT( MILS_POINT( 2850, 2250 ), wxT( "PLAIN TEXT" ) );
+    SCH_TEXT* t1 = new SCH_TEXT( MILS_POINT( 2650, 2240 ), wxT( "PLAIN TEXT" ) );
     addItem( t1 );
 
     SCH_LABEL* t2 = new SCH_LABEL( MILS_POINT( 1975, 1500 ), wxT( "LABEL_{0}" ) );
@@ -334,7 +334,7 @@ void PANEL_EESCHEMA_COLOR_SETTINGS::createPreviewItems()
     t3->SetIsDangling( false );
     addItem( t3 );
 
-    SCH_GLOBALLABEL* t4 = new SCH_GLOBALLABEL( MILS_POINT( 1750, 1400 ), wxT( "GLOBAL[0..3]" ) );
+    SCH_GLOBALLABEL* t4 = new SCH_GLOBALLABEL( MILS_POINT( 1750, 1300 ), wxT( "GLOBAL[0..3]" ) );
     t4->SetSpinStyle( SPIN_STYLE::SPIN::LEFT );
     t4->SetIsDangling( false );
     addItem( t4 );
@@ -378,7 +378,7 @@ void PANEL_EESCHEMA_COLOR_SETTINGS::createPreviewItems()
         LIB_SHAPE* comp_body = new LIB_SHAPE( symbol, SHAPE_T::POLY );
 
         comp_body->SetUnit( 0 );
-        comp_body->SetConvert( 0 );
+        comp_body->SetBodyStyle( 0 );
         comp_body->SetStroke( STROKE_PARAMS( schIUScale.MilsToIU( 10 ), LINE_STYLE::SOLID ) );
         comp_body->SetFillMode( FILL_T::FILLED_WITH_BG_BODYCOLOR );
         comp_body->AddPoint( MILS_POINT( p.x - 200, p.y + 200 ) );
@@ -396,8 +396,10 @@ void PANEL_EESCHEMA_COLOR_SETTINGS::createPreviewItems()
         pin->SetType( ELECTRICAL_PINTYPE::PT_INPUT );
         pin->SetNumber( wxT( "1" ) );
         pin->SetName( wxT( "-" ) );
+        pin->SetNumberTextSize( schIUScale.MilsToIU( 50 ) );
+        pin->SetNameTextSize( schIUScale.MilsToIU( 50 ) );
 
-        endPoints.emplace_back( PIN_END, pin, mapLibItemPosition( pin->GetPosition() ) );
+        endPointsByType.emplace_back( PIN_END, pin, mapLibItemPosition( pin->GetPosition() ) );
         symbol->AddDrawItem( pin );
 
         pin = new LIB_PIN( symbol );
@@ -408,8 +410,10 @@ void PANEL_EESCHEMA_COLOR_SETTINGS::createPreviewItems()
         pin->SetType( ELECTRICAL_PINTYPE::PT_INPUT );
         pin->SetNumber( wxT( "2" ) );
         pin->SetName( wxT( "+" ) );
+        pin->SetNumberTextSize( schIUScale.MilsToIU( 50 ) );
+        pin->SetNameTextSize( schIUScale.MilsToIU( 50 ) );
 
-        endPoints.emplace_back( PIN_END, pin, mapLibItemPosition( pin->GetPosition() ) );
+        endPointsByType.emplace_back( PIN_END, pin, mapLibItemPosition( pin->GetPosition() ) );
         symbol->AddDrawItem( pin );
 
         pin = new LIB_PIN( symbol );
@@ -420,8 +424,10 @@ void PANEL_EESCHEMA_COLOR_SETTINGS::createPreviewItems()
         pin->SetType( ELECTRICAL_PINTYPE::PT_OUTPUT );
         pin->SetNumber( wxT( "3" ) );
         pin->SetName( wxT( "OUT" ) );
+        pin->SetNumberTextSize( schIUScale.MilsToIU( 50 ) );
+        pin->SetNameTextSize( schIUScale.MilsToIU( 50 ) );
 
-        endPoints.emplace_back( PIN_END, pin, mapLibItemPosition( pin->GetPosition() ) );
+        endPointsByType.emplace_back( PIN_END, pin, mapLibItemPosition( pin->GetPosition() ) );
         symbol->AddDrawItem( pin );
 
         addItem( symbol );
@@ -446,16 +452,19 @@ void PANEL_EESCHEMA_COLOR_SETTINGS::createPreviewItems()
         if( sch_item && sch_item->IsConnectable() )
         {
             sch_item->AutoplaceFields( nullptr, false );
-            sch_item->GetEndPoints( endPoints );
+            sch_item->GetEndPoints( endPointsByType );
         }
     }
+
+    std::vector<DANGLING_END_ITEM> endPointsByPos = endPointsByType;
+    DANGLING_END_ITEM_HELPER::sort_dangling_end_items( endPointsByType, endPointsByPos );
 
     for( EDA_ITEM* item : m_previewItems )
     {
         SCH_ITEM* sch_item = dynamic_cast<SCH_ITEM*>( item );
 
         if( sch_item && sch_item->IsConnectable() )
-            sch_item->UpdateDanglingState( endPoints, nullptr );
+            sch_item->UpdateDanglingState( endPointsByType, endPointsByPos, nullptr );
     }
 
     zoomFitPreview();
@@ -481,7 +490,7 @@ void PANEL_EESCHEMA_COLOR_SETTINGS::updatePreview()
         return;
 
     KIGFX::VIEW* view = m_preview->GetView();
-    auto settings = static_cast<KIGFX::SCH_RENDER_SETTINGS*>( view->GetPainter()->GetSettings() );
+    auto settings = static_cast<SCH_RENDER_SETTINGS*>( view->GetPainter()->GetSettings() );
     settings->LoadColors( m_currentSettings );
 
     m_preview->GetGAL()->SetClearColor( settings->GetBackgroundColor() );

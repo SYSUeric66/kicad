@@ -170,7 +170,7 @@ bool SYMBOL_EDITOR_MOVE_TOOL::doMoveSelection( const TOOL_EVENT& aEvent, SCH_COM
         {
             if( !m_moveInProgress )    // Prepare to start moving/dragging
             {
-                LIB_ITEM* lib_item = static_cast<LIB_ITEM*>( selection.Front() );
+                SCH_ITEM* lib_item = static_cast<SCH_ITEM*>( selection.Front() );
 
                 // Pick up any synchronized pins
                 //
@@ -183,7 +183,7 @@ bool SYMBOL_EDITOR_MOVE_TOOL::doMoveSelection( const TOOL_EVENT& aEvent, SCH_COM
 
                     for( EDA_ITEM* sel_item : selection )
                     {
-                        lib_item = static_cast<LIB_ITEM*>( sel_item );
+                        lib_item = static_cast<SCH_ITEM*>( sel_item );
 
                         if(  lib_item->Type() == LIB_PIN_T )
                         {
@@ -200,7 +200,7 @@ bool SYMBOL_EDITOR_MOVE_TOOL::doMoveSelection( const TOOL_EVENT& aEvent, SCH_COM
                                 if( !got_unit[pin->GetUnit()]
                                         && pin->GetPosition() == cur_pin->GetPosition()
                                         && pin->GetOrientation() == cur_pin->GetOrientation()
-                                        && pin->GetConvert() == cur_pin->GetConvert()
+                                        && pin->GetBodyStyle() == cur_pin->GetBodyStyle()
                                         && pin->GetType() == cur_pin->GetType()
                                         && pin->GetName() == cur_pin->GetName()  )
                                 {
@@ -329,12 +329,18 @@ bool SYMBOL_EDITOR_MOVE_TOOL::doMoveSelection( const TOOL_EVENT& aEvent, SCH_COM
                 try
                 {
                     LIB_PIN* curr_pin = (LIB_PIN*) selection.Front();
-                    // PlacePin() will clear the current selection, so we need to reset
-                    // flags of the selected pin here:
-                    if( !pinTool->PlacePin( curr_pin ) )
-                        restore_state = true;
+
+                    if( pinTool->PlacePin( curr_pin ) )
+                    {
+                        // PlacePin() clears the current selection, which we don't want.  Not only
+                        // is it a poor user experience, but it also prevents us from doing the
+                        // proper cleanup at the end of this routine (ie: clearing the edit flags).
+                        m_selectionTool->AddItemToSel( curr_pin, true /*quiet mode*/ );
+                    }
                     else
-                        curr_pin->ClearEditFlags();
+                    {
+                        restore_state = true;
+                    }
                 }
                 catch( const boost::bad_pointer& e )
                 {
@@ -381,7 +387,7 @@ int SYMBOL_EDITOR_MOVE_TOOL::AlignElements( const TOOL_EVENT& aEvent )
             [&]( EDA_ITEM* item, const VECTOR2I& delta )
             {
                 commit.Modify( item, m_frame->GetScreen() );
-                static_cast<LIB_ITEM*>( item )->Offset( mapCoords( delta ) );
+                static_cast<SCH_ITEM*>( item )->Move( mapCoords( delta ) );
                 updateItem( item, true );
             };
 
@@ -461,6 +467,10 @@ int SYMBOL_EDITOR_MOVE_TOOL::AlignElements( const TOOL_EVENT& aEvent )
                     doMoveItem( shape, newStart - shape->GetStart() );
 
                 break;
+
+            case SHAPE_T::UNDEFINED:
+                wxASSERT_MSG( false, wxT( "Undefined shape in AlignElements" ) );
+                break;
             }
         }
         else
@@ -503,7 +513,7 @@ int SYMBOL_EDITOR_MOVE_TOOL::AlignElements( const TOOL_EVENT& aEvent )
 
 void SYMBOL_EDITOR_MOVE_TOOL::moveItem( EDA_ITEM* aItem, const VECTOR2I& aDelta )
 {
-    static_cast<LIB_ITEM*>( aItem )->Offset( mapCoords( aDelta ) );
+    static_cast<SCH_ITEM*>( aItem )->Move( mapCoords( aDelta ) );
     aItem->SetFlags( IS_MOVING );
 }
 

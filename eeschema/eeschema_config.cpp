@@ -28,12 +28,14 @@
 #include <dialogs/panel_gal_display_options.h>
 #include <pgm_base.h>
 #include <project/project_file.h>
+#include <project/project_local_settings.h>
 #include <project/net_settings.h>
 #include <sch_edit_frame.h>
 #include <sch_painter.h>
 #include <schematic.h>
 #include <widgets/hierarchy_pane.h>
 #include <widgets/sch_search_pane.h>
+#include <widgets/panel_sch_selection_filter.h>
 #include <widgets/properties_panel.h>
 #include <settings/app_settings.h>
 #include <settings/settings_manager.h>
@@ -41,6 +43,8 @@
 #include <drawing_sheet/ds_data_model.h>
 #include <zoom_defines.h>
 #include <sim/spice_settings.h>
+#include <tool/tool_manager.h>
+#include <tools/ee_selection_tool.h>
 
 
 /// Helper for all the old plotting/printing code while it still exists
@@ -73,17 +77,33 @@ bool SCH_EDIT_FRAME::LoadProjectSettings()
     if( !DS_DATA_MODEL::GetTheInstance().LoadDrawingSheet( filename ) )
         ShowInfoBarError( _( "Error loading drawing sheet." ), true );
 
+    PROJECT_LOCAL_SETTINGS& localSettings = Prj().GetLocalSettings();
+
+    EE_SELECTION_TOOL* selTool = GetToolManager()->GetTool<EE_SELECTION_TOOL>();
+    selTool->GetFilter() = localSettings.m_SchSelectionFilter;
+    m_selectionFilterPanel->SetCheckboxesFromFilter( localSettings.m_SchSelectionFilter );
+
     return true;
 }
 
 
 void SCH_EDIT_FRAME::ShowSchematicSetupDialog( const wxString& aInitialPage )
 {
+    SCH_SCREENS screens( Schematic().Root() );
+    std::vector<std::shared_ptr<BUS_ALIAS>> oldAliases;
+
+    for( SCH_SCREEN* screen = screens.GetFirst(); screen != nullptr; screen = screens.GetNext() )
+    {
+        for( const std::shared_ptr<BUS_ALIAS>& alias : screen->GetBusAliases() )
+            oldAliases.push_back( alias );
+    }
+
     DIALOG_SCHEMATIC_SETUP dlg( this );
 
     if( !aInitialPage.IsEmpty() )
         dlg.SetInitialPage( aInitialPage, wxEmptyString );
 
+    // TODO: is QuasiModal required here?
     if( dlg.ShowQuasiModal() == wxID_OK )
     {
         // Mark document as modified so that project settings can be saved as part of doc save
@@ -104,6 +124,18 @@ void SCH_EDIT_FRAME::ShowSchematicSetupDialog( const wxString& aInitialPage )
 
         GetCanvas()->GetView()->MarkDirty();
         GetCanvas()->GetView()->UpdateAllItems( KIGFX::REPAINT );
+
+        std::vector<std::shared_ptr<BUS_ALIAS>> newAliases;
+
+        for( SCH_SCREEN* screen = screens.GetFirst(); screen != nullptr; screen = screens.GetNext() )
+        {
+            for( const std::shared_ptr<BUS_ALIAS>& alias : screen->GetBusAliases() )
+                newAliases.push_back( alias );
+        }
+
+        if( oldAliases != newAliases )
+            RecalculateConnections( nullptr, GLOBAL_CLEANUP );
+
         RefreshOperatingPointDisplay();
         GetCanvas()->Refresh();
     }
@@ -126,7 +158,7 @@ void SCH_EDIT_FRAME::saveProjectSettings()
 {
     wxFileName fn = Schematic().RootScreen()->GetFileName();  //ConfigFileName
 
-    fn.SetExt( ProjectFileExtension );
+    fn.SetExt( FILEEXT::ProjectFileExtension );
 
     if( !fn.HasName() || !IsWritable( fn, false ) )
         return;
@@ -167,6 +199,11 @@ void SCH_EDIT_FRAME::SaveProjectLocalSettings()
 {
     if( m_schematic )
         m_schematic->RecordERCExclusions();
+
+    PROJECT_LOCAL_SETTINGS& localSettings = Prj().GetLocalSettings();
+    EE_SELECTION_TOOL* selTool = GetToolManager()->GetTool<EE_SELECTION_TOOL>();
+
+    localSettings.m_SchSelectionFilter = selTool->GetFilter();
 }
 
 
@@ -236,6 +273,18 @@ void SCH_EDIT_FRAME::SaveSettings( APP_SETTINGS_BASE* aCfg )
         cfg->m_AuiPanels.show_properties = propertiesPane.IsShown();
         cfg->m_AuiPanels.properties_splitter = m_propertiesPanel->SplitterProportion();
         cfg->m_AuiPanels.properties_panel_width = m_propertiesPanel->GetSize().x;
+
+        wxAuiPaneInfo& netNavigatorPane = m_auimgr.GetPane( NetNavigatorPaneName() );
+        cfg->m_AuiPanels.show_net_nav_panel = netNavigatorPane.IsShown();
+        cfg->m_AuiPanels.float_net_nav_panel = netNavigatorPane.IsFloating();
+
+        if( netNavigatorPane.IsDocked() )
+            cfg->m_AuiPanels.net_nav_panel_docked_size = m_netNavigator->GetSize();
+        else
+        {
+            cfg->m_AuiPanels.net_nav_panel_float_pos = netNavigatorPane.floating_pos;
+            cfg->m_AuiPanels.net_nav_panel_float_size = netNavigatorPane.floating_size;
+        }
     }
 }
 

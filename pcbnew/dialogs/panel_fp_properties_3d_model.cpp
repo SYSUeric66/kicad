@@ -27,6 +27,7 @@
 #include <panel_fp_properties_3d_model.h>
 
 #include <3d_viewer/eda_3d_viewer_frame.h>
+#include <env_vars.h>
 #include <bitmaps.h>
 #include <widgets/grid_icon_text_helpers.h>
 #include <widgets/grid_text_button_helpers.h>
@@ -53,15 +54,18 @@ enum MODELS_TABLE_COLUMNS
     COL_SHOWN    = 2
 };
 
-PANEL_FP_PROPERTIES_3D_MODEL::PANEL_FP_PROPERTIES_3D_MODEL(
-        PCB_BASE_EDIT_FRAME* aFrame, FOOTPRINT* aFootprint, DIALOG_SHIM* aDialogParent,
-        wxWindow* aParent, wxWindowID aId, const wxPoint& aPos, const wxSize& aSize, long aStyle,
-        const wxString& aName ) :
-    PANEL_FP_PROPERTIES_3D_MODEL_BASE( aParent, aId, aPos, aSize, aStyle, aName ),
-    m_parentDialog( aDialogParent ),
-    m_frame( aFrame ),
-    m_footprint( aFootprint ),
-    m_inSelect( false )
+PANEL_FP_PROPERTIES_3D_MODEL::PANEL_FP_PROPERTIES_3D_MODEL( PCB_BASE_EDIT_FRAME* aFrame,
+                                                            FOOTPRINT* aFootprint,
+                                                            DIALOG_SHIM* aDialogParent,
+                                                            wxWindow* aParent, wxWindowID aId,
+                                                            const wxPoint& aPos,
+                                                            const wxSize& aSize, long aStyle,
+                                                            const wxString& aName ) :
+        PANEL_FP_PROPERTIES_3D_MODEL_BASE( aParent, aId, aPos, aSize, aStyle, aName ),
+        m_parentDialog( aDialogParent ),
+        m_frame( aFrame ),
+        m_footprint( aFootprint ),
+        m_inSelect( false )
 {
     m_modelsGrid->SetDefaultRowSize( m_modelsGrid->GetDefaultRowSize() + 4 );
 
@@ -77,7 +81,10 @@ PANEL_FP_PROPERTIES_3D_MODEL::PANEL_FP_PROPERTIES_3D_MODEL(
     PCBNEW_SETTINGS* cfg = Pgm().GetSettingsManager().GetAppSettings<PCBNEW_SETTINGS>();
 
     if( cfg->m_lastFootprint3dDir.IsEmpty() )
-        wxGetEnv( KICAD7_3DMODEL_DIR, &cfg->m_lastFootprint3dDir );
+    {
+        wxGetEnv( ENV_VAR::GetVersionedEnvVarName( wxS( "3DMODEL_DIR" ) ),
+                  &cfg->m_lastFootprint3dDir );
+    }
 
     // Icon showing warning/error information
     wxGridCellAttr* attr = new wxGridCellAttr;
@@ -86,8 +93,9 @@ PANEL_FP_PROPERTIES_3D_MODEL::PANEL_FP_PROPERTIES_3D_MODEL(
 
     // Filename
     attr = new wxGridCellAttr;
-    attr->SetEditor( new GRID_CELL_PATH_EDITOR( m_parentDialog, m_modelsGrid, &cfg->m_lastFootprint3dDir,
-                                                wxT( "*.*" ), true, m_frame->Prj().GetProjectPath() ) );
+    attr->SetEditor( new GRID_CELL_PATH_EDITOR( m_parentDialog, m_modelsGrid,
+                                                &cfg->m_lastFootprint3dDir, wxT( "*.*" ), true,
+                                                m_frame->Prj().GetProjectPath() ) );
     m_modelsGrid->SetColAttr( COL_FILENAME, attr );
 
     // Show checkbox
@@ -100,7 +108,8 @@ PANEL_FP_PROPERTIES_3D_MODEL::PANEL_FP_PROPERTIES_3D_MODEL(
 
     PROJECT_PCB::Get3DCacheManager( &m_frame->Prj() )->GetResolver()->SetProgramBase( &Pgm() );
 
-    m_previewPane = new PANEL_PREVIEW_3D_MODEL( this, m_frame, m_footprint, &m_shapes3D_list );
+    m_previewPane = new PANEL_PREVIEW_3D_MODEL( m_lowerPanel, m_frame, m_footprint,
+                                                &m_shapes3D_list );
 
     m_LowerSizer3D->Add( m_previewPane, 1, wxEXPAND, 5 );
 
@@ -145,7 +154,7 @@ bool PANEL_FP_PROPERTIES_3D_MODEL::TransferDataFromWindow()
 void PANEL_FP_PROPERTIES_3D_MODEL::ReloadModelsFromFootprint()
 {
     wxString default_path;
-    wxGetEnv( KICAD7_3DMODEL_DIR, &default_path );
+    wxGetEnv( ENV_VAR::GetVersionedEnvVarName( wxS( "3DMODEL_DIR" ) ), &default_path );
 
 #ifdef __WINDOWS__
     default_path.Replace( wxT( "/" ), wxT( "\\" ) );
@@ -296,8 +305,11 @@ void PANEL_FP_PROPERTIES_3D_MODEL::OnAdd3DModel( wxCommandEvent&  )
     // variable and fall back to the project path if necessary.
     if( initialpath.IsEmpty() )
     {
-        if( !wxGetEnv( wxT( "KICAD7_3DMODEL_DIR" ), &initialpath ) || initialpath.IsEmpty() )
+        if( !wxGetEnv( ENV_VAR::GetVersionedEnvVarName( wxS( "3DMODEL_DIR" ) ), &initialpath )
+            || initialpath.IsEmpty() )
+        {
             initialpath = prj.GetProjectPath();
+        }
     }
 
     if( !sidx.empty() )

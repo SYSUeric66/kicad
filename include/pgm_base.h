@@ -31,6 +31,7 @@
 #ifndef  PGM_BASE_H_
 #define  PGM_BASE_H_
 
+#include <kicommon.h>
 #include <exception>
 #include <map>
 #include <vector>
@@ -39,9 +40,6 @@
 #include <settings/environment.h>
 #include <wx/filename.h>
 #include <wx/snglinst.h>
-
-#undef pid_t
-#include <pybind11/embed.h>
 
 class wxApp;
 class wxMenu;
@@ -54,6 +52,11 @@ class COMMON_SETTINGS;
 class SETTINGS_MANAGER;
 class SCRIPTING;
 
+#ifdef KICAD_IPC_API
+class API_PLUGIN_MANAGER;
+class KICAD_API_SERVER;
+#endif
+
 /**
  * A small class to handle the list of existing translations.
  *
@@ -61,7 +64,7 @@ class SCRIPTING;
  * maintainer's convenience.  To add a support to a new translation add a new item
  * to #LanguagesList[].
  */
-struct LANGUAGE_DESCR
+struct KICOMMON_API LANGUAGE_DESCR
 {
     /// wxWidgets locale identifier (See wxWidgets doc)
     int         m_WX_Lang_Identifier;
@@ -80,7 +83,7 @@ struct LANGUAGE_DESCR
 /**
  * An array containing all the languages that KiCad supports.
  */
-extern LANGUAGE_DESCR LanguagesList[];
+KICOMMON_API extern LANGUAGE_DESCR LanguagesList[];
 
 /**
  * Container for data for KiCad programs.
@@ -95,7 +98,7 @@ extern LANGUAGE_DESCR LanguagesList[];
  * - OnPgmEnd() is virtual, may be overridden, and parallels wxApp::OnExit(), from where it
  *   should be called.
  */
-class PGM_BASE
+class KICOMMON_API PGM_BASE
 {
 public:
     PGM_BASE();
@@ -143,6 +146,12 @@ public:
     virtual BACKGROUND_JOBS_MONITOR& GetBackgroundJobMonitor() const { return *m_background_jobs_monitor; }
 
     virtual NOTIFICATIONS_MANAGER& GetNotificationsManager() const { return *m_notifications_manager; }
+
+#ifdef KICAD_IPC_API
+    virtual API_PLUGIN_MANAGER& GetPluginManager() const { return *m_plugin_manager; }
+
+    KICAD_API_SERVER& GetApiServer() { return *m_api_server; }
+#endif
 
     virtual void SetTextEditor( const wxString& aFileName );
 
@@ -380,6 +389,8 @@ public:
 
     bool m_Quitting;
 
+    bool m_PropertyGridInitialized;
+
 protected:
     /// Loads internal settings from COMMON_SETTINGS
     void loadCommonSettings();
@@ -403,6 +414,10 @@ protected:
     /// Checks if there is another copy of Kicad running at the same time
     std::unique_ptr<wxSingleInstanceChecker> m_pgm_checker;
 
+#ifdef KICAD_IPC_API
+    std::unique_ptr<API_PLUGIN_MANAGER> m_plugin_manager;
+    std::unique_ptr<KICAD_API_SERVER> m_api_server;
+#endif
 
     wxString        m_kicad_env;              /// The KICAD system environment variable.
 
@@ -431,11 +446,13 @@ protected:
 
 /// The global Program "get" accessor.
 /// Implemented in: 1) common/single_top.cpp,  2) kicad/kicad.cpp, and 3) scripting/kiway.i
-extern PGM_BASE& Pgm();
+KICOMMON_API extern PGM_BASE& Pgm();
 
 /// similar to PGM_BASE& Pgm(), but return a reference that can be nullptr
 /// when running a shared lib from a script, not from a kicad appl
-extern PGM_BASE* PgmOrNull();
+KICOMMON_API extern PGM_BASE* PgmOrNull();
+
+KICOMMON_API extern void SetPgm( PGM_BASE* pgm );
 
 
 #endif  // PGM_BASE_H_

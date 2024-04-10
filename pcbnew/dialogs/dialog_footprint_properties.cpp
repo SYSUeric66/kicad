@@ -4,7 +4,7 @@
  * Copyright (C) 2016 Mario Luzeiro <mrluzeiro@ua.pt>
  * Copyright (C) 2018 Jean-Pierre Charras, jp.charras at wanadoo.fr
  * Copyright (C) 2015 Dick Hollenbeck, dick@softplc.com
- * Copyright (C) 2004-2023 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2004-2024 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -261,8 +261,13 @@ bool DIALOG_FOOTPRINT_PROPERTIES::TransferDataToWindow()
         return false;
 
     // Footprint Fields
-    for( PCB_FIELD* field : m_footprint->GetFields() )
+    for( PCB_FIELD* srcField : m_footprint->GetFields() )
+    {
+        PCB_FIELD field( *srcField );
+        field.SetText( m_footprint->GetBoard()->ConvertKIIDsToCrossReferences( field.GetText() ) );
+
         m_fields->push_back( field );
+    }
 
     // notify the grid
     wxGridTableMessage tmsg( m_fields, wxGRIDTABLE_NOTIFY_ROWS_APPENDED,
@@ -299,13 +304,29 @@ bool DIALOG_FOOTPRINT_PROPERTIES::TransferDataToWindow()
 
     // Local Clearances
 
-    m_netClearance.SetValue( m_footprint->GetLocalClearance() );
-    m_solderMask.SetValue( m_footprint->GetLocalSolderMaskMargin() );
-    m_solderPaste.SetValue( m_footprint->GetLocalSolderPasteMargin() );
-    m_solderPasteRatio.SetDoubleValue( m_footprint->GetLocalSolderPasteMarginRatio() * 100.0 );
+    if( m_footprint->GetLocalClearance().has_value() )
+        m_netClearance.SetValue( m_footprint->GetLocalClearance().value() );
+    else
+        m_netClearance.SetValue( wxEmptyString );
+
+    if( m_footprint->GetLocalSolderMaskMargin().has_value() )
+        m_solderMask.SetValue( m_footprint->GetLocalSolderMaskMargin().value() );
+    else
+        m_solderMask.SetValue( wxEmptyString );
+
+    if( m_footprint->GetLocalSolderPasteMargin().has_value() )
+        m_solderPaste.SetValue( m_footprint->GetLocalSolderPasteMargin().value() );
+    else
+        m_solderPaste.SetValue( wxEmptyString );
+
+    if( m_footprint->GetLocalSolderPasteMarginRatio().has_value() )
+        m_solderPasteRatio.SetDoubleValue( m_footprint->GetLocalSolderPasteMarginRatio().value() * 100.0 );
+    else
+        m_solderPasteRatio.SetValue( wxEmptyString );
+
     m_allowSolderMaskBridges->SetValue( m_footprint->GetAttributes() & FP_ALLOW_SOLDERMASK_BRIDGES );
 
-    switch( m_footprint->GetZoneConnection() )
+    switch( m_footprint->GetLocalZoneConnection() )
     {
     default:
     case ZONE_CONNECTION::INHERITED: m_ZoneConnectionChoice->SetSelection( 0 ); break;
@@ -359,10 +380,10 @@ bool DIALOG_FOOTPRINT_PROPERTIES::Validate()
     // Validate texts.
     for( size_t i = 0; i < m_fields->size(); ++i )
     {
-        PCB_FIELD* field = m_fields->at( i );
+        PCB_FIELD& field = m_fields->at( i );
 
         // Check for missing field names.
-        if( field->GetName( false ).IsEmpty() )
+        if( field.GetName( false ).IsEmpty() )
         {
             m_delayedFocusGrid = m_itemsGrid;
             m_delayedErrorMessage = wxString::Format( _( "Fields must have a name." ) );
@@ -372,8 +393,8 @@ bool DIALOG_FOOTPRINT_PROPERTIES::Validate()
             return false;
         }
 
-        int minSize = pcbIUScale.MilsToIU( TEXT_MIN_SIZE_MILS );
-        int maxSize = pcbIUScale.MilsToIU( TEXT_MAX_SIZE_MILS );
+        int minSize = pcbIUScale.mmToIU( TEXT_MIN_SIZE_MM );
+        int maxSize = pcbIUScale.mmToIU( TEXT_MAX_SIZE_MM );
         int width = m_frame->ValueFromString( m_itemsGrid->GetCellValue( i, FPT_WIDTH ) );
         int height = m_frame->ValueFromString( m_itemsGrid->GetCellValue( i, FPT_HEIGHT ) );
 
@@ -432,9 +453,9 @@ bool DIALOG_FOOTPRINT_PROPERTIES::Validate()
         }
 
         // Test for acceptable values for thickness and size and clamp if fails
-        int maxPenWidth = Clamp_Text_PenSize( field->GetTextThickness(), field->GetTextSize() );
+        int maxPenWidth = Clamp_Text_PenSize( field.GetTextThickness(), field.GetTextSize() );
 
-        if( field->GetTextThickness() > maxPenWidth )
+        if( field.GetTextThickness() > maxPenWidth )
         {
             wxString clamped = m_frame->StringFromValue( maxPenWidth, true );
 
@@ -477,13 +498,19 @@ bool DIALOG_FOOTPRINT_PROPERTIES::TransferDataFromWindow()
     commit.Modify( m_footprint );
 
     // Update fields
+    for( size_t ii = 0; ii < m_fields->size(); ++ii )
+    {
+        PCB_FIELD& field = m_fields->at( ii );
+        field.SetText( m_footprint->GetBoard()->ConvertCrossReferencesToKIIDs( field.GetText() ) );
+    }
+
     size_t i = 0;
 
     for( PCB_FIELD* field : m_footprint->GetFields() )
     {
         // copy grid table entries till we run out, then delete any remaining texts
         if( i < m_fields->size() )
-            field = m_fields->at( i++ );
+            *field = m_fields->at( i++ );
         else
             field->DeleteStructure();
     }
@@ -491,22 +518,37 @@ bool DIALOG_FOOTPRINT_PROPERTIES::TransferDataFromWindow()
     // if there are still grid table entries, create new fields for them
     while( i < m_fields->size() )
     {
-        view->Add( m_footprint->AddField( *m_fields->at( i++ ) ) );
+        view->Add( m_footprint->AddField( m_fields->at( i++ ) ) );
     }
 
     // Initialize masks clearances
-    m_footprint->SetLocalClearance( m_netClearance.GetValue() );
-    m_footprint->SetLocalSolderMaskMargin( m_solderMask.GetValue() );
-    m_footprint->SetLocalSolderPasteMargin( m_solderPaste.GetValue() );
-    m_footprint->SetLocalSolderPasteMarginRatio( m_solderPasteRatio.GetDoubleValue() / 100.0 );
+    if( m_netClearance.IsNull() )
+        m_footprint->SetLocalClearance( {} );
+    else
+        m_footprint->SetLocalClearance( m_netClearance.GetValue() );
+
+    if( m_solderMask.IsNull() )
+        m_footprint->SetLocalSolderMaskMargin( {} );
+    else
+        m_footprint->SetLocalSolderMaskMargin( m_solderMask.GetValue() );
+
+    if( m_solderPaste.IsNull() )
+        m_footprint->SetLocalSolderPasteMargin( {} );
+    else
+        m_footprint->SetLocalSolderPasteMargin( m_solderPaste.GetValue() );
+
+    if( m_solderPasteRatio.IsNull() )
+        m_footprint->SetLocalSolderPasteMarginRatio( {} );
+    else
+        m_footprint->SetLocalSolderPasteMarginRatio( m_solderPasteRatio.GetDoubleValue() / 100.0 );
 
     switch( m_ZoneConnectionChoice->GetSelection() )
     {
     default:
-    case 0:  m_footprint->SetZoneConnection( ZONE_CONNECTION::INHERITED ); break;
-    case 1:  m_footprint->SetZoneConnection( ZONE_CONNECTION::FULL );      break;
-    case 2:  m_footprint->SetZoneConnection( ZONE_CONNECTION::THERMAL );   break;
-    case 3:  m_footprint->SetZoneConnection( ZONE_CONNECTION::NONE );      break;
+    case 0:  m_footprint->SetLocalZoneConnection( ZONE_CONNECTION::INHERITED ); break;
+    case 1:  m_footprint->SetLocalZoneConnection( ZONE_CONNECTION::FULL );      break;
+    case 2:  m_footprint->SetLocalZoneConnection( ZONE_CONNECTION::THERMAL );   break;
+    case 3:  m_footprint->SetLocalZoneConnection( ZONE_CONNECTION::NONE );      break;
     }
 
     // Set Footprint Position
@@ -569,7 +611,7 @@ bool DIALOG_FOOTPRINT_PROPERTIES::TransferDataFromWindow()
 
     // This is a simple edit, we must create an undo entry
     if( m_footprint->GetEditFlags() == 0 )    // i.e. not edited, or moved
-        commit.Push( _( "Modify footprint properties" ) );
+        commit.Push( _( "Edit Footprint Properties" ) );
 
     m_returnValue = FP_PROPS_OK;
     return true;
@@ -582,14 +624,14 @@ void DIALOG_FOOTPRINT_PROPERTIES::OnAddField( wxCommandEvent&  )
         return;
 
     int        fieldId = (int) m_fields->size();
-    PCB_FIELD* newField =
-            new PCB_FIELD( m_footprint, m_fields->size(),
-                           TEMPLATE_FIELDNAME::GetDefaultFieldName( fieldId, DO_TRANSLATE ) );
+    PCB_FIELD  newField =
+            PCB_FIELD( m_footprint, m_fields->size(),
+                       TEMPLATE_FIELDNAME::GetDefaultFieldName( fieldId, DO_TRANSLATE ) );
 
-    newField->SetVisible( false );
-    newField->SetLayer( m_footprint->GetLayer() == F_Cu ? F_Fab : B_Fab );
-    newField->SetFPRelativePosition( { 0, 0 } );
-    newField->StyleFromSettings( m_frame->GetDesignSettings() );
+    newField.SetVisible( false );
+    newField.SetLayer( m_footprint->GetLayer() == F_Cu ? F_Fab : B_Fab );
+    newField.SetFPRelativePosition( { 0, 0 } );
+    newField.StyleFromSettings( m_frame->GetDesignSettings() );
 
     m_fields->push_back( newField );
 

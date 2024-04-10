@@ -25,6 +25,7 @@
 
 
 #include <kiface_base.h>
+#include <env_vars.h>
 #include <footprint_info.h>
 #include <lib_id.h>
 #include <lib_table_lexer.h>
@@ -56,12 +57,12 @@ bool FP_LIB_TABLE_ROW::operator==( const FP_LIB_TABLE_ROW& aRow ) const
 
 void FP_LIB_TABLE_ROW::SetType( const wxString& aType )
 {
-    type = IO_MGR::EnumFromStr( aType );
+    type = PCB_IO_MGR::EnumFromStr( aType );
 
-    if( IO_MGR::PCB_FILE_T( -1 ) == type )
-        type = IO_MGR::KICAD_SEXP;
+    if( PCB_IO_MGR::PCB_FILE_T( -1 ) == type )
+        type = PCB_IO_MGR::KICAD_SEXP;
 
-    plugin.release();
+    plugin.reset();
 }
 
 
@@ -303,7 +304,7 @@ void FP_LIB_TABLE::FootprintEnumerate( wxArrayString& aFootprintNames, const wxS
                                        bool aBestEfforts )
 {
     const FP_LIB_TABLE_ROW* row = FindRow( aNickname, true );
-    wxASSERT( (PLUGIN*) row->plugin );
+    wxASSERT( row->plugin );
     row->plugin->FootprintEnumerate( aFootprintNames, row->GetFullURI( true ), aBestEfforts,
                                      row->GetProperties() );
 }
@@ -312,7 +313,7 @@ void FP_LIB_TABLE::FootprintEnumerate( wxArrayString& aFootprintNames, const wxS
 void FP_LIB_TABLE::PrefetchLib( const wxString& aNickname )
 {
     const FP_LIB_TABLE_ROW* row = FindRow( aNickname, true );
-    wxASSERT( (PLUGIN*) row->plugin );
+    wxASSERT( row->plugin );
     row->plugin->PrefetchLib( row->GetFullURI( true ), row->GetProperties() );
 }
 
@@ -326,16 +327,17 @@ const FP_LIB_TABLE_ROW* FP_LIB_TABLE::FindRow( const wxString& aNickname, bool a
 
     if( !row )
     {
-        wxString msg = wxString::Format( _( "fp-lib-table files contain no library named '%s'." ),
-                                         aNickname );
+        // We don't generally show this string to the user (who is unlikely to know what
+        // "fp-lib-table" means), and translating it may produce Sentry KICAD-YP.
+        wxString msg = wxString::Format( wxS( "'%s' not found in fp-lib-table." ), aNickname );
         THROW_IO_ERROR( msg );
     }
 
     // We've been 'lazy' up until now, but it cannot be deferred any longer,
-    // instantiate a PLUGIN of the proper kind if it is not already in this
+    // instantiate a PCB_IO of the proper kind if it is not already in this
     // FP_LIB_TABLE_ROW.
     if( !row->plugin )
-        row->setPlugin( IO_MGR::PluginFind( row->type ) );
+        row->setPlugin( PCB_IO_MGR::PluginFind( row->type ) );
 
     return row;
 }
@@ -369,7 +371,7 @@ const FOOTPRINT* FP_LIB_TABLE::GetEnumeratedFootprint( const wxString& aNickname
                                                        const wxString& aFootprintName )
 {
     const FP_LIB_TABLE_ROW* row = FindRow( aNickname, true );
-    wxASSERT( (PLUGIN*) row->plugin );
+    wxASSERT( row->plugin );
 
     return row->plugin->GetEnumeratedFootprint( row->GetFullURI( true ), aFootprintName,
                                                 row->GetProperties() );
@@ -381,7 +383,7 @@ bool FP_LIB_TABLE::FootprintExists( const wxString& aNickname, const wxString& a
     try
     {
         const FP_LIB_TABLE_ROW* row = FindRow( aNickname, true );
-        wxASSERT( (PLUGIN*) row->plugin );
+        wxASSERT( row->plugin );
 
         return row->plugin->FootprintExists( row->GetFullURI( true ), aFootprintName,
                                              row->GetProperties() );
@@ -397,7 +399,7 @@ FOOTPRINT* FP_LIB_TABLE::FootprintLoad( const wxString& aNickname,
                                         const wxString& aFootprintName, bool aKeepUUID )
 {
     const FP_LIB_TABLE_ROW* row = FindRow( aNickname, true );
-    wxASSERT( (PLUGIN*) row->plugin );
+    wxASSERT( row->plugin );
 
     FOOTPRINT* ret = row->plugin->FootprintLoad( row->GetFullURI( true ), aFootprintName,
                                                  aKeepUUID, row->GetProperties() );
@@ -412,7 +414,7 @@ FP_LIB_TABLE::SAVE_T FP_LIB_TABLE::FootprintSave( const wxString& aNickname,
                                                   const FOOTPRINT* aFootprint, bool aOverwrite )
 {
     const FP_LIB_TABLE_ROW* row = FindRow( aNickname, true );
-    wxASSERT( (PLUGIN*) row->plugin );
+    wxASSERT( row->plugin );
 
     if( !aOverwrite )
     {
@@ -438,7 +440,7 @@ FP_LIB_TABLE::SAVE_T FP_LIB_TABLE::FootprintSave( const wxString& aNickname,
 void FP_LIB_TABLE::FootprintDelete( const wxString& aNickname, const wxString& aFootprintName )
 {
     const FP_LIB_TABLE_ROW* row = FindRow( aNickname, true );
-    wxASSERT( (PLUGIN*) row->plugin );
+    wxASSERT( row->plugin );
     return row->plugin->FootprintDelete( row->GetFullURI( true ), aFootprintName,
                                          row->GetProperties() );
 }
@@ -447,24 +449,24 @@ void FP_LIB_TABLE::FootprintDelete( const wxString& aNickname, const wxString& a
 bool FP_LIB_TABLE::IsFootprintLibWritable( const wxString& aNickname )
 {
     const FP_LIB_TABLE_ROW* row = FindRow( aNickname, true );
-    wxASSERT( (PLUGIN*) row->plugin );
-    return row->plugin->IsFootprintLibWritable( row->GetFullURI( true ) );
+    wxASSERT( row->plugin );
+    return row->plugin->IsLibraryWritable( row->GetFullURI( true ) );
 }
 
 
 void FP_LIB_TABLE::FootprintLibDelete( const wxString& aNickname )
 {
     const FP_LIB_TABLE_ROW* row = FindRow( aNickname, true );
-    wxASSERT( (PLUGIN*) row->plugin );
-    row->plugin->FootprintLibDelete( row->GetFullURI( true ), row->GetProperties() );
+    wxASSERT( row->plugin );
+    row->plugin->DeleteLibrary( row->GetFullURI( true ), row->GetProperties() );
 }
 
 
 void FP_LIB_TABLE::FootprintLibCreate( const wxString& aNickname )
 {
     const FP_LIB_TABLE_ROW* row = FindRow( aNickname, true );
-    wxASSERT( (PLUGIN*) row->plugin );
-    row->plugin->FootprintLibCreate( row->GetFullURI( true ), row->GetProperties() );
+    wxASSERT( row->plugin );
+    row->plugin->CreateLibrary( row->GetFullURI( true ), row->GetProperties() );
 }
 
 
@@ -502,7 +504,7 @@ FOOTPRINT* FP_LIB_TABLE::FootprintLoadWithOptionalNickname( const LIB_ID& aFootp
 
 const wxString FP_LIB_TABLE::GlobalPathEnvVariableName()
 {
-    return  wxS( "KICAD7_FOOTPRINT_DIR" );
+    return ENV_VAR::GetVersionedEnvVarName( wxS( "FOOTPRINT_DIR" ) );
 }
 
 
@@ -526,12 +528,15 @@ public:
         wxFileName dir = wxFileName::DirName( dirPath );
 
         // consider a directory to be a lib if it's name ends with .pretty and
-        // it is under $KICAD7_3RD_PARTY/footprints/<pkgid>/ i.e. has nested level of at least +3
+        // it is under $KICADn_3RD_PARTY/footprints/<pkgid>/ i.e. has nested level of at least +3
         if( dirPath.EndsWith( wxS( ".pretty" ) ) && dir.GetDirCount() >= m_prefix_dir_count + 3 )
         {
+            wxString versionedPath = wxString::Format( wxS( "${%s}" ),
+                                       ENV_VAR::GetVersionedEnvVarName( wxS( "3RD_PARTY" ) ) );
+
             wxArrayString parts = dir.GetDirs();
             parts.RemoveAt( 0, m_prefix_dir_count );
-            parts.Insert( wxS( "${KICAD7_3RD_PARTY}" ), 0 );
+            parts.Insert( versionedPath, 0 );
 
             wxString libPath = wxJoin( parts, '/' );
 
@@ -588,11 +593,12 @@ bool FP_LIB_TABLE::LoadGlobalTable( FP_LIB_TABLE& aTable )
 
         SystemDirsAppend( &ss );
 
-        wxString templatePath =
-            Pgm().GetLocalEnvVariables().at( wxT( "KICAD7_TEMPLATE_DIR" ) ).GetValue();
+        const ENV_VAR_MAP& envVars = Pgm().GetLocalEnvVariables();
+        std::optional<wxString> v = ENV_VAR::GetVersionedEnvVarValue( envVars,
+                                                                      wxT( "TEMPLATE_DIR" ) );
 
-        if( !templatePath.IsEmpty() )
-            ss.AddPaths( templatePath, 0 );
+        if( v && !v->IsEmpty() )
+            ss.AddPaths( *v, 0 );
 
         wxString fileName = ss.FindValidPath( global_tbl_name );
 
@@ -611,7 +617,11 @@ bool FP_LIB_TABLE::LoadGlobalTable( FP_LIB_TABLE& aTable )
     SETTINGS_MANAGER& mgr = Pgm().GetSettingsManager();
     KICAD_SETTINGS*   settings = mgr.GetAppSettings<KICAD_SETTINGS>();
 
-    wxString packagesPath = Pgm().GetLocalEnvVariables().at( wxT( "KICAD7_3RD_PARTY" ) ).GetValue();
+    const ENV_VAR_MAP& env = Pgm().GetLocalEnvVariables();
+    wxString packagesPath;
+
+    if( std::optional<wxString> v = ENV_VAR::GetVersionedEnvVarValue( env, wxT( "3RD_PARTY" ) ) )
+        packagesPath = *v;
 
     if( settings->m_PcmLibAutoAdd )
     {

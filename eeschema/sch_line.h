@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2009 Jean-Pierre Charras, jaen-pierre.charras@gipsa-lab.inpg.com
- * Copyright (C) 1992-2023 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2024 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -51,6 +51,9 @@ public:
 
     ~SCH_LINE() { }
 
+    void Serialize( google::protobuf::Any &aContainer ) const override;
+    bool Deserialize( const google::protobuf::Any &aContainer ) override;
+
     static inline bool ClassOf( const EDA_ITEM* aItem )
     {
         return aItem && SCH_LINE_T == aItem->Type();
@@ -62,14 +65,6 @@ public:
     }
 
     wxString GetFriendlyName() const override;
-
-    /**
-     * @brief This function travel though all the connected wire segments
-     * to look for connected labels.
-     * @param aSheet - the sheet where the current wire segment is located
-     * @return returns the name of the wire if connected labels found, otherwise empty string
-     */
-    wxString GetNetname(const SCH_SHEET_PATH &aSheet);
 
     bool IsType( const std::vector<KICAD_T>& aScanTypes ) const override
     {
@@ -207,8 +202,6 @@ public:
      */
     double GetLength() const;
 
-    void Print( const RENDER_SETTINGS* aSettings, const VECTOR2I& aOffset ) override;
-
     int GetPenWidth() const override;
 
     void Move( const VECTOR2I& aMoveVector ) override;
@@ -217,7 +210,7 @@ public:
 
     void MirrorVertically( int aCenter ) override;
     void MirrorHorizontally( int aCenter ) override;
-    void Rotate( const VECTOR2I& aCenter ) override;
+    void Rotate( const VECTOR2I& aCenter, bool aRotateCCW ) override;
     void RotateStart( const VECTOR2I& aCenter );
     void RotateEnd( const VECTOR2I& aCenter );
 
@@ -254,14 +247,18 @@ public:
 
     void GetEndPoints( std::vector<DANGLING_END_ITEM>& aItemList ) override;
 
-    bool UpdateDanglingState( std::vector<DANGLING_END_ITEM>& aItemList,
-                              const SCH_SHEET_PATH* aPath = nullptr ) override;
+    bool UpdateDanglingState( std::vector<DANGLING_END_ITEM>& aItemListByType,
+                              std::vector<DANGLING_END_ITEM>& aItemListByPos,
+                              const SCH_SHEET_PATH*           aPath = nullptr ) override;
 
     bool IsStartDangling() const { return m_startIsDangling; }
     bool IsEndDangling() const { return m_endIsDangling; }
     bool IsDangling() const override { return m_startIsDangling || m_endIsDangling; }
 
     bool IsConnectable() const override;
+
+    bool HasConnectivityChanges( const SCH_ITEM* aItem,
+                                 const SCH_SHEET_PATH* aInstance = nullptr ) const override;
 
     std::vector<VECTOR2I> GetConnectionPoints() const override;
 
@@ -290,8 +287,11 @@ public:
     bool HitTest( const VECTOR2I& aPosition, int aAccuracy = 0 ) const override;
     bool HitTest( const BOX2I& aRect, bool aContained, int aAccuracy = 0 ) const override;
 
-    void Plot( PLOTTER* aPlotter, bool aBackground,
-               const SCH_PLOT_SETTINGS& aPlotSettings ) const override;
+    void Print( const SCH_RENDER_SETTINGS* aSettings, int aUnit, int aBodyStyle,
+                const VECTOR2I& aOffset, bool aForceNoFill, bool aDimmed ) override;
+
+    void Plot( PLOTTER* aPlotter, bool aBackground, const SCH_PLOT_OPTS& aPlotOpts,
+               int aUnit, int aBodyStyle, const VECTOR2I& aOffset, bool aDimmed ) override;
 
     EDA_ITEM* Clone() const override;
 
@@ -332,17 +332,6 @@ public:
     bool operator==( const SCH_ITEM& aOther ) const override;
 
 private:
-    /**
-     * @brief Recursively called function to travel through the connected wires and find a connected
-     * net name label
-     * @param line - the wire segment to start the recursive lookup
-     * @param checkedLines - a lsit containing the already checked wire segments, to prevent the
-     * infinite recursion in the case if someone draws a rectangle for e.g.
-     * @param aSheet - the sheet where the lookup is performed
-     * @return With the net name if a connected label found, otherwise with an empty string
-     */
-    wxString FindWireSegmentNetNameRecursive( SCH_LINE *line, std::list<const SCH_LINE*>& checkedLines,
-                                              const SCH_SHEET_PATH &aSheet ) const;
     bool doIsConnected( const VECTOR2I& aPosition ) const override;
 
 private:

@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2018 CERN
- * Copyright (C) 2019-2023 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2019-2024 KiCad Developers, see AUTHORS.txt for contributors.
  * @author Jon Evans <jon@craftyjon.com>
  *
  * This program is free software; you can redistribute it and/or
@@ -32,6 +32,7 @@
 SCH_PIN::SCH_PIN( LIB_PIN* aLibPin, SCH_SYMBOL* aParentSymbol ) :
     SCH_ITEM( aParentSymbol, SCH_PIN_T )
 {
+    wxASSERT( aParentSymbol );
     m_layer = LAYER_PIN;
     m_alt = wxEmptyString;
     m_number = aLibPin->GetNumber();
@@ -48,6 +49,7 @@ SCH_PIN::SCH_PIN( LIB_PIN* aLibPin, SCH_SYMBOL* aParentSymbol ) :
 SCH_PIN::SCH_PIN( SCH_SYMBOL* aParentSymbol, const wxString& aNumber, const wxString& aAlt ) :
     SCH_ITEM( aParentSymbol, SCH_PIN_T )
 {
+    wxASSERT( aParentSymbol );
     m_layer = LAYER_PIN;
     m_alt = aAlt;
     m_number = aNumber;
@@ -82,18 +84,26 @@ SCH_PIN& SCH_PIN::operator=( const SCH_PIN& aPin )
 }
 
 
+bool SCH_PIN::IsVisible() const
+{
+    wxCHECK( m_libPin, false );
+
+    return m_libPin->IsVisible();
+}
+
+
 wxString SCH_PIN::GetName() const
 {
     if( !m_alt.IsEmpty() )
         return m_alt;
 
-    return m_libPin->GetName();
+    return m_libPin ? m_libPin->GetName() : wxString( "??" );
 }
 
 
 wxString SCH_PIN::GetShownName() const
 {
-    wxString name = m_libPin->GetName();
+    wxString name = m_libPin ? m_libPin->GetName() : wxString( "??" );
 
     if( !m_alt.IsEmpty() )
         name = m_alt;
@@ -116,6 +126,8 @@ wxString SCH_PIN::GetShownNumber() const
 
 ELECTRICAL_PINTYPE SCH_PIN::GetType() const
 {
+    wxCHECK( m_libPin, ELECTRICAL_PINTYPE::PT_NC );
+
     if( !m_alt.IsEmpty() )
         return m_libPin->GetAlt( m_alt ).m_Type;
 
@@ -125,6 +137,8 @@ ELECTRICAL_PINTYPE SCH_PIN::GetType() const
 
 GRAPHIC_PINSHAPE SCH_PIN::GetShape() const
 {
+    wxCHECK( m_libPin, GRAPHIC_PINSHAPE::LINE );
+
     if( !m_alt.IsEmpty() )
         return m_libPin->GetAlt( m_alt ).m_Shape;
 
@@ -134,12 +148,16 @@ GRAPHIC_PINSHAPE SCH_PIN::GetShape() const
 
 PIN_ORIENTATION SCH_PIN::GetOrientation() const
 {
+    wxCHECK( m_libPin, PIN_ORIENTATION::PIN_RIGHT );
+
     return m_libPin->GetOrientation();
 }
 
 
 int SCH_PIN::GetLength() const
 {
+    wxCHECK( m_libPin, 0 );
+
     return m_libPin->GetLength();
 }
 
@@ -186,34 +204,48 @@ bool SCH_PIN::Replace( const EDA_SEARCH_DATA& aSearchData, void* aAuxData )
 }
 
 
-SCH_SYMBOL* SCH_PIN::GetParentSymbol() const
-{
-    return static_cast<SCH_SYMBOL*>( GetParent() );
-}
-
-
 wxString SCH_PIN::GetItemDescription( UNITS_PROVIDER* aUnitsProvider ) const
 {
+    LIB_PIN::ALT  localStorage;
+    LIB_PIN::ALT* alt = nullptr;
+
+    if( !m_alt.IsEmpty() && m_libPin )
+    {
+        localStorage = m_libPin->GetAlt( m_alt );
+        alt = &localStorage;
+    }
+
+    wxString itemDesc = m_libPin ? m_libPin->GetItemDescription( aUnitsProvider, alt ) :
+                                   wxString( wxS( "Undefined library pin." ) );
+
+    const SCH_SYMBOL* symbol = static_cast<const SCH_SYMBOL*>( GetParentSymbol() );
+
     return wxString::Format( "Symbol %s %s",
-                             UnescapeString( GetParentSymbol()->GetField( REFERENCE_FIELD )->GetText() ),
-                             m_libPin->GetItemDescription( aUnitsProvider ) );
+                             UnescapeString( symbol->GetField( REFERENCE_FIELD )->GetText() ),
+                             itemDesc );
 }
 
 
 void SCH_PIN::GetMsgPanelInfo( EDA_DRAW_FRAME* aFrame, std::vector<MSG_PANEL_ITEM>& aList )
 {
-    wxString  msg;
+    wxString    msg;
+    SCH_SYMBOL* symbol = static_cast<SCH_SYMBOL*>( GetParentSymbol() );
 
     aList.emplace_back( _( "Type" ), _( "Pin" ) );
 
-    if( m_libPin->GetConvert() == LIB_ITEM::LIB_CONVERT::BASE )
-        msg = _( "no" );
-    else if( m_libPin->GetConvert() == LIB_ITEM::LIB_CONVERT::DEMORGAN )
-        msg = _( "yes" );
-    else
-        msg = wxT( "?" );
+    if( symbol->GetUnitCount() )
+    {
+        msg = m_libPin ? GetUnitDescription( m_libPin->GetUnit() ) :
+                         wxString( "Undefined library pin." );
+        aList.emplace_back( _( "Unit" ), msg );
+    }
 
-    aList.emplace_back( _( "Converted" ), msg );
+    if( symbol->HasAlternateBodyStyle() )
+    {
+        msg = m_libPin ? GetBodyStyleDescription( m_libPin->GetBodyStyle() ) :
+                         wxString( "Undefined library pin." );
+        aList.emplace_back( _( "Body Style" ), msg );
+    }
 
     aList.emplace_back( _( "Name" ), GetShownName() );
     aList.emplace_back( _( "Number" ), GetShownNumber() );
@@ -228,7 +260,6 @@ void SCH_PIN::GetMsgPanelInfo( EDA_DRAW_FRAME* aFrame, std::vector<MSG_PANEL_ITE
 
     SCH_EDIT_FRAME* schframe = dynamic_cast<SCH_EDIT_FRAME*>( aFrame );
     SCH_SHEET_PATH* currentSheet = schframe ? &schframe->GetCurrentSheet() : nullptr;
-    SCH_SYMBOL*     symbol = GetParentSymbol();
 
     // Don't use GetShownText(); we want to see the variable references here
     aList.emplace_back( symbol->GetRef( currentSheet ),
@@ -243,7 +274,6 @@ void SCH_PIN::GetMsgPanelInfo( EDA_DRAW_FRAME* aFrame, std::vector<MSG_PANEL_ITE
             conn->AppendInfoToMsgPanel( aList );
     }
 #endif
-
 }
 
 
@@ -256,6 +286,13 @@ bool SCH_PIN::IsStacked( const SCH_PIN* aPin ) const
                 || ( aPin->GetType() == ELECTRICAL_PINTYPE::PT_PASSIVE ) );
 }
 
+
+bool SCH_PIN::IsGlobalPower() const
+{
+    wxCHECK( m_libPin, false );
+
+    return m_libPin->IsGlobalPower();
+}
 
 void SCH_PIN::ClearDefaultNetName( const SCH_SHEET_PATH* aPath )
 {
@@ -270,18 +307,21 @@ void SCH_PIN::ClearDefaultNetName( const SCH_SHEET_PATH* aPath )
 
 wxString SCH_PIN::GetDefaultNetName( const SCH_SHEET_PATH& aPath, bool aForceNoConnect )
 {
+    const SCH_SYMBOL* symbol = static_cast<const SCH_SYMBOL*>( GetParentSymbol() );
+
     // Need to check for parent as power symbol to make sure we aren't dealing
     // with legacy global power pins on non-power symbols
     if( IsGlobalPower() )
     {
-        if( GetLibPin()->GetParent()->IsPower() )
+        if( GetLibPin()->GetParentSymbol()->IsPower() )
         {
-            return EscapeString( GetParentSymbol()->GetValueFieldText( true, &aPath, false ),
-                                 CTX_NETNAME );
+            return EscapeString( symbol->GetValue( true, &aPath, false ), CTX_NETNAME );
         }
         else
         {
-            return EscapeString( m_libPin->GetName(), CTX_NETNAME );
+            wxString tmp = m_libPin ? m_libPin->GetName() : wxString( "??" );
+
+            return EscapeString( tmp, CTX_NETNAME );
         }
     }
 
@@ -306,7 +346,7 @@ wxString SCH_PIN::GetDefaultNetName( const SCH_SHEET_PATH& aPath, bool aForceNoC
 
     bool annotated = true;
 
-    std::vector<SCH_PIN*> pins = GetParentSymbol()->GetPins( &aPath );
+    std::vector<SCH_PIN*> pins = symbol->GetPins( &aPath );
     bool has_multiple = false;
 
     for( SCH_PIN* pin : pins )
@@ -320,31 +360,35 @@ wxString SCH_PIN::GetDefaultNetName( const SCH_SHEET_PATH& aPath, bool aForceNoC
         }
     }
 
+    wxString libPinShownName = m_libPin ? m_libPin->GetShownName() : wxString( "??" );
+    wxString libPinShownNumber = m_libPin ? m_libPin->GetShownNumber() : wxString( "??" );
+
     // Use timestamp for unannotated symbols
-    if( GetParentSymbol()->GetRef( &aPath, false ).Last() == '?' )
+    if( symbol->GetRef( &aPath, false ).Last() == '?' )
     {
         name << GetParentSymbol()->m_Uuid.AsString();
-        name << "-Pad" << m_libPin->GetNumber() << ")";
+
+        wxString libPinNumber = m_libPin ? m_libPin->GetNumber() : wxString( "??" );
+        name << "-Pad" << libPinNumber << ")";
         annotated = false;
     }
-    else if( !m_libPin->GetShownName().IsEmpty()
-            && m_libPin->GetShownName() != m_libPin->GetShownNumber() )
+    else if( !libPinShownName.IsEmpty() && ( libPinShownName != libPinShownNumber ) )
     {
         // Pin names might not be unique between different units so we must have the
         // unit token in the reference designator
-        name << GetParentSymbol()->GetRef( &aPath, true );
-        name << "-" << EscapeString( m_libPin->GetShownName(), CTX_NETNAME );
+        name << symbol->GetRef( &aPath, true );
+        name << "-" << EscapeString( libPinShownName, CTX_NETNAME );
 
         if( unconnected || has_multiple )
-            name << "-Pad" << EscapeString( m_libPin->GetShownNumber(), CTX_NETNAME );
+            name << "-Pad" << EscapeString( libPinShownNumber, CTX_NETNAME );
 
         name << ")";
     }
     else
     {
         // Pin numbers are unique, so we skip the unit token
-        name << GetParentSymbol()->GetRef( &aPath, false );
-        name << "-Pad" << EscapeString( m_libPin->GetShownNumber(), CTX_NETNAME ) << ")";
+        name << symbol->GetRef( &aPath, false );
+        name << "-Pad" << EscapeString( libPinShownNumber, CTX_NETNAME ) << ")";
     }
 
     if( annotated )
@@ -356,7 +400,7 @@ wxString SCH_PIN::GetDefaultNetName( const SCH_SHEET_PATH& aPath, bool aForceNoC
 
 VECTOR2I SCH_PIN::GetTransformedPosition() const
 {
-    TRANSFORM t = GetParentSymbol()->GetTransform();
+    TRANSFORM t = static_cast<const SCH_SYMBOL*>( GetParentSymbol() )->GetTransform();
     return t.TransformCoordinate( GetLocalPosition() ) + GetParentSymbol()->GetPosition();
 }
 
@@ -364,7 +408,9 @@ VECTOR2I SCH_PIN::GetTransformedPosition() const
 const BOX2I SCH_PIN::GetBoundingBox( bool aIncludeInvisiblePins, bool aIncludeNameAndNumber,
                                      bool aIncludeElectricalType ) const
 {
-    TRANSFORM t = GetParentSymbol()->GetTransform();
+    wxCHECK( m_libPin, BOX2I() );
+
+    TRANSFORM t = static_cast<const SCH_SYMBOL*>( GetParentSymbol() )->GetTransform();
     BOX2I     r = m_libPin->GetBoundingBox( aIncludeInvisiblePins, aIncludeNameAndNumber,
                                             aIncludeElectricalType );
 
@@ -372,6 +418,7 @@ const BOX2I SCH_PIN::GetBoundingBox( bool aIncludeInvisiblePins, bool aIncludeNa
 
     r = t.TransformCoordinate( r );
     r.Offset( GetParentSymbol()->GetPosition() );
+    r.Normalize();
 
     return r;
 }
@@ -409,8 +456,32 @@ EDA_ITEM* SCH_PIN::Clone() const
 }
 
 
+bool SCH_PIN::HasConnectivityChanges( const SCH_ITEM* aItem,
+                                      const SCH_SHEET_PATH* aInstance ) const
+{
+    // Do not compare to ourself.
+    if( aItem == this )
+        return false;
+
+    const SCH_PIN* pin = dynamic_cast<const SCH_PIN*>( aItem );
+
+    // Don't compare against a different SCH_ITEM.
+    wxCHECK( pin, false );
+
+    if( GetPosition() != pin->GetPosition() )
+        return true;
+
+    if( GetNumber() != pin->GetNumber() )
+        return true;
+
+    return GetName() != pin->GetName();
+}
+
+
 bool SCH_PIN::ConnectionPropagatesTo( const EDA_ITEM* aItem ) const
 {
+    wxCHECK( m_libPin, false );
+
     // Reciprocal checking is done in CONNECTION_GRAPH anyway
     return !( m_libPin->GetType() == ELECTRICAL_PINTYPE::PT_NC );
 }
@@ -449,7 +520,7 @@ double SCH_PIN::Similarity( const SCH_ITEM& aOther ) const
     if( m_position != other.m_position )
         return 0.0;
 
-    return m_libPin->Similarity( *other.m_libPin );
+    return m_libPin ? m_libPin->Similarity( *other.m_libPin ) : 0.0;
 }
 
 

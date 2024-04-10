@@ -27,23 +27,22 @@
 #include <wx/log.h>
 
 #include <board.h>
+#include <build_version.h>
 #include <core/ignore.h>
 #include <pad.h>
 #include <pcb_group.h>
-#include <pcb_shape.h>
+#include <pcb_generator.h>
 #include <pcb_text.h>
-#include <pcb_textbox.h>
+#include <pcb_table.h>
 #include <zone.h>
 #include <locale_io.h>
-#include <netinfo.h>
-#include <plugins/kicad/pcb_parser.h>
-
-#include <plugins/kicad/pcb_plugin.h>
+#include <pcb_io/kicad_sexpr/pcb_io_kicad_sexpr.h>
+#include <pcb_io/kicad_sexpr/pcb_io_kicad_sexpr_parser.h>
 #include <kicad_clipboard.h>
 #include "confirm.h"
 
 CLIPBOARD_IO::CLIPBOARD_IO():
-        PCB_PLUGIN(CTL_FOR_CLIPBOARD ),
+        PCB_IO_KICAD_SEXPR(CTL_FOR_CLIPBOARD ),
         m_formatter()
 {
     m_out = &m_formatter;
@@ -74,6 +73,67 @@ void CLIPBOARD_IO::SaveSelection( const PCB_SELECTION& aSelected, bool isFootpri
 
     // Prepare net mapping that assures that net codes saved in a file are consecutive integers
     m_mapping->SetBoard( m_board );
+
+    auto deleteUnselectedCells =
+            []( PCB_TABLE* aTable )
+            {
+                int minCol = aTable->GetColCount();
+                int maxCol = -1;
+                int minRow = aTable->GetRowCount();
+                int maxRow = -1;
+
+                for( int row = 0; row < aTable->GetRowCount(); ++row )
+                {
+                    for( int col = 0; col < aTable->GetColCount(); ++col )
+                    {
+                        PCB_TABLECELL* cell = aTable->GetCell( row, col );
+
+                        if( cell->IsSelected() )
+                        {
+                            minRow = std::min( minRow, row );
+                            maxRow = std::max( maxRow, row );
+                            minCol = std::min( minCol, col );
+                            maxCol = std::max( maxCol, col );
+                        }
+                        else
+                        {
+                            cell->SetFlags( STRUCT_DELETED );
+                        }
+                    }
+                }
+
+                wxCHECK_MSG( maxCol >= minCol && maxRow >= minRow, /*void*/,
+                             wxT( "No selected cells!" ) );
+
+                // aTable is always a clone in the clipboard case
+                int destRow = 0;
+
+                for( int row = minRow; row <= maxRow; row++ )
+                    aTable->SetRowHeight( destRow++, aTable->GetRowHeight( row ) );
+
+                int destCol = 0;
+
+                for( int col = minCol; col <= maxCol; col++ )
+                    aTable->SetColWidth( destCol++, aTable->GetColWidth( col ) );
+
+                aTable->DeleteMarkedCells();
+                aTable->SetColCount( ( maxCol - minCol ) + 1 );
+                aTable->Normalize();
+            };
+
+    std::set<PCB_TABLE*> promotedTables;
+
+    auto parentIsPromoted =
+            [&]( PCB_TABLECELL* cell ) -> bool
+            {
+                for( PCB_TABLE* table : promotedTables )
+                {
+                    if( table->m_Uuid == cell->GetParent()->m_Uuid )
+                        return true;
+                }
+
+                return false;
+            };
 
     if( aSelected.Size() == 1 && aSelected.Front()->Type() == PCB_FOOTPRINT_T )
     {
@@ -107,44 +167,59 @@ void CLIPBOARD_IO::SaveSelection( const PCB_SELECTION& aSelected, bool isFootpri
         LIB_ID id( "clipboard", dummy.AsString() );
         partialFootprint.SetFPID( id );
 
-        for( const EDA_ITEM* item : aSelected )
+        for( EDA_ITEM* item : aSelected )
         {
-            const BOARD_ITEM* boardItem = dynamic_cast<const BOARD_ITEM*>( item );
-            const PCB_GROUP*  group = dynamic_cast<const PCB_GROUP*>( item );
-            BOARD_ITEM*       clone = nullptr;
+            BOARD_ITEM* boardItem = dynamic_cast<BOARD_ITEM*>( item );
+            BOARD_ITEM* copy = nullptr;
 
             wxCHECK2( boardItem, continue );
 
-            if( const PCB_FIELD* field = dynamic_cast<const PCB_FIELD*>( item ) )
+            if( PCB_FIELD* field = dynamic_cast<PCB_FIELD*>( item ) )
             {
                 if( field->IsMandatoryField() )
                     continue;
             }
 
-            if( group )
-                clone = static_cast<BOARD_ITEM*>( group->DeepClone() );
+            if( boardItem->Type() == PCB_GROUP_T )
+            {
+                copy = static_cast<PCB_GROUP*>( boardItem )->DeepClone();
+            }
+            else if( boardItem->Type() == PCB_GENERATOR_T )
+            {
+                copy = static_cast<PCB_GENERATOR*>( boardItem )->DeepClone();
+            }
+            else if( item->Type() == PCB_TABLECELL_T )
+            {
+                if( parentIsPromoted( static_cast<PCB_TABLECELL*>( item ) ) )
+                    continue;
+
+                copy = static_cast<BOARD_ITEM*>( item->GetParent()->Clone() );
+                promotedTables.insert( static_cast<PCB_TABLE*>( copy ) );
+            }
             else
-                clone = static_cast<BOARD_ITEM*>( boardItem->Clone() );
+            {
+                copy = static_cast<BOARD_ITEM*>( boardItem->Clone() );
+            }
 
             // If it is only a footprint, clear the nets from the pads
-            if( PAD* pad = dynamic_cast<PAD*>( clone ) )
+            if( PAD* pad = dynamic_cast<PAD*>( copy ) )
                pad->SetNetCode( 0 );
 
-           // Don't copy group membership information for the 1st level objects being copied
-           // since the group they belong to isn't being copied.
-           clone->SetParentGroup( nullptr );
+            // Don't copy group membership information for the 1st level objects being copied
+            // since the group they belong to isn't being copied.
+            copy->SetParentGroup( nullptr );
 
             // Add the pad to the new footprint before moving to ensure the local coords are
             // correct
-            partialFootprint.Add( clone );
+            partialFootprint.Add( copy );
 
             // A list of not added items, when adding items to the footprint
             // some PCB_TEXT (reference and value) cannot be added to the footprint
             std::vector<BOARD_ITEM*> skipped_items;
 
-            if( group )
+            if( copy->Type() == PCB_GROUP_T || copy->Type() == PCB_GENERATOR_T )
             {
-                clone->RunOnDescendants(
+                copy->RunOnDescendants(
                         [&]( BOARD_ITEM* descendant )
                         {
                             // One cannot add an additional mandatory field to a given footprint:
@@ -165,14 +240,14 @@ void CLIPBOARD_IO::SaveSelection( const PCB_SELECTION& aSelected, bool isFootpri
             }
 
             // locate the reference point at (0, 0) in the copied items
-            clone->Move( -refPoint );
+            copy->Move( -refPoint );
 
             // Now delete items, duplicated but not added:
-            for( BOARD_ITEM* skp_item : skipped_items )
+            for( BOARD_ITEM* skipped_item : skipped_items )
             {
-                static_cast<PCB_GROUP*>( clone )->RemoveItem( skp_item );
-                skp_item->SetParentGroup( nullptr );
-                delete skp_item;
+                static_cast<PCB_GROUP*>( copy )->RemoveItem( skipped_item );
+                skipped_item->SetParentGroup( nullptr );
+                delete skipped_item;
             }
         }
 
@@ -181,6 +256,9 @@ void CLIPBOARD_IO::SaveSelection( const PCB_SELECTION& aSelected, bool isFootpri
         VECTOR2I   moveVector = partialFootprint.GetPosition() + editedFootprint->GetPosition();
 
         partialFootprint.MoveAnchorPosition( moveVector );
+
+        for( PCB_TABLE* table : promotedTables )
+            deleteUnselectedCells( table );
 
         Format( &partialFootprint, 0 );
 
@@ -192,8 +270,8 @@ void CLIPBOARD_IO::SaveSelection( const PCB_SELECTION& aSelected, bool isFootpri
         // This means we also need layers and nets
         LOCALE_IO io;
 
-        m_formatter.Print( 0, "(kicad_pcb (version %d) (generator pcbnew)\n",
-                           SEXPR_BOARD_FILE_VERSION );
+        m_formatter.Print( 0, "(kicad_pcb (version %d) (generator \"pcbnew\") (generator_version \"%s\")\n",
+                           SEXPR_BOARD_FILE_VERSION, GetMajorMinorVersion().c_str().AsChar() );
 
         m_formatter.Print( 0, "\n" );
 
@@ -220,19 +298,21 @@ void CLIPBOARD_IO::SaveSelection( const PCB_SELECTION& aSelected, bool isFootpri
                 else if( textItem->GetText() == wxT( "${REFERENCE}" ) )
                     textItem->SetText( boardItem->GetParentFootprint()->GetReference() );
             }
-            else if( boardItem->Type() == PCB_PAD_T )
-            {
-                // Create a parent to own the copied pad
-                FOOTPRINT* footprint = new FOOTPRINT( m_board );
-                PAD*       pad = (PAD*) boardItem->Clone();
-
-                footprint->SetPosition( pad->GetPosition() );
-                footprint->Add( pad );
-                copy = footprint;
-            }
             else if( boardItem->Type() == PCB_GROUP_T )
             {
                 copy = static_cast<PCB_GROUP*>( boardItem )->DeepClone();
+            }
+            else if( boardItem->Type() == PCB_GENERATOR_T )
+            {
+                copy = static_cast<PCB_GENERATOR*>( boardItem )->DeepClone();
+            }
+            else if( item->Type() == PCB_TABLECELL_T )
+            {
+                if( parentIsPromoted( static_cast<PCB_TABLECELL*>( item ) ) )
+                    continue;
+
+                copy = static_cast<BOARD_ITEM*>( item->GetParent()->Clone() );
+                promotedTables.insert( static_cast<PCB_TABLE*>( copy ) );
             }
             else
             {
@@ -241,20 +321,47 @@ void CLIPBOARD_IO::SaveSelection( const PCB_SELECTION& aSelected, bool isFootpri
 
             if( copy )
             {
+                if( copy->Type() == PCB_FIELD_T || copy->Type() == PCB_PAD_T )
+                {
+                    // Create a parent footprint to own the copied item
+                    FOOTPRINT* footprint = new FOOTPRINT( m_board );
+
+                    footprint->SetPosition( copy->GetPosition() );
+                    footprint->Add( copy );
+
+                    // Convert any mandatory fields to user fields.  The destination footprint
+                    // will already have its own mandatory fields.
+                    if( PCB_FIELD* field = dynamic_cast<PCB_FIELD*>( copy ) )
+                    {
+                        if( field->IsMandatoryField() )
+                            field->SetId( footprint->GetFieldCount() );
+                    }
+
+                    copy = footprint;
+                }
+
                 copy->SetLocked( false );
 
                 // locate the reference point at (0, 0) in the copied items
                 copy->Move( -refPoint );
 
+                if( copy->Type() == PCB_TABLE_T )
+                {
+                    PCB_TABLE* table = static_cast<PCB_TABLE*>( copy );
+
+                    if( promotedTables.count( table ) )
+                        deleteUnselectedCells( table );
+                }
+
                 Format( copy, 1 );
 
-                if( copy->Type() == PCB_GROUP_T )
+                if( copy->Type() == PCB_GROUP_T || copy->Type() == PCB_GENERATOR_T )
                 {
                     copy->RunOnDescendants(
-                            [&]( BOARD_ITEM* titem )
+                            [&]( BOARD_ITEM* descendant )
                             {
-                                titem->SetLocked( false );
-                                Format( titem, 1 );
+                                descendant->SetLocked( false );
+                                Format( descendant, 1 );
                             } );
                 }
 
@@ -262,6 +369,7 @@ void CLIPBOARD_IO::SaveSelection( const PCB_SELECTION& aSelected, bool isFootpri
                 delete copy;
             }
         }
+
         m_formatter.Print( 0, "\n)" );
     }
 
@@ -318,7 +426,7 @@ BOARD_ITEM* CLIPBOARD_IO::Parse()
 
     try
     {
-        item = PCB_PLUGIN::Parse( result );
+        item = PCB_IO_KICAD_SEXPR::Parse( result );
     }
     catch (...)
     {
@@ -330,8 +438,7 @@ BOARD_ITEM* CLIPBOARD_IO::Parse()
 
 
 void CLIPBOARD_IO::SaveBoard( const wxString& aFileName, BOARD* aBoard,
-                              const STRING_UTF8_MAP* aProperties,
-                              PROGRESS_REPORTER*     aProgressReporter )
+                              const STRING_UTF8_MAP* aProperties )
 {
     init( aProperties );
 
@@ -344,7 +451,7 @@ void CLIPBOARD_IO::SaveBoard( const wxString& aFileName, BOARD* aBoard,
 
     m_out = &formatter;
 
-    m_out->Print( 0, "(kicad_pcb (version %d) (generator pcbnew)\n", SEXPR_BOARD_FILE_VERSION );
+    m_out->Print( 0, "(kicad_pcb (version %d) (generator \"pcbnew\") (generator_version \"%s\")\n", SEXPR_BOARD_FILE_VERSION, GetMajorMinorVersion().c_str().AsChar() );
 
     Format( aBoard, 1 );
 
@@ -376,8 +483,7 @@ void CLIPBOARD_IO::SaveBoard( const wxString& aFileName, BOARD* aBoard,
 
 
 BOARD* CLIPBOARD_IO::LoadBoard( const wxString& aFileName, BOARD* aAppendToMe,
-                                const STRING_UTF8_MAP* aProperties, PROJECT* aProject,
-                                PROGRESS_REPORTER* aProgressReporter )
+                                const STRING_UTF8_MAP* aProperties, PROJECT* aProject )
 {
     std::string result;
 
@@ -411,7 +517,7 @@ BOARD* CLIPBOARD_IO::LoadBoard( const wxString& aFileName, BOARD* aAppendToMe,
             };
 
     STRING_LINE_READER reader( result, wxT( "clipboard" ) );
-    PCB_PARSER         parser( &reader, aAppendToMe, queryUser );
+    PCB_IO_KICAD_SEXPR_PARSER         parser( &reader, aAppendToMe, queryUser );
 
     init( aProperties );
 

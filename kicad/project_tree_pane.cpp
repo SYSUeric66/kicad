@@ -3,7 +3,7 @@
  *
  * Copyright (C) 2012 SoftPLC Corporation, Dick Hollenbeck <dick@softplc.com>
  * Copyright (C) 2012 Jean-Pierre Charras, jp.charras at wanadoo.fr
- * Copyright (C) 1992-2023 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2024 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -76,6 +76,9 @@
 #include "kicad_manager_frame.h"
 
 #include "project_tree_pane.h"
+#include <widgets/kistatusbar.h>
+
+#include <kiplatform/io.h>
 
 
 /* Note about the project tree build process:
@@ -182,6 +185,7 @@ PROJECT_TREE_PANE::PROJECT_TREE_PANE( KICAD_MANAGER_FRAME* parent ) :
     m_selectedItem = nullptr;
     m_watcherNeedReset = false;
     m_lastGitStatusUpdate = wxDateTime::Now();
+    m_gitLastError = GIT_ERROR_NONE;
 
     m_watcher = nullptr;
     Connect( wxEVT_FSWATCHER,
@@ -297,33 +301,33 @@ wxString PROJECT_TREE_PANE::GetFileExt( TREE_FILE_TYPE type )
 {
     switch( type )
     {
-    case TREE_FILE_TYPE::LEGACY_PROJECT:        return LegacyProjectFileExtension;
-    case TREE_FILE_TYPE::JSON_PROJECT:          return ProjectFileExtension;
-    case TREE_FILE_TYPE::LEGACY_SCHEMATIC:      return LegacySchematicFileExtension;
-    case TREE_FILE_TYPE::SEXPR_SCHEMATIC:       return KiCadSchematicFileExtension;
-    case TREE_FILE_TYPE::LEGACY_PCB:            return LegacyPcbFileExtension;
-    case TREE_FILE_TYPE::SEXPR_PCB:             return KiCadPcbFileExtension;
-    case TREE_FILE_TYPE::GERBER:                return GerberFileExtensionsRegex;
-    case TREE_FILE_TYPE::GERBER_JOB_FILE:       return GerberJobFileExtension;
-    case TREE_FILE_TYPE::HTML:                  return HtmlFileExtension;
-    case TREE_FILE_TYPE::PDF:                   return PdfFileExtension;
-    case TREE_FILE_TYPE::TXT:                   return TextFileExtension;
-    case TREE_FILE_TYPE::MD:                    return MarkdownFileExtension;
-    case TREE_FILE_TYPE::NET:                   return NetlistFileExtension;
-    case TREE_FILE_TYPE::NET_SPICE:             return SpiceFileExtension;
-    case TREE_FILE_TYPE::CMP_LINK:              return FootprintAssignmentFileExtension;
-    case TREE_FILE_TYPE::REPORT:                return ReportFileExtension;
-    case TREE_FILE_TYPE::FP_PLACE:              return FootprintPlaceFileExtension;
-    case TREE_FILE_TYPE::DRILL:                 return DrillFileExtension;
+    case TREE_FILE_TYPE::LEGACY_PROJECT:        return FILEEXT::LegacyProjectFileExtension;
+    case TREE_FILE_TYPE::JSON_PROJECT:          return FILEEXT::ProjectFileExtension;
+    case TREE_FILE_TYPE::LEGACY_SCHEMATIC:      return FILEEXT::LegacySchematicFileExtension;
+    case TREE_FILE_TYPE::SEXPR_SCHEMATIC:       return FILEEXT::KiCadSchematicFileExtension;
+    case TREE_FILE_TYPE::LEGACY_PCB:            return FILEEXT::LegacyPcbFileExtension;
+    case TREE_FILE_TYPE::SEXPR_PCB:             return FILEEXT::KiCadPcbFileExtension;
+    case TREE_FILE_TYPE::GERBER:                return FILEEXT::GerberFileExtensionsRegex;
+    case TREE_FILE_TYPE::GERBER_JOB_FILE:       return FILEEXT::GerberJobFileExtension;
+    case TREE_FILE_TYPE::HTML:                  return FILEEXT::HtmlFileExtension;
+    case TREE_FILE_TYPE::PDF:                   return FILEEXT::PdfFileExtension;
+    case TREE_FILE_TYPE::TXT:                   return FILEEXT::TextFileExtension;
+    case TREE_FILE_TYPE::MD:                    return FILEEXT::MarkdownFileExtension;
+    case TREE_FILE_TYPE::NET:                   return FILEEXT::NetlistFileExtension;
+    case TREE_FILE_TYPE::NET_SPICE:             return FILEEXT::SpiceFileExtension;
+    case TREE_FILE_TYPE::CMP_LINK:              return FILEEXT::FootprintAssignmentFileExtension;
+    case TREE_FILE_TYPE::REPORT:                return FILEEXT::ReportFileExtension;
+    case TREE_FILE_TYPE::FP_PLACE:              return FILEEXT::FootprintPlaceFileExtension;
+    case TREE_FILE_TYPE::DRILL:                 return FILEEXT::DrillFileExtension;
     case TREE_FILE_TYPE::DRILL_NC:              return "nc";
     case TREE_FILE_TYPE::DRILL_XNC:             return "xnc";
-    case TREE_FILE_TYPE::SVG:                   return SVGFileExtension;
-    case TREE_FILE_TYPE::DRAWING_SHEET:         return DrawingSheetFileExtension;
-    case TREE_FILE_TYPE::FOOTPRINT_FILE:        return KiCadFootprintFileExtension;
-    case TREE_FILE_TYPE::SCHEMATIC_LIBFILE:     return LegacySymbolLibFileExtension;
-    case TREE_FILE_TYPE::SEXPR_SYMBOL_LIB_FILE: return KiCadSymbolLibFileExtension;
-    case TREE_FILE_TYPE::DESIGN_RULES:          return DesignRulesFileExtension;
-    case TREE_FILE_TYPE::ZIP_ARCHIVE:           return ArchiveFileExtension;
+    case TREE_FILE_TYPE::SVG:                   return FILEEXT::SVGFileExtension;
+    case TREE_FILE_TYPE::DRAWING_SHEET:         return FILEEXT::DrawingSheetFileExtension;
+    case TREE_FILE_TYPE::FOOTPRINT_FILE:        return FILEEXT::KiCadFootprintFileExtension;
+    case TREE_FILE_TYPE::SCHEMATIC_LIBFILE:     return FILEEXT::LegacySymbolLibFileExtension;
+    case TREE_FILE_TYPE::SEXPR_SYMBOL_LIB_FILE: return FILEEXT::KiCadSymbolLibFileExtension;
+    case TREE_FILE_TYPE::DESIGN_RULES:          return FILEEXT::DesignRulesFileExtension;
+    case TREE_FILE_TYPE::ZIP_ARCHIVE:           return FILEEXT::ArchiveFileExtension;
 
     case TREE_FILE_TYPE::ROOT:
     case TREE_FILE_TYPE::UNKNOWN:
@@ -345,7 +349,8 @@ std::vector<wxString> getProjects( const wxDir& dir )
     {
         wxFileName file( dir_filename );
 
-        if( file.GetExt() == LegacyProjectFileExtension || file.GetExt() == ProjectFileExtension )
+        if( file.GetExt() == FILEEXT::LegacyProjectFileExtension
+            || file.GetExt() == FILEEXT::ProjectFileExtension )
             projects.push_back( file.GetName() );
 
         haveFile = dir.GetNext( &dir_filename );
@@ -389,12 +394,8 @@ wxTreeItemId PROJECT_TREE_PANE::addItemToProjectTree( const wxString& aName,
     TREE_FILE_TYPE type = TREE_FILE_TYPE::UNKNOWN;
     wxFileName     fn( aName );
 
-#ifndef __WXMSW__
-    // Files/dirs names starting by "." are not visible files under unices (including MacOS),
-    // but are under MSW.
-    if( fn.GetName().StartsWith( wxT( "." ) ) )
+    if( KIPLATFORM::IO::IsFileHidden( aName ) )
         return wxTreeItemId();
-#endif
 
     if( wxDirExists( aName ) )
     {
@@ -429,10 +430,8 @@ wxTreeItemId PROJECT_TREE_PANE::addItemToProjectTree( const wxString& aName,
             if( ext == wxT( "" ) )
                 continue;
 
-            reg.Compile( wxString::FromAscii( "^.*\\." ) + ext + wxString::FromAscii( "$" ),
-                         wxRE_ICASE );
-
-            if( reg.Matches( aName ) )
+            if( reg.Compile( wxString::FromAscii( "^.*\\." ) + ext + wxString::FromAscii( "$" ),
+                         wxRE_ICASE ) && reg.Matches( aName ) )
             {
                 type = (TREE_FILE_TYPE) i;
                 break;
@@ -621,36 +620,39 @@ void PROJECT_TREE_PANE::ReCreateTreePrj()
         fn.Clear();
         fn.SetPath( PATHS::GetDefaultUserProjectsPath() );
         fn.SetName( NAMELESS_PROJECT );
-        fn.SetExt( ProjectFileExtension );
+        fn.SetExt( FILEEXT::ProjectFileExtension );
         prjReset = true;
     }
 
     bool prjOpened = fn.FileExists();
 
     // Bind the git repository to the project tree (if it exists)
-    m_TreeProject->SetGitRepo( get_git_repository_for_file( fn.GetPath().c_str() ) );
-    m_TreeProject->GitCommon()->SetPassword( Prj().GetLocalSettings().m_GitRepoPassword );
-    m_TreeProject->GitCommon()->SetUsername( Prj().GetLocalSettings().m_GitRepoUsername );
-    m_TreeProject->GitCommon()->SetSSHKey( Prj().GetLocalSettings().m_GitSSHKey );
+    if( ADVANCED_CFG::GetCfg().m_EnableGit )
+    {
+        m_TreeProject->SetGitRepo( get_git_repository_for_file( fn.GetPath().c_str() ) );
+        m_TreeProject->GitCommon()->SetPassword( Prj().GetLocalSettings().m_GitRepoPassword );
+        m_TreeProject->GitCommon()->SetUsername( Prj().GetLocalSettings().m_GitRepoUsername );
+        m_TreeProject->GitCommon()->SetSSHKey( Prj().GetLocalSettings().m_GitSSHKey );
 
-    wxString conn_type = Prj().GetLocalSettings().m_GitRepoType;
+        wxString conn_type = Prj().GetLocalSettings().m_GitRepoType;
 
-    if( conn_type == "https" )
-        m_TreeProject->GitCommon()->SetConnType( KIGIT_COMMON::GIT_CONN_TYPE::GIT_CONN_HTTPS );
-    else if( conn_type == "ssh" )
-        m_TreeProject->GitCommon()->SetConnType( KIGIT_COMMON::GIT_CONN_TYPE::GIT_CONN_SSH );
-    else
-        m_TreeProject->GitCommon()->SetConnType( KIGIT_COMMON::GIT_CONN_TYPE::GIT_CONN_LOCAL );
+        if( conn_type == "https" )
+            m_TreeProject->GitCommon()->SetConnType( KIGIT_COMMON::GIT_CONN_TYPE::GIT_CONN_HTTPS );
+        else if( conn_type == "ssh" )
+            m_TreeProject->GitCommon()->SetConnType( KIGIT_COMMON::GIT_CONN_TYPE::GIT_CONN_SSH );
+        else
+            m_TreeProject->GitCommon()->SetConnType( KIGIT_COMMON::GIT_CONN_TYPE::GIT_CONN_LOCAL );
+    }
 
     // We may have opened a legacy project, in which case GetProjectFileName will return the
     // name of the migrated (new format) file, which may not have been saved to disk yet.
     if( !prjOpened && !prjReset )
     {
-        fn.SetExt( LegacyProjectFileExtension );
+        fn.SetExt( FILEEXT::LegacyProjectFileExtension );
         prjOpened = fn.FileExists();
 
         // Set the ext back so that in the tree view we see the (not-yet-saved) new file
-        fn.SetExt( ProjectFileExtension );
+        fn.SetExt( FILEEXT::ProjectFileExtension );
     }
 
     // root tree:
@@ -754,8 +756,13 @@ void PROJECT_TREE_PANE::onRight( wxTreeEvent& Event )
     bool vcs_menu        = ADVANCED_CFG::GetCfg().m_EnableGit;
 
     // Check if the libgit2 library has been successfully initialized
+#if ( LIBGIT2_VER_MAJOR >= 1 ) || ( LIBGIT2_VER_MINOR >= 99 )
     int major, minor, rev;
     bool libgit_init = ( git_libgit2_version( &major, &minor, &rev ) == GIT_OK );
+#else
+    //Work around libgit2 API change for supporting older platforms
+    bool libgit_init = true;
+#endif
 
     vcs_menu &= libgit_init;
 
@@ -995,19 +1002,16 @@ void PROJECT_TREE_PANE::onOpenSelectedFileWithTextEditor( wxCommandEvent& event 
     }
 
     std::vector<PROJECT_TREE_ITEM*> tree_data = GetSelectedData();
-    wxString files;
 
     for( PROJECT_TREE_ITEM* item_data : tree_data )
     {
         wxString fullFileName = item_data->GetFileName();
 
-        if( !files.IsEmpty() )
-            files += " ";
-
-        files += fullFileName;
+        if( !fullFileName.IsEmpty() )
+        {
+            ExecuteFile( editorname, fullFileName.wc_str(), nullptr, false );
+        }
     }
-
-    ExecuteFile( editorname, files );
 }
 
 
@@ -1032,7 +1036,7 @@ void PROJECT_TREE_PANE::onRenameFile( wxCommandEvent& event )
     wxString buffer = m_TreeProject->GetItemText( curr_item );
     wxString msg = wxString::Format( _( "Change filename: '%s'" ),
                                      tree_data[0]->GetFileName() );
-    wxTextEntryDialog dlg( this, msg, _( "Change filename" ), buffer );
+    wxTextEntryDialog dlg( wxGetTopLevelParent( this ), msg, _( "Change filename" ), buffer );
 
     if( dlg.ShowModal() != wxID_OK )
         return; // canceled by user
@@ -1361,18 +1365,22 @@ void PROJECT_TREE_PANE::FileWatcherReset()
     wxString prj_dir = wxPathOnly( m_Parent->GetProjectFileName() );
 
 #if defined( _WIN32 )
+    KISTATUSBAR* statusBar = static_cast<KISTATUSBAR*>( m_Parent->GetStatusBar() );
+
     if( KIPLATFORM::ENV::IsNetworkPath( prj_dir ) )
     {
         // Due to a combination of a bug in SAMBA sending bad change event IDs and wxWidgets
         // choosing to fault on an invalid event ID instead of sanely ignoring them we need to
         // avoid spawning a filewatcher. Unfortunately this punishes corporate environments with
         // Windows Server shares :/
-        m_Parent->SetStatusText( _( "Network path: not monitoring folder changes" ), 1 );
+        m_Parent->m_FileWatcherInfo = _( "Network path: not monitoring folder changes" );
+        statusBar->SetEllipsedTextField( m_Parent->m_FileWatcherInfo, 1 );
         return;
     }
     else
     {
-        m_Parent->SetStatusText( _( "Local path: monitoring folder changes" ), 1 );
+        m_Parent->m_FileWatcherInfo = _( "Local path: monitoring folder changes" );
+        statusBar->SetEllipsedTextField( m_Parent->m_FileWatcherInfo, 1 );
     }
 #endif
 
@@ -1474,6 +1482,13 @@ void PROJECT_TREE_PANE::EmptyTreePrj()
     shutdownFileWatcher();
 
     m_TreeProject->DeleteAllItems();
+
+    // Remove the git repository when the project is unloaded
+    if( m_TreeProject->GetGitRepo() )
+    {
+        git_repository_free( m_TreeProject->GetGitRepo() );
+        m_TreeProject->SetGitRepo( nullptr );
+    }
 }
 
 
@@ -1525,8 +1540,10 @@ void PROJECT_TREE_PANE::onGitInitializeProject( wxCommandEvent& aEvent )
     if( error == 0 )
     {
         // Directory is already a git repository
+        wxWindow* topLevelParent = wxGetTopLevelParent( this );
 
-        DisplayInfoMessage( this, _( "The selected directory is already a git project." ) );
+        DisplayInfoMessage( topLevelParent,
+                            _( "The selected directory is already a git project." ) );
         git_repository_free( repo );
         return;
     }
@@ -1538,17 +1555,24 @@ void PROJECT_TREE_PANE::onGitInitializeProject( wxCommandEvent& aEvent )
         if( error != 0 )
         {
             git_repository_free( repo );
-            DisplayErrorMessage( this, _( "Failed to initialize git project." ),
-                                 git_error_last()->message );
+
+            if( m_gitLastError != git_error_last()->klass )
+            {
+                m_gitLastError = git_error_last()->klass;
+                DisplayErrorMessage( m_parent, _( "Failed to initialize git project." ),
+                                     git_error_last()->message );
+            }
+
             return;
         }
         else
         {
             m_TreeProject->SetGitRepo( repo );
+            m_gitLastError = GIT_ERROR_NONE;
         }
     }
 
-    DIALOG_GIT_REPOSITORY dlg( this, repo );
+    DIALOG_GIT_REPOSITORY dlg( wxGetTopLevelParent( this ), repo );
 
     dlg.SetTitle( _( "Set default remote" ) );
 
@@ -1600,10 +1624,17 @@ void PROJECT_TREE_PANE::onGitInitializeProject( wxCommandEvent& aEvent )
 
     if( error != GIT_OK )
     {
-        DisplayErrorMessage( this, _( "Failed to set default remote." ),
-                             git_error_last()->message );
+        if( m_gitLastError != git_error_last()->klass )
+        {
+            m_gitLastError = git_error_last()->klass;
+            DisplayErrorMessage( m_parent, _( "Failed to set default remote." ),
+                                 git_error_last()->message );
+        }
+
         return;
     }
+
+    m_gitLastError = GIT_ERROR_NONE;
 
     GIT_PULL_HANDLER handler( repo );
 
@@ -1612,7 +1643,9 @@ void PROJECT_TREE_PANE::onGitInitializeProject( wxCommandEvent& aEvent )
     handler.SetPassword( m_TreeProject->GitCommon()->GetPassword() );
     handler.SetSSHKey( m_TreeProject->GitCommon()->GetSSHKey() );
 
-    handler.SetProgressReporter( std::make_unique<WX_PROGRESS_REPORTER>( this, _( "Fetching Remote" ), 1 ) );
+    handler.SetProgressReporter( std::make_unique<WX_PROGRESS_REPORTER>( this,
+                                                                         _( "Fetching Remote" ),
+                                                                         1 ) );
 
     handler.PerformFetch();
 
@@ -1649,7 +1682,9 @@ void PROJECT_TREE_PANE::onGitPullProject( wxCommandEvent& aEvent )
     handler.SetPassword( m_TreeProject->GitCommon()->GetPassword() );
     handler.SetSSHKey( m_TreeProject->GitCommon()->GetSSHKey() );
 
-    handler.SetProgressReporter( std::make_unique<WX_PROGRESS_REPORTER>( this, _( "Fetching Remote" ), 1 ) );
+    handler.SetProgressReporter( std::make_unique<WX_PROGRESS_REPORTER>( this,
+                                                                         _( "Fetching Remote" ),
+                                                                         1 ) );
 
     handler.PerformPull();
 }
@@ -1669,13 +1704,15 @@ void PROJECT_TREE_PANE::onGitPushProject( wxCommandEvent& aEvent )
     handler.SetPassword( m_TreeProject->GitCommon()->GetPassword() );
     handler.SetSSHKey( m_TreeProject->GitCommon()->GetSSHKey() );
 
-    handler.SetProgressReporter( std::make_unique<WX_PROGRESS_REPORTER>( this, _( "Fetching Remote" ), 1 ) );
+    handler.SetProgressReporter( std::make_unique<WX_PROGRESS_REPORTER>( this,
+                                                                         _( "Fetching Remote" ),
+                                                                         1 ) );
 
     if( handler.PerformPush() != PushResult::Success )
     {
         wxString errorMessage = handler.GetErrorString();
 
-        DisplayErrorMessage( this, _( "Failed to push project" ), errorMessage );
+        DisplayErrorMessage( m_parent, _( "Failed to push project" ), errorMessage );
     }
 }
 
@@ -1721,13 +1758,13 @@ void PROJECT_TREE_PANE::onGitSwitchBranch( wxCommandEvent& aEvent )
     if( !repo )
         return;
 
-    DIALOG_GIT_SWITCH dlg( this, repo );
+    DIALOG_GIT_SWITCH dlg( wxGetTopLevelParent( this ), repo );
 
     int retval = dlg.ShowModal();
     wxString branchName = dlg.GetBranchName();
 
     if( retval == wxID_ADD )
-        git_create_branch( repo, branchName);
+        git_create_branch( repo, branchName );
     else if( retval != wxID_OK )
         return;
 
@@ -1737,8 +1774,9 @@ void PROJECT_TREE_PANE::onGitSwitchBranch( wxCommandEvent& aEvent )
     if( git_reference_lookup( &branchRef, repo, branchName.mb_str() ) != GIT_OK &&
         git_reference_dwim( &branchRef, repo, branchName.mb_str() ) != GIT_OK )
     {
-        wxString errorMessage = wxString::Format( _( "Failed to lookup branch '%s': %s" ), branchName, giterr_last()->message );
-        DisplayError( this, errorMessage );
+        wxString errorMessage = wxString::Format( _( "Failed to lookup branch '%s': %s" ),
+                                                  branchName, giterr_last()->message );
+        DisplayError( m_parent, errorMessage );
         return;
     }
 
@@ -1750,7 +1788,7 @@ void PROJECT_TREE_PANE::onGitSwitchBranch( wxCommandEvent& aEvent )
     {
         wxString errorMessage =
                 wxString::Format( _( "Failed to find branch head for '%s'" ), branchName );
-        DisplayError( this, errorMessage );
+        DisplayError( m_parent, errorMessage );
         git_reference_free( branchRef );
         return;
     }
@@ -1761,7 +1799,7 @@ void PROJECT_TREE_PANE::onGitSwitchBranch( wxCommandEvent& aEvent )
     {
         wxString errorMessage =
                 wxString::Format( _( "Failed to switch to branch '%s'" ), branchName );
-        DisplayError( this, errorMessage );
+        DisplayError( m_parent, errorMessage );
         git_reference_free( branchRef );
         git_object_free( branchObj );
         return;
@@ -1772,7 +1810,7 @@ void PROJECT_TREE_PANE::onGitSwitchBranch( wxCommandEvent& aEvent )
     {
         wxString errorMessage = wxString::Format(
                 _( "Failed to update HEAD reference for branch '%s'" ), branchName );
-        DisplayError( this, errorMessage );
+        DisplayError( m_parent, errorMessage );
         git_reference_free( branchRef );
         git_object_free( branchObj );
         return;
@@ -1789,7 +1827,8 @@ void PROJECT_TREE_PANE::onGitRemoveVCS( wxCommandEvent& aEvent )
     git_repository* repo = m_TreeProject->GetGitRepo();
 
     if( !repo
-        || !IsOK( this, _( "Are you sure you want to remove git tracking from this project?" ) ) )
+      || !IsOK( wxGetTopLevelParent( this ),
+                _( "Are you sure you want to remove git tracking from this project?" ) ) )
     {
         return;
     }
@@ -1806,7 +1845,7 @@ void PROJECT_TREE_PANE::onGitRemoveVCS( wxCommandEvent& aEvent )
 
     if( !RmDirRecursive( fn.GetPath(), &errors ) )
     {
-        DisplayErrorMessage( this, _( "Failed to remove git directory" ), errors );
+        DisplayErrorMessage( m_parent, _( "Failed to remove git directory" ), errors );
     }
 
     // Clear all item states
@@ -1875,7 +1914,10 @@ void PROJECT_TREE_PANE::updateGitStatusIcons()
     }
     else
     {
-        wxLogError( "Failed to lookup current branch: %s", giterr_last()->message );
+        if( giterr_last()->klass != m_gitLastError )
+            wxLogError( "Failed to lookup current branch: %s", giterr_last()->message );
+
+        m_gitLastError = giterr_last()->klass;
     }
 
     // Collect a map to easily set the state of each item
@@ -1912,6 +1954,7 @@ void PROJECT_TREE_PANE::updateGitStatusIcons()
 
     if( git_repository_index( &index, repo ) != GIT_OK )
     {
+        m_gitLastError = giterr_last()->klass;
         wxLogDebug( "Failed to get git index: %s", giterr_last()->message );
         return;
     }
@@ -2101,7 +2144,8 @@ void PROJECT_TREE_PANE::onGitCommit( wxCommandEvent& aEvent )
     git_status_list_free( status_list );
 
     // Create a commit dialog
-    DIALOG_GIT_COMMIT dlg( this, repo, authorName, authorEmail, modifiedFiles );
+    DIALOG_GIT_COMMIT dlg( wxGetTopLevelParent( this ), repo, authorName, authorEmail,
+                           modifiedFiles );
     auto              ret = dlg.ShowModal();
 
     if( ret == wxID_OK )
@@ -2196,7 +2240,14 @@ void PROJECT_TREE_PANE::onGitCommit( wxCommandEvent& aEvent )
         }
 
         git_oid           oid;
+        // Check if the libgit2 library version is 1.8.0 or higher
+#if( LIBGIT2_VER_MAJOR > 1 ) || ( LIBGIT2_VER_MAJOR == 1 && LIBGIT2_VER_MINOR >= 8 )
+        // For libgit2 version 1.8.0 and above
+        git_commit* const parents[1] = { parent };
+#else
+        // For libgit2 versions older than 1.8.0
         const git_commit* parents[1] = { parent };
+#endif
 
         if( git_commit_create( &oid, repo, "HEAD", author, author, nullptr, commit_msg.mb_str(), tree,
                            1, parents ) != 0 )

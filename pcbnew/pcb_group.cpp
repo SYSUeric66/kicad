@@ -57,6 +57,7 @@ bool PCB_GROUP::IsGroupableType( KICAD_T aType )
     case PCB_FIELD_T:
     case PCB_TEXT_T:
     case PCB_TEXTBOX_T:
+    case PCB_TABLE_T:
     case PCB_GROUP_T:
     case PCB_GENERATOR_T:
     case PCB_TRACE_T:
@@ -176,22 +177,6 @@ void PCB_GROUP::SetPosition( const VECTOR2I& aNewpos )
     VECTOR2I delta = aNewpos - GetPosition();
 
     Move( delta );
-}
-
-
-void PCB_GROUP::SetLayerRecursive( PCB_LAYER_ID aLayer, int aDepth )
-{
-    for( BOARD_ITEM* item : m_items )
-    {
-        if( ( item->Type() == PCB_GROUP_T ) && ( aDepth > 0 ) )
-        {
-            static_cast<PCB_GROUP*>( item )->SetLayerRecursive( aLayer, aDepth - 1 );
-        }
-        else
-        {
-            item->SetLayer( aLayer );
-        }
-    }
 }
 
 
@@ -417,8 +402,13 @@ void PCB_GROUP::RunOnChildren( const std::function<void( BOARD_ITEM* )>& aFuncti
 }
 
 
-void PCB_GROUP::RunOnDescendants( const std::function<void( BOARD_ITEM* )>& aFunction ) const
+void PCB_GROUP::RunOnDescendants( const std::function<void( BOARD_ITEM* )>& aFunction,
+                                  int aDepth ) const
 {
+    // Avoid freezes with infinite recursion
+    if( aDepth > 20 )
+        return;
+
     try
     {
         for( BOARD_ITEM* item : m_items )
@@ -426,7 +416,7 @@ void PCB_GROUP::RunOnDescendants( const std::function<void( BOARD_ITEM* )>& aFun
             aFunction( item );
 
             if( item->Type() == PCB_GROUP_T )
-                item->RunOnDescendants( aFunction );
+                item->RunOnDescendants( aFunction, aDepth + 1 );
         }
     }
     catch( std::bad_function_call& )
@@ -482,3 +472,25 @@ double PCB_GROUP::Similarity( const BOARD_ITEM& aOther ) const
 
     return similarity / m_items.size();
 }
+
+
+static struct PCB_GROUP_DESC
+{
+    PCB_GROUP_DESC()
+    {
+        PROPERTY_MANAGER& propMgr = PROPERTY_MANAGER::Instance();
+        REGISTER_TYPE( PCB_GROUP );
+        propMgr.AddTypeCast( new TYPE_CAST<PCB_GROUP, BOARD_ITEM> );
+        propMgr.InheritsAfter( TYPE_HASH( PCB_GROUP ), TYPE_HASH( BOARD_ITEM ) );
+
+        propMgr.Mask( TYPE_HASH( PCB_GROUP ), TYPE_HASH( BOARD_ITEM ), _HKI( "Position X" ) );
+        propMgr.Mask( TYPE_HASH( PCB_GROUP ), TYPE_HASH( BOARD_ITEM ), _HKI( "Position Y" ) );
+        propMgr.Mask( TYPE_HASH( PCB_GROUP ), TYPE_HASH( BOARD_ITEM ), _HKI( "Layer" ) );
+
+        const wxString groupTab = _HKI( "Group Properties" );
+
+        propMgr.AddProperty( new PROPERTY<PCB_GROUP, wxString>( _HKI( "Name" ),
+                    &PCB_GROUP::SetName, &PCB_GROUP::GetName ),
+                    groupTab );
+    }
+} _PCB_GROUP_DESC;

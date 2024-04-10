@@ -25,11 +25,13 @@
  */
 
 #include <advanced_config.h>
+#include <api/api_plugin_manager.h>
 #include <sch_draw_panel.h>
 #include <sch_edit_frame.h>
 #include <kiface_base.h>
 #include <bitmaps.h>
 #include <eeschema_id.h>
+#include <pgm_base.h>
 #include <python_scripting.h>
 #include <tool/tool_manager.h>
 #include <tool/action_toolbar.h>
@@ -119,11 +121,24 @@ void SCH_EDIT_FRAME::ReCreateHToolbar()
     m_mainToolBar->AddScaledSeparator( this );
     m_mainToolBar->Add( EE_ACTIONS::showPcbNew );
 
-    // Access to the scripting console
-    if( SCRIPTING::IsWxAvailable() )
+    // Add scripting console and API plugins
+    bool scriptingAvailable = SCRIPTING::IsWxAvailable();
+#ifdef KICAD_IPC_API
+    bool haveApiPlugins = Pgm().GetCommonSettings()->m_Api.enable_server &&
+            !Pgm().GetPluginManager().GetActionsForScope( PLUGIN_ACTION_SCOPE::SCHEMATIC ).empty();
+#else
+    bool haveApiPlugins = false;
+#endif
+
+    if( scriptingAvailable || haveApiPlugins )
     {
         m_mainToolBar->AddScaledSeparator( this );
-        m_mainToolBar->Add( EE_ACTIONS::showPythonConsole, ACTION_TOOLBAR::TOGGLE );
+
+        if( scriptingAvailable )
+            m_mainToolBar->Add( EE_ACTIONS::showPythonConsole, ACTION_TOOLBAR::TOGGLE );
+
+        if( haveApiPlugins )
+            addApiPluginTools();
     }
 
     // after adding the tools to the toolbar, must call Realize() to reflect the changes
@@ -163,11 +178,13 @@ void SCH_EDIT_FRAME::ReCreateVToolbar()
     m_drawToolBar->Add( EE_ACTIONS::placeGlobalLabel,       ACTION_TOOLBAR::TOGGLE );
     m_drawToolBar->Add( EE_ACTIONS::placeHierLabel,         ACTION_TOOLBAR::TOGGLE );
     m_drawToolBar->Add( EE_ACTIONS::drawSheet,              ACTION_TOOLBAR::TOGGLE );
-    m_drawToolBar->Add( EE_ACTIONS::importSheetPin,         ACTION_TOOLBAR::TOGGLE );
+    m_drawToolBar->Add( EE_ACTIONS::placeSheetPin,          ACTION_TOOLBAR::TOGGLE );
+    m_drawToolBar->Add( EE_ACTIONS::syncAllSheetsPins,      ACTION_TOOLBAR::TOGGLE );
 
     m_drawToolBar->AddScaledSeparator( this );
     m_drawToolBar->Add( EE_ACTIONS::placeSchematicText,     ACTION_TOOLBAR::TOGGLE );
     m_drawToolBar->Add( EE_ACTIONS::drawTextBox,            ACTION_TOOLBAR::TOGGLE );
+    m_drawToolBar->Add( EE_ACTIONS::drawTable,              ACTION_TOOLBAR::TOGGLE );
     m_drawToolBar->Add( EE_ACTIONS::drawRectangle,          ACTION_TOOLBAR::TOGGLE );
     m_drawToolBar->Add( EE_ACTIONS::drawCircle,             ACTION_TOOLBAR::TOGGLE );
     m_drawToolBar->Add( EE_ACTIONS::drawArc,                ACTION_TOOLBAR::TOGGLE );
@@ -278,6 +295,8 @@ void SCH_EDIT_FRAME::ToggleProperties()
     wxAuiPaneInfo& propertiesPaneInfo = m_auimgr.GetPane( PropertiesPaneName() );
     propertiesPaneInfo.Show( show );
 
+    updateSelectionFilterVisbility();
+
     EESCHEMA_SETTINGS* settings = eeconfig();
 
     if( show )
@@ -302,6 +321,8 @@ void SCH_EDIT_FRAME::ToggleSchematicHierarchy()
     wxAuiPaneInfo&     hierarchy_pane = m_auimgr.GetPane( SchematicHierarchyPaneName() );
 
     hierarchy_pane.Show( !hierarchy_pane.IsShown() );
+
+    updateSelectionFilterVisbility();
 
     if( hierarchy_pane.IsShown() )
     {

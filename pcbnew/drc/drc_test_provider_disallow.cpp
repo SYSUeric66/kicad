@@ -1,7 +1,7 @@
 /*
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
- * Copyright (C) 2004-2022 KiCad Developers.
+ * Copyright (C) 2004-2024 KiCad Developers.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -33,6 +33,7 @@
 #include <progress_reporter.h>
 #include <core/thread_pool.h>
 #include <zone.h>
+#include <mutex>
 
 
 /*
@@ -153,7 +154,7 @@ bool DRC_TEST_PROVIDER_DISALLOW::Run()
                 PTR_PTR_LAYER_CACHE_KEY key = { ruleArea, copperZone, UNDEFINED_LAYER };
 
                 {
-                    std::unique_lock<std::mutex> cacheLock( board->m_CachesMutex );
+                    std::unique_lock<std::shared_mutex> writeLock( board->m_CachesMutex );
                     board->m_IntersectsAreaCache[ key ] = isInside;
                 }
 
@@ -176,7 +177,7 @@ bool DRC_TEST_PROVIDER_DISALLOW::Run()
 
         while( status != std::future_status::ready )
         {
-            m_drcEngine->ReportProgress( static_cast<double>( done ) / toCache.size() );
+            reportProgress( done, toCache.size() );
             status = ret.wait_for( std::chrono::milliseconds( 250 ) );
         }
     }

@@ -25,9 +25,11 @@
 #include <board_design_settings.h>
 #include <widgets/wx_grid.h>
 #include <grid_tricks.h>
+#include <eda_text.h>
 #include <panel_setup_text_and_graphics.h>
 
 #include <wx/treebook.h>
+#include <confirm.h>
 
 
 // Columns of layer classes grid
@@ -69,7 +71,8 @@ PANEL_SETUP_TEXT_AND_GRAPHICS::PANEL_SETUP_TEXT_AND_GRAPHICS( wxWindow* aParentW
                                COL_TEXT_WIDTH,
                                COL_TEXT_HEIGHT,
                                COL_TEXT_THICKNESS } );
-    m_grid->SetDefaultRowSize( m_grid->GetDefaultRowSize() + 4 );
+    m_grid->SetDefaultRowSize( m_grid->GetDefaultRowSize() + FromDIP( 4 ) );
+    m_grid->SetUseNativeColLabels();
 
     // Work around a bug in wxWidgets where it fails to recalculate the grid height
     // after changing the default row size
@@ -126,7 +129,7 @@ void PANEL_SETUP_TEXT_AND_GRAPHICS::onUnitsChanged( wxCommandEvent& aEvent )
 
 bool PANEL_SETUP_TEXT_AND_GRAPHICS::TransferDataToWindow()
 {
-    wxColour disabledColour = wxSystemSettings::GetColour( wxSYS_COLOUR_BACKGROUND );
+    wxColour disabledColour = wxSystemSettings::GetColour( wxSYS_COLOUR_FRAMEBK );
 
 #define SET_MILS_CELL( row, col, val ) \
     m_grid->SetCellValue( row, col, m_Frame->StringFromValue( val, true ) )
@@ -199,16 +202,90 @@ bool PANEL_SETUP_TEXT_AND_GRAPHICS::TransferDataFromWindow()
     if( !m_grid->CommitPendingChanges() )
         return false;
 
+    // A minimal value for sizes and thickness
+    const int minWidth = pcbIUScale.mmToIU( MINIMUM_LINE_WIDTH_MM );
+    const int maxWidth = pcbIUScale.mmToIU( MAXIMUM_LINE_WIDTH_MM );
+    const int minSize  = pcbIUScale.mmToIU( TEXT_MIN_SIZE_MM );
+    const int maxSize = pcbIUScale.mmToIU( TEXT_MAX_SIZE_MM );
+    wxString errorsMsg;
+    UNITS_PROVIDER* unitProvider = m_Frame;
+
     for( int i = 0; i < ROW_COUNT; ++i )
     {
-        m_BrdSettings->m_LineThickness[ i ] = m_grid->GetUnitValue( i, COL_LINE_THICKNESS );
+        bool badParam = false;
+
+        int lineWidth =  m_grid->GetUnitValue( i, COL_LINE_THICKNESS );
+
+        if( lineWidth < minWidth || lineWidth > maxWidth )
+        {
+            if( !errorsMsg.IsEmpty() )
+                errorsMsg += wxT( "\n\n" );
+
+            errorsMsg += wxString::Format( _( "%s: Incorrect line width.\n"
+                                              "It must be between %s and %s" ),
+                                            m_grid->GetRowLabelValue( i ),
+                                            unitProvider->StringFromValue( minWidth , true),
+                                            unitProvider->StringFromValue( maxWidth , true) );
+            badParam = true;
+        }
+
+        if( !badParam )
+            m_BrdSettings->m_LineThickness[ i ] = lineWidth;
 
         if( i == ROW_EDGES || i == ROW_COURTYARD )
             continue;
 
-        m_BrdSettings->m_TextSize[ i ] = VECTOR2I( m_grid->GetUnitValue( i, COL_TEXT_WIDTH ),
-                                                   m_grid->GetUnitValue( i, COL_TEXT_HEIGHT ) );
-        m_BrdSettings->m_TextThickness[ i ] = m_grid->GetUnitValue( i, COL_TEXT_THICKNESS );
+        badParam = false;
+        int textWidth =  m_grid->GetUnitValue( i, COL_TEXT_WIDTH );
+        int textHeight = m_grid->GetUnitValue( i, COL_TEXT_HEIGHT );
+        int textThickness = m_grid->GetUnitValue( i, COL_TEXT_THICKNESS );
+
+        if( textWidth < minSize || textHeight < minSize
+                || textWidth > maxSize || textHeight > maxSize )
+        {
+            if( !errorsMsg.IsEmpty() )
+                errorsMsg += wxT( "\n\n" );
+
+            errorsMsg += wxString::Format( _( "%s: Text size is incorrect.\n"
+                                              "Size must be between %s and %s" ),
+                                            m_grid->GetRowLabelValue( i ),
+                                            unitProvider->StringFromValue( minSize , true),
+                                            unitProvider->StringFromValue( maxSize , true) );
+            badParam = true;
+        }
+
+        // Text thickness cannot be > text size /4 to be readable
+        int textMaxThickness = std::min( maxWidth, std::min( textWidth, textHeight ) /4);
+
+        if( !badParam && ( textThickness < minWidth || textThickness > textMaxThickness ) )
+        {
+            if( !errorsMsg.IsEmpty() )
+                errorsMsg += wxT( "\n\n" );
+
+
+            if( textThickness > textMaxThickness )
+                errorsMsg += wxString::Format( _( "%s: Text thickness is too large.\n"
+                                                  "It will be truncated to %s" ),
+                                                m_grid->GetRowLabelValue( i ),
+                                                unitProvider->StringFromValue( textMaxThickness , true) );
+
+            else if( textThickness < minWidth )
+                errorsMsg += wxString::Format( _( "%s: Text thickness is too small.\n"
+                                                  "It will be truncated to %s" ),
+                                                m_grid->GetRowLabelValue( i ),
+                                                unitProvider->StringFromValue( minWidth , true ) );
+
+            textThickness = std::min( textThickness, textMaxThickness );
+            textThickness = std::max( textThickness, minWidth );
+            SET_MILS_CELL( i, COL_TEXT_THICKNESS, textThickness );
+        }
+
+        if( !badParam )
+        {
+            m_BrdSettings->m_TextSize[ i ] = VECTOR2I( textWidth, textHeight );
+            m_BrdSettings->m_TextThickness[ i ] = textThickness;
+        }
+
         m_BrdSettings->m_TextItalic[ i ] =
                 wxGridCellBoolEditor::IsTrueValue( m_grid->GetCellValue( i, COL_TEXT_ITALIC ) );
         m_BrdSettings->m_TextUpright[ i ] =
@@ -230,7 +307,15 @@ bool PANEL_SETUP_TEXT_AND_GRAPHICS::TransferDataFromWindow()
     m_BrdSettings->m_DimensionArrowLength     = m_arrowLength.GetValue();
     m_BrdSettings->m_DimensionExtensionOffset = m_extensionOffset.GetValue();
 
-    return true;
+
+    if( errorsMsg.IsEmpty() )
+        return true;
+
+    KIDIALOG dlg( wxGetTopLevelParent( this ), errorsMsg, KIDIALOG::KD_ERROR,
+                  _( "Parameter error" ) );
+    dlg.ShowModal();
+
+    return false;
 }
 
 

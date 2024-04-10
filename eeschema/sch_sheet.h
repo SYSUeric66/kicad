@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2015 Jean-Pierre Charras, jp.charras at wanadoo.fr
- * Copyright (C) 1992-2022 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2024 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -29,7 +29,7 @@
 
 class KIID_PATH;
 class SCH_SCREEN;
-class SCH_SEXPR_PARSER;
+class SCH_IO_KICAD_SEXPR_PARSER;
 class SCH_SHEET_LIST;
 class SCH_SHEET_PIN;
 class SCH_SHEET_PATH;
@@ -58,7 +58,7 @@ class SCH_SHEET : public SCH_ITEM
 public:
     SCH_SHEET( EDA_ITEM* aParent = nullptr, const VECTOR2I& aPos = VECTOR2I( 0, 0 ),
                VECTOR2I aSize = VECTOR2I( schIUScale.MilsToIU( MIN_SHEET_WIDTH ),
-                                      schIUScale.MilsToIU( MIN_SHEET_HEIGHT ) ),
+                                          schIUScale.MilsToIU( MIN_SHEET_HEIGHT ) ),
                FIELDS_AUTOPLACED aAutoplaceFields = FIELDS_AUTOPLACED_AUTO );
 
     /**
@@ -249,8 +249,6 @@ public:
 
     int GetPenWidth() const override;
 
-    void Print( const RENDER_SETTINGS* aSettings, const VECTOR2I& aOffset ) override;
-
     /**
      * Return a bounding box for the sheet body but not the fields.
      */
@@ -324,7 +322,7 @@ public:
     void Move( const VECTOR2I& aMoveVector ) override;
     void MirrorHorizontally( int aCenter ) override;
     void MirrorVertically( int aCenter ) override;
-    void Rotate( const VECTOR2I& aCenter ) override;
+    void Rotate( const VECTOR2I& aCenter, bool aRotateCCW ) override;
 
     bool Matches( const EDA_SEARCH_DATA& aSearchData, void* aAuxData ) const override;
 
@@ -341,10 +339,14 @@ public:
 
     void GetEndPoints( std::vector <DANGLING_END_ITEM>& aItemList ) override;
 
-    bool UpdateDanglingState( std::vector<DANGLING_END_ITEM>& aItemList,
-                              const SCH_SHEET_PATH* aPath = nullptr ) override;
+    bool UpdateDanglingState( std::vector<DANGLING_END_ITEM>& aItemListByType,
+                              std::vector<DANGLING_END_ITEM>& aItemListByPos,
+                              const SCH_SHEET_PATH*           aPath = nullptr ) override;
 
     bool IsConnectable() const override { return true; }
+
+    bool HasConnectivityChanges( const SCH_ITEM* aItem,
+                                 const SCH_SHEET_PATH* aInstance = nullptr ) const override;
 
     bool CanConnect( const SCH_ITEM* aItem ) const override
     {
@@ -377,8 +379,11 @@ public:
     bool HitTest( const VECTOR2I& aPosition, int aAccuracy ) const override;
     bool HitTest( const BOX2I& aRect, bool aContained, int aAccuracy = 0 ) const override;
 
-    void Plot( PLOTTER* aPlotter, bool aBackground,
-               const SCH_PLOT_SETTINGS& aPlotSettings ) const override;
+    void Print( const SCH_RENDER_SETTINGS* aSettings, int aUnit, int aBodyStyle,
+                const VECTOR2I& aOffset, bool aForceNoFill, bool aDimmed ) override;
+
+    void Plot( PLOTTER* aPlotter, bool aBackground, const SCH_PLOT_OPTS& aPlotOpts,
+               int aUnit, int aBodyStyle, const VECTOR2I& aOffset, bool aDimmed ) override;
 
     EDA_ITEM* Clone() const override;
 
@@ -408,6 +413,10 @@ public:
      */
     const SCH_SHEET_INSTANCE& GetRootInstance() const;
 
+    void RemoveInstance( const KIID_PATH& aInstancePath );
+
+    void AddInstance( const SCH_SHEET_INSTANCE& aInstance );
+
     /**
      * Compares page numbers of schematic sheets.
      *
@@ -427,7 +436,7 @@ public:
 
 protected:
     friend SCH_SHEET_PATH;
-    friend SCH_SEXPR_PARSER;
+    friend SCH_IO_KICAD_SEXPR_PARSER;
 
     void setInstances( const std::vector<SCH_SHEET_INSTANCE>& aInstances )
     {

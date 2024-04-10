@@ -101,7 +101,8 @@
     %}
 }
 
-%extend PLUGIN
+
+%extend PCB_IO
 {
     // This version of FootprintEnumerate is for Python scripts, because the c++
     // version of FootprintEnumerate is not easy to handle in these Python scripts
@@ -123,14 +124,26 @@
     %{
         def FootprintEnumerate(self, libname):
             return self.footprintPyEnumerate( libname, True )
+
+        # Old function name for compatibility with pre-v8 scripts, use CreateLibrary() for new scripts.
+        def FootprintLibCreate(self, aLibraryPath, aProperties=None):
+            self.CreateLibrary(aLibraryPath, aProperties)
+
+        # Old function name for compatibility with pre-v8 scripts, use DeleteLibrary() for new scripts.
+        def FootprintLibDelete(self, aLibraryPath, aProperties=None):
+            return self.DeleteLibrary(aLibraryPath, aProperties)
+
+        # Old function name for compatibility with pre-v8 scripts, use IsLibraryWritable() for new scripts.
+        def IsFootprintLibWritable(self, aLibraryPath):
+            return self.IsLibraryWritable(aLibraryPath)
     %}
 }
 
 %pythoncode
 %{
     def GetPluginForPath(libname):
-        plugin_type = IO_MGR.GuessPluginTypeFromLibPath( libname );
-        return IO_MGR.PluginFind(plugin_type)
+        plugin_type = PCB_IO_MGR.GuessPluginTypeFromLibPath( libname );
+        return PCB_IO_MGR.PluginFind(plugin_type)
 
     def FootprintEnumerate(libname):
         plug = GetPluginForPath(libname)
@@ -150,11 +163,11 @@
 
     def FootprintLibCreate(libname):
         plug = GetPluginForPath(libname)
-        plug.FootprintLibCreate(libname)
+        plug.CreateLibrary(libname)
 
     def FootprintLibDelete(libname):
         plug = GetPluginForPath(libname)
-        plug.FootprintLibDelete(libname)
+        plug.DeleteLibrary(libname)
 
     def FootprintIsWritable(libname):
         plug = GetPluginForPath(libname)

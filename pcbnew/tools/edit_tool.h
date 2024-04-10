@@ -32,6 +32,7 @@
 #include <tools/pcb_tool_base.h>
 #include <tools/pcb_selection_tool.h>
 #include <status_popup.h>
+#include <unordered_set>
 
 
 class BOARD_COMMIT;
@@ -104,6 +105,11 @@ public:
     static const std::vector<KICAD_T> MirrorableItems;
 
     /**
+     * Set the justification on any text items (or fields) in the current selection.
+     */
+    int JustifyText( const TOOL_EVENT& aEvent );
+
+    /**
      * Swap currently selected items' positions. Changes position of each item to the next.
      */
     int Swap( const TOOL_EVENT& aEvent );
@@ -142,12 +148,12 @@ public:
      */
     int Remove( const TOOL_EVENT& aEvent );
 
-    void DeleteItems( const PCB_SELECTION& aItems, bool aIsCut );
+    void DeleteItems( const PCB_SELECTION& aItem, bool aIsCut );
 
     /**
      * Duplicate the current selection and starts a move action.
      */
-    int Duplicate( const TOOL_EVENT& aEvent );
+    int Duplicate( const TOOL_EVENT& aItem );
 
     /**
      * Invoke a dialog box to allow moving of the item by an exact amount.
@@ -200,10 +206,19 @@ private:
     bool pickReferencePoint( const wxString& aTooltip, const wxString& aSuccessMessage,
                              const wxString& aCanceledMessage, VECTOR2I& aReferencePoint );
 
-    bool doMoveSelection( const TOOL_EVENT& aEvent, BOARD_COMMIT* aCommit );
+    bool doMoveSelection( const TOOL_EVENT& aEvent, BOARD_COMMIT* aCommit, bool aAutoStart );
 
     ///< Rebuilds the ratsnest for operations that require it outside the commit rebuild
     void rebuildConnectivity();
+
+    ///< Removes all items from the set which are children of other PCB_GROUP or PCB_GENERATOR
+    ///< items in the set
+    void removeNonRootItems( std::unordered_set<EDA_ITEM*>& items );
+
+    ///< Recursively adds any child items of the given item to the set
+    void getChildItemsOfGroupsAndGenerators( EDA_ITEM*                        item,
+                                             std::unordered_set<BOARD_ITEM*>& children );
+
 
 private:
     PCB_SELECTION_TOOL*   m_selectionTool;

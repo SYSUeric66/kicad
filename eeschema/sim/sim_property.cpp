@@ -217,21 +217,10 @@ bool SIM_STRING_PROPERTY::StringToValue( wxVariant& aVariant, const wxString& aT
 }
 
 
-static wxArrayString convertStringsToWx( const std::vector<std::string>& aStrings )
-{
-    wxArrayString result;
-
-    for( const std::string& string : aStrings )
-        result.Add( string );
-
-    return result;
-}
-
-
 SIM_ENUM_PROPERTY::SIM_ENUM_PROPERTY( const wxString& aLabel, const wxString& aName,
-                                      SIM_MODEL& aModel, int aParamIndex ) :
-        wxEnumProperty( aLabel, aName,
-                        convertStringsToWx( aModel.GetParam( aParamIndex ).info.enumValues ) ),
+                                      SIM_MODEL& aModel, int aParamIndex,
+                                      const wxArrayString& aValues ) :
+        wxEnumProperty( aLabel, aName, aValues ),
         SIM_PROPERTY( aModel, aParamIndex )
 {
     for( int ii = 0; ii < (int) GetParam().info.enumValues.size(); ++ii )
@@ -247,11 +236,16 @@ SIM_ENUM_PROPERTY::SIM_ENUM_PROPERTY( const wxString& aLabel, const wxString& aN
 }
 
 
+#if wxCHECK_VERSION( 3, 3, 0 )
+bool SIM_ENUM_PROPERTY::IntToValue( wxVariant& aVariant, int aNumber,
+                                    wxPGPropValFormatFlags aArgFlags ) const
+#else
 bool SIM_ENUM_PROPERTY::IntToValue( wxVariant& aVariant, int aNumber, int aArgFlags ) const
+#endif
 {
     if( m_disabled )
         return false;
 
-    m_model.SetParamValue( m_paramIndex, GetParam().info.enumValues.at( aNumber ) );
+    m_model.SetParamValue( m_paramIndex, m_choices.GetLabel( aNumber ).ToStdString() );
     return wxEnumProperty::IntToValue( aVariant, aNumber, aArgFlags );
 }

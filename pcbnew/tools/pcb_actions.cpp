@@ -30,13 +30,11 @@
 #include <bitmaps.h>
 #include <layer_ids.h>
 #include <microwave/microwave_tool.h>
+#include <pcb_reference_image.h>
 #include <tool/tool_manager.h>
 #include <tools/pcb_selection_tool.h>
 #include <router/pns_router.h>
 #include <router/pns_routing_settings.h>
-
-// Forward declarations for types needed in the parameters
-class PCB_REFERENCE_IMAGE;
 
 // Actions, being statically-defined, require specialized I18N handling.  We continue to
 // use the _() macro so that string harvesting by the I18N framework doesn't have to be
@@ -182,8 +180,16 @@ TOOL_ACTION PCB_ACTIONS::drawTextBox( TOOL_ACTION_ARGS()
         .Name( "pcbnew.InteractiveDrawing.textbox" )
         .Scope( AS_GLOBAL )
         .FriendlyName( _( "Add Text Box" ) )
-        .Tooltip( _( "Add a wrapped text item" ) )
+        .Tooltip( _( "Add a line-wrapped text item" ) )
         .Icon( BITMAPS::add_textbox )
+        .Flags( AF_ACTIVATE ) );
+
+TOOL_ACTION PCB_ACTIONS::drawTable( TOOL_ACTION_ARGS()
+        .Name( "pcbnew.InteractiveDrawing.drawTable" )
+        .Scope( AS_GLOBAL )
+        .FriendlyName( _( "Add Table" ) )
+        .Tooltip( _( "Draw table" ) )
+        .Icon( BITMAPS::spreadsheet )   // JEY TODO
         .Flags( AF_ACTIVATE ) );
 
 TOOL_ACTION PCB_ACTIONS::spacingIncrease( TOOL_ACTION_ARGS()
@@ -371,20 +377,20 @@ TOOL_ACTION PCB_ACTIONS::arcPosture( TOOL_ACTION_ARGS()
 TOOL_ACTION PCB_ACTIONS::magneticSnapActiveLayer( TOOL_ACTION_ARGS()
         .Name( "common.Control.magneticSnapActiveLayer" )
         .Scope( AS_GLOBAL )
-        .FriendlyName( _( "Snap to objects on the active layer only" ) )
+        .FriendlyName( _( "Snap to Objects on the Active Layer Only" ) )
         .Tooltip( _( "Enables snapping to objects on the active layer only" ) ) );
 
 TOOL_ACTION PCB_ACTIONS::magneticSnapAllLayers( TOOL_ACTION_ARGS()
         .Name( "common.Control.magneticSnapAllLayers" )
         .Scope( AS_GLOBAL )
-        .FriendlyName( _( "Snap to objects on all layers" ) )
+        .FriendlyName( _( "Snap to Objects on All Layers" ) )
         .Tooltip( _( "Enables snapping to objects on all visible layers" ) ) );
 
 TOOL_ACTION PCB_ACTIONS::magneticSnapToggle( TOOL_ACTION_ARGS()
         .Name( "common.Control.magneticSnapToggle" )
         .Scope( AS_GLOBAL )
         .DefaultHotkey( MD_SHIFT + 'S' )
-        .FriendlyName( _( "Toggle snapping between active and all layers" ) )
+        .FriendlyName( _( "Toggle Snapping Between Active and All Layers" ) )
         .Tooltip( _( "Toggles between snapping on all visible layers and only the active area" ) ) );
 
 TOOL_ACTION PCB_ACTIONS::deleteLastPoint( TOOL_ACTION_ARGS()
@@ -517,7 +523,6 @@ TOOL_ACTION PCB_ACTIONS::createArray( TOOL_ACTION_ARGS()
         .DefaultHotkey( MD_CTRL + 'T' )
         .LegacyHotkeyName( "Create Array" )
         .FriendlyName( _( "Create Array..." ) )
-        .Tooltip( _( "Create array" ) )
         .Icon( BITMAPS::array )
         .Flags( AF_ACTIVATE ) );
 
@@ -613,7 +618,7 @@ TOOL_ACTION PCB_ACTIONS::filletLines( TOOL_ACTION_ARGS()
 TOOL_ACTION PCB_ACTIONS::chamferLines( TOOL_ACTION_ARGS()
         .Name( "pcbnew.InteractiveEdit.chamferLines" )
         .Scope( AS_GLOBAL )
-        .FriendlyName( _( "Chamfer Lines" ) )
+        .FriendlyName( _( "Chamfer Lines..." ) )
         .Tooltip( _( "Cut away corners between selected lines" ) )
         .Icon( BITMAPS::chamfer ) );
 
@@ -678,14 +683,12 @@ TOOL_ACTION PCB_ACTIONS::showFootprintTree( TOOL_ACTION_ARGS()
         .Name( "pcbnew.ModuleEditor.showFootprintTree" )
         .Scope( AS_GLOBAL )
         .FriendlyName( _( "Show Footprint Tree" ) )
-        .Tooltip( _( "Show Footprint Tree" ) )
         .Icon( BITMAPS::search_tree ) );
 
 TOOL_ACTION PCB_ACTIONS::hideFootprintTree( TOOL_ACTION_ARGS()
         .Name( "pcbnew.ModuleEditor.hideFootprintTree" )
         .Scope( AS_GLOBAL )
         .FriendlyName( _( "Hide Footprint Tree" ) )
-        .Tooltip( _( "Hide Footprint Tree" ) )
         .Icon( BITMAPS::search_tree ) );
 
 TOOL_ACTION PCB_ACTIONS::newFootprint( TOOL_ACTION_ARGS()
@@ -736,21 +739,18 @@ TOOL_ACTION PCB_ACTIONS::cutFootprint( TOOL_ACTION_ARGS()
         .Name( "pcbnew.ModuleEditor.cutFootprint" )
         .Scope( AS_GLOBAL )
         .FriendlyName( _( "Cut Footprint" ) )
-        .Tooltip( _( "Cut Footprint" ) )
         .Icon( BITMAPS::cut ) );
 
 TOOL_ACTION PCB_ACTIONS::copyFootprint( TOOL_ACTION_ARGS()
         .Name( "pcbnew.ModuleEditor.copyFootprint" )
         .Scope( AS_GLOBAL )
         .FriendlyName( _( "Copy Footprint" ) )
-        .Tooltip( _( "Copy Footprint" ) )
         .Icon( BITMAPS::copy ) );
 
 TOOL_ACTION PCB_ACTIONS::pasteFootprint( TOOL_ACTION_ARGS()
         .Name( "pcbnew.ModuleEditor.pasteFootprint" )
         .Scope( AS_GLOBAL )
         .FriendlyName( _( "Paste Footprint" ) )
-        .Tooltip( _( "Paste Footprint" ) )
         .Icon( BITMAPS::paste ) );
 
 TOOL_ACTION PCB_ACTIONS::importFootprint( TOOL_ACTION_ARGS()
@@ -767,11 +767,17 @@ TOOL_ACTION PCB_ACTIONS::exportFootprint( TOOL_ACTION_ARGS()
         .Tooltip( _( "Export edited footprint to file" ) )
         .Icon( BITMAPS::export_module ) );
 
+TOOL_ACTION PCB_ACTIONS::openWithTextEditor( TOOL_ACTION_ARGS()
+        .Name( "pcbnew.ModuleEditor.openWithTextEditor" )
+        .Scope( AS_GLOBAL )
+        .FriendlyName( _( "Edit in a Text Editor..." ) )
+        .Tooltip( _( "Open a library file with a text editor" ) )
+        .Icon( BITMAPS::editor ) );
+
 TOOL_ACTION PCB_ACTIONS::footprintProperties( TOOL_ACTION_ARGS()
         .Name( "pcbnew.ModuleEditor.footprintProperties" )
         .Scope( AS_GLOBAL )
         .FriendlyName( _( "Footprint Properties..." ) )
-        .Tooltip( _( "Edit footprint properties" ) )
         .Icon( BITMAPS::module_options ) );
 
 TOOL_ACTION PCB_ACTIONS::checkFootprint( TOOL_ACTION_ARGS()
@@ -858,14 +864,14 @@ TOOL_ACTION PCB_ACTIONS::cleanupTracksAndVias( TOOL_ACTION_ARGS()
         .Scope( AS_GLOBAL )
         .FriendlyName( _( "Cleanup Tracks & Vias..." ) )
         .Tooltip( _( "Cleanup redundant items, shorting items, etc." ) )
-        .Icon( BITMAPS::delete_cursor ) );
+        .Icon( BITMAPS::cleanup_tracks_and_vias ) );
 
 TOOL_ACTION PCB_ACTIONS::cleanupGraphics( TOOL_ACTION_ARGS()
         .Name( "pcbnew.GlobalEdit.cleanupGraphics" )
         .Scope( AS_GLOBAL )
         .FriendlyName( _( "Cleanup Graphics..." ) )
         .Tooltip( _( "Cleanup redundant items, etc." ) )
-        .Icon( BITMAPS::delete_cursor ) );
+        .Icon( BITMAPS::cleanup_graphics ) );
 
 // MICROWAVE_TOOL
 //
@@ -979,12 +985,6 @@ TOOL_ACTION PCB_ACTIONS::defaultPadProperties( TOOL_ACTION_ARGS()
 
 // SCRIPTING TOOL
 //
-TOOL_ACTION PCB_ACTIONS::pluginsReload( TOOL_ACTION_ARGS()
-        .Name( "pcbnew.ScriptingTool.pluginsReload" )
-        .Scope( AS_GLOBAL )
-        .FriendlyName( _( "Refresh Plugins" ) )
-        .Tooltip( _( "Reload all python plugins and refresh plugin menus" ) )
-        .Icon( BITMAPS::reload ) );
 
 TOOL_ACTION PCB_ACTIONS::pluginsShowFolder( TOOL_ACTION_ARGS()
         .Name( "pcbnew.ScriptingTool.pluginsShowFolder" )
@@ -1080,7 +1080,7 @@ TOOL_ACTION PCB_ACTIONS::generateD356File( TOOL_ACTION_ARGS()
 TOOL_ACTION PCB_ACTIONS::generateBOM( TOOL_ACTION_ARGS()
         .Name( "pcbnew.EditorControl.generateBOM" )
         .Scope( AS_GLOBAL )
-        .FriendlyName( _( "BOM..." ) )
+        .FriendlyName( _( "Bill of Materials..." ) )
         .Tooltip( _( "Create bill of materials from board" ) )
         .Icon( BITMAPS::post_bom ) );
 
@@ -1201,14 +1201,14 @@ TOOL_ACTION PCB_ACTIONS::unlock( TOOL_ACTION_ARGS()
 TOOL_ACTION PCB_ACTIONS::group( TOOL_ACTION_ARGS()
         .Name( "pcbnew.EditorControl.group" )
         .Scope( AS_GLOBAL )
-        .FriendlyName( _( "Group" ) )
+        .FriendlyName( _( "Group Items" ) )
         .Tooltip( _( "Group the selected items so that they are treated as a single item" ) )
         .Icon( BITMAPS::group ) );
 
 TOOL_ACTION PCB_ACTIONS::ungroup( TOOL_ACTION_ARGS()
         .Name( "pcbnew.EditorControl.ungroup" )
         .Scope( AS_GLOBAL )
-        .FriendlyName( _( "Ungroup" ) )
+        .FriendlyName( _( "Ungroup Items" ) )
         .Tooltip( _( "Ungroup any selected groups" ) )
         .Icon( BITMAPS::group_ungroup ) );
 
@@ -1330,13 +1330,6 @@ TOOL_ACTION PCB_ACTIONS::updateLocalRatsnest( TOOL_ACTION_ARGS()
         .Scope( AS_GLOBAL )
         .Parameter( VECTOR2I() ) );
 
-TOOL_ACTION PCB_ACTIONS::listNets( TOOL_ACTION_ARGS()
-        .Name( "pcbnew.Control.listNets" )
-        .Scope( AS_GLOBAL )
-        .FriendlyName( _( "Net Inspector" ) )
-        .Tooltip( _( "Show the net inspector" ) )
-        .Icon( BITMAPS::list_nets ) );
-
 TOOL_ACTION PCB_ACTIONS::showPythonConsole( TOOL_ACTION_ARGS()
         .Name( "pcbnew.Control.showPythonConsole" )
         .Scope( AS_GLOBAL )
@@ -1350,6 +1343,18 @@ TOOL_ACTION PCB_ACTIONS::showLayersManager( TOOL_ACTION_ARGS()
         .FriendlyName( _( "Show Appearance Manager" ) )
         .Tooltip( _( "Show/hide the appearance manager" ) )
         .Icon( BITMAPS::layers_manager ) );
+
+TOOL_ACTION PCB_ACTIONS::showNetInspector( TOOL_ACTION_ARGS()
+        .Name( "pcbnew.Control.showNetInspector" )
+        .Scope( AS_GLOBAL )
+        .FriendlyName( _( "Show Net Inspector" ) )
+        .Tooltip( _( "Show/hide the net inspector" ) )
+        .Icon( BITMAPS::tools ) );
+
+TOOL_ACTION PCB_ACTIONS::zonesManager( "pcbnew.Control.zonesManager",
+        AS_GLOBAL, 0, "",
+        _( "Zone Manager" ), _( "Show the zone manager dialog" ),
+        BITMAPS::show_zone );
 
 TOOL_ACTION PCB_ACTIONS::flipBoard( TOOL_ACTION_ARGS()
         .Name( "pcbnew.Control.flipBoard" )
@@ -1425,7 +1430,7 @@ TOOL_ACTION PCB_ACTIONS::textOutlines( TOOL_ACTION_ARGS()
 TOOL_ACTION PCB_ACTIONS::showPadNumbers( TOOL_ACTION_ARGS()
         .Name( "pcbnew.Control.showPadNumbers" )
         .Scope( AS_GLOBAL )
-        .FriendlyName( _( "Show pad numbers" ) )
+        .FriendlyName( _( "Show Pad Numbers" ) )
         .Tooltip( _( "Show pad numbers" ) )
         .Icon( BITMAPS::pad_number ) );
 
@@ -1447,14 +1452,12 @@ TOOL_ACTION PCB_ACTIONS::zoneDisplayFractured( TOOL_ACTION_ARGS()
         .Name( "pcbnew.Control.zoneDisplayOutlines" )
         .Scope( AS_GLOBAL )
         .FriendlyName( _( "Draw Zone Fill Fracture Borders" ) )
-        .Tooltip( _( "Draw Zone Fill Fracture Borders" ) )
         .Icon( BITMAPS::show_zone_outline_only ) );
 
 TOOL_ACTION PCB_ACTIONS::zoneDisplayTriangulated( TOOL_ACTION_ARGS()
         .Name( "pcbnew.Control.zoneDisplayTesselation" )
         .Scope( AS_GLOBAL )
         .FriendlyName( _( "Draw Zone Fill Triangulation" ) )
-        .Tooltip( _( "Draw Zone Fill Triangulation" ) )
         .Icon( BITMAPS::show_zone_triangulation ) );
 
 TOOL_ACTION PCB_ACTIONS::zoneDisplayToggle( TOOL_ACTION_ARGS()
@@ -1523,7 +1526,6 @@ TOOL_ACTION PCB_ACTIONS::layerTop( TOOL_ACTION_ARGS()
         .DefaultHotkey( WXK_PAGEUP )
         .LegacyHotkeyName( "Switch to Component (F.Cu) layer" )
         .FriendlyName( _( "Switch to Component (F.Cu) layer" ) )
-        .Tooltip( _( "Switch to Component (F.Cu) layer" ) )
         .Flags( AF_NOTIFY )
         .Parameter( F_Cu ) );
 
@@ -1532,8 +1534,7 @@ TOOL_ACTION PCB_ACTIONS::layerInner1( TOOL_ACTION_ARGS()
         .Scope( AS_GLOBAL )
         .Group( PCB_ACTIONS::layerDirectSwitchActions() )
         .LegacyHotkeyName( "Switch to Inner layer 1" )
-        .FriendlyName( _( "Switch to Inner layer 1" ) )
-        .Tooltip( _( "Switch to Inner layer 1" ) )
+        .FriendlyName( _( "Switch to Inner Layer 1" ) )
         .Flags( AF_NOTIFY )
         .Parameter( In1_Cu ) );
 
@@ -1542,8 +1543,7 @@ TOOL_ACTION PCB_ACTIONS::layerInner2( TOOL_ACTION_ARGS()
         .Scope( AS_GLOBAL )
         .Group( PCB_ACTIONS::layerDirectSwitchActions() )
         .LegacyHotkeyName( "Switch to Inner layer 2" )
-        .FriendlyName( _( "Switch to Inner layer 2" ) )
-        .Tooltip( _( "Switch to Inner layer 2" ) )
+        .FriendlyName( _( "Switch to Inner Layer 2" ) )
         .Flags( AF_NOTIFY )
         .Parameter( In2_Cu ) );
 
@@ -1552,8 +1552,7 @@ TOOL_ACTION PCB_ACTIONS::layerInner3( TOOL_ACTION_ARGS()
         .Scope( AS_GLOBAL )
         .Group( PCB_ACTIONS::layerDirectSwitchActions() )
         .LegacyHotkeyName( "Switch to Inner layer 3" )
-        .FriendlyName( _( "Switch to Inner layer 3" ) )
-        .Tooltip( _( "Switch to Inner layer 3" ) )
+        .FriendlyName( _( "Switch to Inner Layer 3" ) )
         .Flags( AF_NOTIFY )
         .Parameter( In3_Cu ) );
 
@@ -1562,8 +1561,7 @@ TOOL_ACTION PCB_ACTIONS::layerInner4( TOOL_ACTION_ARGS()
         .Scope( AS_GLOBAL )
         .Group( PCB_ACTIONS::layerDirectSwitchActions() )
         .LegacyHotkeyName( "Switch to Inner layer 4" )
-        .FriendlyName( _( "Switch to Inner layer 4" ) )
-        .Tooltip( _( "Switch to Inner layer 4" ) )
+        .FriendlyName( _( "Switch to Inner Layer 4" ) )
         .Flags( AF_NOTIFY )
         .Parameter( In4_Cu ) );
 
@@ -1572,8 +1570,7 @@ TOOL_ACTION PCB_ACTIONS::layerInner5( TOOL_ACTION_ARGS()
         .Scope( AS_GLOBAL )
         .Group( PCB_ACTIONS::layerDirectSwitchActions() )
         .LegacyHotkeyName( "Switch to Inner layer 5" )
-        .FriendlyName( _( "Switch to Inner layer 5" ) )
-        .Tooltip( _( "Switch to Inner layer 5" ) )
+        .FriendlyName( _( "Switch to Inner Layer 5" ) )
         .Flags( AF_NOTIFY )
         .Parameter( In5_Cu ) );
 
@@ -1582,8 +1579,7 @@ TOOL_ACTION PCB_ACTIONS::layerInner6( TOOL_ACTION_ARGS()
         .Scope( AS_GLOBAL )
         .Group( PCB_ACTIONS::layerDirectSwitchActions() )
         .LegacyHotkeyName( "Switch to Inner layer 6" )
-        .FriendlyName( _( "Switch to Inner layer 6" ) )
-        .Tooltip( _( "Switch to Inner layer 6" ) )
+        .FriendlyName( _( "Switch to Inner Layer 6" ) )
         .Flags( AF_NOTIFY )
         .Parameter( In6_Cu ) );
 
@@ -1591,8 +1587,7 @@ TOOL_ACTION PCB_ACTIONS::layerInner7( TOOL_ACTION_ARGS()
         .Name( "pcbnew.Control.layerInner7" )
         .Scope( AS_GLOBAL )
         .Group( PCB_ACTIONS::layerDirectSwitchActions() )
-        .FriendlyName( _( "Switch to Inner layer 7" ) )
-        .Tooltip( _( "Switch to Inner layer 7" ) )
+        .FriendlyName( _( "Switch to Inner Layer 7" ) )
         .Flags( AF_NOTIFY )
         .Parameter( In7_Cu ) );
 
@@ -1600,8 +1595,7 @@ TOOL_ACTION PCB_ACTIONS::layerInner8( TOOL_ACTION_ARGS()
         .Name( "pcbnew.Control.layerInner8" )
         .Scope( AS_GLOBAL )
         .Group( PCB_ACTIONS::layerDirectSwitchActions() )
-        .FriendlyName( _( "Switch to Inner layer 8" ) )
-        .Tooltip( _( "Switch to Inner layer 8" ) )
+        .FriendlyName( _( "Switch to Inner Layer 8" ) )
         .Flags( AF_NOTIFY )
         .Parameter( In8_Cu ) );
 
@@ -1609,8 +1603,7 @@ TOOL_ACTION PCB_ACTIONS::layerInner9( TOOL_ACTION_ARGS()
         .Name( "pcbnew.Control.layerInner9" )
         .Scope( AS_GLOBAL )
         .Group( PCB_ACTIONS::layerDirectSwitchActions() )
-        .FriendlyName( _( "Switch to Inner layer 9" ) )
-        .Tooltip( _( "Switch to Inner layer 9" ) )
+        .FriendlyName( _( "Switch to Inner Layer 9" ) )
         .Flags( AF_NOTIFY )
         .Parameter( In9_Cu ) );
 
@@ -1618,8 +1611,7 @@ TOOL_ACTION PCB_ACTIONS::layerInner10( TOOL_ACTION_ARGS()
         .Name( "pcbnew.Control.layerInner10" )
         .Scope( AS_GLOBAL )
         .Group( PCB_ACTIONS::layerDirectSwitchActions() )
-        .FriendlyName( _( "Switch to Inner layer 10" ) )
-        .Tooltip( _( "Switch to Inner layer 10" ) )
+        .FriendlyName( _( "Switch to Inner Layer 10" ) )
         .Flags( AF_NOTIFY )
         .Parameter( In10_Cu ) );
 
@@ -1627,8 +1619,7 @@ TOOL_ACTION PCB_ACTIONS::layerInner11( TOOL_ACTION_ARGS()
         .Name( "pcbnew.Control.layerInner11" )
         .Scope( AS_GLOBAL )
         .Group( PCB_ACTIONS::layerDirectSwitchActions() )
-        .FriendlyName( _( "Switch to Inner layer 11" ) )
-        .Tooltip( _( "Switch to Inner layer 11" ) )
+        .FriendlyName( _( "Switch to Inner Layer 11" ) )
         .Flags( AF_NOTIFY )
         .Parameter( In11_Cu ) );
 
@@ -1636,8 +1627,7 @@ TOOL_ACTION PCB_ACTIONS::layerInner12( TOOL_ACTION_ARGS()
         .Name( "pcbnew.Control.layerInner12" )
         .Scope( AS_GLOBAL )
         .Group( PCB_ACTIONS::layerDirectSwitchActions() )
-        .FriendlyName( _( "Switch to Inner layer 12" ) )
-        .Tooltip( _( "Switch to Inner layer 12" ) )
+        .FriendlyName( _( "Switch to Inner Layer 12" ) )
         .Flags( AF_NOTIFY )
         .Parameter( In12_Cu ) );
 
@@ -1645,8 +1635,7 @@ TOOL_ACTION PCB_ACTIONS::layerInner13( TOOL_ACTION_ARGS()
         .Name( "pcbnew.Control.layerInner13" )
         .Scope( AS_GLOBAL )
         .Group( PCB_ACTIONS::layerDirectSwitchActions() )
-        .FriendlyName( _( "Switch to Inner layer 13" ) )
-        .Tooltip( _( "Switch to Inner layer 13" ) )
+        .FriendlyName( _( "Switch to Inner Layer 13" ) )
         .Flags( AF_NOTIFY )
         .Parameter( In13_Cu ) );
 
@@ -1654,8 +1643,7 @@ TOOL_ACTION PCB_ACTIONS::layerInner14( TOOL_ACTION_ARGS()
         .Name( "pcbnew.Control.layerInner14" )
         .Scope( AS_GLOBAL )
         .Group( PCB_ACTIONS::layerDirectSwitchActions() )
-        .FriendlyName( _( "Switch to Inner layer 14" ) )
-        .Tooltip( _( "Switch to Inner layer 14" ) )
+        .FriendlyName( _( "Switch to Inner Layer 14" ) )
         .Flags( AF_NOTIFY )
         .Parameter( In14_Cu ) );
 
@@ -1663,8 +1651,7 @@ TOOL_ACTION PCB_ACTIONS::layerInner15( TOOL_ACTION_ARGS()
         .Name( "pcbnew.Control.layerInner15" )
         .Scope( AS_GLOBAL )
         .Group( PCB_ACTIONS::layerDirectSwitchActions() )
-        .FriendlyName( _( "Switch to Inner layer 15" ) )
-        .Tooltip( _( "Switch to Inner layer 15" ) )
+        .FriendlyName( _( "Switch to Inner Layer 15" ) )
         .Flags( AF_NOTIFY )
         .Parameter( In15_Cu ) );
 
@@ -1672,8 +1659,7 @@ TOOL_ACTION PCB_ACTIONS::layerInner16( TOOL_ACTION_ARGS()
         .Name( "pcbnew.Control.layerInner16" )
         .Scope( AS_GLOBAL )
         .Group( PCB_ACTIONS::layerDirectSwitchActions() )
-        .FriendlyName( _( "Switch to Inner layer 16" ) )
-        .Tooltip( _( "Switch to Inner layer 16" ) )
+        .FriendlyName( _( "Switch to Inner Layer 16" ) )
         .Flags( AF_NOTIFY )
         .Parameter( In16_Cu ) );
 
@@ -1681,8 +1667,7 @@ TOOL_ACTION PCB_ACTIONS::layerInner17( TOOL_ACTION_ARGS()
         .Name( "pcbnew.Control.layerInner17" )
         .Scope( AS_GLOBAL )
         .Group( PCB_ACTIONS::layerDirectSwitchActions() )
-        .FriendlyName( _( "Switch to Inner layer 17" ) )
-        .Tooltip( _( "Switch to Inner layer 17" ) )
+        .FriendlyName( _( "Switch to Inner Layer 17" ) )
         .Flags( AF_NOTIFY )
         .Parameter( In17_Cu ) );
 
@@ -1690,8 +1675,7 @@ TOOL_ACTION PCB_ACTIONS::layerInner18( TOOL_ACTION_ARGS()
         .Name( "pcbnew.Control.layerInner18" )
         .Scope( AS_GLOBAL )
         .Group( PCB_ACTIONS::layerDirectSwitchActions() )
-        .FriendlyName( _( "Switch to Inner layer 18" ) )
-        .Tooltip( _( "Switch to Inner layer 18" ) )
+        .FriendlyName( _( "Switch to Inner Layer 18" ) )
         .Flags( AF_NOTIFY )
         .Parameter( In18_Cu ) );
 
@@ -1699,8 +1683,7 @@ TOOL_ACTION PCB_ACTIONS::layerInner19( TOOL_ACTION_ARGS()
         .Name( "pcbnew.Control.layerInner19" )
         .Scope( AS_GLOBAL )
         .Group( PCB_ACTIONS::layerDirectSwitchActions() )
-        .FriendlyName( _( "Switch to Inner layer 19" ) )
-        .Tooltip( _( "Switch to Inner layer 19" ) )
+        .FriendlyName( _( "Switch to Inner Layer 19" ) )
         .Flags( AF_NOTIFY )
         .Parameter( In19_Cu ) );
 
@@ -1708,8 +1691,7 @@ TOOL_ACTION PCB_ACTIONS::layerInner20( TOOL_ACTION_ARGS()
         .Name( "pcbnew.Control.layerInner20" )
         .Scope( AS_GLOBAL )
         .Group( PCB_ACTIONS::layerDirectSwitchActions() )
-        .FriendlyName( _( "Switch to Inner layer 20" ) )
-        .Tooltip( _( "Switch to Inner layer 20" ) )
+        .FriendlyName( _( "Switch to Inner Layer 20" ) )
         .Flags( AF_NOTIFY )
         .Parameter( In20_Cu ) );
 
@@ -1717,8 +1699,7 @@ TOOL_ACTION PCB_ACTIONS::layerInner21( TOOL_ACTION_ARGS()
         .Name( "pcbnew.Control.layerInner21" )
         .Scope( AS_GLOBAL )
         .Group( PCB_ACTIONS::layerDirectSwitchActions() )
-        .FriendlyName( _( "Switch to Inner layer 21" ) )
-        .Tooltip( _( "Switch to Inner layer 21" ) )
+        .FriendlyName( _( "Switch to Inner Layer 21" ) )
         .Flags( AF_NOTIFY )
         .Parameter( In21_Cu ) );
 
@@ -1726,8 +1707,7 @@ TOOL_ACTION PCB_ACTIONS::layerInner22( TOOL_ACTION_ARGS()
         .Name( "pcbnew.Control.layerInner22" )
         .Scope( AS_GLOBAL )
         .Group( PCB_ACTIONS::layerDirectSwitchActions() )
-        .FriendlyName( _( "Switch to Inner layer 22" ) )
-        .Tooltip( _( "Switch to Inner layer 22" ) )
+        .FriendlyName( _( "Switch to Inner Layer 22" ) )
         .Flags( AF_NOTIFY )
         .Parameter( In22_Cu ) );
 
@@ -1735,8 +1715,7 @@ TOOL_ACTION PCB_ACTIONS::layerInner23( TOOL_ACTION_ARGS()
         .Name( "pcbnew.Control.layerInner23" )
         .Scope( AS_GLOBAL )
         .Group( PCB_ACTIONS::layerDirectSwitchActions() )
-        .FriendlyName( _( "Switch to Inner layer 23" ) )
-        .Tooltip( _( "Switch to Inner layer 23" ) )
+        .FriendlyName( _( "Switch to Inner Layer 23" ) )
         .Flags( AF_NOTIFY )
         .Parameter( In23_Cu ) );
 
@@ -1744,8 +1723,7 @@ TOOL_ACTION PCB_ACTIONS::layerInner24( TOOL_ACTION_ARGS()
         .Name( "pcbnew.Control.layerInner24" )
         .Scope( AS_GLOBAL )
         .Group( PCB_ACTIONS::layerDirectSwitchActions() )
-        .FriendlyName( _( "Switch to Inner layer 24" ) )
-        .Tooltip( _( "Switch to Inner layer 24" ) )
+        .FriendlyName( _( "Switch to Inner Layer 24" ) )
         .Flags( AF_NOTIFY )
         .Parameter( In24_Cu ) );
 
@@ -1753,8 +1731,7 @@ TOOL_ACTION PCB_ACTIONS::layerInner25( TOOL_ACTION_ARGS()
         .Name( "pcbnew.Control.layerInner25" )
         .Scope( AS_GLOBAL )
         .Group( PCB_ACTIONS::layerDirectSwitchActions() )
-        .FriendlyName( _( "Switch to Inner layer 25" ) )
-        .Tooltip( _( "Switch to Inner layer 25" ) )
+        .FriendlyName( _( "Switch to Inner Layer 25" ) )
         .Flags( AF_NOTIFY )
         .Parameter( In25_Cu ) );
 
@@ -1762,8 +1739,7 @@ TOOL_ACTION PCB_ACTIONS::layerInner26( TOOL_ACTION_ARGS()
         .Name( "pcbnew.Control.layerInner26" )
         .Scope( AS_GLOBAL )
         .Group( PCB_ACTIONS::layerDirectSwitchActions() )
-        .FriendlyName( _( "Switch to Inner layer 26" ) )
-        .Tooltip( _( "Switch to Inner layer 26" ) )
+        .FriendlyName( _( "Switch to Inner Layer 26" ) )
         .Flags( AF_NOTIFY )
         .Parameter( In26_Cu ) );
 
@@ -1771,8 +1747,7 @@ TOOL_ACTION PCB_ACTIONS::layerInner27( TOOL_ACTION_ARGS()
         .Name( "pcbnew.Control.layerInner27" )
         .Scope( AS_GLOBAL )
         .Group( PCB_ACTIONS::layerDirectSwitchActions() )
-        .FriendlyName( _( "Switch to Inner layer 27" ) )
-        .Tooltip( _( "Switch to Inner layer 27" ) )
+        .FriendlyName( _( "Switch to Inner Layer 27" ) )
         .Flags( AF_NOTIFY )
         .Parameter( In27_Cu ) );
 
@@ -1780,8 +1755,7 @@ TOOL_ACTION PCB_ACTIONS::layerInner28( TOOL_ACTION_ARGS()
         .Name( "pcbnew.Control.layerInner28" )
         .Scope( AS_GLOBAL )
         .Group( PCB_ACTIONS::layerDirectSwitchActions() )
-        .FriendlyName( _( "Switch to Inner layer 28" ) )
-        .Tooltip( _( "Switch to Inner layer 28" ) )
+        .FriendlyName( _( "Switch to Inner Layer 28" ) )
         .Flags( AF_NOTIFY )
         .Parameter( In28_Cu ) );
 
@@ -1789,8 +1763,7 @@ TOOL_ACTION PCB_ACTIONS::layerInner29( TOOL_ACTION_ARGS()
         .Name( "pcbnew.Control.layerInner29" )
         .Scope( AS_GLOBAL )
         .Group( PCB_ACTIONS::layerDirectSwitchActions() )
-        .FriendlyName( _( "Switch to Inner layer 29" ) )
-        .Tooltip( _( "Switch to Inner layer 29" ) )
+        .FriendlyName( _( "Switch to Inner Layer 29" ) )
         .Flags( AF_NOTIFY )
         .Parameter( In29_Cu ) );
 
@@ -1798,8 +1771,7 @@ TOOL_ACTION PCB_ACTIONS::layerInner30( TOOL_ACTION_ARGS()
         .Name( "pcbnew.Control.layerInner30" )
         .Scope( AS_GLOBAL )
         .Group( PCB_ACTIONS::layerDirectSwitchActions() )
-        .FriendlyName( _( "Switch to Inner layer 30" ) )
-        .Tooltip( _( "Switch to Inner layer 30" ) )
+        .FriendlyName( _( "Switch to Inner Layer 30" ) )
         .Flags( AF_NOTIFY )
         .Parameter( In30_Cu ) );
 
@@ -1809,8 +1781,7 @@ TOOL_ACTION PCB_ACTIONS::layerBottom( TOOL_ACTION_ARGS()
         .Group( PCB_ACTIONS::layerDirectSwitchActions() )
         .DefaultHotkey( WXK_PAGEDOWN )
         .LegacyHotkeyName( "Switch to Copper (B.Cu) layer" )
-        .FriendlyName( _( "Switch to Copper (B.Cu) layer" ) )
-        .Tooltip( _( "Switch to Copper (B.Cu) layer" ) )
+        .FriendlyName( _( "Switch to Copper (B.Cu) Layer" ) )
         .Flags( AF_NOTIFY )
         .Parameter( B_Cu ) );
 
@@ -1820,7 +1791,6 @@ TOOL_ACTION PCB_ACTIONS::layerNext( TOOL_ACTION_ARGS()
         .DefaultHotkey( '+' )
         .LegacyHotkeyName( "Switch to Next Layer" )
         .FriendlyName( _( "Switch to Next Layer" ) )
-        .Tooltip( _( "Switch to Next Layer" ) )
         .Flags( AF_NOTIFY ) );
 
 TOOL_ACTION PCB_ACTIONS::layerPrev( TOOL_ACTION_ARGS()
@@ -1829,7 +1799,6 @@ TOOL_ACTION PCB_ACTIONS::layerPrev( TOOL_ACTION_ARGS()
         .DefaultHotkey( '-' )
         .LegacyHotkeyName( "Switch to Previous Layer" )
         .FriendlyName( _( "Switch to Previous Layer" ) )
-        .Tooltip( _( "Switch to Previous Layer" ) )
         .Flags( AF_NOTIFY ) );
 
 TOOL_ACTION PCB_ACTIONS::layerToggle( TOOL_ACTION_ARGS()
@@ -1890,7 +1859,7 @@ TOOL_ACTION PCB_ACTIONS::inspectConstraints( TOOL_ACTION_ARGS()
 TOOL_ACTION PCB_ACTIONS::diffFootprint( TOOL_ACTION_ARGS()
         .Name( "pcbnew.InspectionTool.DiffFootprint" )
         .Scope( AS_GLOBAL )
-        .FriendlyName( _( "Diff Footprint with Library" ) )
+        .FriendlyName( _( "Compare Footprint with Library" ) )
         .Tooltip( _( "Show differences between board footprint and its library equivalent" ) )
         .Icon( BITMAPS::library ) );
 
@@ -1930,56 +1899,56 @@ TOOL_ACTION PCB_ACTIONS::alignTop( TOOL_ACTION_ARGS()
         .Name( "pcbnew.AlignAndDistribute.alignTop" )
         .Scope( AS_GLOBAL )
         .FriendlyName( _( "Align to Top" ) )
-        .Tooltip( _( "Aligns selected items to the top edge" ) )
+        .Tooltip( _( "Aligns selected items to the top edge of the item under the cursor" ) )
         .Icon( BITMAPS::align_items_top ) );
 
 TOOL_ACTION PCB_ACTIONS::alignBottom( TOOL_ACTION_ARGS()
         .Name( "pcbnew.AlignAndDistribute.alignBottom" )
         .Scope( AS_GLOBAL )
         .FriendlyName( _( "Align to Bottom" ) )
-        .Tooltip( _( "Aligns selected items to the bottom edge" ) )
+        .Tooltip( _( "Aligns selected items to the bottom edge of the item under the cursor" ) )
         .Icon( BITMAPS::align_items_bottom ) );
 
 TOOL_ACTION PCB_ACTIONS::alignLeft( TOOL_ACTION_ARGS()
         .Name( "pcbnew.AlignAndDistribute.alignLeft" )
         .Scope( AS_GLOBAL )
         .FriendlyName( _( "Align to Left" ) )
-        .Tooltip( _( "Aligns selected items to the left edge" ) )
+        .Tooltip( _( "Aligns selected items to the left edge of the item under the cursor" ) )
         .Icon( BITMAPS::align_items_left ) );
 
 TOOL_ACTION PCB_ACTIONS::alignRight( TOOL_ACTION_ARGS()
         .Name( "pcbnew.AlignAndDistribute.alignRight" )
         .Scope( AS_GLOBAL )
         .FriendlyName( _( "Align to Right" ) )
-        .Tooltip( _( "Aligns selected items to the right edge" ) )
+        .Tooltip( _( "Aligns selected items to the right edge of the item under the cursor" ) )
         .Icon( BITMAPS::align_items_right ) );
 
 TOOL_ACTION PCB_ACTIONS::alignCenterY( TOOL_ACTION_ARGS()
         .Name( "pcbnew.AlignAndDistribute.alignCenterY" )
         .Scope( AS_GLOBAL )
         .FriendlyName( _( "Align to Vertical Center" ) )
-        .Tooltip( _( "Aligns selected items to the vertical center" ) )
+        .Tooltip( _( "Aligns selected items to the vertical center of the item under the cursor" ) )
         .Icon( BITMAPS::align_items_center ) );
 
 TOOL_ACTION PCB_ACTIONS::alignCenterX( TOOL_ACTION_ARGS()
         .Name( "pcbnew.AlignAndDistribute.alignCenterX" )
         .Scope( AS_GLOBAL )
         .FriendlyName( _( "Align to Horizontal Center" ) )
-        .Tooltip( _( "Aligns selected items to the horizontal center" ) )
+        .Tooltip( _( "Aligns selected items to the horizontal center of the item under the cursor" ) )
         .Icon( BITMAPS::align_items_middle ) );
 
 TOOL_ACTION PCB_ACTIONS::distributeHorizontally( TOOL_ACTION_ARGS()
         .Name( "pcbnew.AlignAndDistribute.distributeHorizontally" )
         .Scope( AS_GLOBAL )
         .FriendlyName( _( "Distribute Horizontally" ) )
-        .Tooltip( _( "Distributes selected items along the horizontal axis" ) )
+        .Tooltip( _( "Distributes selected items between the left-most item and the right-most item" ) )
         .Icon( BITMAPS::distribute_horizontal ) );
 
 TOOL_ACTION PCB_ACTIONS::distributeVertically( TOOL_ACTION_ARGS()
         .Name( "pcbnew.AlignAndDistribute.distributeVertically" )
         .Scope( AS_GLOBAL )
         .FriendlyName( _( "Distribute Vertically" ) )
-        .Tooltip( _( "Distributes selected items along the vertical axis" ) )
+        .Tooltip( _( "Distributes selected items between the top-most item and the bottom-most item" ) )
         .Icon( BITMAPS::distribute_vertical ) );
 
 
@@ -2007,14 +1976,14 @@ TOOL_ACTION PCB_ACTIONS::pointEditorRemoveCorner( TOOL_ACTION_ARGS()
 TOOL_ACTION PCB_ACTIONS::pointEditorArcKeepCenter( TOOL_ACTION_ARGS()
         .Name( "pcbnew.PointEditor.arcKeepCenter" )
         .Scope( AS_GLOBAL )
-        .FriendlyName( _( "Keep arc center, adjust radius" ) )
+        .FriendlyName( _( "Keep Arc Center, Adjust Radius" ) )
         .Tooltip( _( "Switch arc editing mode to keep center, adjust radius and endpoints" ) )
         .Parameter( ARC_EDIT_MODE::KEEP_CENTER_ADJUST_ANGLE_RADIUS ) );
 
 TOOL_ACTION PCB_ACTIONS::pointEditorArcKeepEndpoint( TOOL_ACTION_ARGS()
         .Name( "pcbnew.PointEditor.arcKeepEndpoint" )
         .Scope( AS_GLOBAL )
-        .FriendlyName( _( "Keep arc endpoints or direction of starting point" ) )
+        .FriendlyName( _( "Keep Arc Endpoints or Direction of Starting Point" ) )
         .Tooltip( _( "Switch arc editing mode to keep endpoints, or to keep direction of the other point" ) )
         .Parameter( ARC_EDIT_MODE::KEEP_ENDPOINTS_OR_START_DIRECTION ) );
 
@@ -2303,18 +2272,29 @@ TOOL_ACTION PCB_ACTIONS::selectLayerPair( TOOL_ACTION_ARGS()
         .Icon( BITMAPS::select_layer_pair )
         .Flags( AF_ACTIVATE ) );
 
-TOOL_ACTION PCB_ACTIONS::tuneLength( TOOL_ACTION_ARGS()
+TOOL_ACTION PCB_ACTIONS::tuneSingleTrack( TOOL_ACTION_ARGS()
         .Name( "pcbnew.LengthTuner.TuneSingleTrack" )
         .Scope( AS_GLOBAL )
         .DefaultHotkey( '7' )
-        .DefaultHotkeyAlt( '8' )
         // Don't be tempted to remove "Modern Toolset only".  It's in the legacy property name.
         .LegacyHotkeyName( "Tune Single Track (Modern Toolset only)" )
-        .FriendlyName( _( "Tune Length" ) )
-        .Tooltip( _( "Tune length of a single track or differential pair" ) )
+        .FriendlyName( _( "Tune Length of a Single Track" ) )
+        .Tooltip( _( "Tune length of a single track" ) )
         .Icon( BITMAPS::ps_tune_length )
         .Flags( AF_ACTIVATE )
         .Parameter( PNS::PNS_MODE_TUNE_SINGLE ) );
+
+TOOL_ACTION PCB_ACTIONS::tuneDiffPair( TOOL_ACTION_ARGS()
+        .Name( "pcbnew.LengthTuner.TuneDiffPair" )
+        .Scope( AS_GLOBAL )
+        .DefaultHotkey( '8' )
+        // Don't be tempted to remove "Modern Toolset only".  It's in the legacy property name.
+        .LegacyHotkeyName( "Tune Differential Pair Length (Modern Toolset only)" )
+        .FriendlyName( _( "Tune Length of a Differential Pair" ) )
+        .Tooltip( _( "Tune length of a differential pair" ) )
+        .Icon( BITMAPS::ps_diff_pair_tune_length )
+        .Flags( AF_ACTIVATE )
+        .Parameter( PNS::PNS_MODE_TUNE_DIFF_PAIR ) );
 
 TOOL_ACTION PCB_ACTIONS::tuneSkew( TOOL_ACTION_ARGS()
         .Name( "pcbnew.LengthTuner.TuneDiffPairSkew" )
@@ -2343,7 +2323,7 @@ TOOL_ACTION PCB_ACTIONS::routerUndoLastSegment( TOOL_ACTION_ARGS()
 TOOL_ACTION PCB_ACTIONS::routerContinueFromEnd( TOOL_ACTION_ARGS()
         .Name( "pcbnew.InteractiveRouter.ContinueFromEnd" )
         .Scope( AS_CONTEXT )
-        .DefaultHotkey( 'E' )
+        .DefaultHotkey( MD_CTRL + 'E' )
         .FriendlyName( _( "Route From Other End" ) )
         .Tooltip( _( "Commits current segments and starts next segment from nearest ratsnest end." ) ) );
 
@@ -2394,7 +2374,7 @@ TOOL_ACTION PCB_ACTIONS::drag45Degree( TOOL_ACTION_ARGS()
         .Scope( AS_GLOBAL )
         .DefaultHotkey( 'D' )
         .LegacyHotkeyName( "Drag Track Keep Slope" )
-        .FriendlyName( _( "Drag (45 degree mode)" ) )
+        .FriendlyName( _( "Drag 45 Degree Mode" ) )
         .Tooltip( _( "Drags the track segment while keeping connected tracks at 45 degrees." ) )
         .Icon( BITMAPS::drag_segment_withslope ) );
 
@@ -2403,9 +2383,9 @@ TOOL_ACTION PCB_ACTIONS::dragFreeAngle( TOOL_ACTION_ARGS()
         .Scope( AS_GLOBAL )
         .DefaultHotkey( 'G' )
         .LegacyHotkeyName( "Drag Item" )
-        .FriendlyName( _( "Drag (free angle)" ) )
+        .FriendlyName( _( "Drag Free Angle" ) )
         .Tooltip( _( "Drags the nearest joint in the track without restricting the track angle." ) )
-        .Icon( BITMAPS::drag ) );
+        .Icon( BITMAPS::drag_segment ) );
 
 
 // GENERATOR_TOOL
@@ -2434,10 +2414,6 @@ TOOL_ACTION PCB_ACTIONS::regenerateSelected( TOOL_ACTION_ARGS()
         .Tooltip( _( "Rebuilds geometry of selected generator(s)" ) )
         .Icon( BITMAPS::refresh ) );
 
-
-TOOL_ACTION PCB_ACTIONS::regenerateItem( TOOL_ACTION_ARGS()
-        .Name( "pcbnew.Generator.regenerateItem" )
-        .Scope( AS_CONTEXT ) );
 
 TOOL_ACTION PCB_ACTIONS::genStartEdit( TOOL_ACTION_ARGS()
         .Name( "pcbnew.Generator.genStartEdit" )

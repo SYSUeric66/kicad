@@ -66,7 +66,7 @@ void SYMBOL_EDIT_FRAME::doReCreateMenuBar()
     submenuImport->SetIcon( BITMAPS::import );
 
     submenuImport->Add( EE_ACTIONS::importSymbol, ACTION_MENU::NORMAL, _( "Symbol..." ) );
-    submenuImport->Add( EE_ACTIONS::symbolImportGraphics, ACTION_MENU::NORMAL, _( "Graphics..." ) );
+    submenuImport->Add( EE_ACTIONS::importGraphics, ACTION_MENU::NORMAL, _( "Graphics..." ) );
 
     fileMenu->Add( submenuImport );
 
@@ -125,7 +125,9 @@ void SYMBOL_EDIT_FRAME::doReCreateMenuBar()
     viewMenu->Add( ACTIONS::zoomRedraw );
 
     viewMenu->AppendSeparator();
-    viewMenu->Add( EE_ACTIONS::showSymbolTree,    ACTION_MENU::CHECK );
+    viewMenu->Add( EE_ACTIONS::showSymbolTree,   ACTION_MENU::CHECK );
+    viewMenu->Add( EE_ACTIONS::showHiddenPins,   ACTION_MENU::CHECK );
+    viewMenu->Add( EE_ACTIONS::showHiddenFields, ACTION_MENU::CHECK );
 
 
     //-- Place menu -----------------------------------------------

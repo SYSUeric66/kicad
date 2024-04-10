@@ -158,6 +158,7 @@ set( BMAPS_MID
     about
     add_aligned_dimension
     add_arc
+    add_bezier
     add_board
     add_bus2bus
     add_bus
@@ -193,6 +194,7 @@ set( BMAPS_MID
     add_via
     add_zone_cutout
     add_zone
+    align_elements_to_grid
     align_items
     align_items_left
     align_items_right
@@ -222,18 +224,20 @@ set( BMAPS_MID
     cancel
     chamfer
     change_entry_orient
-    contrast_mode
-    curved_ratsnest
     checked_ok
+    cleanup_graphics
+    cleanup_tracks_and_vias
     color_materials
     component_select_unit
     config
+    contrast_mode
     convert
     copy
     copy_pad_settings
     cursor_shape
     cursor
     custom_pad_to_primitives
+    curved_ratsnest
     cut
     datasheet
     delete_association
@@ -247,6 +251,7 @@ set( BMAPS_MID
     distribute_vertical
     down
     drag
+    drag_segment
     drag_segment_withslope
     drc
     duplicate
@@ -270,6 +275,7 @@ set( BMAPS_MID
     export_idf
     export_file
     export_footprint_names
+    export_gltf
     export_module
     export_part
     export_png
@@ -278,6 +284,7 @@ set( BMAPS_MID
     export_to_pcbnew
     fabrication
     file_bom
+    file_cir
     file_drl
     file_dsn
     file_gbr
@@ -637,6 +644,39 @@ set( BMAPS_128
     icon_pcbcalculator
     )
 
+# 256 x 256 for icon sets (windows namely)
+set( BMAPS_256
+    icon_cvpcb
+    icon_eeschema
+    icon_gerbview
+    icon_kicad
+    icon_kicad_nightly
+    icon_libedit
+    icon_modedit
+    icon_pcbnew
+    icon_pagelayout_editor
+    icon_bitmap2component
+    icon_pcbcalculator
+    )
+
+# Teardrop images (275x130 native size) for teardrop dialogs
+    set( BMAPS_TEARDROPS
+    teardrop_sizes
+    teardrop_rect_sizes
+    teardrop_track_sizes
+    )
+
+# Tuning images (250x156 native size )
+    set( BMAPS_TUNING
+    tune_diff_pair_length_legend
+    tune_single_track_length_legend
+    )
+
+# Tuning image (250x110 native size )
+    set( BMAPS_TUNING_SKEW
+    tune_diff_pair_skew_legend
+    )
+
 # Images in this section are generated at whatever resolution is set in the source SVG file
 # Use Inkscape Document Properties > Custom Size to set (make sure units are pixels)
 # These are used for images in the UI that are not-square or very large (infographics, etc)
@@ -674,12 +714,6 @@ set( BMAPS_OTHER
     stroke_dashdotdot
     stroke_dot
     stroke_solid
-    teardrop_sizes
-    teardrop_rect_sizes
-    teardrop_track_sizes
-    tune_diff_pair_length_legend
-    tune_diff_pair_skew_legend
-    tune_single_track_length_legend
     twistedpair
     viacalc
     )
@@ -916,7 +950,19 @@ if( MAINTAIN_PNGS )
 
     bitmap_dir( 128 128 "${BMAPS_128}" )
 
+    bitmap_dir( 256 256 "${BMAPS_256}" )
+
     bitmap_dir( 48 48 "${BMAPS_BIG}" )
+
+    bitmap_dir( 275 130 "${BMAPS_TEARDROPS}" )
+
+    bitmap_dir( 550 260 "${BMAPS_TEARDROPS}" )
+
+    bitmap_dir( 250 156 "${BMAPS_TUNING}" )
+    bitmap_dir( 500 312 "${BMAPS_TUNING}" )
+
+    bitmap_dir( 250 110 "${BMAPS_TUNING_SKEW}" )
+    bitmap_dir( 500 220 "${BMAPS_TUNING_SKEW}" )
 
     bitmap_dir( -1 -1 "${BMAPS_OTHER}" )
 

@@ -44,10 +44,8 @@ public:
 private:
     void onNetSelector( wxCommandEvent& aEvent );
     void onViaNotFreeClicked( wxCommandEvent& aEvent ) override;
-    void onTrackNetclassCheck( wxCommandEvent& aEvent ) override;
     void onWidthSelect( wxCommandEvent& aEvent ) override;
     void onWidthEdit( wxCommandEvent& aEvent ) override;
-    void onViaNetclassCheck( wxCommandEvent& aEvent ) override;
     void onViaSelect( wxCommandEvent& aEvent ) override;
     void onViaEdit( wxCommandEvent& aEvent ) override;
 
@@ -73,8 +71,8 @@ private:
     UNIT_BINDER          m_teardropHDPercent;
     UNIT_BINDER          m_teardropLenPercent;
     UNIT_BINDER          m_teardropMaxLen;
-    UNIT_BINDER          m_teardropHeightPercent;
-    UNIT_BINDER          m_teardropMaxHeight;
+    UNIT_BINDER          m_teardropWidthPercent;
+    UNIT_BINDER          m_teardropMaxWidth;
 
     bool                 m_tracks;     // True if dialog displays any track properties.
     bool                 m_vias;       // True if dialog displays any via properties.

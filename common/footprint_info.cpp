@@ -83,7 +83,7 @@ std::vector<SEARCH_TERM> FOOTPRINT_INFO::GetSearchTerms()
 
     // Also include keywords as one long string, just in case
     terms.emplace_back( SEARCH_TERM( GetKeywords(), 1 ) );
-    terms.emplace_back( SEARCH_TERM( GetDescription(), 1 ) );
+    terms.emplace_back( SEARCH_TERM( GetDesc(), 1 ) );
 
     return terms;
 }
@@ -124,7 +124,7 @@ void FOOTPRINT_LIST::DisplayErrors( wxTopLevelWindow* aWindow )
 
     while( std::unique_ptr<IO_ERROR> error = PopError() )
     {
-        wxString tmp = error->Problem();
+        wxString tmp = EscapeHTML( error->Problem() );
 
         // Preserve new lines in error messages so queued errors don't run together.
         tmp.Replace( wxS( "\n" ), wxS( "<BR>" ) );

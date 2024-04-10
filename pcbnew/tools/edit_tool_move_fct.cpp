@@ -197,8 +197,8 @@ int EDIT_TOOL::PackAndMoveFootprints( const TOOL_EVENT& aEvent )
 
     SpreadFootprints( &footprintsToPack, footprintsBbox.Normalize().GetOrigin(), false );
 
-    if( doMoveSelection( aEvent, &commit ) )
-        commit.Push( _( "Pack footprints" ) );
+    if( doMoveSelection( aEvent, &commit, true ) )
+        commit.Push( _( "Pack Footprints" ) );
     else
         commit.Revert();
 
@@ -219,7 +219,7 @@ int EDIT_TOOL::Move( const TOOL_EVENT& aEvent )
         wxCHECK( aEvent.SynchronousState(), 0 );
         aEvent.SynchronousState()->store( STS_RUNNING );
 
-        if( doMoveSelection( aEvent, commit ) )
+        if( doMoveSelection( aEvent, commit, true ) )
             aEvent.SynchronousState()->store( STS_FINISHED );
         else
             aEvent.SynchronousState()->store( STS_CANCELLED );
@@ -228,15 +228,16 @@ int EDIT_TOOL::Move( const TOOL_EVENT& aEvent )
     {
         BOARD_COMMIT localCommit( this );
 
-        if( doMoveSelection( aEvent, &localCommit ) )
-        {
+        if( doMoveSelection( aEvent, &localCommit, false ) )
             localCommit.Push( _( "Move" ) );
-        }
         else
-        {
             localCommit.Revert();
-        }
     }
+
+    // Notify point editor.  (While doMoveSelection() will re-select the items and post this
+    // event, it's done before the edit flags are cleared in BOARD_COMMIT::Push() so the point
+    // editor doesn't fire up.)
+    m_toolMgr->ProcessEvent( EVENTS::SelectedEvent );
 
     return 0;
 }
@@ -276,7 +277,7 @@ VECTOR2I EDIT_TOOL::getSafeMovement( const VECTOR2I& aMovement, const BOX2I& aSo
 }
 
 
-bool EDIT_TOOL::doMoveSelection( const TOOL_EVENT& aEvent, BOARD_COMMIT* aCommit )
+bool EDIT_TOOL::doMoveSelection( const TOOL_EVENT& aEvent, BOARD_COMMIT* aCommit, bool aAutoStart )
 {
     bool moveWithReference = aEvent.IsAction( &PCB_ACTIONS::moveWithReference );
     bool moveIndividually = aEvent.IsAction( &PCB_ACTIONS::moveIndividually );
@@ -297,34 +298,12 @@ bool EDIT_TOOL::doMoveSelection( const TOOL_EVENT& aEvent, BOARD_COMMIT* aCommit
             {
                 sTool->FilterCollectorForMarkers( aCollector );
                 sTool->FilterCollectorForHierarchy( aCollector, true );
+                sTool->FilterCollectorForFreePads( aCollector );
+                sTool->FilterCollectorForTableCells( aCollector );
             },
-            // Prompt user regarding locked items if in board editor and in free-pad-mode (if
-            // we're not in free-pad mode we delay this until the second RequestSelection()).
-            !m_isFootprintEditor && cfg->m_AllowFreePads );
+            true /* prompt user regarding locked items */ );
 
     if( m_dragging || selection.Empty() )
-        return false;
-
-    LSET     item_layers = selection.GetSelectionLayers();
-    bool     is_hover    = selection.IsHover(); // N.B. This must be saved before the second call
-                                                // to RequestSelection() below
-    VECTOR2I pickedReferencePoint;
-
-    // Now filter out pads if not in free pads mode.  We cannot do this in the first
-    // RequestSelection() as we need the item_layers when a pad is the selection front.
-    if( !m_isFootprintEditor && !cfg->m_AllowFreePads )
-    {
-        selection = m_selectionTool->RequestSelection(
-                []( const VECTOR2I& aPt, GENERAL_COLLECTOR& aCollector, PCB_SELECTION_TOOL* sTool )
-                {
-                    sTool->FilterCollectorForMarkers( aCollector );
-                    sTool->FilterCollectorForHierarchy( aCollector, true );
-                    sTool->FilterCollectorForFreePads( aCollector );
-                },
-                true /* prompt user regarding locked items */ );
-    }
-
-    if( selection.Empty() )
         return false;
 
     editFrame->PushTool( aEvent );
@@ -375,7 +354,7 @@ bool EDIT_TOOL::doMoveSelection( const TOOL_EVENT& aEvent, BOARD_COMMIT* aCommit
     {
         if( BOARD_ITEM* boardItem = dynamic_cast<BOARD_ITEM*>( item ) )
         {
-            if( !is_hover )
+            if( !selection.IsHover() )
                 orig_items.push_back( boardItem );
 
             sel_items.push_back( boardItem );
@@ -392,10 +371,12 @@ bool EDIT_TOOL::doMoveSelection( const TOOL_EVENT& aEvent, BOARD_COMMIT* aCommit
         }
     }
 
+    VECTOR2I pickedReferencePoint;
+
     if( moveWithReference && !pickReferencePoint( _( "Select reference point for move..." ), "", "",
                                                   pickedReferencePoint ) )
     {
-        if( is_hover )
+        if( selection.IsHover() )
             m_toolMgr->RunAction( PCB_ACTIONS::selectionClear );
 
         editFrame->PopTool( aEvent );
@@ -430,10 +411,12 @@ bool EDIT_TOOL::doMoveSelection( const TOOL_EVENT& aEvent, BOARD_COMMIT* aCommit
     VECTOR2D        bboxMovement;
     BOX2I           originalBBox;
     bool            updateBBox = true;
+    LSET            layers( editFrame->GetActiveLayer() );
     PCB_GRID_HELPER grid( m_toolMgr, editFrame->GetMagneticItemsSettings() );
     TOOL_EVENT      copy = aEvent;
     TOOL_EVENT*     evt = &copy;
     VECTOR2I        prevPos;
+    bool            enableLocalRatsnest = true;
 
     bool hv45Mode        = false;
     bool eatFirstMouseUp = true;
@@ -479,7 +462,7 @@ bool EDIT_TOOL::doMoveSelection( const TOOL_EVENT& aEvent, BOARD_COMMIT* aCommit
 
                 VECTOR2I mousePos( controls->GetMousePosition() );
 
-                m_cursor = grid.BestSnapAnchor( mousePos, item_layers,
+                m_cursor = grid.BestSnapAnchor( mousePos, layers,
                                                 grid.GetSelectionGrid( selection ), sel_items );
 
                 if( controls->GetSettings().m_lastKeyboardCursorPositionValid )
@@ -562,7 +545,7 @@ bool EDIT_TOOL::doMoveSelection( const TOOL_EVENT& aEvent, BOARD_COMMIT* aCommit
 
                 m_toolMgr->PostEvent( EVENTS::SelectedItemsMoved );
             }
-            else if( !m_dragging && !evt->IsAction( &ACTIONS::refreshPreview ) )
+            else if( !m_dragging && ( aAutoStart || !evt->IsAction( &ACTIONS::refreshPreview ) ) )
             {
                 // Prepare to start dragging
                 editFrame->HideSolderMask();
@@ -578,6 +561,8 @@ bool EDIT_TOOL::doMoveSelection( const TOOL_EVENT& aEvent, BOARD_COMMIT* aCommit
                     {
                         if( item->Type() == PCB_GENERATOR_T && sel_items.size() == 1 )
                         {
+                            enableLocalRatsnest = false;
+
                             m_toolMgr->RunSynchronousAction( PCB_ACTIONS::genStartEdit, aCommit,
                                                              static_cast<PCB_GENERATOR*>( item ) );
                         }
@@ -625,10 +610,22 @@ bool EDIT_TOOL::doMoveSelection( const TOOL_EVENT& aEvent, BOARD_COMMIT* aCommit
                 }
                 else
                 {
-                    for( BOARD_ITEM* item : sel_items )
+                    if( showCourtyardConflicts )
                     {
-                        if( showCourtyardConflicts && item->Type() == PCB_FOOTPRINT_T )
-                            drc_on_move->m_FpInMove.push_back( static_cast<FOOTPRINT*>( item ) );
+                        std::vector<FOOTPRINT*>& FPs = drc_on_move->m_FpInMove;
+
+                        for( BOARD_ITEM* item : sel_items )
+                        {
+                            if( item->Type() == PCB_FOOTPRINT_T )
+                                FPs.push_back( static_cast<FOOTPRINT*>( item ) );
+
+                            item->RunOnDescendants(
+                                    [&]( BOARD_ITEM* descendent )
+                                    {
+                                        if( descendent->Type() == PCB_FOOTPRINT_T )
+                                            FPs.push_back( static_cast<FOOTPRINT*>( descendent ) );
+                                    } );
+                        }
                     }
 
                     m_cursor = grid.BestDragOrigin( originalCursorPos, sel_items,
@@ -668,7 +665,8 @@ bool EDIT_TOOL::doMoveSelection( const TOOL_EVENT& aEvent, BOARD_COMMIT* aCommit
 
             statusPopup.Move( KIPLATFORM::UI::GetMousePosition() + wxPoint( 20, 20 ) );
 
-            m_toolMgr->PostAction( PCB_ACTIONS::updateLocalRatsnest, movement );
+            if( enableLocalRatsnest )
+                m_toolMgr->PostAction( PCB_ACTIONS::updateLocalRatsnest, movement );
         }
         else if( evt->IsCancelInteractive() || evt->IsActivate() )
         {
@@ -677,6 +675,10 @@ bool EDIT_TOOL::doMoveSelection( const TOOL_EVENT& aEvent, BOARD_COMMIT* aCommit
 
             restore_state = true; // Canceling the tool means that items have to be restored
             break;                // Finish
+        }
+        else if( evt->IsClick( BUT_RIGHT ) )
+        {
+            m_menu.ShowContextMenu( selection );
         }
         else if( evt->IsAction( &ACTIONS::undo ) || evt->IsAction( &ACTIONS::doDelete ) )
         {
@@ -710,6 +712,7 @@ bool EDIT_TOOL::doMoveSelection( const TOOL_EVENT& aEvent, BOARD_COMMIT* aCommit
                 if( isSkip )
                     orig_items[itemIdx]->SetPosition( originalPos );
 
+                view()->Update( orig_items[itemIdx] );
                 rebuildConnectivity();
 
                 if( ++itemIdx < orig_items.size() )

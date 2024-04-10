@@ -249,6 +249,10 @@ public:
         return false;
     }
 
+    bool IsDrilledHole( const PNS::ITEM* aItem ) override { return false; }
+
+    bool IsNonPlatedSlot( const PNS::ITEM* aItem ) override { return false; }
+
     bool IsKeepout( const PNS::ITEM* aObstacle, const PNS::ITEM* aItem, bool* aEnforce ) override
     {
         return false;
@@ -284,11 +288,11 @@ public:
         m_testFixture( aFixture )
     {}
 
-    ~MOCK_PNS_KICAD_IFACE() {}
+    ~MOCK_PNS_KICAD_IFACE() override {}
 
     void HideItem( PNS::ITEM* aItem ) override {};
     void DisplayItem( const PNS::ITEM* aItem, int aClearance, bool aEdit = false,
-                      bool aIsHeadTrace = false ) override {};
+                      int aFlags = 0 ) override {};
     PNS::RULE_RESOLVER* GetRuleResolver() override;
 
 private:
@@ -360,7 +364,7 @@ BOOST_FIXTURE_TEST_CASE( PNSHoleCollisions, PNS_TEST_FIXTURE )
         dumpObstacles( obstacles );
 
         BOOST_CHECK_EQUAL( obstacles.size(), 1 );
-        const auto first = *obstacles.begin();
+        const auto& first = *obstacles.begin();
 
         BOOST_CHECK_EQUAL( first.m_head, v1 );
         BOOST_CHECK_EQUAL( first.m_item, v2 );
@@ -378,7 +382,7 @@ BOOST_FIXTURE_TEST_CASE( PNSHoleCollisions, PNS_TEST_FIXTURE )
 
         BOOST_CHECK_EQUAL( obstacles.size(), 1 );
         auto iter = obstacles.begin();
-        const auto first = *iter++;
+        const auto& first = *iter++;
 
         BOOST_CHECK_EQUAL( first.m_head, v1->Hole() );
         BOOST_CHECK_EQUAL( first.m_item, v2->Hole() );
@@ -396,7 +400,7 @@ BOOST_FIXTURE_TEST_CASE( PNSHoleCollisions, PNS_TEST_FIXTURE )
 
         BOOST_CHECK_EQUAL( obstacles.size(), 2 );
         auto iter = obstacles.begin();
-        const auto first = *iter++;
+        const auto& first = *iter++;
 
         // There is no guarantee on what order the two collisions will be in...
         BOOST_CHECK( ( first.m_head == v1 && first.m_item == v2->Hole() )

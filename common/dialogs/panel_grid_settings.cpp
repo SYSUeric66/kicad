@@ -1,7 +1,7 @@
 /*
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
- * Copyright (C) 1992-2023 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2024 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -46,12 +46,13 @@ PANEL_GRID_SETTINGS::PANEL_GRID_SETTINGS( wxWindow* aParent, UNITS_PROVIDER* aUn
         m_frameType( aFrameType ),
         m_eventSource( aEventSource )
 {
+    m_currentGridCtrl->SetMinSize( FromDIP( m_currentGridCtrl->GetMinSize() ) );
     RebuildGridSizes();
 
     if( m_frameType == FRAME_PCB_EDITOR || m_frameType == FRAME_FOOTPRINT_EDITOR )
     {
-        m_checkGridOverrideConnected->SetLabel( wxT( "Footprints/pads:" ) );
-        m_checkGridOverrideWires->SetLabel( wxT( "Tracks:" ) );
+        m_checkGridOverrideConnected->SetLabel( _( "Footprints/pads:" ) );
+        m_checkGridOverrideWires->SetLabel( _( "Tracks:" ) );
     }
     else
     {
@@ -69,6 +70,18 @@ PANEL_GRID_SETTINGS::PANEL_GRID_SETTINGS( wxWindow* aParent, UNITS_PROVIDER* aUn
 
             m_checkGridOverrideWires->Show( false );
             m_gridOverrideWiresChoice->Show( false );
+        }
+
+        if( m_frameType == FRAME_GERBER )
+        {
+            m_overridesLabel->Show( false );
+            m_staticline3->Show( false );
+
+            m_checkGridOverrideText->Show( false );
+            m_gridOverrideTextChoice->Show( false );
+
+            m_checkGridOverrideGraphics->Show( false );
+            m_gridOverrideGraphicsChoice->Show( false );
         }
     }
 
@@ -229,7 +242,8 @@ bool PANEL_GRID_SETTINGS::TransferDataToWindow()
 void PANEL_GRID_SETTINGS::OnAddGrid( wxCommandEvent& event )
 {
     GRID                 newGrid = GRID{ wxEmptyString, "", "" };
-    DIALOG_GRID_SETTINGS dlg( this->GetParent(), m_eventSource, m_unitsProvider, newGrid );
+    DIALOG_GRID_SETTINGS dlg( wxGetTopLevelParent( this ), m_eventSource, m_unitsProvider,
+                              newGrid );
 
     if( dlg.ShowModal() != wxID_OK )
         return;
@@ -241,8 +255,11 @@ void PANEL_GRID_SETTINGS::OnAddGrid( wxCommandEvent& event )
     {
         if( newGrid == g )
         {
-            DisplayError( this, wxString::Format( _( "Grid size '%s' already exists." ),
-                                                  g.UserUnitsMessageText( m_unitsProvider ) ) );
+            wxWindow* topLevelParent = wxGetTopLevelParent( this );
+
+            DisplayError( topLevelParent,
+                          wxString::Format( _( "Grid size '%s' already exists." ),
+                                            g.UserUnitsMessageText( m_unitsProvider ) ) );
             return;
         }
     }
@@ -260,7 +277,10 @@ void PANEL_GRID_SETTINGS::OnRemoveGrid( wxCommandEvent& event )
 
     if( gridCfg.grids.size() <= 1 )
     {
-        DisplayError( this, wxString::Format( _( "At least one grid size is required." ) ) );
+        wxWindow* topLevelParent = wxGetTopLevelParent( this );
+
+        DisplayError( topLevelParent,
+                      wxString::Format( _( "At least one grid size is required." ) ) );
         return;
     }
 

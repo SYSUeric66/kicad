@@ -41,6 +41,7 @@ PANEL_PCBNEW_ACTION_PLUGINS::PANEL_PCBNEW_ACTION_PLUGINS( wxWindow* aParent ) :
 {
     m_genericIcon = KiBitmap( BITMAPS::puzzle_piece );
     m_grid->PushEventHandler( new GRID_TRICKS( m_grid ) );
+    m_grid->SetUseNativeColLabels();
 
     m_moveUpButton->SetBitmap( KiBitmapBundle( BITMAPS::small_up ) );
     m_moveDownButton->SetBitmap( KiBitmapBundle( BITMAPS::small_down ) );
@@ -245,7 +246,7 @@ void PANEL_PCBNEW_ACTION_PLUGINS::OnShowErrorsButtonClick( wxCommandEvent& event
 
     // Now display the filtered trace in our dialog
     // (a simple wxMessageBox is really not suitable for long messages)
-    DIALOG_FOOTPRINT_WIZARD_LOG logWindow( this );
+    DIALOG_FOOTPRINT_WIZARD_LOG logWindow( wxGetTopLevelParent( this ) );
     logWindow.m_Message->SetValue( trace );
     logWindow.ShowModal();
 }

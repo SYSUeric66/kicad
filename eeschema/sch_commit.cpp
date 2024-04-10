@@ -1,7 +1,7 @@
 /*
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
- * Copyright (C) 2023 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2023-2024 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -25,7 +25,6 @@
 #include <tool/tool_manager.h>
 #include <tools/ee_tool_base.h>
 
-#include <lib_item.h>
 #include <lib_symbol.h>
 
 #include <sch_screen.h>
@@ -33,6 +32,7 @@
 
 #include <view/view.h>
 #include <sch_commit.h>
+#include <connection_graph.h>
 
 #include <functional>
 
@@ -133,17 +133,17 @@ void SCH_COMMIT::pushLibEdit( const wxString& aMessage, int aCommitFlags )
             view->Update( symbol );
 
             symbol->RunOnChildren(
-                    [&]( LIB_ITEM* aChild )
+                    [&]( SCH_ITEM* aChild )
                     {
                         view->Update( aChild );
-                    });
+                    } );
         }
 
         if( !( aCommitFlags & SKIP_UNDO ) )
         {
             if( frame && copy )
             {
-                frame->SaveCopyInUndoList( aMessage, copy );
+                frame->PushSymbolToUndoList( aMessage, copy );
                 copy = nullptr;   // we've transferred ownership to the undo stack
             }
         }
@@ -183,6 +183,7 @@ void SCH_COMMIT::pushSchEdit( const wxString& aMessage, int aCommitFlags )
     bool                itemsDeselected = false;
     bool                selectedModified = false;
     bool                dirtyConnectivity = false;
+    SCH_CLEANUP_FLAGS   connectivityCleanUp = NO_CLEANUP;
 
     if( Empty() )
         return;
@@ -207,15 +208,42 @@ void SCH_COMMIT::pushSchEdit( const wxString& aMessage, int aCommitFlags )
             schematic = schItem->Schematic();
 
         if( schItem->IsSelected() )
+        {
             selectedModified = true;
+        }
+        else
+        {
+            schItem->RunOnChildren(
+                    [&selectedModified]( SCH_ITEM* aChild )
+                    {
+                        if( aChild->IsSelected() )
+                            selectedModified = true;
+                    } );
+        }
 
-        if( !( aCommitFlags & SKIP_CONNECTIVITY ) )
-            dirtyConnectivity = true;
+        auto updateConnectivityFlag =
+                [&]()
+                {
+                    if( schItem->IsConnectable() )
+                    {
+                        dirtyConnectivity = true;
+
+                        // Do a local clean up if there are any connectable objects in the commit.
+                        if( connectivityCleanUp == NO_CLEANUP )
+                            connectivityCleanUp = LOCAL_CLEANUP;
+
+                        // Do a full rebauild of the connectivity if there is a sheet in the commit.
+                        if( schItem->Type() == SCH_SHEET_T )
+                            connectivityCleanUp = GLOBAL_CLEANUP;
+                    }
+                };
 
         switch( changeType )
         {
         case CHT_ADD:
         {
+            updateConnectivityFlag();
+
             if( !( aCommitFlags & SKIP_UNDO ) )
                 undoList.PushItem( ITEM_PICKER( screen, schItem, UNDO_REDO::NEWITEM ) );
 
@@ -238,6 +266,8 @@ void SCH_COMMIT::pushSchEdit( const wxString& aMessage, int aCommitFlags )
 
         case CHT_REMOVE:
         {
+            updateConnectivityFlag();
+
             if( !( aCommitFlags & SKIP_UNDO ) )
                 undoList.PushItem( ITEM_PICKER( screen, schItem, UNDO_REDO::DELETED ) );
 
@@ -278,6 +308,19 @@ void SCH_COMMIT::pushSchEdit( const wxString& aMessage, int aCommitFlags )
                 ITEM_PICKER itemWrapper( screen, schItem, UNDO_REDO::CHANGED );
                 wxASSERT( ent.m_copy );
                 itemWrapper.SetLink( ent.m_copy );
+
+                const SCH_ITEM* itemCopy = static_cast<const SCH_ITEM*>( ent.m_copy );
+
+                wxCHECK2( itemCopy, continue );
+
+                SCH_SHEET_PATH currentSheet;
+
+                if( frame )
+                    currentSheet = frame->GetCurrentSheet();
+
+                if( itemCopy->HasConnectivityChanges( schItem, &currentSheet ) )
+                    updateConnectivityFlag();
+
                 undoList.PushItem( itemWrapper );
                 ent.m_copy = nullptr;   // We've transferred ownership to the undo list
             }
@@ -325,7 +368,14 @@ void SCH_COMMIT::pushSchEdit( const wxString& aMessage, int aCommitFlags )
         if( frame )
         {
             frame->SaveCopyInUndoList( undoList, UNDO_REDO::UNSPECIFIED, false, dirtyConnectivity );
-            frame->RecalculateConnections( this, NO_CLEANUP );
+
+            if( dirtyConnectivity )
+            {
+                wxLogTrace( wxS( "CONN_PROFILE" ),
+                            wxS( "SCH_COMMIT::pushSchEdit() %s clean up connectivity rebuild." ),
+                            ( connectivityCleanUp == LOCAL_CLEANUP ) ? wxS( "local" ) : wxS( "global" ) );
+                frame->RecalculateConnections( this, connectivityCleanUp );
+            }
         }
     }
 
@@ -381,7 +431,24 @@ EDA_ITEM* SCH_COMMIT::makeImage( EDA_ITEM* aItem ) const
     if( m_isLibEditor )
     {
         SYMBOL_EDIT_FRAME* frame = static_cast<SYMBOL_EDIT_FRAME*>( m_toolMgr->GetToolHolder() );
-        return new LIB_SYMBOL( *frame->GetCurSymbol() );
+        LIB_SYMBOL*        symbol = frame->GetCurSymbol();
+        std::vector<KIID>  selected;
+
+        for( const SCH_ITEM& item : symbol->GetDrawItems() )
+        {
+            if( item.IsSelected() )
+                selected.push_back( item.m_Uuid );
+        }
+
+        symbol = new LIB_SYMBOL( *symbol );
+
+        for( SCH_ITEM& item : symbol->GetDrawItems() )
+        {
+            if( alg::contains( selected, item.m_Uuid ) )
+                item.SetSelected();
+        }
+
+        return symbol;
     }
 
     return aItem->Clone();
@@ -478,8 +545,15 @@ void SCH_COMMIT::Revert()
             if( view )
                 view->Remove( item );
 
+            bool unselect = !item->IsSelected();
+
             item->SwapData( copy );
-            item->SetConnectivityDirty();
+
+            if( unselect )
+            {
+                item->ClearSelected();
+                item->RunOnChildren( []( SCH_ITEM* aChild ) { aChild->ClearSelected(); } );
+            }
 
             // Special cases for items which have instance data
             if( item->GetParent() && item->GetParent()->Type() == SCH_SYMBOL_T
@@ -495,10 +569,29 @@ void SCH_COMMIT::Revert()
                 }
             }
 
+            // This must be called before any calls that require stable object pointers.
+            screen->Update( item );
+
+            // This hack is to prevent incorrectly parented symbol pins from breaking the
+            // connectivity algorithm.
+            if( item->Type() == SCH_SYMBOL_T )
+            {
+                SCH_SYMBOL* symbol = static_cast<SCH_SYMBOL*>( item );
+                symbol->UpdatePins();
+
+                CONNECTION_GRAPH* graph = schematic->ConnectionGraph();
+
+                SCH_SYMBOL* symbolCopy = static_cast<SCH_SYMBOL*>( copy );
+                graph->RemoveItem( symbolCopy );
+
+                for( SCH_PIN* pin : symbolCopy->GetPins() )
+                    graph->RemoveItem( pin );
+            }
+
+            item->SetConnectivityDirty();
+
             if( view )
                 view->Add( item );
-
-            screen->Update( item );
 
             delete copy;
             break;

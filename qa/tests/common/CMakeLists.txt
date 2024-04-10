@@ -41,6 +41,7 @@ set( QA_COMMON_SRCS
     test_kicad_string.cpp
     test_kicad_stroke_font.cpp
     test_kiid.cpp
+    test_layer_ids.cpp
     test_property.cpp
     test_refdes_utils.cpp
     test_richio.cpp
@@ -53,11 +54,11 @@ set( QA_COMMON_SRCS
 
     libeval/test_numeric_evaluator.cpp
 
-    plugins/altium/test_altium_parser.cpp
-    plugins/altium/test_altium_parser_utils.cpp
-    plugins/cadstar/test_cadstar_parts_parser.cpp
+    io/altium/test_altium_parser.cpp
+    io/altium/test_altium_parser_utils.cpp
+    io/cadstar/test_cadstar_parts_parser.cpp
 
-    plugins/cadstar/test_cadstar_archive_parser.cpp
+    io/cadstar/test_cadstar_archive_parser.cpp
 
     view/test_zoom_controller.cpp
 )

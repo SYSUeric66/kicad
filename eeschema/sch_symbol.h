@@ -5,7 +5,7 @@
  * Copyright (C) 2014 Dick Hollenbeck, dick@softplc.com
  * Copyright (C) 2015 Wayne Stambaugh <stambaughw@gmail.com>
  * Copyright (C) 2022 CERN
- * Copyright (C) 1992-2023 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2024 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -25,8 +25,8 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA
  */
 
-#ifndef __SYMBOL_H__
-#define __SYMBOL_H__
+#ifndef SCH_SYMBOL_H
+#define SCH_SYMBOL_H
 
 #include <eda_item.h>
 #include <core/typeinfo.h>
@@ -44,8 +44,9 @@
 #include <wx/gdicmn.h>
 #include <wx/string.h>
 
+#include <schematic.h>
+#include <symbol.h>
 #include <sch_field.h>
-#include <sch_item.h>
 #include <sch_pin.h>
 #include <sch_sheet_path.h>    // SCH_SYMBOL_INSTANCE
 #include <symbol_lib_table.h>
@@ -54,7 +55,6 @@
 struct PICKED_SYMBOL;
 class KIID_PATH;
 class SCH_SCREEN;
-class LIB_ITEM;
 class LIB_PIN;
 class LIB_SYMBOL;
 class NETLIST_OBJECT_LIST;
@@ -74,10 +74,37 @@ typedef std::weak_ptr<LIB_SYMBOL> PART_REF;
 extern std::string toUTFTildaText( const wxString& txt );
 
 
+// @todo Move this to transform alone with all of the transform manipulation code.
+/// enum used in RotationMiroir()
+enum SYMBOL_ORIENTATION_T
+{
+    SYM_NORMAL,                     // Normal orientation, no rotation or mirror
+    SYM_ROTATE_CLOCKWISE,           // Rotate -90
+    SYM_ROTATE_COUNTERCLOCKWISE,    // Rotate +90
+    SYM_ORIENT_0,                   // No rotation and no mirror id SYM_NORMAL
+    SYM_ORIENT_90,                  // Rotate 90, no mirror
+    SYM_ORIENT_180,                 // Rotate 180, no mirror
+    SYM_ORIENT_270,                 // Rotate -90, no mirror
+    SYM_MIRROR_X = 0x100,           // Mirror around X axis
+    SYM_MIRROR_Y = 0x200            // Mirror around Y axis
+};
+
+
+// Cover for SYMBOL_ORIENTATION_T for property manager (in order to expose only a subset of
+// SYMBOL_ORIENTATION_T's values).
+enum SYMBOL_ORIENTATION_PROP
+{
+    SYMBOL_ANGLE_0   = SYMBOL_ORIENTATION_T::SYM_ORIENT_0,
+    SYMBOL_ANGLE_90  = SYMBOL_ORIENTATION_T::SYM_ORIENT_90,
+    SYMBOL_ANGLE_180 = SYMBOL_ORIENTATION_T::SYM_ORIENT_180,
+    SYMBOL_ANGLE_270 = SYMBOL_ORIENTATION_T::SYM_ORIENT_270
+};
+
+
 /**
  * Schematic symbol object.
  */
-class SCH_SYMBOL : public SCH_ITEM
+class SCH_SYMBOL : public SYMBOL
 {
 public:
     SCH_SYMBOL();
@@ -89,11 +116,11 @@ public:
      * @param aLibId is the #LIB_ID of alias to create.
      * @param aSheet is the schematic sheet the symbol is place into.
      * @param aUnit is unit for symbols that have multiple parts per package.
-     * @param aConvert is the alternate body style for the schematic symbols.
+     * @param aBodyStyle is the alternate body style for the schematic symbols.
      * @param aPosition is the position of the symbol.
      */
     SCH_SYMBOL( const LIB_SYMBOL& aSymbol, const LIB_ID& aLibId, const SCH_SHEET_PATH* aSheet,
-                int aUnit, int aConvert = 0, const VECTOR2I& aPosition = VECTOR2I( 0, 0 ),
+                int aUnit, int aBodyStyle = 0, const VECTOR2I& aPosition = VECTOR2I( 0, 0 ),
                 EDA_ITEM* aParent = nullptr );
 
     SCH_SYMBOL( const LIB_SYMBOL& aSymbol, const SCH_SHEET_PATH* aSheet, const PICKED_SYMBOL& aSel,
@@ -137,7 +164,7 @@ public:
      */
     bool IsMissingLibSymbol() const;
 
-    const std::vector<SCH_SYMBOL_INSTANCE>& GetInstanceReferences() const
+    const std::vector<SCH_SYMBOL_INSTANCE>& GetInstances() const
     {
         return m_instanceReferences;
     }
@@ -147,10 +174,10 @@ public:
 
     void RemoveInstance( const SCH_SHEET_PATH& aInstancePath );
 
+    void RemoveInstance( const KIID_PATH& aInstancePath );
+
     void SortInstances( bool ( *aSortFunction )( const SCH_SYMBOL_INSTANCE& aLhs,
                                                  const SCH_SYMBOL_INSTANCE& aRhs ) );
-
-    void ViewGetLayers( int aLayers[], int& aCount ) const override;
 
     /**
      * Return true for items which are moved with the anchor point at mouse cursor
@@ -170,7 +197,9 @@ public:
 
     void SetLibId( const LIB_ID& aName );
 
-    const LIB_ID& GetLibId() const { return m_lib_id; }
+    const LIB_ID& GetLibId() const override { return m_lib_id; }
+
+    wxString GetSymbolIDAsString() const { return m_lib_id.Format(); }
 
     /**
      * The name of the symbol in the schematic library symbol list.
@@ -211,35 +240,22 @@ public:
     /**
      * @return the associated LIB_SYMBOL's description field (or wxEmptyString).
      */
-    wxString GetDescription() const;
+    wxString GetDescription() const override;
 
     /**
      * @return the associated LIB_SYMBOL's keywords field (or wxEmptyString).
      */
-    wxString GetKeyWords() const;
+    wxString GetKeyWords() const override;
 
     /**
      * Return the documentation text for the given part alias
      */
     wxString GetDatasheet() const;
 
-    int GetUnit() const { return m_unit; }
-
     /**
      * Updates the cache of SCH_PIN objects for each pin
      */
     void UpdatePins();
-
-    /**
-     * Change the unit number to \a aUnit
-     *
-     * This has meaning only for symbols made up of multiple units per package.
-     *
-     * @note This also set the modified flag bit
-     *
-     * @param aUnit is the new unit to select.
-     */
-    void SetUnit( int aUnit );
 
     /**
      * Return true if the given unit \a aUnit has a display name set.
@@ -255,22 +271,11 @@ public:
      */
     wxString GetUnitDisplayName( int aUnit );
 
-    /**
-     * Change the unit number to \a aUnit without setting any internal flags.
-     * This has meaning only for symbols made up of multiple units per package.
-     *
-     * @note This also set the modified flag bit
-     *
-     * @param aUnit is the new unit to select.
-     */
-    void UpdateUnit( int aUnit );
+    void SetBodyStyle( int aBodyStyle ) override;
 
-    int GetConvert() const { return m_convert; }
-
-    void SetConvert( int aConvert );
+    bool HasAlternateBodyStyle() const override;
 
     wxString GetPrefix() const { return m_prefix; }
-
     void SetPrefix( const wxString& aPrefix ) { m_prefix = aPrefix; }
 
     /**
@@ -290,7 +295,9 @@ public:
      *
      * @return the number of units per package or zero if the library entry cannot be found.
      */
-    int GetUnitCount() const;
+    int GetUnitCount() const override;
+
+    bool IsMulti() const override { return GetUnitCount() > 1; }
 
     /**
      * Compute the new transform matrix based on \a aOrientation for the symbol which is
@@ -316,6 +323,69 @@ public:
      * @return the orientation and mirror of the symbol.
      */
     int GetOrientation() const;
+
+    /**
+     * Orientation/mirroring access for property manager.
+     */
+    void SetOrientationProp( SYMBOL_ORIENTATION_PROP aAngle )
+    {
+        int mirroring = GetOrientation();
+
+        mirroring &= ( SYMBOL_ORIENTATION_T::SYM_MIRROR_X | SYMBOL_ORIENTATION_T::SYM_MIRROR_Y );
+
+        SetOrientation( aAngle | mirroring );
+    }
+
+    SYMBOL_ORIENTATION_PROP GetOrientationProp() const
+    {
+        int orientation = GetOrientation();
+
+        orientation &= ~( SYMBOL_ORIENTATION_T::SYM_MIRROR_X | SYMBOL_ORIENTATION_T::SYM_MIRROR_Y );
+
+        switch( orientation )
+        {
+        default:
+        case SYM_NORMAL:
+        case SYM_ORIENT_0:   return SYMBOL_ORIENTATION_PROP::SYMBOL_ANGLE_0;
+        case SYM_ORIENT_90:  return SYMBOL_ORIENTATION_PROP::SYMBOL_ANGLE_90;
+        case SYM_ORIENT_180: return SYMBOL_ORIENTATION_PROP::SYMBOL_ANGLE_180;
+        case SYM_ORIENT_270: return SYMBOL_ORIENTATION_PROP::SYMBOL_ANGLE_270;
+        }
+    }
+
+    void SetMirrorX( bool aMirror )
+    {
+        int orientation = GetOrientation();
+
+        if( aMirror )
+            orientation |= SYMBOL_ORIENTATION_T::SYM_MIRROR_X;
+        else
+            orientation &= ~SYMBOL_ORIENTATION_T::SYM_MIRROR_X;
+
+        SetOrientation( orientation );
+    }
+
+    bool GetMirrorX() const
+    {
+        return GetOrientation() & SYMBOL_ORIENTATION_T::SYM_MIRROR_X;
+    }
+
+    void SetMirrorY( bool aMirror )
+    {
+        int orientation = GetOrientation();
+
+        if( aMirror )
+            orientation |= SYMBOL_ORIENTATION_T::SYM_MIRROR_Y;
+        else
+            orientation &= ~SYMBOL_ORIENTATION_T::SYM_MIRROR_Y;
+
+        SetOrientation( orientation );
+    }
+
+    bool GetMirrorY() const
+    {
+        return GetOrientation() & SYMBOL_ORIENTATION_T::SYM_MIRROR_Y;
+    }
 
     /**
      * Return the list of system text vars & fields for this symbol.
@@ -447,13 +517,43 @@ public:
     SCH_FIELD* FindField( const wxString& aFieldName, bool aIncludeDefaultFields = true,
                           bool aCaseInsensitive = false );
 
-    const wxString GetValueFieldText( bool aResolve, const SCH_SHEET_PATH* aPath,
-                                      bool aAllowExtraText ) const;
+    /**
+     * @return the reference for the instance on the given sheet.
+     */
+    const wxString GetRef( const SCH_SHEET_PATH* aSheet,
+                           bool aIncludeUnit = false ) const override;
+
+    /**
+     * @return the value for the instance on the given sheet.
+     */
+    const wxString GetValue( bool aResolve, const SCH_SHEET_PATH* aPath,
+                             bool aAllowExtraText ) const override;
+
     void SetValueFieldText( const wxString& aValue );
 
     const wxString GetFootprintFieldText( bool aResolve, const SCH_SHEET_PATH* aPath,
                                           bool aAllowExtraText ) const;
     void SetFootprintFieldText( const wxString& aFootprint );
+
+    /*
+     * Field access for property manager
+     */
+    wxString GetRefProp() const
+    {
+        return GetRef( &Schematic()->CurrentSheet() );
+    }
+    void SetRefProp( const wxString& aRef )
+    {
+        SetRef( &Schematic()->CurrentSheet(), aRef );
+    }
+    wxString GetValueProp() const
+    {
+        return GetValue( false, &Schematic()->CurrentSheet(), false );
+    }
+    void SetValueProp( const wxString& aRef )
+    {
+        SetValueFieldText( aRef );
+    }
 
     /**
      * Restore fields to the original library values.
@@ -534,24 +634,6 @@ public:
 
     std::vector<std::unique_ptr<SCH_PIN>>& GetRawPins() { return m_pins; }
 
-    /**
-     * Print a symbol.
-     *
-     * @param aSettings Render settings controlling output
-     * @param aOffset is the drawing offset (usually VECTOR2I(0,0), but can be different when
-     *                moving an object)
-     */
-    void Print( const RENDER_SETTINGS* aSettings, const VECTOR2I& aOffset ) override;
-
-    /**
-     * Print only the background parts of a symbol (if any)
-     *
-     * @param aSettings Render settings controlling output
-     * @param aOffset is the drawing offset (usually VECTOR2I(0,0), but can be different when
-     *                moving an object)
-     */
-    void PrintBackground( const RENDER_SETTINGS* aSettings, const VECTOR2I& aOffset ) override;
-
     void SwapData( SCH_ITEM* aItem ) override;
 
     /**
@@ -563,13 +645,6 @@ public:
      * @return true if reference string is valid.
      */
     static bool IsReferenceStringValid( const wxString& aReferenceString );
-
-    /**
-     * Return the reference for the given sheet path.
-     *
-     * @return the reference for the sheet.
-     */
-    const wxString GetRef( const SCH_SHEET_PATH* aSheet, bool aIncludeUnit = false ) const;
 
     /**
      * Set the reference for the given sheet path for this symbol.
@@ -585,7 +660,7 @@ public:
      * @param aSheet is the sheet path to test.
      * @return true if the symbol exists on that sheet and has a valid reference.
      */
-    bool IsAnnotated( const SCH_SHEET_PATH* aSheet );
+    bool IsAnnotated( const SCH_SHEET_PATH* aSheet ) const;
 
     /**
      * Add a full hierarchical reference to this symbol.
@@ -613,8 +688,6 @@ public:
     /// Set the selected unit of this symbol for all sheets.
     void SetUnitSelection( int aUnitSelection );
 
-    // Geometric transforms (used in block operations):
-
     void Move( const VECTOR2I& aMoveVector ) override
     {
         if( aMoveVector == VECTOR2I( 0, 0 ) )
@@ -628,7 +701,7 @@ public:
 
     void MirrorHorizontally( int aCenter ) override;
     void MirrorVertically( int aCenter ) override;
-    void Rotate( const VECTOR2I& aCenter ) override;
+    void Rotate( const VECTOR2I& aCenter, bool aRotateCCW ) override;
 
     bool Matches( const EDA_SEARCH_DATA& aSearchData, void* aAuxData ) const override;
 
@@ -644,12 +717,16 @@ public:
      * @param aItemList is list of all #DANGLING_END_ITEM items to be tested.
      * @return true if any pin's state has changed.
      */
-    bool UpdateDanglingState( std::vector<DANGLING_END_ITEM>& aItemList,
-                              const SCH_SHEET_PATH* aPath = nullptr ) override;
+    bool UpdateDanglingState( std::vector<DANGLING_END_ITEM>& aItemListByType,
+                              std::vector<DANGLING_END_ITEM>& aItemListByPos,
+                              const SCH_SHEET_PATH*           aPath = nullptr ) override;
 
     VECTOR2I GetPinPhysicalPosition( const LIB_PIN* Pin ) const;
 
     bool IsConnectable() const override { return true; }
+
+    bool HasConnectivityChanges( const SCH_ITEM* aItem,
+                                 const SCH_SHEET_PATH* aInstance = nullptr ) const override;
 
     bool CanConnect( const SCH_ITEM* aItem ) const override
     {
@@ -680,7 +757,7 @@ public:
      * @param aType is the type of symbol library object to find or any if set to TYPE_NOT_INIT.
      * @return is the symbol library object if found otherwise NULL.
      */
-    LIB_ITEM* GetDrawItem( const VECTOR2I& aPosition, KICAD_T aType = TYPE_NOT_INIT );
+    SCH_ITEM* GetDrawItem( const VECTOR2I& aPosition, KICAD_T aType = TYPE_NOT_INIT );
 
     wxString GetItemDescription( UNITS_PROVIDER* aUnitsProvider ) const override;
 
@@ -691,18 +768,44 @@ public:
     bool operator==( const SCH_SYMBOL& aSymbol) const;
     bool operator!=( const SCH_SYMBOL& aSymbol) const;
 
-    SCH_SYMBOL& operator=( const SCH_ITEM& aItem );
+    SCH_SYMBOL& operator=( const SCH_SYMBOL& aItem );
 
     bool IsReplaceable() const override { return true; }
 
     VECTOR2I GetPosition() const override { return m_pos; }
     void    SetPosition( const VECTOR2I& aPosition ) override { Move( aPosition - m_pos ); }
 
+    int GetX() const { return GetPosition().x; };
+    void SetX( int aX ) { SetPosition( VECTOR2I( aX, GetY() ) ); }
+
+    int GetY() const { return GetPosition().y; }
+    void SetY( int aY ) { SetPosition( VECTOR2I( GetX(), aY ) ); }
+
     bool HitTest( const VECTOR2I& aPosition, int aAccuracy = 0 ) const override;
     bool HitTest( const BOX2I& aRect, bool aContained, int aAccuracy = 0 ) const override;
 
-    void Plot( PLOTTER* aPlotter, bool aBackground,
-               const SCH_PLOT_SETTINGS& aPlotSettings ) const override;
+    /**
+     * Print a symbol.
+     *
+     * @param aSettings Render settings controlling output
+     * @param aOffset is the drawing offset (usually VECTOR2I(0,0), but can be different when
+     *                moving an object)
+     */
+    void Print( const SCH_RENDER_SETTINGS* aSettings, int aUnit, int aBodyStyle,
+                const VECTOR2I& aOffset, bool aForceNoFill, bool aDimmed ) override;
+
+    /**
+     * Print only the background parts of a symbol (if any)
+     *
+     * @param aSettings Render settings controlling output
+     * @param aOffset is the drawing offset (usually VECTOR2I(0,0), but can be different when
+     *                moving an object)
+     */
+    void PrintBackground( const SCH_RENDER_SETTINGS* aSettings, int aUnit, int aBodyStyle,
+                          const VECTOR2I& aOffset, bool aDimmed ) override;
+
+    void Plot( PLOTTER* aPlotter, bool aBackground, const SCH_PLOT_OPTS& aPlotOpts,
+               int aUnit, int aBodyStyle, const VECTOR2I& aOffset, bool aDimmed ) override;
 
     /**
      * Plot just the symbol pins.  This is separated to match the GAL display order.  The pins
@@ -743,6 +846,25 @@ public:
     bool GetDNP() const { return m_DNP; }
     void SetDNP( bool aDNP ) { m_DNP = aDNP; }
 
+    bool GetShowPinNumbers() const
+    {
+        return m_part && m_part->GetShowPinNumbers();
+    }
+
+    void SetShowPinNumbers( bool aShow )
+    {
+        if( m_part )
+            m_part->SetShowPinNumbers( aShow );
+    }
+
+    bool GetShowPinNames() const { return m_part && m_part->GetShowPinNames(); }
+
+    void SetShowPinNames( bool aShow )
+    {
+        if( m_part )
+            m_part->SetShowPinNames( aShow );
+    }
+
     bool IsPointClickableAnchor( const VECTOR2I& aPos ) const override;
 
     /**
@@ -752,7 +874,8 @@ public:
      */
     bool IsSymbolLikePowerGlobalLabel() const;
 
-    bool IsPower() const;
+    bool IsPower() const override;
+    bool IsNormal() const override;
 
     double Similarity( const SCH_ITEM& aOther ) const override;
 
@@ -768,9 +891,9 @@ private:
     VECTOR2I    m_pos;
     LIB_ID      m_lib_id;       ///< Name and library the symbol was loaded from, i.e. 74xx:74LS00.
     int         m_unit;         ///< The unit for multiple part per package symbols.
-    int         m_convert;      ///< The alternate body style for symbols that have more than
-                                ///<   one body style defined.  Primarily used for symbols that
-                                ///<   have a De Morgan conversion.
+    int         m_bodyStyle;    ///< The alternate body style for symbols that have more than
+                                ///<   one body style defined.  Currently only used for symbols
+                                ///<   that have a DeMorgan conversion.
     wxString    m_prefix;       ///< C, R, U, Q etc - the first character(s) which typically
                                 ///<   indicate what the symbol is. Determined, upon placement,
                                 ///<   from the library symbol.  Created upon file load, by the
@@ -807,4 +930,4 @@ private:
     static std::unordered_map<TRANSFORM, int> s_transformToOrientationCache;
 };
 
-#endif /* __SYMBOL_H__ */
+#endif /* SCH_SYMBOL_H */

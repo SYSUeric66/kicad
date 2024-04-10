@@ -143,6 +143,7 @@ public:
     int ToggleAnnotateAuto( const TOOL_EVENT& aEvent );
     int ToggleAnnotateRecursive( const TOOL_EVENT& aEvent );
     int TogglePythonConsole( const TOOL_EVENT& aEvent );
+    int ReloadPlugins( const TOOL_EVENT& aEvent );
 
     int GridFeedback( const TOOL_EVENT& aEvent );
 
@@ -182,16 +183,25 @@ private:
 
     void doCrossProbeSchToPcb( const TOOL_EVENT& aEvent, bool aForce );
 
-    void updatePastedSymbol( SCH_SYMBOL* aSymbol, SCH_SCREEN* aPasteScreen,
-                             const SCH_SHEET_PATH& aPastePath, const KIID_PATH& aClipPath,
-                             bool aForceKeepAnnotations );
+    void updatePastedSymbol( SCH_SYMBOL* aSymbol, const SCH_SHEET_PATH& aPastePath,
+                             const KIID_PATH& aClipPath, bool aForceKeepAnnotations );
 
-    SCH_SHEET_PATH updatePastedSheet( const SCH_SHEET_PATH& aPastePath, const KIID_PATH& aClipPath,
-                                      SCH_SHEET* aSheet, bool aForceKeepAnnotations,
-                                      SCH_SHEET_LIST* aPastedSheetsSoFar,
-                                      SCH_REFERENCE_LIST* aPastedSymbolsSoFar );
+    SCH_SHEET_PATH updatePastedSheet( SCH_SHEET* aSheet, const SCH_SHEET_PATH& aPastePath,
+                                      const KIID_PATH& aClipPath, bool aForceKeepAnnotations,
+                                      SCH_SHEET_LIST* aPastedSheets,
+                                      std::map<SCH_SHEET_PATH, SCH_REFERENCE_LIST>& aPastedSymbols );
 
-    void setClipboardInstances( const SCH_SCREEN* aPastedScreen );
+    void setPastedSymbolInstances( const SCH_SCREEN* aScreen );
+
+    /**
+     * Remove all pasted symbol instances that do not belong to the current project.
+     *
+     * @warning This should **only** be called when cleaning up after a paste.  Otherwise it
+     *          could clobber symbol instances for schematics shared across projects.  Use
+     *          SCH_SCREENS::PruneOrphanedSymbolInstances() to clean up invalid instance for
+     *          the current project.
+     */
+    void prunePastedSymbolInstances();
 
     /**
      * Read the footprint info from each line in the stuff file by reference designator.
@@ -235,8 +245,7 @@ private:
     // A map of KIID_PATH --> symbol instances for the clipboard contents.
     std::map<KIID_PATH, SCH_SYMBOL_INSTANCE> m_clipboardSymbolInstances;
 
-    // A map of KIID_PATH --> sheet instances for the clipboard contents.
-    std::map<KIID_PATH, SCH_SHEET_INSTANCE>  m_clipboardSheetInstances;
+    std::set<SCH_SYMBOL*>                    m_pastedSymbols;
 };
 
 

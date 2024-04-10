@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2022 Mark Roszko <mark.roszko@gmail.com>
- * Copyright (C) 1992-2022 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2023 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software: you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -32,13 +32,13 @@
 
 CLI::FP_UPGRADE_COMMAND::FP_UPGRADE_COMMAND() : PCB_EXPORT_BASE_COMMAND( "upgrade", true, true )
 {
-    m_argParser.add_description( UTF8STDSTR( _( "Upgrades the footprint library to the current kicad version format" ) ) );
+    m_argParser.add_description( UTF8STDSTR( _( "Upgrades the footprint library to the current "
+                                                "kicad version format" ) ) );
 
     m_argParser.add_argument( ARG_FORCE )
             .help( UTF8STDSTR(
                     _( "Forces the footprint library to be resaved regardless of versioning" ) ) )
-            .implicit_value( true )
-            .default_value( false );
+            .flag();
 }
 
 
@@ -49,12 +49,6 @@ int CLI::FP_UPGRADE_COMMAND::doPerform( KIWAY& aKiway )
     fpJob->m_libraryPath = m_argInput;
     fpJob->m_outputLibraryPath = m_argOutput;
     fpJob->m_force = m_argParser.get<bool>( ARG_FORCE );
-
-    if( !wxDir::Exists( fpJob->m_libraryPath ) )
-    {
-        wxFprintf( stderr, _( "Footprint library path does not exist or is not accessible\n" ) );
-        return EXIT_CODES::ERR_INVALID_INPUT_FILE;
-    }
 
     int exitCode = aKiway.ProcessJob( KIWAY::FACE_PCB, fpJob.get() );
 

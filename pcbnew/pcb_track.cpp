@@ -4,7 +4,7 @@
  * Copyright (C) 2012 Jean-Pierre Charras, jp.charras at wanadoo.fr
  * Copyright (C) 2012 SoftPLC Corporation, Dick Hollenbeck <dick@softplc.com>
  * Copyright (C) 2012 Wayne Stambaugh <stambaughw@gmail.com>
- * Copyright (C) 1992-2023 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2024 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -23,7 +23,6 @@
  * or you may write to the Free Software Foundation, Inc.,
  * 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA
  */
-
 #include <pcb_base_frame.h>
 #include <core/mirror.h>
 #include <connectivity/connectivity_data.h>
@@ -43,6 +42,12 @@
 #include <drc/drc_engine.h>
 #include <pcb_painter.h>
 #include <trigo.h>
+
+#include <google/protobuf/any.pb.h>
+#include <api/api_enums.h>
+#include <api/api_utils.h>
+#include <api/api_pcb_utils.h>
+#include <api/board/board_types.pb.h>
 
 using KIGFX::PCB_PAINTER;
 using KIGFX::PCB_RENDER_SETTINGS;
@@ -287,18 +292,215 @@ double PCB_VIA::Similarity( const BOARD_ITEM& aOther ) const
 }
 
 
+void PCB_TRACK::Serialize( google::protobuf::Any &aContainer ) const
+{
+    kiapi::board::types::Track track;
+
+    track.mutable_id()->set_value( m_Uuid.AsStdString() );
+    track.mutable_start()->set_x_nm( GetStart().x );
+    track.mutable_start()->set_y_nm( GetStart().y );
+    track.mutable_end()->set_x_nm( GetEnd().x );
+    track.mutable_end()->set_y_nm( GetEnd().y );
+    track.mutable_width()->set_value_nm( GetWidth() );
+    track.set_layer( ToProtoEnum<PCB_LAYER_ID, kiapi::board::types::BoardLayer>( GetLayer() ) );
+    track.set_locked( IsLocked() ? kiapi::common::types::LockedState::LS_LOCKED
+                                 : kiapi::common::types::LockedState::LS_UNLOCKED );
+    track.mutable_net()->mutable_code()->set_value( GetNetCode() );
+    track.mutable_net()->set_name( GetNetname() );
+
+    aContainer.PackFrom( track );
+}
+
+
+bool PCB_TRACK::Deserialize( const google::protobuf::Any &aContainer )
+{
+    kiapi::board::types::Track track;
+
+    if( !aContainer.UnpackTo( &track ) )
+        return false;
+
+    const_cast<KIID&>( m_Uuid ) = KIID( track.id().value() );
+    SetStart( VECTOR2I( track.start().x_nm(), track.start().y_nm() ) );
+    SetEnd( VECTOR2I( track.end().x_nm(), track.end().y_nm() ) );
+    SetWidth( track.width().value_nm() );
+    SetLayer( FromProtoEnum<PCB_LAYER_ID, kiapi::board::types::BoardLayer>( track.layer() ) );
+    SetNetCode( track.net().code().value() );
+    SetLocked( track.locked() == kiapi::common::types::LockedState::LS_LOCKED );
+
+    return true;
+}
+
+
+void PCB_ARC::Serialize( google::protobuf::Any &aContainer ) const
+{
+    kiapi::board::types::Arc arc;
+
+    arc.mutable_id()->set_value( m_Uuid.AsStdString() );
+    arc.mutable_start()->set_x_nm( GetStart().x );
+    arc.mutable_start()->set_y_nm( GetStart().y );
+    arc.mutable_mid()->set_x_nm( GetMid().x );
+    arc.mutable_mid()->set_y_nm( GetMid().y );
+    arc.mutable_end()->set_x_nm( GetEnd().x );
+    arc.mutable_end()->set_y_nm( GetEnd().y );
+    arc.mutable_width()->set_value_nm( GetWidth() );
+    arc.set_layer( ToProtoEnum<PCB_LAYER_ID, kiapi::board::types::BoardLayer>( GetLayer() ) );
+    arc.set_locked( IsLocked() ? kiapi::common::types::LockedState::LS_LOCKED
+                               : kiapi::common::types::LockedState::LS_UNLOCKED );
+    arc.mutable_net()->mutable_code()->set_value( GetNetCode() );
+    arc.mutable_net()->set_name( GetNetname() );
+
+    aContainer.PackFrom( arc );
+}
+
+
+bool PCB_ARC::Deserialize( const google::protobuf::Any &aContainer )
+{
+    kiapi::board::types::Arc arc;
+
+    if( !aContainer.UnpackTo( &arc ) )
+        return false;
+
+    const_cast<KIID&>( m_Uuid ) = KIID( arc.id().value() );
+    SetStart( VECTOR2I( arc.start().x_nm(), arc.start().y_nm() ) );
+    SetMid( VECTOR2I( arc.mid().x_nm(), arc.mid().y_nm() ) );
+    SetEnd( VECTOR2I( arc.end().x_nm(), arc.end().y_nm() ) );
+    SetWidth( arc.width().value_nm() );
+    SetLayer( FromProtoEnum<PCB_LAYER_ID, kiapi::board::types::BoardLayer>( arc.layer() ) );
+    SetNetCode( arc.net().code().value() );
+    SetLocked( arc.locked() == kiapi::common::types::LockedState::LS_LOCKED );
+
+    return true;
+}
+
+
+void PCB_VIA::Serialize( google::protobuf::Any &aContainer ) const
+{
+    kiapi::board::types::Via via;
+
+    via.mutable_id()->set_value( m_Uuid.AsStdString() );
+    via.mutable_position()->set_x_nm( GetPosition().x );
+    via.mutable_position()->set_y_nm( GetPosition().y );
+
+    kiapi::board::types::PadStack* padstack = via.mutable_pad_stack();
+    padstack->set_type( GetViaType() == VIATYPE::BLIND_BURIED
+                        ? kiapi::board::types::PadStackType::PST_BLIND_BURIED
+                        : kiapi::board::types::PadStackType::PST_THROUGH );
+    padstack->set_start_layer(
+            ToProtoEnum<PCB_LAYER_ID, kiapi::board::types::BoardLayer>( m_layer ) );
+    padstack->set_end_layer(
+            ToProtoEnum<PCB_LAYER_ID, kiapi::board::types::BoardLayer>( m_bottomLayer ) );
+    kiapi::common::PackVector2( *padstack->mutable_drill_diameter(),
+                                { GetDrillValue(), GetDrillValue() } );
+
+    kiapi::board::types::PadStackLayer* stackLayer = padstack->add_layers();
+    kiapi::board::PackLayerSet( *stackLayer->mutable_layers(), GetLayerSet() );
+    kiapi::common::PackVector2( *stackLayer->mutable_size(),
+                                { GetWidth(), GetWidth() } );
+
+    kiapi::board::types::UnconnectedLayerRemoval ulr;
+
+    if( m_removeUnconnectedLayer )
+    {
+        if( m_keepStartEndLayer )
+            ulr = kiapi::board::types::UnconnectedLayerRemoval::ULR_REMOVE_EXCEPT_START_AND_END;
+        else
+            ulr = kiapi::board::types::UnconnectedLayerRemoval::ULR_REMOVE;
+    }
+    else
+    {
+        ulr = kiapi::board::types::UnconnectedLayerRemoval::ULR_KEEP;
+    }
+
+    // TODO: Microvia status is ignored here.  Do we still need it?
+
+    padstack->set_unconnected_layer_removal( ulr );
+
+    via.set_locked( IsLocked() ? kiapi::common::types::LockedState::LS_LOCKED
+                               : kiapi::common::types::LockedState::LS_UNLOCKED );
+    via.mutable_net()->mutable_code()->set_value( GetNetCode() );
+    via.mutable_net()->set_name( GetNetname() );
+
+    aContainer.PackFrom( via );
+}
+
+
+bool PCB_VIA::Deserialize( const google::protobuf::Any &aContainer )
+{
+    kiapi::board::types::Via via;
+
+    if( !aContainer.UnpackTo( &via ) )
+        return false;
+
+    const_cast<KIID&>( m_Uuid ) = KIID( via.id().value() );
+    SetStart( VECTOR2I( via.position().x_nm(), via.position().y_nm() ) );
+    SetEnd( GetStart() );
+    SetDrill( via.pad_stack().drill_diameter().x_nm() );
+
+    const kiapi::board::types::PadStack& padstack = via.pad_stack();
+
+    // We don't yet support complex padstacks for vias
+    if( padstack.layers_size() == 1 )
+    {
+        const kiapi::board::types::PadStackLayer& layer = padstack.layers( 0 );
+        SetWidth( layer.size().x_nm() );
+    }
+
+    switch( padstack.type() )
+    {
+    case kiapi::board::types::PadStackType::PST_BLIND_BURIED:
+        SetViaType( VIATYPE::BLIND_BURIED );
+        break;
+
+    default:
+        SetViaType( VIATYPE::THROUGH );
+        break;
+    }
+
+    if( GetViaType() != VIATYPE::THROUGH )
+    {
+        m_layer = FromProtoEnum<PCB_LAYER_ID, kiapi::board::types::BoardLayer>(
+                padstack.start_layer() );
+
+        m_bottomLayer = FromProtoEnum<PCB_LAYER_ID, kiapi::board::types::BoardLayer>(
+                padstack.end_layer() );
+    }
+    else
+    {
+        m_layer = F_Cu;
+        m_bottomLayer = B_Cu;
+    }
+
+    switch( padstack.unconnected_layer_removal() )
+    {
+    case kiapi::board::types::UnconnectedLayerRemoval::ULR_REMOVE:
+        m_removeUnconnectedLayer = true;
+        m_keepStartEndLayer = false;
+        break;
+
+    case kiapi::board::types::UnconnectedLayerRemoval::ULR_REMOVE_EXCEPT_START_AND_END:
+        m_removeUnconnectedLayer = true;
+        m_keepStartEndLayer = true;
+        break;
+
+    default:
+    case kiapi::board::types::UnconnectedLayerRemoval::ULR_KEEP:
+        m_removeUnconnectedLayer = false;
+        m_keepStartEndLayer = false;
+        break;
+    }
+
+    SetNetCode( via.net().code().value() );
+    SetLocked( via.locked() == kiapi::common::types::LockedState::LS_LOCKED );
+
+    return true;
+}
+
+
 bool PCB_TRACK::ApproxCollinear( const PCB_TRACK& aTrack )
 {
     SEG a( m_Start, m_End );
     SEG b( aTrack.GetStart(), aTrack.GetEnd() );
     return a.ApproxCollinear( b );
-}
-
-
-int PCB_TRACK::GetLocalClearance( wxString* aSource ) const
-{
-    // Not currently implemented
-    return 0;
 }
 
 
@@ -671,6 +873,9 @@ bool PCB_VIA::IsOnLayer( PCB_LAYER_ID aLayer ) const
 LSET PCB_VIA::GetLayerSet() const
 {
     LSET layermask;
+
+    if( m_layer < PCBNEW_LAYER_ID_START )
+        return layermask;
 
     if( GetViaType() == VIATYPE::THROUGH )
         layermask = LSET::AllCuMask();
@@ -1352,7 +1557,10 @@ EDA_ANGLE PCB_ARC::GetAngle() const
 
 EDA_ANGLE PCB_ARC::GetArcAngleStart() const
 {
-    EDA_ANGLE angleStart( m_Start - GetPosition() );
+    VECTOR2I pos( GetPosition() );
+    VECTOR2D dir( (double) m_Start.x - pos.x, (double) m_Start.y - pos.y );
+
+    EDA_ANGLE angleStart( dir );
     return angleStart.Normalize();
 }
 
@@ -1360,7 +1568,10 @@ EDA_ANGLE PCB_ARC::GetArcAngleStart() const
 // Note: used in python tests.  Ignore CLion's claim that it's unused....
 EDA_ANGLE PCB_ARC::GetArcAngleEnd() const
 {
-    EDA_ANGLE angleEnd( m_End - GetPosition() );
+    VECTOR2I pos( GetPosition() );
+    VECTOR2D dir( (double) m_End.x - pos.x, (double) m_End.y - pos.y );
+
+    EDA_ANGLE angleEnd( dir );
     return angleEnd.Normalize();
 }
 

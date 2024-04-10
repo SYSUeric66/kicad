@@ -3,7 +3,7 @@
  *
  * Copyright (C) 2015-2016 Mario Luzeiro <mrluzeiro@ua.pt>
  * Copyright (C) 2023 CERN
- * Copyright (C) 1992-2023 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2024 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -32,7 +32,7 @@
 #include "../3d_rendering/raytracing/accelerators/container_3d.h"
 #include "../3d_rendering/raytracing/shapes3D/bbox_3d.h"
 #include <gal/3d/camera.h>
-#include "../3d_enums.h"
+#include <3d_enums.h>
 #include "../3d_cache/3d_cache.h"
 #include "../common_ogl/ogl_attr_list.h"
 #include "../3d_viewer/eda_3d_viewer_settings.h"
@@ -42,6 +42,8 @@
 #include <pcb_track.h>
 #include <pcb_base_frame.h>
 #include <pcb_text.h>
+#include <pcb_textbox.h>
+#include <pcb_table.h>
 #include <pcb_shape.h>
 #include <pcb_dimension.h>
 #include <zone.h>
@@ -110,6 +112,7 @@ public:
     void SetLayerColors( const std::map<int, COLOR4D>& aColors );
 
     std::bitset<LAYER_3D_END> GetVisibleLayers() const;
+    std::bitset<LAYER_3D_END> GetDefaultVisibleLayers() const;
     void SetVisibleLayers( const std::bitset<LAYER_3D_END>& aLayers );
 
     /**
@@ -330,8 +333,8 @@ public:
      */
     const MAP_POLY& GetPolyMap() const noexcept { return m_layers_poly; }
 
-    const SHAPE_POLY_SET* GetFrontPlatedPadPolys() { return m_frontPlatedPadPolys;  }
-    const SHAPE_POLY_SET* GetBackPlatedPadPolys() { return m_backPlatedPadPolys; }
+    const SHAPE_POLY_SET* GetFrontPlatedPadAndGraphicPolys() { return m_frontPlatedPadAndGraphicPolys;  }
+    const SHAPE_POLY_SET* GetBackPlatedPadAndGraphicPolys() { return m_backPlatedPadAndGraphicPolys; }
     const MAP_POLY& GetHoleIdPolysMap() const noexcept { return m_layerHoleIdPolys; }
     const MAP_POLY& GetHoleOdPolysMap() const noexcept { return m_layerHoleOdPolys; }
 
@@ -374,6 +377,9 @@ private:
                    const BOARD_ITEM* aOwner );
 
     void addShape( const PCB_TEXTBOX* aTextBox, CONTAINER_2D_BASE* aContainer,
+                   const BOARD_ITEM* aOwner );
+
+    void addTable( const PCB_TABLE* aTable, CONTAINER_2D_BASE* aContainer,
                    const BOARD_ITEM* aOwner );
 
     void addSolidAreasShapes( const ZONE* aZone, CONTAINER_2D_BASE* aDstContainer,
@@ -437,8 +443,8 @@ private:
     MAP_POLY          m_layers_poly;          ///< Amalgamated polygon contours for various types
                                               ///<   of items
 
-    SHAPE_POLY_SET*   m_frontPlatedPadPolys;
-    SHAPE_POLY_SET*   m_backPlatedPadPolys;
+    SHAPE_POLY_SET*   m_frontPlatedPadAndGraphicPolys;
+    SHAPE_POLY_SET*   m_backPlatedPadAndGraphicPolys;
     SHAPE_POLY_SET*   m_frontPlatedCopperPolys;
     SHAPE_POLY_SET*   m_backPlatedCopperPolys;
 

@@ -32,7 +32,7 @@ namespace PNS {
 
 bool VIA::PushoutForce( NODE* aNode, const ITEM* aOther, VECTOR2I& aForce )
 {
-    int      clearance = aNode->GetClearance( this, aOther );
+    int      clearance = aNode->GetClearance( this, aOther, false );
     VECTOR2I elementForces[4], force;
     size_t   nf = 0;
 
@@ -61,7 +61,12 @@ bool VIA::PushoutForce( NODE* aNode, const VECTOR2I& aDirection, VECTOR2I& aForc
 
     while( iter < aMaxIterations )
     {
-        NODE::OPT_OBSTACLE obs = aNode->CheckColliding( &mv, aCollisionMask );
+        COLLISION_SEARCH_OPTIONS opt;
+        opt.m_limitCount = 1;
+        opt.m_kindMask = aCollisionMask;
+        opt.m_useClearanceEpsilon = false;
+
+        NODE::OPT_OBSTACLE obs = aNode->CheckColliding( &mv, opt );
 
         if( !obs )
             break;

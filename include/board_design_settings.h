@@ -76,6 +76,9 @@
 #define DEFAULT_CUSTOMDPAIRGAP        0.18
 #define DEFAULT_CUSTOMDPAIRVIAGAP     0.18
 
+#define DEFAULT_MEANDER_SPACING       0.6
+#define DEFAULT_DP_MEANDER_SPACING    1.0
+
 #define DEFAULT_MINCLEARANCE          0.0     // overall min clearance
 #define DEFAULT_MINCONNECTION         0.0     // overall min connection width
 #define DEFAULT_TRACKMINWIDTH         0.0     // track width min value
@@ -93,9 +96,18 @@
 
 #define DEFAULT_MINRESOLVEDSPOKES     2       // Fewer resolved spokes indicates a starved thermal
 
-#define MINIMUM_ERROR_SIZE_MM         0.001
-#define MAXIMUM_ERROR_SIZE_MM         0.1
+#define MINIMUM_ERROR_SIZE_MM         0.001   // For arc approximation
+#define MAXIMUM_ERROR_SIZE_MM         0.1     // For arc approximation
 
+// Min/max values used in dialogs to validate settings
+#define MINIMUM_LINE_WIDTH_MM         0.005   // minimal line width entered in a dialog
+#define MAXIMUM_LINE_WIDTH_MM         100.0   // max line width entered in a dialog
+
+// Default pad properies
+#define DEFAULT_PAD_WIDTH_MM 2.54         // master pad width
+#define DEFAULT_PAD_HEIGTH_MM 1.27        // master pad heigth
+#define DEFAULT_PAD_DRILL_DIAMETER_MM 0.8 // master pad drill diameter for PTH
+#define DEFAULT_PAD_REACT_RADIUS 15       // master pad corner radius in percent
 
 /**
  * Container to handle a stock of specific vias each with unique diameter and drill sizes
@@ -122,6 +134,8 @@ struct VIA_DIMENSION
     {
         return ( m_Diameter == aOther.m_Diameter ) && ( m_Drill == aOther.m_Drill );
     }
+
+    bool operator!=( const VIA_DIMENSION& aOther ) const { return !operator==( aOther ); }
 
     bool operator<( const VIA_DIMENSION& aOther ) const
     {
@@ -164,6 +178,8 @@ struct DIFF_PAIR_DIMENSION
                 && ( m_ViaGap == aOther.m_ViaGap );
     }
 
+    bool operator!=( const DIFF_PAIR_DIMENSION& aOther ) const { return !operator==( aOther ); }
+
     bool operator<( const DIFF_PAIR_DIMENSION& aOther ) const
     {
         if( m_Width != aOther.m_Width )
@@ -202,6 +218,13 @@ struct TEXT_ITEM_INFO
         m_Visible = aVisible;
         m_Layer = aLayer;
     }
+
+    bool operator==( const TEXT_ITEM_INFO& aOther ) const
+    {
+        return m_Text.IsSameAs( aOther.m_Text )
+                && ( m_Visible == aOther.m_Visible )
+                && ( m_Layer == aOther.m_Layer );
+    }
 };
 
 
@@ -225,6 +248,12 @@ public:
     BOARD_DESIGN_SETTINGS( JSON_SETTINGS* aParent, const std::string& aPath );
 
     virtual ~BOARD_DESIGN_SETTINGS();
+
+    bool operator==( const BOARD_DESIGN_SETTINGS& aOther ) const;
+    bool operator!=( const BOARD_DESIGN_SETTINGS& aOther ) const
+    {
+        return !operator==( aOther );
+    }
 
     BOARD_DESIGN_SETTINGS( const BOARD_DESIGN_SETTINGS& aOther);
 
@@ -629,6 +658,8 @@ public:
     void            SetGridOrigin( const VECTOR2I& aOrigin ) { m_gridOrigin = aOrigin; }
     const VECTOR2I& GetGridOrigin() { return m_gridOrigin; }
 
+    void SetDefaultMasterPad();
+
 private:
     void initFromOther( const BOARD_DESIGN_SETTINGS& aOther );
 
@@ -645,9 +676,9 @@ public:
      */
     TEARDROP_PARAMETERS_LIST         m_TeardropParamsList;
 
-    PNS::MEANDER_SETTINGS            m_singleTrackMeanderSettings;
-    PNS::MEANDER_SETTINGS            m_diffPairMeanderSettings;
-    PNS::MEANDER_SETTINGS            m_skewMeanderSettings;
+    PNS::MEANDER_SETTINGS            m_SingleTrackMeanderSettings;
+    PNS::MEANDER_SETTINGS            m_DiffPairMeanderSettings;
+    PNS::MEANDER_SETTINGS            m_SkewMeanderSettings;
 
     VIATYPE    m_CurrentViaType;            ///< (VIA_BLIND_BURIED, VIA_THROUGH, VIA_MICROVIA)
 
@@ -671,9 +702,10 @@ public:
     int        m_MinSilkTextHeight;         // Min text height for silkscreen layers
     int        m_MinSilkTextThickness;      // Min text thickness for silkscreen layers
 
-    std::shared_ptr<DRC_ENGINE> m_DRCEngine;
-    std::map<int, SEVERITY>     m_DRCSeverities;   // Map from DRCErrorCode to SEVERITY
-    std::set<wxString>          m_DrcExclusions;
+    std::shared_ptr<DRC_ENGINE>  m_DRCEngine;
+    std::map<int, SEVERITY>      m_DRCSeverities;           // Map from DRCErrorCode to SEVERITY
+    std::set<wxString>           m_DrcExclusions;           // Serialized excluded DRC markers
+    std::map<wxString, wxString> m_DrcExclusionComments;    // Map from serialization to comment
 
     // When smoothing the zone's outline there's the question of external fillets (that is, those
     // applied to concave corners).  While it seems safer to never have copper extend outside the

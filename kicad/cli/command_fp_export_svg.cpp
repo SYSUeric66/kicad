@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2022 Mark Roszko <mark.roszko@gmail.com>
- * Copyright (C) 1992-2022 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2023 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software: you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -32,16 +32,18 @@
 
 #define ARG_FOOTPRINT "--footprint"
 
-CLI::FP_EXPORT_SVG_COMMAND::FP_EXPORT_SVG_COMMAND() : PCB_EXPORT_BASE_COMMAND( "svg", true )
+CLI::FP_EXPORT_SVG_COMMAND::FP_EXPORT_SVG_COMMAND() : PCB_EXPORT_BASE_COMMAND( "svg", true, true )
 {
-    m_argParser.add_description( UTF8STDSTR( _( "Exports the footprint or entire footprint library to SVG" ) ) );
+    m_argParser.add_description( UTF8STDSTR( _( "Exports the footprint or entire footprint "
+                                                "library to SVG" ) ) );
 
     addLayerArg( false );
     addDefineArg();
 
     m_argParser.add_argument( "-t", ARG_THEME )
             .default_value( std::string() )
-            .help( UTF8STDSTR( _( "Color theme to use (will default to footprint editor settings)" ) ) );
+            .help( UTF8STDSTR( _( "Color theme to use (will default to footprint editor "
+                                  "settings)" ) ) );
 
     m_argParser.add_argument( "--fp", ARG_FOOTPRINT )
             .default_value( std::string() )
@@ -50,8 +52,7 @@ CLI::FP_EXPORT_SVG_COMMAND::FP_EXPORT_SVG_COMMAND() : PCB_EXPORT_BASE_COMMAND( "
 
     m_argParser.add_argument( ARG_BLACKANDWHITE )
             .help( UTF8STDSTR( _( ARG_BLACKANDWHITE_DESC ) ) )
-            .implicit_value( true )
-            .default_value( false );
+            .flag();
 }
 
 
@@ -80,7 +81,7 @@ int CLI::FP_EXPORT_SVG_COMMAND::doPerform( KIWAY& aKiway )
     if( !m_selectedLayers.empty() )
         svgJob->m_printMaskLayer = m_selectedLayers;
     else
-        svgJob->m_printMaskLayer = LSET::AllLayersMask().SeqStackupBottom2Top();
+        svgJob->m_printMaskLayer = LSET::AllLayersMask().SeqStackupForPlotting();
 
     int exitCode = aKiway.ProcessJob( KIWAY::FACE_PCB, svgJob.get() );
 

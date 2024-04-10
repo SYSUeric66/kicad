@@ -31,6 +31,7 @@
 #include <pcb_painter.h>
 #include <pcb_test_frame.h>
 #include <pcbnew_utils/board_test_utils.h>
+#include <reporter.h>
 
 #include "pns_log_file.h"
 #include "pns_log_player.h"
@@ -42,6 +43,7 @@
 #define ID_LIST_COPY 10001
 #define ID_LIST_SHOW_ALL 10002
 #define ID_LIST_SHOW_NONE 10003
+#define ID_LIST_DISPLAY_LINE 10004
 
 class PNS_LOG_VIEWER_OVERLAY;
 
@@ -54,6 +56,7 @@ public:
     void LoadLogFile( const wxString& aFile );
     void SetLogFile( PNS_LOG_FILE* aLog );
     void SetBoard2( std::shared_ptr<BOARD> aBoard );
+    REPORTER* GetConsoleReporter();
 
     std::shared_ptr<PNS_LOG_VIEWER_OVERLAY> GetOverlay() const { return m_overlay; }
 
@@ -89,13 +92,14 @@ private:
     int                                     m_rewindIter;
     wxMenu*                                 m_listPopupMenu;
     std::shared_ptr<KIGFX::VIEW_GROUP>      m_previewItems;
+    std::map<wxString,wxString>             m_filenameToPathMap;
 
     bool m_showThinLines = true;
     bool m_showRPIs = true;
     bool m_showVertices = false;
     wxString m_searchString;
-    KI_TEST::CONSOLE_LOG          m_consoleLog;
-    KI_TEST::CONSOLE_MSG_REPORTER m_reporter;
+    //KI_TEST::CONSOLE_LOG          m_consoleLog;
+    std::shared_ptr<WX_TEXT_CTRL_REPORTER> m_reporter;
 };
 
 class LABEL_MANAGER;

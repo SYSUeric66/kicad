@@ -24,6 +24,7 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA
  */
 
+#include <build_version.h>
 #include <string_utils.h>
 #include <locale_io.h>
 #include <math/vector2d.h>
@@ -85,7 +86,7 @@ public:
     {
         try
         {
-            m_fileout = new FILE_OUTPUTFORMATTER( aFilename );
+            m_fileout = new PRETTIFIED_FILE_OUTPUTFORMATTER( aFilename );
             m_out = m_fileout;
         }
         catch( const IO_ERROR& ioe )
@@ -100,7 +101,7 @@ public:
     }
 
 private:
-    FILE_OUTPUTFORMATTER* m_fileout;
+    PRETTIFIED_FILE_OUTPUTFORMATTER* m_fileout;
 };
 
 
@@ -160,8 +161,8 @@ void DS_DATA_MODEL_IO::Format( DS_DATA_MODEL* aModel, std::vector<DS_DATA_ITEM*>
 {
     LOCALE_IO   toggle;     // switch on/off the locale "C" notation
 
-    m_out->Print( 0, "(kicad_wks (version %d) (generator pl_editor)\n",
-                  SEXPR_WORKSHEET_FILE_VERSION );
+    m_out->Print( 0, "(kicad_wks (version %d) (generator \"pl_editor\") (generator_version \"%s\")\n",
+                  SEXPR_WORKSHEET_FILE_VERSION, GetMajorMinorVersion().c_str().AsChar() );
 
     for( DS_DATA_ITEM* item : aItemsList )
         Format( aModel, item, 1 );
@@ -201,8 +202,8 @@ void DS_DATA_MODEL_IO::Format( DS_DATA_MODEL* aSheet ) const
 {
     LOCALE_IO   toggle;     // switch on/off the locale "C" notation
 
-    m_out->Print( 0, "(kicad_wks (version %d) (generator pl_editor)\n",
-                  SEXPR_WORKSHEET_FILE_VERSION );
+    m_out->Print( 0, "(kicad_wks (version %d) (generator \"pl_editor\") (generator_version \"%s\")\n",
+                  SEXPR_WORKSHEET_FILE_VERSION, GetMajorMinorVersion().c_str().AsChar() );
 
     // Setup
     int nestLevel = 1;
@@ -431,7 +432,7 @@ void DS_DATA_MODEL_IO::format( DS_DATA_ITEM_BITMAP* aItem, int aNestLevel ) cons
     while( first < out.Length() )
     {
         m_out->Print( 0, "\n" );
-        m_out->Print( aNestLevel + 1, "%s", TO_UTF8( out( first, MIME_BASE64_LENGTH ) ) );
+        m_out->Print( aNestLevel + 1, "\"%s\"", TO_UTF8( out( first, MIME_BASE64_LENGTH ) ) );
         first += MIME_BASE64_LENGTH;
     }
 

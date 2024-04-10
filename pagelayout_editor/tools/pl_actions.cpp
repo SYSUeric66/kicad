@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2019-2023 CERN
- * Copyright (C) 2019 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2019-2023 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -116,17 +116,15 @@ TOOL_ACTION PL_ACTIONS::previewSettings( TOOL_ACTION_ARGS()
 TOOL_ACTION PL_ACTIONS::layoutNormalMode( TOOL_ACTION_ARGS()
         .Name( "plEditor.EditorControl.LayoutNormalMode" )
         .Scope( AS_GLOBAL )
-        .FriendlyName( _( "Show title block in preview mode" ) )
-        .Tooltip( _( "Show title block in preview mode:\n"
-                     "text placeholders will be replaced with preview data." ) )
+        .FriendlyName( _( "Show Title Block in Preview Mode" ) )
+        .Tooltip( _( "Text placeholders will be replaced with preview data" ) )
         .Icon( BITMAPS::pagelayout_normal_view_mode ) );
 
 TOOL_ACTION PL_ACTIONS::layoutEditMode( TOOL_ACTION_ARGS()
         .Name( "plEditor.EditorControl.LayoutEditMode" )
         .Scope( AS_GLOBAL )
-        .FriendlyName( _( "Show title block in edit mode" ) )
-        .Tooltip( _( "Show title block in edit mode:\n"
-                     "text placeholders are shown as ${keyword} tokens." ) )
+        .FriendlyName( _( "Show Title Block in Edit Mode" ) )
+        .Tooltip( _( "Text placeholders are shown as ${keyword} tokens" ) )
         .Icon( BITMAPS::pagelayout_special_view_mode  ) );
 
 

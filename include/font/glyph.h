@@ -2,7 +2,7 @@
  * This program source code file is part of KICAD, a free EDA CAD application.
  *
  * Copyright (C) 2021 Ola Rinta-Koski
- * Copyright (C) 2021-2022 Kicad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2021-2024 Kicad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -82,6 +82,20 @@ public:
     void Triangulate( std::function<void( const VECTOR2I& aPt1,
                                           const VECTOR2I& aPt2,
                                           const VECTOR2I& aPt3 )> aCallback ) const;
+
+    void CacheTriangulation( bool aPartition = true, bool aSimplify = false ) override;
+
+    /**
+     * @return a set of triangulated polygons from the glyph.  CacheTriangulation() will use this
+     * data as hint data the next time around.
+     */
+    std::vector<std::unique_ptr<SHAPE_POLY_SET::TRIANGULATED_POLYGON>> GetTriangulationData() const;
+
+    /**
+     * Cache the triangulation for the glyph from a known set of triangle indexes.
+     * (See GetTriangulationData() above for more info.)
+     */
+    void CacheTriangulation( std::vector<std::unique_ptr<SHAPE_POLY_SET::TRIANGULATED_POLYGON>>& aHintData );
 };
 
 
@@ -106,15 +120,13 @@ public:
                                       double aTilt, const EDA_ANGLE& aAngle, bool aMirror,
                                       const VECTOR2I& aOrigin  );
 
+    void Move( const VECTOR2I& aOffset );
+
 private:
     bool  m_penIsDown = false;
     BOX2D m_boundingBox;
 };
 
-
-typedef std::vector<VECTOR2D>     GLYPH_POINTS;
-typedef std::vector<GLYPH_POINTS> GLYPH_POINTS_LIST;
-typedef std::vector<BOX2D>        GLYPH_BOUNDING_BOX_LIST;
 
 
 } // namespace KIFONT

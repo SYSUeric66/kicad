@@ -135,18 +135,20 @@ class PCBNEW_SETTINGS : public PCB_VIEWERS_SETTINGS_BASE
 public:
     struct AUI_PANELS
     {
-        int  appearance_panel_tab;
-        bool appearance_expand_layer_display;
-        bool appearance_expand_net_display;
-        int  right_panel_width;
-        int  properties_panel_width;
+        int   appearance_panel_tab;
+        bool  appearance_expand_layer_display;
+        bool  appearance_expand_net_display;
+        int   right_panel_width;
+        int   properties_panel_width;
+        int   net_inspector_width;
         float properties_splitter;
-        int  search_panel_height;
-        int  search_panel_width;
-        int  search_panel_dock_direction;
-        bool show_layer_manager;
-        bool show_properties;
-        bool show_search;
+        int   search_panel_height;
+        int   search_panel_width;
+        int   search_panel_dock_direction;
+        bool  show_layer_manager;
+        bool  show_properties;
+        bool  show_search;
+        bool  show_net_inspector;
     };
 
     struct DIALOG_CLEANUP
@@ -213,6 +215,8 @@ public:
     struct DIALOG_EXPORT_VRML
     {
         int    units;
+        bool   no_unspecified;
+        bool   no_dnp;
         bool   copy_3d_models;
         bool   use_relative_paths;
         int    ref_units;
@@ -309,13 +313,6 @@ public:
         wxString report_file_name;
     };
 
-    struct DIALOG_NET_INSPECTOR
-    {
-        wxString group_by_text;
-        bool group_by;
-        int group_by_kind;
-    };
-
     struct FOOTPRINT_CHOOSER
     {
         int  width;
@@ -396,8 +393,6 @@ public:
     DIALOG_PLOT m_Plot;
 
     DIALOG_REANNOTATE m_Reannotate;
-
-    DIALOG_NET_INSPECTOR m_NetInspector;
 
     FOOTPRINT_CHOOSER m_FootprintChooser;
 

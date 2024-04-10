@@ -3,7 +3,7 @@
  *
  * Copyright (C) 2022 Mark Roszko <mark.roszko@gmail.com>
  * Copyright (C) 2016 Cirilo Bernardo <cirilo.bernardo@gmail.com>
- * Copyright (C) 2016-2023 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2016-2024 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -209,7 +209,8 @@ STEP_PCB_MODEL::STEP_PCB_MODEL( const wxString& aPcbName )
 
 STEP_PCB_MODEL::~STEP_PCB_MODEL()
 {
-    m_doc->Close();
+    if( m_doc->CanClose() == CDM_CCS_OK )
+        m_doc->Close();
 }
 
 bool STEP_PCB_MODEL::AddPadShape( const PAD* aPad, const VECTOR2D& aOrigin )
@@ -247,6 +248,26 @@ bool STEP_PCB_MODEL::AddPadShape( const PAD* aPad, const VECTOR2D& aOrigin )
 
         if( pcb_layer == B_Cu )
             break;
+    }
+
+    if( aPad->GetAttribute() == PAD_ATTRIB::PTH && aPad->IsOnLayer( F_Cu )
+        && aPad->IsOnLayer( B_Cu ) )
+    {
+        TopoDS_Shape plating;
+
+        std::shared_ptr<SHAPE_SEGMENT> seg_hole = aPad->GetEffectiveHoleShape();
+        double width = std::min( aPad->GetDrillSize().x, aPad->GetDrillSize().y );
+
+        if( MakeShapeAsThickSegment( plating, seg_hole->GetSeg().A, seg_hole->GetSeg().B, width,
+                                     m_boardThickness + m_copperThickness * 2, -m_copperThickness,
+                                     aOrigin ) )
+        {
+            m_board_copper_pads.push_back( plating );
+        }
+        else
+        {
+            success = false;
+        }
     }
 
     if( !success )  // Error
@@ -302,6 +323,9 @@ bool STEP_PCB_MODEL::AddCopperPolygonShapes( const SHAPE_POLY_SET* aPolyShapes, 
 {
     bool success = true;
 
+    if( aPolyShapes->IsEmpty() )
+        return true;
+
     double z_pos = aOnTop ? m_boardThickness : -m_copperThickness;
 
     if( !MakeShapes( aTrack ? m_board_copper_tracks : m_board_copper_zones, *aPolyShapes,
@@ -323,64 +347,40 @@ bool STEP_PCB_MODEL::AddPadHole( const PAD* aPad, const VECTOR2D& aOrigin )
     if( aPad == nullptr || !aPad->GetDrillSize().x )
         return false;
 
-    VECTOR2I pos = aPad->GetPosition();
-    const double margin = 0.01;     // a small margin on the Z axix to be sure the hole
-                                    // is bigget than the board with copper
-                                    // must be > OCC_MAX_DISTANCE_TO_MERGE_POINTS
+    // TODO: make configurable
+    int platingThickness = aPad->GetAttribute() == PAD_ATTRIB::PTH ? pcbIUScale.mmToIU( 0.025 ) : 0;
+
+    const double margin = 0.01; // a small margin on the Z axix to be sure the hole
+                                // is bigger than the board with copper
+                                // must be > OCC_MAX_DISTANCE_TO_MERGE_POINTS
     double holeZsize = m_boardThickness + ( m_copperThickness * 2 ) + ( margin * 2 );
 
-    if( aPad->GetDrillShape() == PAD_DRILL_SHAPE_CIRCLE )
-    {
-        TopoDS_Shape s =
-                BRepPrimAPI_MakeCylinder( pcbIUScale.IUTomm( aPad->GetDrillSize().x ) * 0.5, holeZsize ).Shape();
-        gp_Trsf shift;
-        shift.SetTranslation( gp_Vec( pcbIUScale.IUTomm( pos.x - aOrigin.x ),
-                                      -pcbIUScale.IUTomm( pos.y - aOrigin.y ),
-                                      -m_copperThickness - margin ) );
-        BRepBuilderAPI_Transform hole( s, shift );
-        m_cutouts.push_back( hole.Shape() );
-        return true;
-    }
-
-    // slotted hole
-    TopoDS_Shape hole;
-
-    #if 0   // set to 1 to export oblong hole as polygon
-    SHAPE_POLY_SET holeOutlines;
-
-    if( !aPad->TransformHoleToPolygon( holeOutlines, 0, m_maxError, ERROR_INSIDE ) )
-    {
-        return false;
-    }
-
-
-    if( holeOutlines.OutlineCount() > 0 )
-    {
-        if( MakeShape( hole, holeOutlines.COutline( 0 ), holeZsize, -m_copperThickness - margin, aOrigin ) )
-        {
-            m_cutouts.push_back( hole );
-        }
-    }
-    else
-    {
-        return false;
-    }
-    #else
     std::shared_ptr<SHAPE_SEGMENT> seg_hole = aPad->GetEffectiveHoleShape();
-    double width = std::min( aPad->GetDrillSize().x,  aPad->GetDrillSize().y );
 
-    if( MakeShapeAsThickSegment( hole,
-                                 seg_hole->GetSeg().A, seg_hole->GetSeg().B,
-                                 width, holeZsize, -m_copperThickness - margin,
-                                 aOrigin ) )
+    double boardDrill = std::min( aPad->GetDrillSize().x, aPad->GetDrillSize().y );
+    double copperDrill = boardDrill - platingThickness * 2;
+
+    TopoDS_Shape copperHole, boardHole;
+
+    if( MakeShapeAsThickSegment( copperHole, seg_hole->GetSeg().A, seg_hole->GetSeg().B,
+                                 copperDrill, holeZsize, -m_copperThickness - margin, aOrigin ) )
     {
-        m_cutouts.push_back( hole );
+        m_copperCutouts.push_back( copperHole );
     }
     else
     {
         return false;
     }
-    #endif
+
+    if( MakeShapeAsThickSegment( boardHole, seg_hole->GetSeg().A, seg_hole->GetSeg().B, boardDrill,
+                                 holeZsize, -m_copperThickness - margin, aOrigin ) )
+    {
+        m_boardCutouts.push_back( boardHole );
+    }
+    else
+    {
+        return false;
+    }
 
     return true;
 }
@@ -686,8 +686,11 @@ bool STEP_PCB_MODEL::MakeShapes( std::vector<TopoDS_Shape>& aShapes, const SHAPE
         {
             try
             {
-                auto addSegment = [&]( const VECTOR2D& aPt0, const VECTOR2D& aPt1 ) -> bool
+                auto addSegment = [&]( const VECTOR2I& aPt0, const VECTOR2I& aPt1 ) -> bool
                 {
+                    if( aPt0 == aPt1 )
+                        return false;
+
                     gp_Pnt start = toPoint( aPt0 );
                     gp_Pnt end = toPoint( aPt1 );
 
@@ -702,7 +705,9 @@ bool STEP_PCB_MODEL::MakeShapes( std::vector<TopoDS_Shape>& aShapes, const SHAPE
 
                     if( !mkEdge.IsDone() || mkEdge.Edge().IsNull() )
                     {
-                        ReportMessage( wxT( "failed to make edge, skipping\n" ) );
+                        ReportMessage( wxString::Format( wxT( "failed to make segment edge at (%d "
+                                                              "%d) -> (%d %d), skipping\n" ),
+                                                         aPt0.x, aPt0.y, aPt1.x, aPt1.y ) );
                     }
                     else
                     {
@@ -710,7 +715,9 @@ bool STEP_PCB_MODEL::MakeShapes( std::vector<TopoDS_Shape>& aShapes, const SHAPE
 
                         if( aMkWire.Error() != BRepLib_WireDone )
                         {
-                            ReportMessage( wxT( "failed to add edge to wire\n" ) );
+                            ReportMessage( wxString::Format( wxT( "failed to add segment edge "
+                                                                  "at (%d %d) -> (%d %d)\n" ),
+                                                             aPt0.x, aPt0.y, aPt1.x, aPt1.y ) );
                             return false;
                         }
                     }
@@ -718,7 +725,7 @@ bool STEP_PCB_MODEL::MakeShapes( std::vector<TopoDS_Shape>& aShapes, const SHAPE
                     return true;
                 };
 
-                auto addArc = [&]( const SHAPE_ARC& aArc ) -> bool
+                auto addArc = [&]( const VECTOR2I& aPt0, const SHAPE_ARC& aArc ) -> bool
                 {
                     // Do not export too short segments: they create broken shape because OCC thinks
                     Handle( Geom_Curve ) curve;
@@ -733,7 +740,7 @@ bool STEP_PCB_MODEL::MakeShapes( std::vector<TopoDS_Shape>& aShapes, const SHAPE
                     }
                     else
                     {
-                        curve = GC_MakeArcOfCircle( toPoint( aArc.GetP0() ),
+                        curve = GC_MakeArcOfCircle( toPoint( aPt0 ),
                                                     toPoint( aArc.GetArcMid() ),
                                                     toPoint( aArc.GetP1() ) )
                                         .Value();
@@ -746,7 +753,11 @@ bool STEP_PCB_MODEL::MakeShapes( std::vector<TopoDS_Shape>& aShapes, const SHAPE
 
                     if( !aMkWire.IsDone() )
                     {
-                        ReportMessage( wxT( "failed to add curve\n" ) );
+                        ReportMessage( wxString::Format(
+                                wxT( "failed to add arc curve from (%d %d), arc p0 "
+                                     "(%d %d), mid (%d %d), p1 (%d %d)\n" ),
+                                aPt0.x, aPt0.y, aArc.GetP0().x, aArc.GetP0().y, aArc.GetArcMid().x,
+                                aArc.GetArcMid().y, aArc.GetP1().x, aArc.GetP1().y ) );
                         return false;
                     }
 
@@ -769,7 +780,7 @@ bool STEP_PCB_MODEL::MakeShapes( std::vector<TopoDS_Shape>& aShapes, const SHAPE
                             int nextShape = aChain.NextShape( i );
 
                             // If nextShape points to the end, then we have a circle.
-                            if( nextShape != aChain.PointCount() - 1 )
+                            if( nextShape != -1 )
                                 i = nextShape;
                         }
                     }
@@ -789,10 +800,10 @@ bool STEP_PCB_MODEL::MakeShapes( std::vector<TopoDS_Shape>& aShapes, const SHAPE
                             lastPt = firstPt;
                         }
 
-                        if( lastPt != currentArc.GetP0() )
-                            addSegment( lastPt, currentArc.GetP0() );
+                        if( addSegment( lastPt, currentArc.GetP0() ) )
+                            lastPt = currentArc.GetP0();
 
-                        if( addArc( currentArc ) )
+                        if( addArc( lastPt, currentArc ) )
                             lastPt = currentArc.GetP1();
                     }
                     else if( !isArc )
@@ -804,6 +815,9 @@ bool STEP_PCB_MODEL::MakeShapes( std::vector<TopoDS_Shape>& aShapes, const SHAPE
                             firstPt = seg.A;
                             lastPt = firstPt;
                         }
+
+                        if( addSegment( lastPt, seg.A ) )
+                            lastPt = seg.A;
 
                         if( addSegment( lastPt, seg.B ) )
                             lastPt = seg.B;
@@ -889,21 +903,44 @@ bool STEP_PCB_MODEL::CreatePCB( SHAPE_POLY_SET& aOutline, VECTOR2D aOrigin )
 
 
     // Support for more than one main outline (more than one board)
-    for( int cnt = 0; cnt < aOutline.OutlineCount(); cnt++ )
+    ReportMessage( wxString::Format( wxT( "Build board outlines (%d outlines) with %d points.\n" ),
+                                     aOutline.OutlineCount(), aOutline.FullPointCount() ) );
+#if 0
+    // This code should work, and it is working most of time
+    // However there are issues if the main outline is a circle with holes:
+    // holes from vias and pads are not working
+    // see bug https://gitlab.com/kicad/code/kicad/-/issues/17446
+    // (Holes are missing from STEP export with circular PCB outline)
+    // Hard to say if the bug is in our code or in OCC 7.7
+    if( !MakeShapes( m_board_outlines, aOutline, m_boardThickness, 0.0, aOrigin ) )
     {
-        const SHAPE_LINE_CHAIN& outline = aOutline.COutline( cnt );
-
-        ReportMessage( wxString::Format( wxT( "Build board main outline %d with %d points.\n" ),
-                                         cnt + 1, outline.PointCount() ) );
-
-        if( !MakeShapes( m_board_outlines, aOutline, m_boardThickness, 0.0, aOrigin ) )
+        // Error
+        ReportMessage( wxString::Format(
+                wxT( "OCC error creating main outline.\n" ) ) );
+    }
+#else
+    // Workaround for bug #17446 Holes are missing from STEP export with circular PCB outline
+    for( const SHAPE_POLY_SET::POLYGON& polygon : aOutline.CPolygons() )
+    {
+        for( size_t contId = 0; contId < polygon.size(); contId++ )
         {
-            // Error
-            ReportMessage( wxString::Format(
-                    wxT( "OCC error adding main outline polygon %d with %d points.\n" ), cnt + 1,
-                    outline.PointCount() ) );
+            const SHAPE_LINE_CHAIN& contour = polygon[contId];
+            SHAPE_POLY_SET polyset;
+            polyset.Append( contour );
+
+            if( contId == 0 ) // main Outline
+            {
+                if( !MakeShapes( m_board_outlines, polyset, m_boardThickness, 0.0, aOrigin ) )
+                    ReportMessage( wxT( "OCC error creating main outline.\n" ) );
+            }
+            else // Hole inside the main outline
+            {
+                if( !MakeShapes( m_boardCutouts, polyset, m_boardThickness, 0.0, aOrigin ) )
+                    ReportMessage( wxT( "OCC error creating hole in main outline.\n" ) );
+            }
         }
     }
+#endif
 
     Bnd_Box brdBndBox;
 
@@ -911,76 +948,89 @@ bool STEP_PCB_MODEL::CreatePCB( SHAPE_POLY_SET& aOutline, VECTOR2D aOrigin )
         BRepBndLib::Add( brdShape, brdBndBox );
 
     // subtract cutouts (if any)
-    if( m_cutouts.size() )
-    {
-        ReportMessage( wxString::Format( wxT( "Build board cutouts and holes (%d hole(s)).\n" ),
-                                         (int) m_cutouts.size() ) );
+    ReportMessage( wxString::Format( wxT( "Build board cutouts and holes (%d hole(s)).\n" ),
+                                     (int) ( m_boardCutouts.size() + m_copperCutouts.size() ) ) );
 
+    auto buildBSB = [&brdBndBox]( std::vector<TopoDS_Shape>& input, Bnd_BoundSortBox& bsbHoles )
+    {
         // We need to encompass every location we'll need to test in the global bbox,
         // otherwise Bnd_BoundSortBox doesn't work near the boundaries.
-        Bnd_Box          brdWithHolesBndBox = brdBndBox;
-        Bnd_BoundSortBox bsbHoles;
+        Bnd_Box brdWithHolesBndBox = brdBndBox;
 
-        Handle( Bnd_HArray1OfBox ) holeBoxSet = new Bnd_HArray1OfBox( 0, m_cutouts.size() - 1 );
+        Handle( Bnd_HArray1OfBox ) holeBoxSet = new Bnd_HArray1OfBox( 0, input.size() - 1 );
 
-        for( size_t i = 0; i < m_cutouts.size(); i++ )
+        for( size_t i = 0; i < input.size(); i++ )
         {
             Bnd_Box bbox;
-            BRepBndLib::Add( m_cutouts[i], bbox );
+            BRepBndLib::Add( input[i], bbox );
             brdWithHolesBndBox.Add( bbox );
             ( *holeBoxSet )[i] = bbox;
         }
 
         bsbHoles.Initialize( brdWithHolesBndBox, holeBoxSet );
+    };
 
-        auto subtractShapes = [&]( const wxString& aWhat, std::vector<TopoDS_Shape>& aShapesList )
+    auto subtractShapes = []( const wxString& aWhat, std::vector<TopoDS_Shape>& aShapesList,
+                              std::vector<TopoDS_Shape>& aHolesList, Bnd_BoundSortBox& aBSBHoles )
+    {
+        // Remove holes for each item (board body or bodies, one can have more than one board)
+        int cnt = 0;
+        for( TopoDS_Shape& shape : aShapesList )
         {
-            // Remove holes for each item (board body or bodies, one can have more than one board)
-            int cnt = 0;
-            for( TopoDS_Shape& shape : aShapesList )
-            {
-                Bnd_Box shapeBbox;
-                BRepBndLib::Add( shape, shapeBbox );
+            Bnd_Box shapeBbox;
+            BRepBndLib::Add( shape, shapeBbox );
 
-                const TColStd_ListOfInteger& indices = bsbHoles.Compare( shapeBbox );
+            const TColStd_ListOfInteger& indices = aBSBHoles.Compare( shapeBbox );
 
-                TopTools_ListOfShape holelist;
+            TopTools_ListOfShape holelist;
 
-                for( const Standard_Integer& index : indices )
-                    holelist.Append( m_cutouts[index] );
+            for( const Standard_Integer& index : indices )
+                holelist.Append( aHolesList[index] );
 
-                if( cnt == 0 )
-                    ReportMessage( wxString::Format( _( "Build holes for %s\n" ), aWhat ) );
+            if( cnt == 0 )
+                ReportMessage( wxString::Format( _( "Build holes for %s\n" ), aWhat ) );
 
-                cnt++;
+            cnt++;
 
-                if( cnt % 10 == 0 )
-                    ReportMessage( wxString::Format( _( "Cutting %d/%d %s\n" ), cnt,
-                                                     (int) aShapesList.size(), aWhat ) );
+            if( cnt % 10 == 0 )
+                ReportMessage( wxString::Format( _( "Cutting %d/%d %s\n" ), cnt,
+                                                 (int) aShapesList.size(), aWhat ) );
 
-                if( holelist.IsEmpty() )
-                    continue;
+            if( holelist.IsEmpty() )
+                continue;
 
-                TopTools_ListOfShape cutArgs;
-                cutArgs.Append( shape );
+            TopTools_ListOfShape cutArgs;
+            cutArgs.Append( shape );
 
-                BRepAlgoAPI_Cut cut;
+            BRepAlgoAPI_Cut cut;
 
-                // This helps cutting circular holes in zones where a hole is already cut in Clipper
-                cut.SetFuzzyValue( 0.0005 );
-                cut.SetArguments( cutArgs );
+            // This helps cutting circular holes in zones where a hole is already cut in Clipper
+            cut.SetFuzzyValue( 0.0005 );
+            cut.SetArguments( cutArgs );
 
-                cut.SetTools( holelist );
-                cut.Build();
+            cut.SetTools( holelist );
+            cut.Build();
 
-                shape = cut.Shape();
-            }
-        };
+            shape = cut.Shape();
+        }
+    };
 
-        subtractShapes( _( "pads" ), m_board_copper_pads );
-        subtractShapes( _( "shapes" ), m_board_outlines );
-        subtractShapes( _( "tracks" ), m_board_copper_tracks );
-        subtractShapes( _( "zones" ), m_board_copper_zones );
+    if( m_boardCutouts.size() )
+    {
+        Bnd_BoundSortBox bsbHoles;
+        buildBSB( m_boardCutouts, bsbHoles );
+
+        subtractShapes( _( "shapes" ), m_board_outlines, m_boardCutouts, bsbHoles );
+    }
+
+    if( m_copperCutouts.size() )
+    {
+        Bnd_BoundSortBox bsbHoles;
+        buildBSB( m_copperCutouts, bsbHoles );
+
+        subtractShapes( _( "pads" ), m_board_copper_pads, m_copperCutouts, bsbHoles );
+        subtractShapes( _( "tracks" ), m_board_copper_tracks, m_copperCutouts, bsbHoles );
+        subtractShapes( _( "zones" ), m_board_copper_zones, m_copperCutouts, bsbHoles );
     }
 
     // push the board to the data structure
@@ -1467,14 +1517,18 @@ bool STEP_PCB_MODEL::readIGES( Handle( TDocStd_Document )& doc, const char* fnam
 
     if( !reader.Transfer( doc ) )
     {
-        doc->Close();
+        if( doc->CanClose() == CDM_CCS_OK )
+            doc->Close();
+
         return false;
     }
 
     // are there any shapes to translate?
     if( reader.NbShapes() < 1 )
     {
-        doc->Close();
+        if( doc->CanClose() == CDM_CCS_OK )
+            doc->Close();
+
         return false;
     }
 
@@ -1505,14 +1559,18 @@ bool STEP_PCB_MODEL::readSTEP( Handle( TDocStd_Document )& doc, const char* fnam
 
     if( !reader.Transfer( doc ) )
     {
-        doc->Close();
+        if( doc->CanClose() == CDM_CCS_OK )
+            doc->Close();
+
         return false;
     }
 
     // are there any shapes to translate?
     if( reader.NbRootsForTransfer() < 1 )
     {
-        doc->Close();
+        if( doc->CanClose() == CDM_CCS_OK )
+            doc->Close();
+
         return false;
     }
 

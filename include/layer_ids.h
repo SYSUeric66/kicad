@@ -3,7 +3,7 @@
  *
  * Copyright (C) 2014 SoftPLC Corporation, Dick Hollenbeck <dick@softplc.com>
  * Copyright (C) 2010 Jean-Pierre Charras, jp.charras at wanadoo.fr
- * Copyright (C) 2007-2022 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2007-2023 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -61,8 +61,7 @@ enum PCB_LAYER_ID: int
     UNDEFINED_LAYER = -1,
     UNSELECTED_LAYER = -2,
 
-    PCBNEW_LAYER_ID_START = 0,
-    F_Cu = PCBNEW_LAYER_ID_START,
+    F_Cu = 0,
     In1_Cu,
     In2_Cu,
     In3_Cu,
@@ -138,6 +137,8 @@ enum PCB_LAYER_ID: int
     PCB_LAYER_ID_COUNT
 };
 
+constexpr PCB_LAYER_ID PCBNEW_LAYER_ID_START = F_Cu;
+
 #define MAX_CU_LAYERS       (B_Cu - F_Cu + 1)
 
 /**
@@ -173,6 +174,8 @@ enum NETNAMES_LAYER_ID: int
 
 /// Macro for obtaining netname layer for a given PCB layer
 #define NETNAMES_LAYER_INDEX( layer )   ( NETNAMES_LAYER_ID_START + layer )
+
+#define GAL_UI_LAYER_COUNT 10
 
 /**
  *  GAL layers are "virtual" layers, i.e. not tied into design data.
@@ -257,6 +260,10 @@ enum GAL_LAYER_ID: int
     /// Virtual layers for background images per board layer
     LAYER_BITMAP_START,
     LAYER_BITMAP_END = LAYER_BITMAP_START + PCB_LAYER_ID_COUNT,
+
+    // Layers for drawing on-canvas UI
+    LAYER_UI_START,
+    LAYER_UI_END = LAYER_UI_START + GAL_UI_LAYER_COUNT,
 
     GAL_LAYER_ID_END
 };
@@ -540,6 +547,17 @@ public:
     {
         return at( m_index );       // throws std::out_of_range
     }
+
+    int TestLayers( PCB_LAYER_ID aRhs, PCB_LAYER_ID aLhs ) const
+    {
+        if( aRhs == aLhs )
+            return 0;
+
+        auto itRhs = std::find( begin(), end(), aRhs );
+        auto itLhs = std::find( begin(), end(), aLhs );
+
+        return std::distance( itRhs, itLhs );
+    }
 };
 
 
@@ -781,10 +799,19 @@ public:
     LSEQ Seq() const;
 
     /**
+     * Generate a sequence of layers that represent a top to bottom stack of this set of layers.
+     *
+     * @param aSelectedLayer is the layer to put at the top of stack when defined.
+     *
+     * @return the top to bottom layer sequence.
+     */
+    LSEQ SeqStackupTop2Bottom( PCB_LAYER_ID aSelectedLayer = UNDEFINED_LAYER ) const;
+
+    /**
      * Return the sequence that is typical for a bottom-to-top stack-up.
      * For instance, to plot multiple layers in a single image, the top layers output last.
      */
-    LSEQ SeqStackupBottom2Top() const;
+    LSEQ SeqStackupForPlotting() const;
 
     /**
      * Return a hex string showing contents of this LSEQ.

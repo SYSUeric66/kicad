@@ -24,6 +24,7 @@
 
 #include <string_utils.h>
 #include <scintilla_tricks.h>
+#include <widgets/wx_grid.h>
 #include <wx/stc/stc.h>
 #include <gal/color4d.h>
 #include <dialog_shim.h>
@@ -34,8 +35,8 @@
 
 SCINTILLA_TRICKS::SCINTILLA_TRICKS( wxStyledTextCtrl* aScintilla, const wxString& aBraces,
                                     bool aSingleLine,
-                                    std::function<void( wxKeyEvent& )> onAcceptHandler,
-                                    std::function<void( wxStyledTextEvent& )> onCharAddedHandler ) :
+                                    std::function<void( wxKeyEvent& )> onAcceptFn,
+                                    std::function<void( wxStyledTextEvent& )> onCharAddedFn ) :
         m_te( aScintilla ),
         m_braces( aBraces ),
         m_lastCaretPos( -1 ),
@@ -43,8 +44,8 @@ SCINTILLA_TRICKS::SCINTILLA_TRICKS( wxStyledTextCtrl* aScintilla, const wxString
         m_lastSelEnd( -1 ),
         m_suppressAutocomplete( false ),
         m_singleLine( aSingleLine ),
-        m_onAcceptHandler( onAcceptHandler ),
-        m_onCharAddedHandler( onCharAddedHandler )
+        m_onAcceptFn( std::move( onAcceptFn ) ),
+        m_onCharAddedFn( std::move( onCharAddedFn ) )
 {
     // Always use LF as eol char, regardless the platform
     m_te->SetEOLMode( wxSTC_EOL_LF );
@@ -173,7 +174,7 @@ bool isCtrlSlash( wxKeyEvent& aEvent )
 
 void SCINTILLA_TRICKS::onChar( wxStyledTextEvent& aEvent )
 {
-    m_onCharAddedHandler( aEvent );
+    m_onCharAddedFn( aEvent );
 }
 
 
@@ -225,13 +226,29 @@ void SCINTILLA_TRICKS::onCharHook( wxKeyEvent& aEvent )
         return;
     }
 
+#ifdef __WXMAC__
+    if( aEvent.GetModifiers() == wxMOD_RAW_CONTROL && aEvent.GetKeyCode() == WXK_SPACE )
+#else
+    if( aEvent.GetModifiers() == wxMOD_CONTROL && aEvent.GetKeyCode() == WXK_SPACE )
+#endif
+    {
+        m_suppressAutocomplete = false;
+
+        wxStyledTextEvent event;
+        event.SetKey( ' ' );
+        event.SetModifiers( wxMOD_CONTROL );
+        m_onCharAddedFn( event );
+
+        return;
+    }
+
     if( !isalpha( aEvent.GetKeyCode() ) )
         m_suppressAutocomplete = false;
 
     if( ( aEvent.GetKeyCode() == WXK_RETURN || aEvent.GetKeyCode() == WXK_NUMPAD_ENTER )
         && ( m_singleLine || aEvent.ShiftDown() ) )
     {
-        m_onAcceptHandler( aEvent );
+        m_onAcceptFn( aEvent );
     }
     else if( ConvertSmartQuotesAndDashes( &c ) )
     {
@@ -239,6 +256,11 @@ void SCINTILLA_TRICKS::onCharHook( wxKeyEvent& aEvent )
     }
     else if( aEvent.GetKeyCode() == WXK_TAB )
     {
+        wxWindow* ancestor = m_te->GetParent();
+
+        while( ancestor && !dynamic_cast<WX_GRID*>( ancestor ) )
+            ancestor = ancestor->GetParent();
+
         if( aEvent.ControlDown() )
         {
             int flags = 0;
@@ -253,6 +275,47 @@ void SCINTILLA_TRICKS::onCharHook( wxKeyEvent& aEvent )
 
             if( parent )
                 parent->NavigateIn( flags );
+        }
+        else if( dynamic_cast<WX_GRID*>( ancestor ) )
+        {
+            WX_GRID* grid = static_cast<WX_GRID*>( ancestor );
+            int      row = grid->GetGridCursorRow();
+            int      col = grid->GetGridCursorCol();
+
+            if( aEvent.ShiftDown() )
+            {
+                if( col > 0 )
+                {
+                    col--;
+                }
+                else if( row > 0 )
+                {
+                    col = (int) grid->GetNumberCols() - 1;
+
+                    if( row > 0 )
+                        row--;
+                    else
+                        row = (int) grid->GetNumberRows() - 1;
+                }
+            }
+            else
+            {
+                if( col < (int) grid->GetNumberCols() - 1 )
+                {
+                    col++;
+                }
+                else if( row < grid->GetNumberRows() - 1 )
+                {
+                    col = 0;
+
+                    if( row < grid->GetNumberRows() - 1 )
+                        row++;
+                    else
+                        row = 0;
+                }
+            }
+
+            grid->SetGridCursor( row, col );
         }
         else
         {
@@ -275,10 +338,22 @@ void SCINTILLA_TRICKS::onCharHook( wxKeyEvent& aEvent )
     else if( aEvent.GetModifiers() == wxMOD_CONTROL && aEvent.GetKeyCode() == 'X' )
     {
         m_te->Cut();
+
+        if( wxTheClipboard->Open() )
+        {
+            wxTheClipboard->Flush(); // Allow data to be available after closing KiCad
+            wxTheClipboard->Close();
+        }
     }
     else if( aEvent.GetModifiers() == wxMOD_CONTROL && aEvent.GetKeyCode() == 'C' )
     {
         m_te->Copy();
+
+        if( wxTheClipboard->Open() )
+        {
+            wxTheClipboard->Flush(); // Allow data to be available after closing KiCad
+            wxTheClipboard->Close();
+        }
     }
     else if( aEvent.GetModifiers() == wxMOD_CONTROL && aEvent.GetKeyCode() == 'V' )
     {
@@ -479,8 +554,8 @@ void SCINTILLA_TRICKS::onScintillaUpdateUI( wxStyledTextEvent& aEvent )
 }
 
 
-void SCINTILLA_TRICKS::DoTextVarAutocomplete( std::function<void( const wxString& crossRef,
-                                                                  wxArrayString* tokens )> aTokenProvider )
+void SCINTILLA_TRICKS::DoTextVarAutocomplete(
+        const std::function<void( const wxString& xRef, wxArrayString* tokens )>& getTokensFn )
 {
     wxArrayString autocompleteTokens;
     int           text_pos = m_te->GetCurrentPos();
@@ -501,13 +576,13 @@ void SCINTILLA_TRICKS::DoTextVarAutocomplete( std::function<void( const wxString
         if( textVarRef( refStart ) )
         {
             partial = m_te->GetRange( start, text_pos );
-            aTokenProvider( m_te->GetRange( refStart, start-1 ), &autocompleteTokens );
+            getTokensFn( m_te->GetRange( refStart, start-1 ), &autocompleteTokens );
         }
     }
     else if( textVarRef( start ) )
     {
         partial = m_te->GetTextRange( start, text_pos );
-        aTokenProvider( wxEmptyString, &autocompleteTokens );
+        getTokensFn( wxEmptyString, &autocompleteTokens );
     }
 
     DoAutocomplete( partial, autocompleteTokens );

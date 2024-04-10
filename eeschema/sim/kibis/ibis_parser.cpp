@@ -1135,8 +1135,8 @@ bool IbisParser::readString( std::string& aDest )
 
     if( len < 1 )
     {
-        Report( _( "Unable to read string, input is empty." ), RPT_SEVERITY_ERROR );
-        return false;
+        // The data is likely on the next line. Skip.
+        return true;
     }
 
     char c = aDest[len - 1];
@@ -1436,6 +1436,20 @@ bool IbisParser::readRamp()
 }
 
 
+bool IbisParser::readModelSpec()
+{
+    bool status = true;
+
+    m_continue = IBIS_PARSER_CONTINUE::MODEL_SPEC;
+
+    // TODO
+    // readTypMinMaxValueSubparam( std::string( "Vmeas" ), m_currentModel->... )
+    // ...
+
+    return status;
+}
+
+
 bool IbisParser::parseModel( std::string& aKeyword )
 {
     bool status = false;
@@ -1458,6 +1472,8 @@ bool IbisParser::parseModel( std::string& aKeyword )
         status = readWaveform( nullptr, IBIS_WAVEFORM_TYPE::FALLING );
     else if( compareIbisWord( aKeyword.c_str(), "Ramp" ) )
         status = readRamp();
+    else if( compareIbisWord( aKeyword.c_str(), "Model_Spec" ) )
+        status = readModelSpec();
     else if( compareIbisWord( aKeyword.c_str(), "Pullup_Reference" ) )
         status = readTypMinMaxValue( m_currentModel->m_pullupReference );
     else if( compareIbisWord( aKeyword.c_str(), "Pulldown_Reference" ) )
@@ -1930,39 +1946,39 @@ bool IbisParser::readModel()
             {
                 if( readWord( subparam ) )
                 {
-                    if( !compareIbisWord( subparam.c_str(), "Input" ) )
+                    if( compareIbisWord( subparam.c_str(), "Input" ) )
                         m_currentModel->m_type = IBIS_MODEL_TYPE::INPUT_STD;
-                    else if( !compareIbisWord( subparam.c_str(), "Output" ) )
+                    else if( compareIbisWord( subparam.c_str(), "Output" ) )
                         m_currentModel->m_type = IBIS_MODEL_TYPE::OUTPUT;
-                    else if( !compareIbisWord( subparam.c_str(), "I/O" ) )
+                    else if( compareIbisWord( subparam.c_str(), "I/O" ) )
                         m_currentModel->m_type = IBIS_MODEL_TYPE::IO;
-                    else if( !compareIbisWord( subparam.c_str(), "3-state" ) )
+                    else if( compareIbisWord( subparam.c_str(), "3-state" ) )
                         m_currentModel->m_type = IBIS_MODEL_TYPE::THREE_STATE;
-                    else if( !compareIbisWord( subparam.c_str(), "Open_drain" ) )
+                    else if( compareIbisWord( subparam.c_str(), "Open_drain" ) )
                         m_currentModel->m_type = IBIS_MODEL_TYPE::OPEN_DRAIN;
-                    else if( !compareIbisWord( subparam.c_str(), "I/O_Open_drain" ) )
+                    else if( compareIbisWord( subparam.c_str(), "I/O_Open_drain" ) )
                         m_currentModel->m_type = IBIS_MODEL_TYPE::IO_OPEN_DRAIN;
-                    else if( !compareIbisWord( subparam.c_str(), "Open_sink" ) )
+                    else if( compareIbisWord( subparam.c_str(), "Open_sink" ) )
                         m_currentModel->m_type = IBIS_MODEL_TYPE::OPEN_SINK;
-                    else if( !compareIbisWord( subparam.c_str(), "I/O_open_sink" ) )
+                    else if( compareIbisWord( subparam.c_str(), "I/O_open_sink" ) )
                         m_currentModel->m_type = IBIS_MODEL_TYPE::IO_OPEN_SINK;
-                    else if( !compareIbisWord( subparam.c_str(), "Open_source" ) )
+                    else if( compareIbisWord( subparam.c_str(), "Open_source" ) )
                         m_currentModel->m_type = IBIS_MODEL_TYPE::OPEN_SOURCE;
-                    else if( !compareIbisWord( subparam.c_str(), "I/O_open_source" ) )
+                    else if( compareIbisWord( subparam.c_str(), "I/O_open_source" ) )
                         m_currentModel->m_type = IBIS_MODEL_TYPE::IO_OPEN_SOURCE;
-                    else if( !compareIbisWord( subparam.c_str(), "Input_ECL" ) )
+                    else if( compareIbisWord( subparam.c_str(), "Input_ECL" ) )
                         m_currentModel->m_type = IBIS_MODEL_TYPE::INPUT_ECL;
-                    else if( !compareIbisWord( subparam.c_str(), "Output_ECL" ) )
+                    else if( compareIbisWord( subparam.c_str(), "Output_ECL" ) )
                         m_currentModel->m_type = IBIS_MODEL_TYPE::OUTPUT_ECL;
-                    else if( !compareIbisWord( subparam.c_str(), "I/O_ECL" ) )
+                    else if( compareIbisWord( subparam.c_str(), "I/O_ECL" ) )
                         m_currentModel->m_type = IBIS_MODEL_TYPE::IO_ECL;
-                    else if( !compareIbisWord( subparam.c_str(), "3-state_ECL" ) )
+                    else if( compareIbisWord( subparam.c_str(), "3-state_ECL" ) )
                         m_currentModel->m_type = IBIS_MODEL_TYPE::THREE_STATE_ECL;
-                    else if( !compareIbisWord( subparam.c_str(), "Terminator" ) )
+                    else if( compareIbisWord( subparam.c_str(), "Terminator" ) )
                         m_currentModel->m_type = IBIS_MODEL_TYPE::TERMINATOR;
-                    else if( !compareIbisWord( subparam.c_str(), "Series" ) )
+                    else if( compareIbisWord( subparam.c_str(), "Series" ) )
                         m_currentModel->m_type = IBIS_MODEL_TYPE::SERIES;
-                    else if( !compareIbisWord( subparam.c_str(), "Series_switch" ) )
+                    else if( compareIbisWord( subparam.c_str(), "Series_switch" ) )
                         m_currentModel->m_type = IBIS_MODEL_TYPE::SERIES_SWITCH;
                     else
                     {
@@ -2577,6 +2593,7 @@ bool IbisParser::onNewLine()
             status &= readWaveform( m_currentWaveform, m_currentWaveform->m_type );
             break;
         case IBIS_PARSER_CONTINUE::RAMP: status &= readRamp(); break;
+        case IBIS_PARSER_CONTINUE::MODEL_SPEC: status &= readModelSpec(); break;
         case IBIS_PARSER_CONTINUE::PACKAGEMODEL_PINS: status &= readPackageModelPins(); break;
         case IBIS_PARSER_CONTINUE::MATRIX: status &= readMatrix( m_currentMatrix ); break;
         case IBIS_PARSER_CONTINUE::NONE:

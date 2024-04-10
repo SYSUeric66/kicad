@@ -2,7 +2,7 @@
  * KiRouter - a push-and-(sometimes-)shove PCB router
  *
  * Copyright (C) 2013-2014 CERN
- * Copyright (C) 2016 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2016-2024 KiCad Developers, see AUTHORS.txt for contributors.
  * Author: Tomasz Wlostowski <tomasz.wlostowski@cern.ch>
  *
  * This program is free software: you can redistribute it and/or modify it
@@ -97,7 +97,8 @@ enum DRAG_MODE
     virtual bool IsItemVisible( const PNS::ITEM* aItem ) const = 0;
     virtual bool IsFlashedOnLayer( const PNS::ITEM* aItem, int aLayer ) const = 0;
     virtual bool IsFlashedOnLayer( const PNS::ITEM* aItem, const LAYER_RANGE& aLayer ) const = 0;
-    virtual void DisplayItem( const ITEM* aItem, int aClearance, bool aEdit = false, bool aIsHeadTrace = false ) = 0;
+    virtual void DisplayItem( const ITEM* aItem, int aClearance, bool aEdit = false,
+                                    int aFlags = 0 ) = 0;
     virtual void DisplayPathLine( const SHAPE_LINE_CHAIN& aLine, int aImportance ) = 0;
     virtual void DisplayRatline( const SHAPE_LINE_CHAIN& aRatline, NET_HANDLE aNetCode ) = 0;
     virtual void HideItem( ITEM* aItem ) = 0;
@@ -148,8 +149,8 @@ public:
     bool Move( const VECTOR2I& aP, ITEM* aItem );
     bool Finish();
     bool ContinueFromEnd( ITEM** aNewStartItem );
-    bool FixRoute( const VECTOR2I& aP, ITEM* aItem, bool aForceFinish = false );
-    void BreakSegment( ITEM *aItem, const VECTOR2I& aP );
+    bool FixRoute( const VECTOR2I& aP, ITEM* aItem, bool aForceFinish, bool aForceCommit );
+    void BreakSegmentOrArc( ITEM *aItem, const VECTOR2I& aP );
 
     std::optional<VECTOR2I> UndoLastSegment();
     void CommitRouting();
@@ -180,7 +181,7 @@ public:
 
     bool IsPlacingVia() const;
 
-    const ITEM_SET QueryHoverItems( const VECTOR2I& aP, bool aUseClearance = false );
+    const ITEM_SET QueryHoverItems( const VECTOR2I& aP, int aSlopRadius = 0 );
 
     bool StartDragging( const VECTOR2I& aP, ITEM* aItem, int aDragMode = DM_ANY );
     bool StartDragging( const VECTOR2I& aP, ITEM_SET aItems, int aDragMode = DM_COMPONENT );

@@ -117,12 +117,14 @@ void PNS_LOG_VIEWER_OVERLAY::DrawAnnotations()
 
 
 PNS_LOG_VIEWER_FRAME::PNS_LOG_VIEWER_FRAME( wxFrame* frame ) :
-        PNS_LOG_VIEWER_FRAME_BASE( frame ), m_rewindIter( 0 ), m_reporter( &m_consoleLog )
+        PNS_LOG_VIEWER_FRAME_BASE( frame ), m_rewindIter( 0 )
 {
     LoadSettings();
-    createView( this, PCB_DRAW_PANEL_GAL::GAL_TYPE_OPENGL );
+    createView( m_mainSplitter, PCB_DRAW_PANEL_GAL::GAL_TYPE_OPENGL );
 
-    m_viewSizer->Add( m_galPanel.get(), 1, wxEXPAND, 5 );
+    m_reporter.reset( new WX_TEXT_CTRL_REPORTER( m_consoleText ) );
+    m_galPanel->SetParent( m_mainSplitter );
+    m_mainSplitter->SplitHorizontally( m_galPanel.get(), m_panelProps );
 
     Layout();
 
@@ -153,6 +155,7 @@ PNS_LOG_VIEWER_FRAME::PNS_LOG_VIEWER_FRAME( wxFrame* frame ) :
                              wxITEM_NORMAL );
     m_listPopupMenu->Append( ID_LIST_SHOW_ALL, wxT( "Show all" ), wxT( "" ), wxITEM_NORMAL );
     m_listPopupMenu->Append( ID_LIST_SHOW_NONE, wxT( "Show none" ), wxT( "" ), wxITEM_NORMAL );
+    m_listPopupMenu->Append( ID_LIST_DISPLAY_LINE, wxT( "Go to line in IDE" ), wxT( "" ), wxITEM_NORMAL );
 
     m_itemList->Connect( m_itemList->GetId(), wxEVT_TREELIST_ITEM_CONTEXT_MENU,
                          wxMouseEventHandler( PNS_LOG_VIEWER_FRAME::onListRightClick ), nullptr,
@@ -328,7 +331,7 @@ void PNS_LOG_VIEWER_FRAME::LoadLogFile( const wxString& aFile )
 {
     std::unique_ptr<PNS_LOG_FILE> logFile( new PNS_LOG_FILE );
 
-    if( logFile->Load( wxFileName( aFile ), &m_reporter ) )
+    if( logFile->Load( wxFileName( aFile ), m_reporter.get() ) )
         SetLogFile( logFile.release() );
 }
 
@@ -341,7 +344,7 @@ void PNS_LOG_VIEWER_FRAME::SetLogFile( PNS_LOG_FILE* aLog )
 
     SetBoard( m_logFile->GetBoard() );
 
-    m_logPlayer->ReplayLog( m_logFile.get(), 0, 0, -1);
+    m_logPlayer->ReplayLog( m_logFile.get(), 0, 0, -1, true );
 
     auto dbgd = m_logPlayer->GetDebugDecorator();
     int  n_stages = dbgd->GetStageCount();
@@ -416,7 +419,7 @@ void PNS_LOG_VIEWER_FRAME::onSaveAs( wxCommandEvent& event )
 
         wxASSERT_MSG( create_me.IsAbsolute(), wxS( "wxFileDialog returned non-absolute path" ) );
 
-        m_logFile->SaveLog( create_me, &m_reporter );
+        m_logFile->SaveLog( create_me, m_reporter.get() );
         m_mruPath = create_me.GetPath();
     }
 
@@ -550,6 +553,16 @@ void PNS_LOG_VIEWER_FRAME::syncModel()
 }
 
 
+void runCommand( const wxString& aCommand )
+{
+#ifdef __WXMSW__
+    wxShell( aCommand ); // on windows we need to launch a shell in order to run the command
+#else
+    wxExecute( aCommand );
+#endif /* __WXMSW__ */
+}
+
+
 void PNS_LOG_VIEWER_FRAME::onListRightClick( wxMouseEvent& event )
 {
     auto sel = m_itemList->GetPopupMenuSelectionFromUser( *m_listPopupMenu );
@@ -601,7 +614,34 @@ void PNS_LOG_VIEWER_FRAME::onListRightClick( wxMouseEvent& event )
 
         return;
     }
+    case ID_LIST_DISPLAY_LINE:
+    {
+        wxVector<wxTreeListItem> selectedItems;
+
+        if( m_itemList->GetSelections( selectedItems ) == 1 )
+        {
+            wxString filename = m_itemList->GetItemText(selectedItems.back(), 2);
+            wxString line = m_itemList->GetItemText(selectedItems.back(), 4);
+
+
+            if( !filename.empty() && !line.empty() )
+            {
+                wxString filepath = m_filenameToPathMap[filename];
+
+                switch( m_ideChoice->GetCurrentSelection() )
+                {
+                    case 0: runCommand( wxString::Format( "code --goto %s:%s", filepath, line ) ); return;
+                    case 1: runCommand( wxString::Format( "start devenv /edit %s /command \"Gotoln %s\"", filepath, line ) ); return; // fixme
+                    case 2: runCommand( wxString::Format( "clion --line %s %s", line, filepath ) ); return;
+                    case 3: runCommand( wxString::Format( "emacsclient +%s %s", line, filepath ) ); return;
+                    default: return;
+                }
+            }
+        }
+        break;
     }
+    }
+    return;
 }
 
 
@@ -726,7 +766,13 @@ void PNS_LOG_VIEWER_FRAME::buildListTree( wxTreeListItem item,
         m_itemList->SetItemText( ritem, 1, ent->m_name );
     }
 
-    m_itemList->SetItemText( ritem, 2, wxFileNameFromPath( ent->m_srcLoc.fileName ) );
+    wxString fullfilepath = ent->m_srcLoc.fileName;
+    wxString filename = wxFileNameFromPath( fullfilepath );
+
+    if( !filename.empty() )
+        m_filenameToPathMap.insert( { filename, fullfilepath } );
+
+    m_itemList->SetItemText( ritem, 2, filename );
     m_itemList->SetItemText( ritem, 3, ent->m_srcLoc.funcName );
     m_itemList->SetItemText( ritem, 4, wxString::Format("%d", ent->m_srcLoc.line ) );
 
@@ -861,10 +907,10 @@ void PNS_LOG_VIEWER_FRAME::updatePnsPreviewItems( int iter )
 
     for( auto& ent : entries )
     {
-        if ( ent.isHideOp )
+        if ( ent.m_isHideOp )
         {
 
-            auto parent = ent.item->Parent();
+            auto parent = ent.m_item->Parent();
             if( parent )
             {
 
@@ -873,8 +919,8 @@ void PNS_LOG_VIEWER_FRAME::updatePnsPreviewItems( int iter )
         }
         else
         {
-            ROUTER_PREVIEW_ITEM* pitem = new ROUTER_PREVIEW_ITEM( ent.item, view );
-            pitem->Update( ent.item );
+            ROUTER_PREVIEW_ITEM* pitem = new ROUTER_PREVIEW_ITEM( ent.m_item, view );
+            pitem->Update( ent.m_item );
             m_previewItems->Add(pitem);
     //        printf("DBG vadd %p total %d\n", pitem, m_previewItems->GetSize() );
         }
@@ -889,12 +935,18 @@ void PNS_LOG_VIEWER_FRAME::updatePnsPreviewItems( int iter )
     //view->UpdateAllItems( KIGFX::ALL );
 }
 
+REPORTER* PNS_LOG_VIEWER_FRAME::GetConsoleReporter()
+{
+    return m_reporter.get();
+}
+
+
 #if 0
 
 static BOARD* loadBoard( const std::string& filename )
 {
-    PLUGIN::RELEASER pi( new PCB_PLUGIN );
-    BOARD*           brd = nullptr;
+    IO_RELEASER<PCB_IO> pi( new PCB_IO_KICAD_SEXPR );
+    BOARD*              brd = nullptr;
 
     try
     {

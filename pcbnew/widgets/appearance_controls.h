@@ -200,8 +200,6 @@ public:
 
     wxSize GetBestSize() const;
 
-    void OnLanguageChanged();
-
     ///< Update the panel contents from the application and board models.
     void OnBoardChanged();
 
@@ -212,6 +210,9 @@ public:
     void OnBoardItemsRemoved( BOARD& aBoard, std::vector<BOARD_ITEM*>& aItems ) override;
     void OnBoardItemChanged( BOARD& aBoard, BOARD_ITEM* aItem ) override;
     void OnBoardItemsChanged( BOARD& aBoard, std::vector<BOARD_ITEM*>& aItems ) override;
+    void OnBoardCompositeUpdate( BOARD& aBoard, std::vector<BOARD_ITEM*>& aAddedItems,
+                                 std::vector<BOARD_ITEM*>& aRemovedItems,
+                                 std::vector<BOARD_ITEM*>& aDeletedItems ) override;
 
     ///< Update the colors on all the widgets from the new chosen color theme.
     void OnColorThemeChanged();
@@ -282,6 +283,9 @@ public:
     bool IsLayerOptionsExpanded();
     bool IsNetOptionsExpanded();
 
+    bool IsTogglingNetclassRatsnestVisibility();
+    bool IsTogglingNetRatsnestVisibility();
+
 protected:
     void OnNotebookPageChanged( wxNotebookEvent& event ) override;
     void OnSetFocus( wxFocusEvent& aEvent ) override;
@@ -290,6 +294,7 @@ protected:
     void OnNetGridDoubleClick( wxGridEvent& event ) override;
     void OnNetGridRightClick( wxGridEvent& event ) override;
     void OnNetGridMouseEvent( wxMouseEvent& aEvent );
+    void OnLanguageChanged( wxCommandEvent& aEvent );
 
 private:
     void createControls();
@@ -467,6 +472,7 @@ private:
         ID_CHANGE_COLOR = wxID_HIGHEST,
         ID_SET_NET_COLOR,
         ID_CLEAR_NET_COLOR,
+        ID_USE_SCHEMATIC_NET_COLOR,
         ID_SHOW_ALL_NETS,
         ID_HIDE_OTHER_NETS,
         ID_HIGHLIGHT_NET,
@@ -486,6 +492,8 @@ private:
         ID_SHOW_ALL_NON_COPPER,
         ID_LAST_VALUE
     };
+
+    bool m_togglingNetclassRatsnestVisibility;
 };
 
 #endif

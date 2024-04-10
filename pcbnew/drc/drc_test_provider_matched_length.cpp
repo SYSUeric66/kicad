@@ -150,17 +150,37 @@ void DRC_TEST_PROVIDER_MATCHED_LENGTH::checkSkews( const DRC_CONSTRAINT& aConstr
     for( const auto& ent : aMatchedConnections )
     {
         int skew = KiROUND( ent.total - avgLength );
+        bool fail_min = false;
+        bool fail_max = false;
+
         if( aConstraint.GetValue().HasMax() && abs( skew ) > aConstraint.GetValue().Max() )
+            fail_max = true;
+        else if( aConstraint.GetValue().HasMin() && abs( skew ) < aConstraint.GetValue().Min() )
+            fail_min = true;
+
+        if( fail_min || fail_max )
         {
             std::shared_ptr<DRC_ITEM> drcItem = DRC_ITEM::Create( DRCE_SKEW_OUT_OF_RANGE );
             wxString msg;
 
-            msg.Printf( _( "(%s max skew %s; actual %s; average net length %s; actual %s)" ),
-                          aConstraint.GetName(),
-                          MessageTextFromValue( aConstraint.GetValue().Max() ),
-                          MessageTextFromValue( skew ),
-                          MessageTextFromValue( avgLength ),
-                          MessageTextFromValue( ent.total ) );
+            if( fail_min )
+            {
+                msg.Printf( _( "(%s min skew %s; actual %s; average net length %s; actual %s)" ),
+                            aConstraint.GetName(),
+                            MessageTextFromValue( aConstraint.GetValue().Min() ),
+                            MessageTextFromValue( skew ),
+                            MessageTextFromValue( avgLength ),
+                            MessageTextFromValue( ent.total ) );
+            }
+            else
+            {
+                msg.Printf( _( "(%s max skew %s; actual %s; average net length %s; actual %s)" ),
+                            aConstraint.GetName(),
+                            MessageTextFromValue( aConstraint.GetValue().Max() ),
+                            MessageTextFromValue( skew ),
+                            MessageTextFromValue( avgLength ),
+                            MessageTextFromValue( ent.total ) );
+            }
 
             drcItem->SetErrorMessage( drcItem->GetErrorText() + " " + msg );
 
@@ -181,16 +201,31 @@ void DRC_TEST_PROVIDER_MATCHED_LENGTH::checkViaCounts( const DRC_CONSTRAINT& aCo
 {
     for( const auto& ent : aMatchedConnections )
     {
+        std::shared_ptr<DRC_ITEM> drcItem = nullptr;
+
         if( aConstraint.GetValue().HasMax() && ent.viaCount > aConstraint.GetValue().Max() )
         {
-            std::shared_ptr<DRC_ITEM> drcItem = DRC_ITEM::Create( DRCE_TOO_MANY_VIAS );
+            drcItem = DRC_ITEM::Create( DRCE_VIA_COUNT_OUT_OF_RANGE );
             wxString msg = wxString::Format( _( "(%s max count %d; actual %d)" ),
                                              aConstraint.GetName(),
                                              aConstraint.GetValue().Max(),
                                              ent.viaCount );
 
-            drcItem->SetErrorMessage( drcItem->GetErrorText() + wxS( " " ) + msg );
+            drcItem->SetErrorMessage( _( "Too many vias on a connection" ) + wxS( " " ) + msg );
+        }
+        else if( aConstraint.GetValue().HasMin() && ent.viaCount < aConstraint.GetValue().Min() )
+        {
+            drcItem = DRC_ITEM::Create( DRCE_VIA_COUNT_OUT_OF_RANGE );
+            wxString msg = wxString::Format( _( "(%s min count %d; actual %d)" ),
+                                             aConstraint.GetName(),
+                                             aConstraint.GetValue().Min(),
+                                             ent.viaCount );
 
+            drcItem->SetErrorMessage( _( "Too few vias on a connection" ) + wxS( " " ) + msg );
+        }
+
+        if( drcItem )
+        {
             for( auto offendingTrack : ent.items )
                 drcItem->SetItems( offendingTrack );
 
@@ -230,14 +265,14 @@ bool DRC_TEST_PROVIDER_MATCHED_LENGTH::runInternal( bool aDelayReportMode )
     size_t       count = 0;
     size_t       ii = 0;
 
-    forEachGeometryItem( { PCB_TRACE_T, PCB_ARC_T, PCB_VIA_T }, LSET::AllCuMask(),
+    forEachGeometryItem( { PCB_TRACE_T, PCB_ARC_T, PCB_VIA_T, PCB_PAD_T }, LSET::AllCuMask(),
             [&]( BOARD_ITEM *item ) -> bool
             {
                 count++;
                 return true;
             } );
 
-    forEachGeometryItem( { PCB_TRACE_T, PCB_ARC_T, PCB_VIA_T }, LSET::AllCuMask(),
+    forEachGeometryItem( { PCB_TRACE_T, PCB_ARC_T, PCB_VIA_T, PCB_PAD_T }, LSET::AllCuMask(),
             [&]( BOARD_ITEM *item ) -> bool
             {
                 if( !reportProgress( ii++, count, progressDelta ) )

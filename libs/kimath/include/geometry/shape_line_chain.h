@@ -173,25 +173,9 @@ public:
 
     SHAPE_LINE_CHAIN( const std::vector<int>& aV );
 
-    SHAPE_LINE_CHAIN( const std::vector<VECTOR2I>& aV, bool aClosed = false ) :
-            SHAPE_LINE_CHAIN_BASE( SH_LINE_CHAIN ),
-            m_closed( aClosed ),
-            m_width( 0 )
-    {
-        m_points = aV;
-        m_shapes = std::vector<std::pair<ssize_t, ssize_t>>( aV.size(), SHAPES_ARE_PT );
-    }
+    SHAPE_LINE_CHAIN( const std::vector<VECTOR2I>& aV, bool aClosed = false );
 
-    SHAPE_LINE_CHAIN( const SHAPE_ARC& aArc, bool aClosed = false ) :
-            SHAPE_LINE_CHAIN_BASE( SH_LINE_CHAIN ),
-            m_closed( aClosed ),
-            m_width( 0 )
-    {
-        m_points = aArc.ConvertToPolyline().CPoints();
-        m_arcs.emplace_back( aArc );
-        m_arcs.back().SetWidth( 0 );
-        m_shapes = std::vector<std::pair<ssize_t, ssize_t>>( m_points.size(), { 0, SHAPE_IS_PT } );
-    }
+    SHAPE_LINE_CHAIN( const SHAPE_ARC& aArc, bool aClosed = false );
 
     SHAPE_LINE_CHAIN( const ClipperLib::Path& aPath,
                       const std::vector<CLIPPER_Z_VALUE>& aZValueBuffer,
@@ -313,6 +297,15 @@ public:
      */
     int ShapeCount() const;
 
+
+    /**
+     * Simplify the line chain by removing colinear adjacent segments and duplicate vertices.
+     *
+     * @param aMaxError is the maximum error in internal units.  Setting to 0 means that the
+     * points must be exactly co-linear to be removed.
+     */
+    void Simplify( int aMaxError = 0 );
+
     /**
      * Return the number of points (vertices) in this line chain.
      *
@@ -330,16 +323,7 @@ public:
      *        from the end (i.e. -1 means the last segment in the line chain).
      * @return a segment at the \a aIndex in the line chain.
      */
-    SEG Segment( int aIndex )
-    {
-        if( aIndex < 0 )
-            aIndex += SegmentCount();
-
-        if( aIndex == (int)( m_points.size() - 1 ) && m_closed )
-            return SEG( m_points[aIndex], m_points[0], aIndex );
-        else
-            return SEG( m_points[aIndex], m_points[aIndex + 1], aIndex );
-    }
+    SEG Segment( int aIndex ) const;
 
     /**
      * Return a constant copy of the \a aIndex segment in the line chain.
@@ -348,16 +332,7 @@ public:
      *        from the end (i.e. -1 means the last segment in the line chain).
      * @return a segment at \a aIndex in the line chain.
      */
-    const SEG CSegment( int aIndex ) const
-    {
-        if( aIndex < 0 )
-            aIndex += SegmentCount();
-
-        if( aIndex == (int)( m_points.size() - 1 ) && m_closed )
-            return SEG( m_points[aIndex], m_points[0], aIndex );
-        else
-            return SEG( m_points[aIndex], m_points[aIndex + 1], aIndex );
-    }
+    const SEG CSegment( int aIndex ) const { return Segment( aIndex ); }
 
     /**
      * Return the vertex index of the next shape in the chain, or -1 if \a aPointIndex is the
@@ -368,16 +343,10 @@ public:
      * the arc, in other words, the last point of the arc.
      *
      * @param aPointIndex is a vertex in the chain.
-     * @param aForwards is true if the next shape is desired, false for previous shape.
      * @return the vertex index of the start of the next shape after aPoint's shape or -1 if
      * the end was reached.
      */
-    int NextShape( int aPointIndex, bool aForwards = true ) const;
-
-    int PrevShape( int aPointIndex ) const
-    {
-        return NextShape( aPointIndex, false );
-    }
+    int NextShape( int aPointIndex ) const;
 
     /**
      * Move a point to a specific location.
@@ -681,14 +650,6 @@ public:
     const std::optional<INTERSECTION> SelfIntersecting() const;
 
     /**
-     * Simplify the line chain by removing colinear adjacent segments and duplicate vertices.
-     *
-     * @param aRemoveColinear controls the removal of colinear adjacent segments.
-     * @return reference to this line chain.
-     */
-    SHAPE_LINE_CHAIN& Simplify( bool aRemoveColinear = true );
-
-    /**
      * Find the segment nearest the given point.
      *
      * @param aP is the point to compare with.
@@ -839,56 +800,15 @@ public:
      * @param aIndex
      * @return
     */
-    bool IsSharedPt( size_t aIndex ) const
-    {
-        return aIndex < m_shapes.size()
-               && m_shapes[aIndex].first != SHAPE_IS_PT
-               && m_shapes[aIndex].second != SHAPE_IS_PT;
-    }
+    bool IsSharedPt( size_t aIndex ) const;
 
+    bool IsPtOnArc( size_t aPtIndex ) const;
 
-    bool IsPtOnArc( size_t aPtIndex ) const
-    {
-        return aPtIndex < m_shapes.size() && m_shapes[aPtIndex] != SHAPES_ARE_PT;
-    }
+    bool IsArcSegment( size_t aSegment ) const;
 
+    bool IsArcStart( size_t aIndex ) const;
 
-    bool IsArcSegment( size_t aSegment ) const
-    {
-        /*
-         * A segment is part of an arc except in the special case of two arcs next to each other
-         * but without a shared vertex.  Here there is a segment between the end of the first arc
-         * and the start of the second arc.
-         */
-        size_t nextIdx = aSegment + 1;
-
-        if( nextIdx > m_shapes.size() - 1 )
-        {
-            if( nextIdx == m_shapes.size() && m_closed )
-                nextIdx = 0; // segment between end point and first point
-            else
-                return false;
-        }
-
-        return ( IsPtOnArc( aSegment )
-                 && ( IsSharedPt( aSegment )
-                      || m_shapes[aSegment].first == m_shapes[nextIdx].first ) );
-    }
-
-
-    bool IsArcStart( size_t aIndex ) const
-    {
-        if( aIndex == 0 )
-            return IsPtOnArc( aIndex );
-
-        return ( IsSharedPt( aIndex ) || ( IsPtOnArc( aIndex ) && !IsArcSegment( aIndex - 1 ) ) );
-    }
-
-
-    bool IsArcEnd( size_t aIndex ) const
-    {
-        return ( IsSharedPt( aIndex ) || ( IsPtOnArc( aIndex ) && !IsArcSegment( aIndex ) ) );
-    }
+    bool IsArcEnd( size_t aIndex ) const;
 
     using SHAPE::Distance;
 

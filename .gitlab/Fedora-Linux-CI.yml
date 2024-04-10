@@ -28,6 +28,7 @@
       -DKICAD_BUILD_I18N=ON
       -DKICAD_TEST_XML_OUTPUT=ON
       -DKICAD_BUILD_PNS_DEBUG_TOOL=ON
+      -DKICAD_USE_CMAKE_FINDPROTOBUF=ON
       ../../
     - ninja 2>&1 | tee compilation_log.txt
     - cd ../../
@@ -39,8 +40,9 @@
     when: always
     paths:
       - build/linux/3d-viewer/
+      - build/linux/api/libkiapi.so*
       - build/linux/common/libkicommon.so*
-      - build/linux/common/gal/libgal.so*
+      - build/linux/common/gal/libkigal.so*
       - build/linux/eeschema/_eeschema.kiface
       - build/linux/kicad/kicad-cli
       - build/linux/pcbnew/pcbnew.py
@@ -63,6 +65,8 @@ fedora_build_linux_kicad:
 
 fedora_build_linux_public:
   extends: .fedora_build_linux_base
+  tags:
+    - saas-linux-medium-amd64
   except:    
     variables:
       - $CI_PROJECT_ROOT_NAMESPACE == "kicad"
@@ -150,7 +154,7 @@ fedora_report_metrics_public:
   parallel:
     matrix:
       # The name of the test without the qa_ prefix
-      - TEST: [python, cli, common, gerbview, pcbnew, pns_regressions, eeschema, kimath, sexpr, kicad2step, spice]
+      - TEST: [python, cli, common, gerbview, pcbnew, pns_regressions, eeschema, kimath, sexpr, kicad2step, spice, api]
 
 fedora_qa_kicad:
   extends: .fedora_qa

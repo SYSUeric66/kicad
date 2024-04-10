@@ -442,7 +442,6 @@ SIM_PLOT_TAB::SIM_PLOT_TAB( const wxString& aSimCommand, wxWindow* parent ) :
 
     m_plotWin->LimitView( true );
     m_plotWin->SetMargins( 30, 70, 45, 70 );
-
     UpdatePlotColors();
 
     updateAxes();
@@ -469,18 +468,21 @@ SIM_PLOT_TAB::~SIM_PLOT_TAB()
 
 void SIM_PLOT_TAB::SetY1Scale( bool aLock, double aMin, double aMax )
 {
+    wxCHECK( m_axis_y1, /* void */ );
     m_axis_y1->SetAxisMinMax( aLock, aMin, aMax );
 }
 
 
 void SIM_PLOT_TAB::SetY2Scale( bool aLock, double aMin, double aMax )
 {
+    wxCHECK( m_axis_y2, /* void */ );
     m_axis_y2->SetAxisMinMax( aLock, aMin, aMax );
 }
 
 
 void SIM_PLOT_TAB::SetY3Scale( bool aLock, double aMin, double aMax )
 {
+    wxCHECK( m_axis_y3, /* void */ );
     m_axis_y3->SetAxisMinMax( aLock, aMin, aMax );
 }
 
@@ -576,7 +578,7 @@ void SIM_PLOT_TAB::updateAxes( int aNewTraceType )
             }
 
             m_axis_x->SetName( _( "Frequency" ) );
-            m_axis_y1->SetName( _( "Ampltiude" ) );
+            m_axis_y1->SetName( _( "Amplitude" ) );
             m_axis_y2->SetName( _( "Phase" ) );
             break;
 
@@ -772,18 +774,24 @@ void SIM_PLOT_TAB::prepareDCAxes( int aNewTraceType )
         m_axis_y1->SetName( _( "Voltage (measured)" ) );
         m_axis_y2->SetName( _( "Current" ) );
 
-        if( ( aNewTraceType & SPT_POWER ) && !m_axis_y3 )
-        {
-            m_plotWin->SetMargins( 30, 140, 45, 70 );
-
-            m_axis_y3 = new LIN_SCALE<mpScaleY>( wxEmptyString, wxT( "W" ), mpALIGN_FAR_RIGHT );
-            m_axis_y3->SetNameAlign( mpALIGN_FAR_RIGHT );
-            m_axis_y3->SetMasterScale( m_axis_y1 );
-            m_plotWin->AddLayer( m_axis_y3 );
-        }
+        if( ( aNewTraceType & SPT_POWER ) )
+            EnsureThirdYAxisExists();
 
         if( m_axis_y3 )
             m_axis_y3->SetName( _( "Power" ) );
+    }
+}
+
+
+void SIM_PLOT_TAB::EnsureThirdYAxisExists()
+{
+    if( !m_axis_y3 )
+    {
+        m_plotWin->SetMargins( 30, 140, 45, 70 );
+        m_axis_y3 = new LIN_SCALE<mpScaleY>( wxEmptyString, wxT( "W" ), mpALIGN_FAR_RIGHT );
+        m_axis_y3->SetNameAlign( mpALIGN_FAR_RIGHT );
+        m_axis_y3->SetMasterScale( m_axis_y1 );
+        m_plotWin->AddLayer( m_axis_y3 );
     }
 }
 

@@ -52,16 +52,20 @@ public:
  *                          (currently just footprint selection) will not be available.
  * @param aShowFootprints   if false, all footprint preview and selection features are
  *                          disabled. This forces aAllowFieldEdits false too.
- * @param aCloseHandler a handler to be called on double-click of a footprint
+ * @param aAcceptHandler a handler to be called on double-click of a footprint
+ * @param aEscapeHandler a handler to be called on <ESC>
  */
     PANEL_SYMBOL_CHOOSER( SCH_BASE_FRAME* aFrame, wxWindow* aParent,
                           const SYMBOL_LIBRARY_FILTER* aFilter,
                           std::vector<PICKED_SYMBOL>& aHistoryList,
                           std::vector<PICKED_SYMBOL>& aAlreadyPlaced,
                           bool aAllowFieldEdits, bool aShowFootprints,
-                          std::function<void()> aCloseHandler );
+                          std::function<void()> aAcceptHandler,
+                          std::function<void()> aEscapeHandler );
 
     ~PANEL_SYMBOL_CHOOSER();
+
+    void OnChar( wxKeyEvent& aEvent );
 
     void FinishSetup();
 
@@ -99,8 +103,9 @@ protected:
 
     wxPanel* constructRightPanel( wxWindow* aParent );
 
-    void OnCharHook( wxKeyEvent& aEvt );
+    void OnDetailsCharHook( wxKeyEvent& aEvt );
     void onCloseTimer( wxTimerEvent& aEvent );
+    void onOpenLibsTimer( wxTimerEvent& aEvent );
 
     void onFootprintSelected( wxCommandEvent& aEvent );
     void onSymbolSelected( wxCommandEvent& aEvent );
@@ -138,6 +143,7 @@ protected:
     static wxString           g_powerSearchString;
 
     wxTimer*                  m_dbl_click_timer;
+    wxTimer*                  m_open_libs_timer;
     SYMBOL_PREVIEW_WIDGET*    m_symbol_preview;
     wxSplitterWindow*         m_hsplitter;
     wxSplitterWindow*         m_vsplitter;
@@ -150,7 +156,8 @@ protected:
     HTML_WINDOW*              m_details;
 
     SCH_BASE_FRAME*           m_frame;
-    std::function<void()>     m_closeHandler;
+    std::function<void()>     m_acceptHandler;
+    std::function<void()>     m_escapeHandler;
 
     bool                      m_showPower;
     bool                      m_allow_field_edits;

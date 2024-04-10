@@ -19,6 +19,7 @@
  */
 
 #include <wildcards_and_files_ext.h>
+#include <env_vars.h>
 #include <executable_names.h>
 #include <pgm_base.h>
 #include <policy_keys.h>
@@ -45,8 +46,8 @@
 #include <wx/filedlg.h>
 #include "dialog_pcm.h"
 #include <macros.h>
-#include <sch_io_mgr.h>
-#include <io_mgr.h>
+#include <sch_io/sch_io_mgr.h>
+#include <pcb_io/pcb_io_mgr.h>
 #include <import_proj.h>
 
 #include "widgets/filedlg_new_project.h"
@@ -64,13 +65,14 @@ void KICAD_MANAGER_CONTROL::Reset( RESET_REASON aReason )
 }
 
 
-wxFileName KICAD_MANAGER_CONTROL::newProjectDirectory( wxString* aFileName )
+wxFileName KICAD_MANAGER_CONTROL::newProjectDirectory( wxString* aFileName, bool isRepo )
 {
     wxString default_filename = aFileName ? *aFileName : wxString();
 
     wxString        default_dir = m_frame->GetMruPath();
     wxFileDialog    dlg( m_frame, _( "Create New Project" ), default_dir, default_filename,
-                         ProjectFileWildcard(), wxFD_SAVE | wxFD_OVERWRITE_PROMPT );
+                         ( isRepo ? wxString( "" ) : FILEEXT::ProjectFileWildcard() ),
+                         wxFD_SAVE | wxFD_OVERWRITE_PROMPT );
 
     // Add a "Create a new directory" checkbox
     FILEDLG_NEW_PROJECT newProjectHook;
@@ -83,10 +85,10 @@ wxFileName KICAD_MANAGER_CONTROL::newProjectDirectory( wxString* aFileName )
 
     // wxFileName automatically extracts an extension.  But if it isn't
     // a .pro extension, we should keep it as part of the filename
-    if( !pro.GetExt().IsEmpty() && pro.GetExt().ToStdString() != ProjectFileExtension )
+    if( !pro.GetExt().IsEmpty() && pro.GetExt().ToStdString() != FILEEXT::ProjectFileExtension )
         pro.SetName( pro.GetName() + wxT( "." ) + pro.GetExt() );
 
-    pro.SetExt( ProjectFileExtension );     // enforce extension
+    pro.SetExt( FILEEXT::ProjectFileExtension ); // enforce extension
 
     if( !pro.IsAbsolute() )
         pro.MakeAbsolute();
@@ -154,8 +156,8 @@ int KICAD_MANAGER_CONTROL::NewFromRepository( const TOOL_EVENT& aEvent )
     if( ret != wxID_OK )
         return -1;
 
-    wxString   repodest = dlg.GetRepoName();
-    wxFileName pro = newProjectDirectory( &repodest );
+    wxString   project_name = dlg.GetRepoName();
+    wxFileName pro = newProjectDirectory( &project_name, true );
 
     if( !pro.IsOk() )
         return -1;
@@ -212,16 +214,17 @@ int KICAD_MANAGER_CONTROL::NewFromTemplate( const TOOL_EVENT& aEvent )
     wxFileName  templatePath;
 
     // KiCad system template path.
-    ENV_VAR_MAP_CITER it =  Pgm().GetLocalEnvVariables().find( "KICAD7_TEMPLATE_DIR" );
+    std::optional<wxString> v = ENV_VAR::GetVersionedEnvVarValue( Pgm().GetLocalEnvVariables(),
+                                                                  wxT( "TEMPLATE_DIR" ) );
 
-    if( it != Pgm().GetLocalEnvVariables().end() && it->second.GetValue() != wxEmptyString )
+    if( v && !v->IsEmpty() )
     {
-        templatePath.AssignDir( it->second.GetValue() );
+        templatePath.AssignDir( *v );
         ps->AddTemplatesPage( _( "System Templates" ), templatePath );
     }
 
     // User template path.
-    it = Pgm().GetLocalEnvVariables().find( "KICAD_USER_TEMPLATE_DIR" );
+    ENV_VAR_MAP_CITER it = Pgm().GetLocalEnvVariables().find( "KICAD_USER_TEMPLATE_DIR" );
 
     if( it != Pgm().GetLocalEnvVariables().end() && it->second.GetValue() != wxEmptyString )
     {
@@ -244,7 +247,7 @@ int KICAD_MANAGER_CONTROL::NewFromTemplate( const TOOL_EVENT& aEvent )
     // Get project destination folder and project file name.
     wxString        default_dir = wxFileName( Prj().GetProjectFullName() ).GetPathWithSep();
     wxString        title = _( "New Project Folder" );
-    wxFileDialog    dlg( m_frame, title, default_dir, wxEmptyString, ProjectFileWildcard(),
+    wxFileDialog    dlg( m_frame, title, default_dir, wxEmptyString, FILEEXT::ProjectFileWildcard(),
                          wxFD_SAVE | wxFD_OVERWRITE_PROMPT );
 
     // Add a "Create a new directory" checkbox
@@ -258,10 +261,10 @@ int KICAD_MANAGER_CONTROL::NewFromTemplate( const TOOL_EVENT& aEvent )
 
     // wxFileName automatically extracts an extension.  But if it isn't a .kicad_pro extension,
     // we should keep it as part of the filename
-    if( !fn.GetExt().IsEmpty() && fn.GetExt().ToStdString() != ProjectFileExtension )
+    if( !fn.GetExt().IsEmpty() && fn.GetExt().ToStdString() != FILEEXT::ProjectFileExtension )
         fn.SetName( fn.GetName() + wxT( "." ) + fn.GetExt() );
 
-    fn.SetExt( ProjectFileExtension );
+    fn.SetExt( FILEEXT::ProjectFileExtension );
 
     if( !fn.IsAbsolute() )
         fn.MakeAbsolute();
@@ -357,9 +360,9 @@ int KICAD_MANAGER_CONTROL::NewFromTemplate( const TOOL_EVENT& aEvent )
 
 int KICAD_MANAGER_CONTROL::openProject( const wxString& aDefaultDir )
 {
-    wxString wildcard = AllProjectFilesWildcard()
-                        + "|" + ProjectFileWildcard()
-                        + "|" + LegacyProjectFileWildcard();
+    wxString wildcard = FILEEXT::AllProjectFilesWildcard()
+                        + "|" + FILEEXT::ProjectFileWildcard()
+                        + "|" + FILEEXT::LegacyProjectFileWildcard();
 
     wxFileDialog dlg( m_frame, _( "Open Existing Project" ), aDefaultDir, wxEmptyString, wildcard,
                       wxFD_OPEN | wxFD_FILE_MUST_EXIST );
@@ -440,9 +443,9 @@ public:
         wxString   ext = destFile.GetExt();
         bool       atRoot = destFile.GetPath() == m_projectDirPath;
 
-        if( ext == LegacyProjectFileExtension
-          || ext == ProjectFileExtension
-          || ext == ProjectLocalSettingsFileExtension )
+        if( ext == FILEEXT::LegacyProjectFileExtension
+          || ext == FILEEXT::ProjectFileExtension
+          || ext == FILEEXT::ProjectLocalSettingsFileExtension )
         {
             wxString destPath = destFile.GetPath();
 
@@ -456,70 +459,71 @@ public:
             {
                 destFile.SetName( m_newProjectName );
 
-                if( atRoot && ext != ProjectLocalSettingsFileExtension )
+                if( atRoot && ext != FILEEXT::ProjectLocalSettingsFileExtension )
                     m_newProjectFile = destFile;
             }
 
-            if( ext == LegacyProjectFileExtension )
+            if( ext == FILEEXT::LegacyProjectFileExtension )
             {
                 // All paths in the settings file are relative so we can just do a straight copy
                 KiCopyFile( aSrcFilePath, destFile.GetFullPath(), m_errors );
             }
-            else if( ext == ProjectFileExtension )
+            else if( ext == FILEEXT::ProjectFileExtension )
             {
                 PROJECT_FILE projectFile( aSrcFilePath );
                 projectFile.LoadFromFile();
                 projectFile.SaveAs( destFile.GetPath(), destFile.GetName() );
             }
-            else if( ext == ProjectLocalSettingsFileExtension )
+            else if( ext == FILEEXT::ProjectLocalSettingsFileExtension )
             {
                 PROJECT_LOCAL_SETTINGS projectLocalSettings( nullptr, aSrcFilePath );
                 projectLocalSettings.LoadFromFile();
                 projectLocalSettings.SaveAs( destFile.GetPath(), destFile.GetName() );
             }
         }
-        else if( ext == KiCadSchematicFileExtension
-               || ext == KiCadSchematicFileExtension + BackupFileSuffix
-               || ext == LegacySchematicFileExtension
-               || ext == LegacySchematicFileExtension + BackupFileSuffix
-               || ext == SchematicSymbolFileExtension
-               || ext == LegacySymbolLibFileExtension
-               || ext == LegacySymbolDocumentFileExtension
-               || ext == KiCadSymbolLibFileExtension
-               || ext == NetlistFileExtension
+        else if( ext == FILEEXT::KiCadSchematicFileExtension
+                 || ext == FILEEXT::KiCadSchematicFileExtension + FILEEXT::BackupFileSuffix
+                 || ext == FILEEXT::LegacySchematicFileExtension
+                 || ext == FILEEXT::LegacySchematicFileExtension + FILEEXT::BackupFileSuffix
+                 || ext == FILEEXT::SchematicSymbolFileExtension
+                 || ext == FILEEXT::LegacySymbolLibFileExtension
+                 || ext == FILEEXT::LegacySymbolDocumentFileExtension
+                 || ext == FILEEXT::KiCadSymbolLibFileExtension
+                 || ext == FILEEXT::NetlistFileExtension
                || destFile.GetName() == "sym-lib-table" )
         {
             KIFACE* eeschema = m_frame->Kiway().KiFACE( KIWAY::FACE_SCH );
             eeschema->SaveFileAs( m_projectDirPath, m_projectName, m_newProjectDirPath,
                                   m_newProjectName, aSrcFilePath, m_errors );
         }
-        else if( ext == KiCadPcbFileExtension
-               || ext == KiCadPcbFileExtension + BackupFileSuffix
-               || ext == LegacyPcbFileExtension
-               || ext == KiCadFootprintFileExtension
-               || ext == LegacyFootprintLibPathExtension
-               || ext == FootprintAssignmentFileExtension
+        else if( ext == FILEEXT::KiCadPcbFileExtension
+                 || ext == FILEEXT::KiCadPcbFileExtension + FILEEXT::BackupFileSuffix
+                 || ext == FILEEXT::LegacyPcbFileExtension
+                 || ext == FILEEXT::KiCadFootprintFileExtension
+                 || ext == FILEEXT::LegacyFootprintLibPathExtension
+                 || ext == FILEEXT::FootprintAssignmentFileExtension
                || destFile.GetName() == "fp-lib-table" )
         {
             KIFACE* pcbnew = m_frame->Kiway().KiFACE( KIWAY::FACE_PCB );
             pcbnew->SaveFileAs( m_projectDirPath, m_projectName, m_newProjectDirPath,
                                 m_newProjectName, aSrcFilePath, m_errors );
         }
-        else if( ext == DrawingSheetFileExtension )
+        else if( ext == FILEEXT::DrawingSheetFileExtension )
         {
             KIFACE* pleditor = m_frame->Kiway().KiFACE( KIWAY::FACE_PL_EDITOR );
             pleditor->SaveFileAs( m_projectDirPath, m_projectName, m_newProjectDirPath,
                                   m_newProjectName, aSrcFilePath, m_errors );
         }
-        else if( ext == GerberJobFileExtension
-               || ext == DrillFileExtension
-               || IsGerberFileExtension(ext) )
+        else if( ext == FILEEXT::GerberJobFileExtension
+               || ext == FILEEXT::DrillFileExtension
+                 || FILEEXT::IsGerberFileExtension( ext ) )
         {
             KIFACE* gerbview = m_frame->Kiway().KiFACE( KIWAY::FACE_GERBVIEW );
             gerbview->SaveFileAs( m_projectDirPath, m_projectName, m_newProjectDirPath,
                                   m_newProjectName, aSrcFilePath, m_errors );
         }
-        else if(destFile.GetName().StartsWith( LockFilePrefix ) && ext == LockFileExtension )
+        else if( destFile.GetName().StartsWith( FILEEXT::LockFilePrefix )
+                 && ext == FILEEXT::LockFileExtension )
         {
             // Ignore lock files
         }

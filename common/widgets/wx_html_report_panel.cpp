@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2015 CERN
- * Copyright (C) 2015-2023 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2015-2024 KiCad Developers, see AUTHORS.txt for contributors.
  * Author: Tomasz Wlostowski <tomasz.wlostowski@cern.ch>
  *
  * This program is free software: you can redistribute it and/or modify it
@@ -365,8 +365,10 @@ void WX_HTML_REPORT_PANEL::onBtnSaveToFile( wxCommandEvent& event )
     else
         fn = m_reportFileName;
 
-    wxFileDialog dlg( this, _( "Save Report File" ), fn.GetPath(), fn.GetFullName(),
-                      TextFileWildcard(), wxFD_SAVE | wxFD_OVERWRITE_PROMPT );
+    wxWindow* topLevelParent = wxGetTopLevelParent( this );
+
+    wxFileDialog dlg( topLevelParent, _( "Save Report File" ), fn.GetPath(), fn.GetFullName(),
+                      FILEEXT::TextFileWildcard(), wxFD_SAVE | wxFD_OVERWRITE_PROMPT );
 
     if( dlg.ShowModal() != wxID_OK )
         return;
@@ -384,7 +386,8 @@ void WX_HTML_REPORT_PANEL::onBtnSaveToFile( wxCommandEvent& event )
 
         msg.Printf( _( "Cannot write report to file '%s'." ),
                     fn.GetFullPath().GetData() );
-        wxMessageBox( msg, _( "File save error" ), wxOK | wxICON_ERROR, this );
+        wxMessageBox( msg, _( "File save error" ), wxOK | wxICON_ERROR,
+                      wxGetTopLevelParent( this ) );
         return;
     }
 

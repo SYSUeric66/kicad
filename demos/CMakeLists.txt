@@ -2,7 +2,6 @@ install( DIRECTORY
     complex_hierarchy
     custom_pads_test
     ecc83
-    electric
     flat_hierarchy
     interf_u
     kit-dev-coldfire-xilinx_5213
@@ -14,6 +13,7 @@ install( DIRECTORY
     stickhub
     test_pads_inside_pads
     test_xil_95108
+    tiny_tapeout
     video
     DESTINATION ${KICAD_DEMOS}
     COMPONENT resources

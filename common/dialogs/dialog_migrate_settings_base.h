@@ -1,5 +1,5 @@
 ///////////////////////////////////////////////////////////////////////////
-// C++ code generated with wxFormBuilder (version 3.10.1-0-g8feb16b)
+// C++ code generated with wxFormBuilder (version 4.0.0-0-g0efcecf)
 // http://www.wxformbuilder.org/
 //
 // PLEASE DO *NOT* EDIT THIS FILE!
@@ -30,13 +30,15 @@ class STD_BITMAP_BUTTON;
 #include <wx/checkbox.h>
 #include <wx/dialog.h>
 
+#include "kicommon.h"
+
 ///////////////////////////////////////////////////////////////////////////
 
 
 ///////////////////////////////////////////////////////////////////////////////
 /// Class DIALOG_MIGRATE_SETTINGS_BASE
 ///////////////////////////////////////////////////////////////////////////////
-class DIALOG_MIGRATE_SETTINGS_BASE : public DIALOG_SHIM
+class KICOMMON_API DIALOG_MIGRATE_SETTINGS_BASE : public DIALOG_SHIM
 {
 	private:
 

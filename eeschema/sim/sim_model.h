@@ -33,6 +33,7 @@
 #include <reporter.h>
 #include <sch_field.h>
 #include <lib_field.h>
+#include <lib_pin.h>
 
 // Must be included after sch_field.h (exactly eda_shape.h) to avoid a colliding
 // declaration with a window header (under msys2)
@@ -49,21 +50,20 @@ class PROJECT;
 #define SIM_REFERENCE_FIELD wxT( "Reference" )
 #define SIM_VALUE_FIELD wxT( "Value" )
 
-#define SIM_DEVICE_TYPE_FIELD wxT( "Sim.Device" )
-#define SIM_TYPE_FIELD wxT( "Sim.Type" )
+#define SIM_DEVICE_FIELD wxT( "Sim.Device" )
+#define SIM_DEVICE_SUBTYPE_FIELD wxT( "Sim.Type" )
 #define SIM_PINS_FIELD wxT( "Sim.Pins" )
 #define SIM_PARAMS_FIELD wxT( "Sim.Params" )
-// Note: this has been moved to an actual attribute and is no longer written
-// out as a field
-#define SIM_ENABLE_FIELD wxT( "Sim.Enable" )
 #define SIM_LIBRARY_FIELD wxT( "Sim.Library" )
 #define SIM_NAME_FIELD wxT( "Sim.Name" )
+#define SIM_NODES_FORMAT_FIELD wxT( "Sim.NodesFormat" )
 
-#define SIM_LEGACY_DEVICE_TYPE_FIELD    wxS( "Spice_Primitive" )
-#define SIM_LEGACY_TYPE_FIELD           wxS( "Spice_Model" )
-#define SIM_LEGACY_PINS_FIELD           wxS( "Spice_Node_Sequence" )
-#define SIM_LEGACY_ENABLE_FIELD         wxS( "Spice_Netlist_Enabled" )
-#define SIM_LEGACY_LIBRARY_FIELD        wxS( "Spice_Lib_File" )
+#define SIM_LEGACY_ENABLE_FIELD_V7 wxT( "Sim.Enable" )
+#define SIM_LEGACY_PRIMITIVE_FIELD wxS( "Spice_Primitive" )
+#define SIM_LEGACY_MODEL_FIELD wxS( "Spice_Model" )
+#define SIM_LEGACY_PINS_FIELD wxS( "Spice_Node_Sequence" )
+#define SIM_LEGACY_ENABLE_FIELD wxS( "Spice_Netlist_Enabled" )
+#define SIM_LEGACY_LIBRARY_FIELD wxS( "Spice_Lib_File" )
 
 
 class SIM_MODEL
@@ -82,6 +82,7 @@ public:
         R,
         C,
         L,
+        K,
         TLINE,
         SW,
 
@@ -132,8 +133,9 @@ public:
         C_BEHAVIORAL,
 
         L,
-        L_MUTUAL,
         L_BEHAVIORAL,
+
+        K,
 
         TLINE_Z0,
         TLINE_RLGC,
@@ -239,8 +241,8 @@ public:
         V_SIN,
         V_PULSE,
         V_EXP,
-        //V_SFAM,
-        //V_SFFM,
+        V_AM,
+        V_SFFM,
         V_VCL,
         V_CCL,
         V_PWL,
@@ -248,17 +250,17 @@ public:
         V_PINKNOISE,
         V_BURSTNOISE,
         V_RANDUNIFORM,
-        V_RANDNORMAL,
+        V_RANDGAUSSIAN,
         V_RANDEXP,
-        //V_RANDPOISSON,
+        V_RANDPOISSON,
         V_BEHAVIORAL,
 
         I,
         I_SIN,
         I_PULSE,
         I_EXP,
-        //I_SFAM,
-        //I_SFFM,
+        I_AM,
+        I_SFFM,
         I_VCL,
         I_CCL,
         I_PWL,
@@ -266,9 +268,9 @@ public:
         I_PINKNOISE,
         I_BURSTNOISE,
         I_RANDUNIFORM,
-        I_RANDNORMAL,
+        I_RANDGAUSSIAN,
         I_RANDEXP,
-        //I_RANDPOISSON,
+        I_RANDPOISSON,
         I_BEHAVIORAL,
 
         SUBCKT,
@@ -294,7 +296,7 @@ public:
     {
         std::string itemType;
         std::string modelType = "";
-        std::string inlineTypeString = "";
+        std::string functionName = "";
         std::string level = "";
         bool        isDefaultLevel = false;
         bool        hasExpression = false;

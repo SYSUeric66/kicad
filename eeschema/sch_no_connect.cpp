@@ -102,11 +102,12 @@ int SCH_NO_CONNECT::GetPenWidth() const
 }
 
 
-void SCH_NO_CONNECT::Print( const RENDER_SETTINGS* aSettings, const VECTOR2I& aOffset )
+void SCH_NO_CONNECT::Print( const SCH_RENDER_SETTINGS* aSettings, int aUnit, int aBodyStyle,
+                            const VECTOR2I& aOffset, bool aForceNoFill, bool aDimmed )
 {
     wxDC*   DC = aSettings->GetPrintDC();
     int     half = GetSize() / 2;
-    int     penWidth = std::max( GetPenWidth(), aSettings->GetDefaultPenWidth() );
+    int     penWidth = GetEffectivePenWidth( aSettings );
     int     pX = m_pos.x + aOffset.x;
     int     pY = m_pos.y + aOffset.y;
     COLOR4D color = aSettings->GetLayerColor( LAYER_NOCONNECT );
@@ -128,9 +129,25 @@ void SCH_NO_CONNECT::MirrorHorizontally( int aCenter )
 }
 
 
-void SCH_NO_CONNECT::Rotate( const VECTOR2I& aCenter )
+void SCH_NO_CONNECT::Rotate( const VECTOR2I& aCenter, bool aRotateCCW )
 {
-    RotatePoint( m_pos, aCenter, ANGLE_90 );
+    RotatePoint( m_pos, aCenter, aRotateCCW ? ANGLE_270 : ANGLE_90 );
+}
+
+
+bool SCH_NO_CONNECT::HasConnectivityChanges( const SCH_ITEM* aItem,
+                                             const SCH_SHEET_PATH* aInstance ) const
+{
+    // Do not compare to ourself.
+    if( aItem == this )
+        return false;
+
+    const SCH_NO_CONNECT* noConnect = dynamic_cast<const SCH_NO_CONNECT*>( aItem );
+
+    // Don't compare against a different SCH_ITEM.
+    wxCHECK( noConnect, false );
+
+    return GetPosition() != noConnect->GetPosition();
 }
 
 
@@ -172,8 +189,8 @@ bool SCH_NO_CONNECT::HitTest( const BOX2I& aRect, bool aContained, int aAccuracy
 }
 
 
-void SCH_NO_CONNECT::Plot( PLOTTER* aPlotter, bool aBackground,
-                           const SCH_PLOT_SETTINGS& aPlotSettings ) const
+void SCH_NO_CONNECT::Plot( PLOTTER* aPlotter, bool aBackground, const SCH_PLOT_OPTS& aPlotOpts,
+                           int aUnit, int aBodyStyle, const VECTOR2I& aOffset, bool aDimmed )
 {
     if( aBackground )
         return;
@@ -181,7 +198,7 @@ void SCH_NO_CONNECT::Plot( PLOTTER* aPlotter, bool aBackground,
     int delta = GetSize() / 2;
     int pX = m_pos.x;
     int pY = m_pos.y;
-    int penWidth = std::max( GetPenWidth(), aPlotter->RenderSettings()->GetDefaultPenWidth() );
+    int penWidth = GetEffectivePenWidth( getRenderSettings( aPlotter ) );
 
     aPlotter->SetCurrentLineWidth( penWidth );
     aPlotter->SetColor( aPlotter->RenderSettings()->GetLayerColor( LAYER_NOCONNECT ) );

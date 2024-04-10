@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2016-2023 CERN
- * Copyright (C) 2016-2023 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2016-2024 KiCad Developers, see AUTHORS.txt for contributors.
  * @author Tomasz Wlostowski <tomasz.wlostowski@cern.ch>
  * @author Maciej Suminski <maciej.suminski@cern.ch>
  *
@@ -272,6 +272,16 @@ void SIMULATOR_FRAME::SaveSettings( APP_SETTINGS_BASE* aCfg )
 }
 
 
+void SIMULATOR_FRAME::CommonSettingsChanged( bool aEnvVarsChanged, bool aTextVarsChanged )
+{
+    KIWAY_PLAYER::CommonSettingsChanged( aEnvVarsChanged, aTextVarsChanged );
+
+    auto* cfg = dynamic_cast<EESCHEMA_SETTINGS*>( m_toolManager->GetSettings() );
+    wxASSERT( cfg != nullptr );
+    m_ui->ApplyPreferences( cfg->m_Simulator.preferences );
+}
+
+
 WINDOW_SETTINGS* SIMULATOR_FRAME::GetWindowSettings( APP_SETTINGS_BASE* aCfg )
 {
     EESCHEMA_SETTINGS* cfg = dynamic_cast<EESCHEMA_SETTINGS*>( aCfg );
@@ -355,6 +365,18 @@ bool SIMULATOR_FRAME::LoadSimulator( const wxString& aSimCommand, unsigned aSimO
     }
 
     return true;
+}
+
+
+void SIMULATOR_FRAME::ReloadSimulator( const wxString& aSimCommand, unsigned aSimOptions )
+{
+    wxString           errors;
+    WX_STRING_REPORTER reporter( &errors );
+
+    if( !m_simulator->Attach( m_circuitModel, aSimCommand, aSimOptions, reporter ) )
+    {
+        DisplayErrorMessage( this, _( "Errors during netlist generation.\n\n" ) + errors );
+    }
 }
 
 
@@ -687,6 +709,8 @@ void SIMULATOR_FRAME::setupUIConditions()
 
     mgr->SetConditions( EE_ACTIONS::exportPlotAsPNG,       ENABLE( havePlot ) );
     mgr->SetConditions( EE_ACTIONS::exportPlotAsCSV,       ENABLE( havePlot ) );
+    mgr->SetConditions( EE_ACTIONS::exportPlotToClipboard, ENABLE( havePlot ) );
+    mgr->SetConditions( EE_ACTIONS::exportPlotToSchematic, ENABLE( havePlot ) );
 
     mgr->SetConditions( ACTIONS::zoomUndo,                 ENABLE( haveZoomUndo ) );
     mgr->SetConditions( ACTIONS::zoomRedo,                 ENABLE( haveZoomRedo ) );

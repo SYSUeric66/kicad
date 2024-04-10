@@ -51,6 +51,7 @@ public:
 private:
     void OnAddNetclassClick( wxCommandEvent& event ) override;
     void OnRemoveNetclassClick( wxCommandEvent& event ) override;
+    void OnImportColorsClick( wxCommandEvent& event ) override;
     void OnSizeNetclassGrid( wxSizeEvent& event ) override;
 	void OnSizeAssignmentGrid( wxSizeEvent& event ) override;
     void OnAddAssignmentClick( wxCommandEvent& event ) override;
@@ -83,7 +84,7 @@ private:
     std::map<wxString, std::shared_ptr<NETCLASS>> m_lastLoaded;
     int                                           m_lastCheckedTicker;
 
-    int*                  m_originalColWidths;
+    std::map<int, int>    m_originalColWidths;  // Map col-number : orig-col-width
     bool                  m_netclassesDirty;    // The netclass drop-down menus need rebuilding
     int                   m_hoveredCol;         // Column being hovered over, for tooltips
     wxString              m_lastPattern;

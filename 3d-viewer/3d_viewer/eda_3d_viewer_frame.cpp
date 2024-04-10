@@ -3,7 +3,7 @@
  *
  * Copyright (C) 2015-2016 Mario Luzeiro <mrluzeiro@ua.pt>
  * Copyright (C) 2023 CERN
- * Copyright (C) 1992-2023 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2024 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -116,8 +116,8 @@ EDA_3D_VIEWER_FRAME::EDA_3D_VIEWER_FRAME( KIWAY* aKiway, PCB_BASE_FRAME* aParent
     EDA_3D_VIEWER_SETTINGS* cfg = mgr.GetAppSettings<EDA_3D_VIEWER_SETTINGS>();
     ANTIALIASING_MODE       aaMode = static_cast<ANTIALIASING_MODE>( cfg->m_Render.opengl_AA_mode );
 
-    m_canvas = new EDA_3D_CANVAS( this, OGL_ATT_LIST::GetAttributesList( aaMode ), m_boardAdapter,
-                                  m_currentCamera,
+    m_canvas = new EDA_3D_CANVAS( this, OGL_ATT_LIST::GetAttributesList( aaMode, true ),
+                                  m_boardAdapter, m_currentCamera,
                                   PROJECT_PCB::Get3DCacheManager( &Prj() ) );
 
     m_appearancePanel = new APPEARANCE_CONTROLS_3D( this, GetCanvas() );
@@ -388,12 +388,13 @@ void EDA_3D_VIEWER_FRAME::handleIconizeEvent( wxIconizeEvent& aEvent )
 
 void EDA_3D_VIEWER_FRAME::ReloadRequest()
 {
-    if( m_appearancePanel )
-        m_appearancePanel->UpdateLayerCtls();
-
     // This will schedule a request to load later
+    // ReloadRequest also updates the board pointer so always call it first
     if( m_canvas )
         m_canvas->ReloadRequest( GetBoard(), PROJECT_PCB::Get3DCacheManager( &Prj() ) );
+
+    if( m_appearancePanel )
+        m_appearancePanel->UpdateLayerCtls();
 }
 
 
@@ -567,7 +568,8 @@ void EDA_3D_VIEWER_FRAME::LoadSettings( APP_SETTINGS_BASE *aCfg )
 
     if( cfg )
     {
-        m_boardAdapter.m_Cfg = cfg;
+        applySettings( cfg );
+
         m_boardAdapter.SetBoard( GetBoard() );
 
         // When opening the 3D viewer, we use the OpenGL mode, never the ray tracing engine
@@ -575,28 +577,20 @@ void EDA_3D_VIEWER_FRAME::LoadSettings( APP_SETTINGS_BASE *aCfg )
         // (freeze window) with large boards.
         m_boardAdapter.m_Cfg->m_Render.engine = RENDER_ENGINE::OPENGL;
 
-        m_canvas->SetAnimationEnabled( cfg->m_Camera.animation_enabled );
-        m_canvas->SetMovingSpeedMultiplier( cfg->m_Camera.moving_speed_multiplier );
-        m_canvas->SetProjectionMode( cfg->m_Camera.projection_mode );
-
-
-        m_canvas->SetVcSettings( EDA_DRAW_PANEL_GAL::GetVcSettings() );
-
         if( cfg->m_CurrentPreset == LEGACY_PRESET_FLAG )
         {
             wxString legacyColorsPresetName = _( "legacy colors" );
 
+            cfg->m_UseStackupColors = false;
+
             if( !cfg->FindPreset( legacyColorsPresetName ) )
             {
                 cfg->m_LayerPresets.emplace_back( legacyColorsPresetName,
-                                                  GetAdapter().GetVisibleLayers(),
-                                                  GetAdapter().GetLayerColors() );
+                                                  GetAdapter().GetDefaultVisibleLayers(),
+                                                  GetAdapter().GetDefaultColors() );
             }
 
-            if( Pgm().GetSettingsManager().GetColorSettings()->GetUseBoardStackupColors() )
-                cfg->m_CurrentPreset = FOLLOW_PCB;
-            else
-                cfg->m_CurrentPreset = legacyColorsPresetName;
+            cfg->m_CurrentPreset = wxEmptyString;
         }
 
         m_boardAdapter.InitSettings( nullptr, nullptr );
@@ -645,7 +639,7 @@ void EDA_3D_VIEWER_FRAME::CommonSettingsChanged( bool aEnvVarsChanged, bool aTex
     ReCreateMainToolbar();
 
     loadCommonSettings();
-    LoadSettings( Pgm().GetSettingsManager().GetAppSettings<EDA_3D_VIEWER_SETTINGS>() );
+    applySettings( Pgm().GetSettingsManager().GetAppSettings<EDA_3D_VIEWER_SETTINGS>() );
 
     m_appearancePanel->CommonSettingsChanged();
 
@@ -664,8 +658,6 @@ void EDA_3D_VIEWER_FRAME::ShowChangedLanguage()
     {
         wxAuiPaneInfo& lm_pane_info = m_auimgr.GetPane( m_appearancePanel );
         lm_pane_info.Caption( _( "Appearance" ) );
-
-        m_appearancePanel->OnLanguageChanged();
     }
 
     SetStatusText( wxEmptyString, ACTIVITY );
@@ -714,8 +706,8 @@ void EDA_3D_VIEWER_FRAME::takeScreenshot( wxCommandEvent& event )
     if( event.GetId() != ID_TOOL_SCREENCOPY_TOCLIBBOARD )
     {
         // Remember path between saves during this session only.
-        const wxString wildcard = fmt_is_jpeg ? JpegFileWildcard() : PngFileWildcard();
-        const wxString ext = fmt_is_jpeg ? JpegFileExtension : PngFileExtension;
+        const wxString wildcard = fmt_is_jpeg ? FILEEXT::JpegFileWildcard() : FILEEXT::PngFileWildcard();
+        const wxString ext = fmt_is_jpeg ? FILEEXT::JpegFileExtension : FILEEXT::PngFileExtension;
 
         // First time path is set to the project path.
         if( !m_defaultSaveScreenshotFileName.IsOk() )
@@ -756,8 +748,13 @@ void EDA_3D_VIEWER_FRAME::takeScreenshot( wxCommandEvent& event )
     }
 
     // Be sure we have the latest 3D view (remember 3D view is buffered)
-    m_canvas->Request_refresh( true );
-    wxYield();
+    // Also ensure any highlighted item is not highlighted when creating screen shot
+    EDA_3D_VIEWER_SETTINGS::RENDER_SETTINGS& cfg = m_boardAdapter.m_Cfg->m_Render;
+    bool allow_highlight = cfg.highlight_on_rollover;
+    cfg.highlight_on_rollover = false;
+
+    m_canvas->DoRePaint();      // init first buffer
+    m_canvas->DoRePaint();      // init second buffer
 
     // Build image from the 3D buffer
     wxWindowUpdateLocker noUpdates( this );
@@ -766,6 +763,8 @@ void EDA_3D_VIEWER_FRAME::takeScreenshot( wxCommandEvent& event )
 
     if( m_canvas )
         m_canvas->GetScreenshot( screenshotImage );
+
+    cfg.highlight_on_rollover = allow_highlight;
 
     if( event.GetId() == ID_TOOL_SCREENCOPY_TOCLIBBOARD )
     {
@@ -816,4 +815,16 @@ void EDA_3D_VIEWER_FRAME::loadCommonSettings()
 
     // TODO(JE) use all control options
     m_boardAdapter.m_MousewheelPanning = settings->m_Input.scroll_modifier_zoom != 0;
+}
+
+
+void EDA_3D_VIEWER_FRAME::applySettings( EDA_3D_VIEWER_SETTINGS* cfg )
+{
+    m_boardAdapter.m_Cfg = cfg;
+
+    m_canvas->SetAnimationEnabled( cfg->m_Camera.animation_enabled );
+    m_canvas->SetMovingSpeedMultiplier( cfg->m_Camera.moving_speed_multiplier );
+    m_canvas->SetProjectionMode( cfg->m_Camera.projection_mode );
+
+    m_canvas->SetVcSettings( EDA_DRAW_PANEL_GAL::GetVcSettings() );
 }

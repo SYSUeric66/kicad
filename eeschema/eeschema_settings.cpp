@@ -1,7 +1,7 @@
 /*
 * This program source code file is part of KiCad, a free EDA CAD application.
 *
-* Copyright (C) 2020-2023 KiCad Developers, see AUTHORS.txt for contributors.
+* Copyright (C) 2020-2024 KiCad Developers, see AUTHORS.txt for contributors.
 *
 * This program is free software; you can redistribute it and/or
 * modify it under the terms of the GNU General Public License
@@ -70,10 +70,10 @@ const wxAuiPaneInfo& defaultNetNavigatorPaneInfo()
             .Caption( _( "Net Navigator" ) )
             .CaptionVisible( true )
             .PaneBorder( true )
-            .Left().Layer( 3 )
+            .Left().Layer( 3 ).Position( 0 )
             .TopDockable( false )
             .BottomDockable( false )
-            .CloseButton( true )
+            .CloseButton( false )
             .MinSize( 120, 60 )
             .BestSize( 200, 200 )
             .FloatingSize( 200, 200 )
@@ -84,7 +84,7 @@ const wxAuiPaneInfo& defaultNetNavigatorPaneInfo()
 }
 
 
-const wxAuiPaneInfo& defaultPropertiesPaneInfo()
+const wxAuiPaneInfo& defaultPropertiesPaneInfo( wxWindow* aWindow )
 {
     static wxAuiPaneInfo paneInfo;
 
@@ -92,14 +92,34 @@ const wxAuiPaneInfo& defaultPropertiesPaneInfo()
             .Caption( _( "Properties" ) )
             .CaptionVisible( true )
             .PaneBorder( true )
-            .Left().Layer( 3 )
+            .Left().Layer( 3 ).Position( 2 )
             .TopDockable( false )
             .BottomDockable( false )
-            .CloseButton( true )
-            .MinSize( 240, 60 )
-            .BestSize( 300, 200 )
-            .FloatingSize( 300, 400 )
-            .FloatingPosition( 50, 200 )
+            .CloseButton( false )
+            .MinSize( aWindow->FromDIP( wxSize( 240, 60 ) ) )
+            .BestSize( aWindow->FromDIP( wxSize( 300, 200 ) ) )
+            .FloatingSize( aWindow->FromDIP( wxSize( 300, 400 ) ) )
+            .FloatingPosition( aWindow->FromDIP( wxPoint( 50, 200 ) ) )
+            .Show( true );
+
+    return paneInfo;
+}
+
+
+const wxAuiPaneInfo& defaultSchSelectionFilterPaneInfo( wxWindow* aWindow )
+{
+    static wxAuiPaneInfo paneInfo;
+
+    paneInfo.Name( wxS( "SelectionFilter" ) )
+            .Caption( _( "Selection Filter" ) )
+            .CaptionVisible( true )
+            .PaneBorder( false )
+            .Left().Layer( 3 ).Position( 4 )
+            .TopDockable( false )
+            .BottomDockable( false )
+            .CloseButton( false )
+            .MinSize( aWindow->FromDIP( wxSize( 180, -1 ) ) )
+            .BestSize( aWindow->FromDIP( wxSize( 180, -1 ) ) )
             .Show( true );
 
     return paneInfo;
@@ -227,7 +247,7 @@ EESCHEMA_SETTINGS::EESCHEMA_SETTINGS() :
             &m_AuiPanels.search_panel_width, -1 ) );
 
     m_params.emplace_back( new PARAM<int>( "aui.search_panel_dock_direction",
-            &m_AuiPanels.search_panel_dock_direction, 0 ) );
+            &m_AuiPanels.search_panel_dock_direction, 3 ) );
 
     m_params.emplace_back( new PARAM<bool>( "aui.show_search",
             &m_AuiPanels.show_search, false ) );
@@ -240,9 +260,6 @@ EESCHEMA_SETTINGS::EESCHEMA_SETTINGS() :
 
     m_params.emplace_back( new PARAM<wxSize>( "aui.net_nav_panel_docked_size",
             &m_AuiPanels.net_nav_panel_docked_size, wxSize( 120, -1 ) ) );
-
-    m_params.emplace_back( new PARAM<bool>( "aui.float_net_nav_panel",
-            &m_AuiPanels.float_net_nav_panel, false ) );
 
     m_params.emplace_back( new PARAM<wxPoint>( "aui.net_nav_panel_float_pos",
             &m_AuiPanels.net_nav_panel_float_pos, wxPoint( 50, 200 ), false ) );
@@ -349,9 +366,6 @@ EESCHEMA_SETTINGS::EESCHEMA_SETTINGS() :
 
     m_params.emplace_back( new PARAM<bool>( "selection.fill_shapes",
             &m_Selection.fill_shapes, false ) );
-
-    m_params.emplace_back( new PARAM<bool>( "selection.select_pin_selects_symbol",
-            &m_Selection.select_pin_selects_symbol, false ) );
 
     m_params.emplace_back( new PARAM<bool>( "annotation.automatic",
             &m_AnnotatePanel.automatic, true ) );
@@ -483,6 +497,9 @@ EESCHEMA_SETTINGS::EESCHEMA_SETTINGS() :
     m_params.emplace_back( new PARAM<bool>( "plot.pdf_property_popups",
             &m_PlotPanel.pdf_property_popups, true ) );
 
+    m_params.emplace_back( new PARAM<bool>( "plot.pdf_metadata",
+            &m_PlotPanel.pdf_metadata, true ) );
+
     m_params.emplace_back( new PARAM<int>( "plot.hpgl_paper_size",
             &m_PlotPanel.hpgl_paper_size, 0 ) );
 
@@ -517,22 +534,51 @@ EESCHEMA_SETTINGS::EESCHEMA_SETTINGS() :
             &m_Simulator.window.perspective, "" ) );
 
     m_params.emplace_back( new PARAM<int>( "simulator.plot_panel_width",
-            &m_Simulator.plot_panel_width, 0 ) );
+        &m_Simulator.view.plot_panel_width, 0 ) );
 
     m_params.emplace_back( new PARAM<int>( "simulator.plot_panel_height",
-            &m_Simulator.plot_panel_height, 0 ) );
+        &m_Simulator.view.plot_panel_height, 0 ) );
 
     m_params.emplace_back( new PARAM<int>( "simulator.signal_panel_height",
-            &m_Simulator.signal_panel_height, 0 ) );
+        &m_Simulator.view.signal_panel_height, 0 ) );
 
     m_params.emplace_back( new PARAM<int>( "simulator.cursors_panel_height",
-            &m_Simulator.cursors_panel_height, 0 ) );
+        &m_Simulator.view.cursors_panel_height, 0 ) );
 
     m_params.emplace_back( new PARAM<int>( "simulator.measurements_panel_height",
-            &m_Simulator.measurements_panel_height, 0 ) );
+        &m_Simulator.view.measurements_panel_height, 0 ) );
 
     m_params.emplace_back( new PARAM<bool>( "simulator.white_background",
-            &m_Simulator.white_background, false ) );
+        &m_Simulator.view.white_background, false ) );
+
+    m_params.emplace_back( new PARAM_ENUM<SIM_MOUSE_WHEEL_ACTION>(
+            "simulator.mouse_wheel_actions.vertical_unmodified",
+            &m_Simulator.preferences.mouse_wheel_actions.vertical_unmodified,
+            SIM_MOUSE_WHEEL_ACTION::ZOOM, SIM_MOUSE_WHEEL_ACTION::NONE,
+            SIM_MOUSE_WHEEL_ACTION::ZOOM_VERTICALLY ) );
+
+    m_params.emplace_back( new PARAM_ENUM<SIM_MOUSE_WHEEL_ACTION>(
+            "simulator.mouse_wheel_actions.vertical_with_ctrl",
+            &m_Simulator.preferences.mouse_wheel_actions.vertical_with_ctrl,
+            SIM_MOUSE_WHEEL_ACTION::PAN_LEFT_RIGHT, SIM_MOUSE_WHEEL_ACTION::NONE,
+            SIM_MOUSE_WHEEL_ACTION::ZOOM_VERTICALLY ) );
+
+    m_params.emplace_back( new PARAM_ENUM<SIM_MOUSE_WHEEL_ACTION>(
+            "simulator.mouse_wheel_actions.vertical_with_shift",
+            &m_Simulator.preferences.mouse_wheel_actions.vertical_with_shift,
+            SIM_MOUSE_WHEEL_ACTION::PAN_UP_DOWN, SIM_MOUSE_WHEEL_ACTION::NONE,
+            SIM_MOUSE_WHEEL_ACTION::ZOOM_VERTICALLY ) );
+
+    m_params.emplace_back( new PARAM_ENUM<SIM_MOUSE_WHEEL_ACTION>(
+            "simulator.mouse_wheel_actions.vertical_with_alt",
+            &m_Simulator.preferences.mouse_wheel_actions.vertical_with_alt,
+            SIM_MOUSE_WHEEL_ACTION::NONE, SIM_MOUSE_WHEEL_ACTION::NONE,
+            SIM_MOUSE_WHEEL_ACTION::ZOOM_VERTICALLY ) );
+
+    m_params.emplace_back( new PARAM_ENUM<SIM_MOUSE_WHEEL_ACTION>(
+            "simulator.mouse_wheel_actions.horizontal",
+            &m_Simulator.preferences.mouse_wheel_actions.horizontal, SIM_MOUSE_WHEEL_ACTION::NONE,
+            SIM_MOUSE_WHEEL_ACTION::NONE, SIM_MOUSE_WHEEL_ACTION::ZOOM_VERTICALLY ) );
 
     m_params.emplace_back( new PARAM<int>( "symbol_chooser.sash_pos_h",
             &m_SymChooserPanel.sash_pos_h, -1 ) );
@@ -770,7 +816,7 @@ bool EESCHEMA_SETTINGS::MigrateFromLegacy( wxConfigBase* aCfg )
 
                 try
                 {
-                    js[key_utf] = value;
+                    js[ std::move( key_utf ) ] = value;
                 }
                 catch(...)
                 {
@@ -791,7 +837,7 @@ bool EESCHEMA_SETTINGS::MigrateFromLegacy( wxConfigBase* aCfg )
 
                 try
                 {
-                    js[key_utf] = value;
+                    js[ std::move( key_utf ) ] = value;
                 }
                 catch(...)
                 {

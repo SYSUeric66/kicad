@@ -53,6 +53,7 @@ BOARD_DESIGN_SETTINGS::BOARD_DESIGN_SETTINGS( JSON_SETTINGS* aParent, const std:
     m_HasStackup = false;                   // no stackup defined by default
 
     m_Pad_Master = std::make_unique<PAD>( nullptr );
+    SetDefaultMasterPad();
 
     LSET all_set = LSET().set();
     m_enabledLayers = all_set;              // All layers enabled at first.
@@ -176,6 +177,7 @@ BOARD_DESIGN_SETTINGS::BOARD_DESIGN_SETTINGS( JSON_SETTINGS* aParent, const std:
     m_DRCSeverities[ DRCE_DUPLICATE_FOOTPRINT ] = RPT_SEVERITY_WARNING;
     m_DRCSeverities[ DRCE_EXTRA_FOOTPRINT ] = RPT_SEVERITY_WARNING;
     m_DRCSeverities[ DRCE_NET_CONFLICT ] = RPT_SEVERITY_WARNING;
+    m_DRCSeverities[ DRCE_SCHEMATIC_PARITY_ISSUES ] = RPT_SEVERITY_WARNING;
 
     m_DRCSeverities[ DRCE_OVERLAPPING_SILK ] = RPT_SEVERITY_WARNING;
     m_DRCSeverities[ DRCE_SILK_CLEARANCE ] = RPT_SEVERITY_WARNING;
@@ -210,6 +212,11 @@ BOARD_DESIGN_SETTINGS::BOARD_DESIGN_SETTINGS( JSON_SETTINGS* aParent, const std:
 
     // Layer thickness for 3D viewer
     m_boardThickness = pcbIUScale.mmToIU( DEFAULT_BOARD_THICKNESS_MM );
+
+    // Default spacing for meanders
+    m_SingleTrackMeanderSettings.m_spacing = pcbIUScale.mmToIU( DEFAULT_MEANDER_SPACING );
+    m_SkewMeanderSettings.m_spacing = pcbIUScale.mmToIU( DEFAULT_MEANDER_SPACING );
+    m_DiffPairMeanderSettings.m_spacing = pcbIUScale.mmToIU( DEFAULT_DP_MEANDER_SPACING );
 
     m_viaSizeIndex = 0;
     m_trackWidthIndex = 0;
@@ -289,7 +296,7 @@ BOARD_DESIGN_SETTINGS::BOARD_DESIGN_SETTINGS( JSON_SETTINGS* aParent, const std:
     // Note: a clearance of -0.01 is a flag indicating we should use the legacy (pre-6.0) method
     // based on the edge cut thicknesses.
     m_params.emplace_back( new PARAM_SCALED<int>( "rules.min_copper_edge_clearance",
-            &m_CopperEdgeClearance, pcbIUScale.mmToIU( LEGACY_COPPEREDGECLEARANCE ),
+            &m_CopperEdgeClearance, pcbIUScale.mmToIU( DEFAULT_COPPEREDGECLEARANCE ),
             pcbIUScale.mmToIU( -0.01 ), pcbIUScale.mmToIU( 25.0 ), pcbIUScale.MM_PER_IU ) );
 
     m_params.emplace_back( new PARAM_LAMBDA<nlohmann::json>( "rule_severities",
@@ -330,8 +337,8 @@ BOARD_DESIGN_SETTINGS::BOARD_DESIGN_SETTINGS( JSON_SETTINGS* aParent, const std:
             {
                 nlohmann::json js = nlohmann::json::array();
 
-                for( const auto& entry : m_DrcExclusions )
-                    js.push_back( entry );
+                for( const wxString& entry : m_DrcExclusions )
+                    js.push_back( { entry, m_DrcExclusionComments[ entry ] } );
 
                 return js;
             },
@@ -344,10 +351,16 @@ BOARD_DESIGN_SETTINGS::BOARD_DESIGN_SETTINGS( JSON_SETTINGS* aParent, const std:
 
                 for( const nlohmann::json& entry : aObj )
                 {
-                    if( entry.empty() )
-                        continue;
-
-                    m_DrcExclusions.insert( entry.get<wxString>() );
+                    if( entry.is_array() )
+                    {
+                        wxString serialized = entry[0].get<wxString>();
+                        m_DrcExclusions.insert( serialized );
+                        m_DrcExclusionComments[ serialized ] = entry[1].get<wxString>();
+                    }
+                    else if( entry.is_string() )
+                    {
+                        m_DrcExclusions.insert( entry.get<wxString>() );
+                    }
                 }
             },
             {} ) );
@@ -616,9 +629,9 @@ BOARD_DESIGN_SETTINGS::BOARD_DESIGN_SETTINGS( JSON_SETTINGS* aParent, const std:
                             return entry;
                         };
 
-                js["single_track_defaults"] = make_settings( m_singleTrackMeanderSettings );
-                js["diff_pair_defaults"] = make_settings( m_diffPairMeanderSettings );
-                js["diff_pair_skew_defaults"] = make_settings( m_skewMeanderSettings );
+                js["single_track_defaults"] = make_settings( m_SingleTrackMeanderSettings );
+                js["diff_pair_defaults"] = make_settings( m_DiffPairMeanderSettings );
+                js["diff_pair_skew_defaults"] = make_settings( m_SkewMeanderSettings );
 
                 return js;
             },
@@ -654,18 +667,18 @@ BOARD_DESIGN_SETTINGS::BOARD_DESIGN_SETTINGS( JSON_SETTINGS* aParent, const std:
                         };
 
                 if( aObj.contains( "single_track_defaults" ) )
-                    m_singleTrackMeanderSettings = read_settings( aObj["single_track_defaults"] );
+                    m_SingleTrackMeanderSettings = read_settings( aObj["single_track_defaults"] );
 
                 if( aObj.contains( "diff_pair_defaults" ) )
-                    m_diffPairMeanderSettings = read_settings( aObj["diff_pair_defaults"] );
+                    m_DiffPairMeanderSettings = read_settings( aObj["diff_pair_defaults"] );
 
                 if( aObj.contains( "diff_pair_skew_defaults" ) )
-                    m_skewMeanderSettings = read_settings( aObj["diff_pair_skew_defaults"] );
+                    m_SkewMeanderSettings = read_settings( aObj["diff_pair_skew_defaults"] );
             },
             {} ) );
 
-    int minTextSize = pcbIUScale.MilsToIU( TEXT_MIN_SIZE_MILS );
-    int maxTextSize = pcbIUScale.MilsToIU( TEXT_MAX_SIZE_MILS );
+    int minTextSize = pcbIUScale.mmToIU( TEXT_MIN_SIZE_MM );
+    int maxTextSize = pcbIUScale.mmToIU( TEXT_MAX_SIZE_MM );
     int minStroke = 1;
     int maxStroke = pcbIUScale.mmToIU( 100 );
 
@@ -932,6 +945,7 @@ void BOARD_DESIGN_SETTINGS::initFromOther( const BOARD_DESIGN_SETTINGS& aOther )
     m_MinSilkTextThickness   = aOther.m_MinSilkTextThickness;
     m_DRCSeverities          = aOther.m_DRCSeverities;
     m_DrcExclusions          = aOther.m_DrcExclusions;
+    m_DrcExclusionComments   = aOther.m_DrcExclusionComments;
     m_ZoneKeepExternalFillets     = aOther.m_ZoneKeepExternalFillets;
     m_MaxError                    = aOther.m_MaxError;
     m_SolderMaskExpansion         = aOther.m_SolderMaskExpansion;
@@ -987,6 +1001,103 @@ void BOARD_DESIGN_SETTINGS::initFromOther( const BOARD_DESIGN_SETTINGS& aOther )
     m_NetSettings            = aOther.m_NetSettings;
     m_Pad_Master             = std::make_unique<PAD>( *aOther.m_Pad_Master );
     m_defaultZoneSettings    = aOther.m_defaultZoneSettings;
+
+    m_StyleFPFields = aOther.m_StyleFPFields;
+    m_StyleFPText   = aOther.m_StyleFPText;
+    m_StyleFPShapes = aOther.m_StyleFPShapes;
+}
+
+
+bool BOARD_DESIGN_SETTINGS::operator==( const BOARD_DESIGN_SETTINGS& aOther ) const
+{
+    if( m_TrackWidthList         != aOther.m_TrackWidthList ) return false;
+    if( m_ViasDimensionsList     != aOther.m_ViasDimensionsList ) return false;
+    if( m_DiffPairDimensionsList != aOther.m_DiffPairDimensionsList ) return false;
+    if( m_CurrentViaType         != aOther.m_CurrentViaType ) return false;
+    if( m_UseConnectedTrackWidth != aOther.m_UseConnectedTrackWidth ) return false;
+    if( m_TempOverrideTrackWidth != aOther.m_TempOverrideTrackWidth ) return false;
+    if( m_MinClearance           != aOther.m_MinClearance ) return false;
+    if( m_MinConn                != aOther.m_MinConn ) return false;
+    if( m_TrackMinWidth          != aOther.m_TrackMinWidth ) return false;
+    if( m_ViasMinAnnularWidth    != aOther.m_ViasMinAnnularWidth ) return false;
+    if( m_ViasMinSize            != aOther.m_ViasMinSize ) return false;
+    if( m_MinThroughDrill        != aOther.m_MinThroughDrill ) return false;
+    if( m_MicroViasMinSize       != aOther.m_MicroViasMinSize ) return false;
+    if( m_MicroViasMinDrill      != aOther.m_MicroViasMinDrill ) return false;
+    if( m_CopperEdgeClearance    != aOther.m_CopperEdgeClearance ) return false;
+    if( m_HoleClearance          != aOther.m_HoleClearance ) return false;
+    if( m_HoleToHoleMin          != aOther.m_HoleToHoleMin ) return false;
+    if( m_SilkClearance          != aOther.m_SilkClearance ) return false;
+    if( m_MinResolvedSpokes      != aOther.m_MinResolvedSpokes ) return false;
+    if( m_MinSilkTextHeight      != aOther.m_MinSilkTextHeight ) return false;
+    if( m_MinSilkTextThickness   != aOther.m_MinSilkTextThickness ) return false;
+    if( m_DRCSeverities          != aOther.m_DRCSeverities ) return false;
+    if( m_DrcExclusions          != aOther.m_DrcExclusions ) return false;
+    if( m_DrcExclusionComments   != aOther.m_DrcExclusionComments ) return false;
+    if( m_ZoneKeepExternalFillets     != aOther.m_ZoneKeepExternalFillets ) return false;
+    if( m_MaxError                    != aOther.m_MaxError ) return false;
+    if( m_SolderMaskExpansion         != aOther.m_SolderMaskExpansion ) return false;
+    if( m_SolderMaskMinWidth          != aOther.m_SolderMaskMinWidth ) return false;
+    if( m_SolderMaskToCopperClearance != aOther.m_SolderMaskToCopperClearance ) return false;
+    if( m_SolderPasteMargin           != aOther.m_SolderPasteMargin ) return false;
+    if( m_SolderPasteMarginRatio      != aOther.m_SolderPasteMarginRatio ) return false;
+    if( m_AllowSoldermaskBridgesInFPs != aOther.m_AllowSoldermaskBridgesInFPs ) return false;
+    if( m_DefaultFPTextItems          != aOther.m_DefaultFPTextItems ) return false;
+
+    if( !std::equal( std::begin( m_LineThickness ), std::end( m_LineThickness ),
+                     std::begin( aOther.m_LineThickness ) ) )
+        return false;
+
+    if( !std::equal( std::begin( m_TextSize ), std::end( m_TextSize ),
+                     std::begin( aOther.m_TextSize ) ) )
+        return false;
+
+    if( !std::equal( std::begin( m_TextThickness ), std::end( m_TextThickness ),
+                     std::begin( aOther.m_TextThickness ) ) )
+        return false;
+
+    if( !std::equal( std::begin( m_TextItalic ), std::end( m_TextItalic ),
+                     std::begin( aOther.m_TextItalic ) ) )
+        return false;
+
+    if( !std::equal( std::begin( m_TextUpright ), std::end( m_TextUpright ),
+                     std::begin( aOther.m_TextUpright ) ) )
+        return false;
+
+    if( m_DimensionUnitsMode       != aOther.m_DimensionUnitsMode ) return false;
+    if( m_DimensionPrecision       != aOther.m_DimensionPrecision ) return false;
+    if( m_DimensionUnitsFormat     != aOther.m_DimensionUnitsFormat ) return false;
+    if( m_DimensionSuppressZeroes  != aOther.m_DimensionSuppressZeroes ) return false;
+    if( m_DimensionTextPosition    != aOther.m_DimensionTextPosition ) return false;
+    if( m_DimensionKeepTextAligned != aOther.m_DimensionKeepTextAligned ) return false;
+    if( m_DimensionArrowLength     != aOther.m_DimensionArrowLength ) return false;
+    if( m_DimensionExtensionOffset != aOther.m_DimensionExtensionOffset ) return false;
+    if( m_auxOrigin                != aOther.m_auxOrigin ) return false;
+    if( m_gridOrigin               != aOther.m_gridOrigin ) return false;
+    if( m_HasStackup               != aOther.m_HasStackup ) return false;
+    if( m_UseHeightForLengthCalcs  != aOther.m_UseHeightForLengthCalcs ) return false;
+    if( m_trackWidthIndex          != aOther.m_trackWidthIndex ) return false;
+    if( m_viaSizeIndex             != aOther.m_viaSizeIndex ) return false;
+    if( m_diffPairIndex            != aOther.m_diffPairIndex ) return false;
+    if( m_useCustomTrackVia        != aOther.m_useCustomTrackVia ) return false;
+    if( m_customTrackWidth         != aOther.m_customTrackWidth ) return false;
+    if( m_customViaSize            != aOther.m_customViaSize ) return false;
+    if( m_useCustomDiffPair        != aOther.m_useCustomDiffPair ) return false;
+    if( m_customDiffPair           != aOther.m_customDiffPair ) return false;
+    if( m_copperLayerCount         != aOther.m_copperLayerCount ) return false;
+    if( m_enabledLayers            != aOther.m_enabledLayers ) return false;
+    if( m_boardThickness           != aOther.m_boardThickness ) return false;
+    if( m_currentNetClassName      != aOther.m_currentNetClassName ) return false;
+    if( m_stackup                  != aOther.m_stackup ) return false;
+    if( *m_NetSettings             != *aOther.m_NetSettings ) return false;
+    if( *m_Pad_Master              != *aOther.m_Pad_Master ) return false;
+    if( m_defaultZoneSettings      != aOther.m_defaultZoneSettings ) return false;
+
+    if( m_StyleFPFields != aOther.m_StyleFPFields ) return false;
+    if( m_StyleFPText   != aOther.m_StyleFPText ) return false;
+    if( m_StyleFPShapes != aOther.m_StyleFPShapes ) return false;
+
+    return true;
 }
 
 
@@ -1370,4 +1481,16 @@ bool BOARD_DESIGN_SETTINGS::GetTextItalic( PCB_LAYER_ID aLayer ) const
 bool BOARD_DESIGN_SETTINGS::GetTextUpright( PCB_LAYER_ID aLayer ) const
 {
     return m_TextUpright[ GetLayerClass( aLayer ) ];
+}
+
+void BOARD_DESIGN_SETTINGS::SetDefaultMasterPad()
+{
+    m_Pad_Master.get()->SetSizeX( pcbIUScale.mmToIU( DEFAULT_PAD_WIDTH_MM ) );
+    m_Pad_Master.get()->SetSizeY( pcbIUScale.mmToIU( DEFAULT_PAD_HEIGTH_MM ) );
+    m_Pad_Master.get()->SetDrillShape( PAD_DRILL_SHAPE_CIRCLE );
+    m_Pad_Master.get()->SetDrillSize(
+            VECTOR2I( pcbIUScale.mmToIU( DEFAULT_PAD_DRILL_DIAMETER_MM ), 0 ) );
+    m_Pad_Master.get()->SetShape( PAD_SHAPE::ROUNDRECT );
+    m_Pad_Master.get()->SetRoundRectCornerRadius(
+            pcbIUScale.mmToIU( DEFAULT_PAD_HEIGTH_MM / 100.0 * DEFAULT_PAD_REACT_RADIUS ) );
 }

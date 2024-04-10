@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2004 Jean-Pierre Charras, jaen-pierre.charras@gipsa-lab.inpg.com
- * Copyright (C) 2004-2023 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2004-2024 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -30,29 +30,36 @@
 #include <set>
 
 #include <eda_item.h>
-#include <default_values.h>
 #include <sch_sheet_path.h>
 #include <netclass.h>
 #include <stroke_params.h>
 #include <layer_ids.h>
+#include <sch_render_settings.h>
+#include <plotters/plotter.h>
 
 class CONNECTION_GRAPH;
 class SCH_CONNECTION;
 class SCH_SHEET_PATH;
 class SCHEMATIC;
+class SYMBOL;
 class LINE_READER;
 class SCH_EDIT_FRAME;
-class PLOTTER;
-struct SCH_PLOT_SETTINGS;
-class NETLIST_OBJECT_LIST;
-class PLOTTER;
+struct SCH_PLOT_OPTS;
 
 namespace KIFONT
 {
 class METRICS;
 }
 
-using KIGFX::RENDER_SETTINGS;
+
+enum BODY_STYLE : int
+{
+    BASE = 1,
+    DEMORGAN = 2
+};
+
+
+#define MINIMUM_SELECTION_DISTANCE 2 // Minimum selection distance in mils
 
 
 enum FIELDS_AUTOPLACED
@@ -65,7 +72,7 @@ enum FIELDS_AUTOPLACED
 
 enum DANGLING_END_T
 {
-    UNKNOWN = 0,
+    DANGLING_END_UNKNOWN = 0,
     WIRE_END,
     BUS_END,
     JUNCTION_END,
@@ -137,6 +144,20 @@ private:
 };
 
 
+class DANGLING_END_ITEM_HELPER
+{
+public:
+    static std::vector<DANGLING_END_ITEM>::iterator
+    get_lower_pos( std::vector<DANGLING_END_ITEM>& aItemListByPos, const VECTOR2I& aPos );
+
+    static std::vector<DANGLING_END_ITEM>::iterator
+    get_lower_type( std::vector<DANGLING_END_ITEM>& aItemListByType, const DANGLING_END_T& aType );
+
+    /** Both contain the same information */
+    static void sort_dangling_end_items( std::vector<DANGLING_END_ITEM>& aItemListByType,
+                                         std::vector<DANGLING_END_ITEM>& aItemListByPos );
+};
+
 typedef std::vector<SCH_ITEM*> SCH_ITEM_SET;
 
 
@@ -150,7 +171,7 @@ typedef std::vector<SCH_ITEM*> SCH_ITEM_SET;
 class SCH_ITEM : public EDA_ITEM
 {
 public:
-    SCH_ITEM( EDA_ITEM* aParent, KICAD_T aType );
+    SCH_ITEM( EDA_ITEM* aParent, KICAD_T aType, int aUnit = 0, int aBodyStyle = 0 );
 
     SCH_ITEM( const SCH_ITEM& aItem );
 
@@ -207,6 +228,18 @@ public:
      */
     SCH_ITEM* Duplicate( bool doClone = false ) const;
 
+    static wxString GetUnitDescription( int aUnit );
+    static wxString GetBodyStyleDescription( int aBodyStyle );
+
+    virtual void SetUnit( int aUnit ) { m_unit = aUnit; }
+    int GetUnit() const { return m_unit; }
+
+    virtual void SetBodyStyle( int aBodyStyle ) { m_bodyStyle = aBodyStyle; }
+    int  GetBodyStyle() const { return m_bodyStyle; }
+
+    void SetPrivate( bool aPrivate ) { m_private = aPrivate; }
+    bool IsPrivate() const { return m_private; }
+
     virtual void SetExcludedFromSim( bool aExclude ) { }
     virtual bool GetExcludedFromSim() const { return false; }
 
@@ -235,14 +268,10 @@ public:
      */
     SCHEMATIC* Schematic() const;
 
-    /**
-     * @return true if the object is locked, else false.
-     */
-    virtual bool IsLocked() const { return false; }
+    const SYMBOL* GetParentSymbol() const;
+    SYMBOL* GetParentSymbol();
 
-    /**
-     * Set the 'lock' status to \a aLocked for of this item.
-     */
+    virtual bool IsLocked() const { return false; }
     virtual void SetLocked( bool aLocked ) {}
 
     /**
@@ -256,12 +285,6 @@ public:
      * Return the layer this item is on.
      */
     SCH_LAYER_ID GetLayer() const { return m_layer; }
-
-    /**
-     * Set the layer this item is on.
-     *
-     * @param aLayer The layer number.
-     */
     void SetLayer( SCH_LAYER_ID aLayer ) { m_layer = aLayer; }
 
     /**
@@ -274,6 +297,8 @@ public:
      */
     virtual int GetPenWidth() const { return 0; }
 
+    int GetEffectivePenWidth( const SCH_RENDER_SETTINGS* aSettings ) const;
+
     const wxString& GetDefaultFont() const;
 
     const KIFONT::METRICS& GetFontMetrics() const;
@@ -283,50 +308,105 @@ public:
     /**
      * Return a measure of how likely the other object is to represent the same
      * object.  The scale runs from 0.0 (definitely different objects) to 1.0 (same)
-     *
-     * This is a pure virtual function.  Derived classes must implement this.
+     */
+    virtual double Similarity( const SCH_ITEM& aItem ) const
+    {
+        wxCHECK_MSG( false, 0.0, wxT( "Similarity not implemented in " ) + GetClass() );
+    }
+
+    /**
+     * Calculate the boilerplate similarity for all LIB_ITEMs without
+     * preventing the use above of a pure virtual function that catches at compile
+     * time when a new object has not been fully implemented
     */
-    virtual double Similarity( const SCH_ITEM& aItem ) const = 0;
-    virtual bool operator==( const SCH_ITEM& aItem ) const = 0;
+    double SimilarityBase( const SCH_ITEM& aItem ) const
+    {
+        double similarity = 1.0;
 
-    /**
-     * Print a schematic item.
-     *
-     * Each schematic item should have its own method
-     *
-     * @param aOffset is the drawing offset (usually {0,0} but can be different when moving an
-     *                object).
-     */
-    virtual void Print( const RENDER_SETTINGS* aSettings, const VECTOR2I& aOffset ) = 0;
+        if( m_unit != aItem.m_unit )
+            similarity *= 0.9;
 
-    /**
-     * Print the (optional) backaground elements if they exist
-     * @param aSettings Print settings
-     * @param aOffset is the drawing offset (usually {0,0} but can be different when moving an
-     *                object).
-     */
+        if( m_bodyStyle != aItem.m_bodyStyle )
+            similarity *= 0.9;
 
-    virtual void PrintBackground( const RENDER_SETTINGS* aSettings, const VECTOR2I& aOffset ) {};
+        if( m_private != aItem.m_private )
+            similarity *= 0.9;
+
+        return similarity;
+    }
 
     /**
      * Move the item by \a aMoveVector to a new position.
      */
-    virtual void Move( const VECTOR2I& aMoveVector ) = 0;
+    virtual void Move( const VECTOR2I& aMoveVector )
+    {
+        wxCHECK_MSG( false, /*void*/, wxT( "Move not implemented in " ) + GetClass() );
+    }
 
     /**
      * Mirror item horizontally about \a aCenter.
      */
-    virtual void MirrorHorizontally( int aCenter ) = 0;
+    virtual void MirrorHorizontally( int aCenter )
+    {
+        wxCHECK_MSG( false, /*void*/, wxT( "MirrorHorizontally not implemented in " ) + GetClass() );
+    }
 
     /**
      * Mirror item vertically about \a aCenter.
      */
-    virtual void MirrorVertically( int aCenter ) = 0;
+    virtual void MirrorVertically( int aCenter )
+    {
+        wxCHECK_MSG( false, /*void*/, wxT( "MirrorVertically not implemented in " ) + GetClass() );
+    }
 
     /**
      * Rotate the item around \a aCenter 90 degrees in the clockwise direction.
      */
-    virtual void Rotate( const VECTOR2I& aCenter ) = 0;
+    virtual void Rotate( const VECTOR2I& aCenter, bool aRotateCCW )
+    {
+        wxCHECK_MSG( false, /*void*/, wxT( "Rotate not implemented in " ) + GetClass() );
+    }
+
+    /**
+     * Begin drawing a symbol library draw item at \a aPosition.
+     *
+     * It typically would be called on a left click when a draw tool is selected in
+     * the symbol library editor and one of the graphics tools is selected.
+     *
+     * @param aPosition The position in drawing coordinates where the drawing was started.
+     *                  May or may not be required depending on the item being drawn.
+     */
+    virtual void BeginEdit( const VECTOR2I& aPosition ) {}
+
+    /**
+     * Continue an edit in progress at \a aPosition.
+     *
+     * This is used to perform the next action while drawing an item.  This would be
+     * called for each additional left click when the mouse is captured while the item
+     * is being drawn.
+     *
+     * @param aPosition The position of the mouse left click in drawing coordinates.
+     * @return True if additional mouse clicks are required to complete the edit in progress.
+     */
+    virtual bool ContinueEdit( const VECTOR2I& aPosition ) { return false; }
+
+    /**
+     * End an object editing action.
+     *
+     * This is used to end or abort an edit action in progress initiated by BeginEdit().
+     */
+    virtual void EndEdit( bool aClosed = false ) {}
+
+    /**
+     * Calculate the attributes of an item at \a aPosition when it is being edited.
+     *
+     * This method gets called by the Draw() method when the item is being edited.  This
+     * probably should be a pure virtual method but bezier curves are not yet editable in
+     * the symbol library editor.  Therefore, the default method does nothing.
+     *
+     * @param aPosition The current mouse position in drawing coordinates.
+     */
+    virtual void CalcEdit( const VECTOR2I& aPosition ) {}
 
     /**
      * Add the schematic item end points to \a aItemList if the item has end points.
@@ -352,12 +432,15 @@ public:
      * If aSheet is passed a non-null pointer to a SCH_SHEET_PATH, the overridden method can
      * optionally use it to update sheet-local connectivity information
      *
-     * @param aItemList is the list of items to test item against.
+     * @param aItemListByType is the list of items to test item against. It's sorted
+     *   by item type, keeping WIRE_END pairs together.
+     * @param aItemListByPos is the same list but sorted first by Y then by X.
      * @param aSheet is the sheet path to update connections for.
      * @return True if the dangling state has changed from it's current setting.
      */
-    virtual bool UpdateDanglingState( std::vector<DANGLING_END_ITEM>& aItemList,
-                                      const SCH_SHEET_PATH* aPath = nullptr )
+    virtual bool UpdateDanglingState( std::vector<DANGLING_END_ITEM>& aItemListByType,
+                                      std::vector<DANGLING_END_ITEM>& aItemListByPos,
+                                      const SCH_SHEET_PATH*           aPath = nullptr )
     {
         return false;
     }
@@ -385,14 +468,6 @@ public:
      * @param aPoints is the list of connection points to add to.
      */
     virtual std::vector<VECTOR2I> GetConnectionPoints() const { return {}; }
-
-    /**
-     * Clears all of the connection items from the list.
-     *
-     * The vector release method is used to prevent the item pointers from being deleted.
-     * Do not use the vector erase method on the connection list.
-     */
-    void ClearConnections() { m_connections.clear(); }
 
     /**
      * Test the item to see if it is connected to \a aPoint.
@@ -436,6 +511,27 @@ public:
     bool IsConnectivityDirty() const { return m_connectivity_dirty; }
 
     void SetConnectivityDirty( bool aDirty = true ) { m_connectivity_dirty = aDirty; }
+
+    /**
+     * Check if \a aItem has connectivity changes against this object.
+     *
+     * This provides granular per object connectivity change testing to prevent the need
+     * to rebuild the #CONNECTION_GRAPH when object properties that have nothing to do with
+     * the schematic connectivity changes i.e. color, thickness, fill type. etc.
+     *
+     * @note Developers should override this method for all objects that are connectable.
+     *
+     * @param aItem is the item to test for connectivity changes.
+     * @param aInstance is the instance to test for connectivity changes.  This parameter is
+     *                  only meaningful for #SCH_SYMBOL objects.
+     *
+     * @return true if there are connectivity changes otherwise false.
+     */
+    virtual bool HasConnectivityChanges( const SCH_ITEM* aItem,
+                                         const SCH_SHEET_PATH* aInstance = nullptr ) const
+    {
+        return false;
+    }
 
     /// Updates the connection graph for all connections in this item
     void SetConnectionGraph( CONNECTION_GRAPH* aGraph );
@@ -488,16 +584,102 @@ public:
     virtual void SetStroke( const STROKE_PARAMS& aStroke ) { wxCHECK( false, /* void */ ); }
 
     /**
-     * Plot the schematic item to \a aPlotter.
+     * Print an item.
      *
-     * @param aPlotter is the #PLOTTER object to plot to.
+     * @param aUnit - Which unit to print.
+     * @param aBodyStyle - Which body style to print.
+     * @param aOffset - Relative offset.
+     * @param aForceNoFill - Disable printing of fills.
+     * @param aDimmed - Reduce brightness of item.
+     */
+    virtual void Print( const SCH_RENDER_SETTINGS* aSettings, int aUnit, int aBodyStyle,
+                        const VECTOR2I& aOffset, bool aForceNoFill, bool aDimmed )
+    {
+        wxCHECK_MSG( false, /*void*/, wxT( "Print not implemented in " ) + GetClass() );
+    }
+
+    /**
+     * Print just the background fills.
+     */
+    virtual void PrintBackground( const SCH_RENDER_SETTINGS* aSettings, int aUnit, int aBodyStyle,
+                                  const VECTOR2I& aOffset, bool aDimmed )
+    {
+        wxCHECK_MSG( false, /*void*/, wxT( "PrintBackground not implemented in " ) + GetClass() );
+    }
+
+    /**
+     * Plot the item to \a aPlotter.
+     *
      * @param aBackground a poor-man's Z-order.  The routine will get called twice, first with
      *                    aBackground true and then with aBackground false.
+     * @param aUnit - which unit to print.
+     * @param aBodyStyle - which body style to print.
+     * @param aOffset relative offset.
+     * @param aDimmed reduce brightness of item.
      */
-    virtual void Plot( PLOTTER* aPlotter, bool aBackground,
-                       const SCH_PLOT_SETTINGS& aPlotSettings ) const;
+    virtual void Plot( PLOTTER* aPlotter, bool aBackground, const SCH_PLOT_OPTS& aPlotOpts,
+                       int aUnit, int aBodyStyle, const VECTOR2I& aOffset, bool aDimmed)
+    {
+        wxCHECK_MSG( false, /*void*/, wxT( "Plot not implemented in " ) + GetClass() );
+    }
 
-    virtual bool operator <( const SCH_ITEM& aItem ) const;
+    /**
+     * The list of flags used by the #compare function.
+     *
+     * UNIT  This flag relaxes unit, body-style and pin-number constraints.  It is used for
+     *       #SCH_ITEM object unit comparisons.
+     *
+     * EQUALITY  This flag relaxes ordering contstraints so that fields, etc. don't have to
+     *           appear in the same order to be considered equal.
+     *
+     * ERC  This flag relaxes constraints on data that is settable in the schematic editor.
+     *      It compares only symbol-editor-only data.
+     */
+    enum COMPARE_FLAGS : int
+    {
+        UNIT     = 0x01,
+        EQUALITY = 0x02,
+        ERC      = 0x04
+    };
+
+    virtual bool operator==( const SCH_ITEM& aOther ) const;
+
+    virtual bool operator<( const SCH_ITEM& aItem ) const;
+
+protected:
+    SCH_RENDER_SETTINGS* getRenderSettings( PLOTTER* aPlotter ) const
+    {
+        return static_cast<SCH_RENDER_SETTINGS*>( aPlotter->RenderSettings() );
+    }
+
+    struct cmp_items
+    {
+        bool operator()( const SCH_ITEM* aFirst, const SCH_ITEM* aSecond ) const;
+    };
+
+    void getSymbolEditorMsgPanelInfo( EDA_DRAW_FRAME* aFrame, std::vector<MSG_PANEL_ITEM>& aList );
+
+    /**
+     * Provide the draw object specific comparison called by the == and < operators.
+     *
+     * The base object sort order which always proceeds the derived object sort order
+     * is as follows:
+     *      - Symbol alternate part (DeMorgan) number.
+     *      - Symbol part number.
+     *      - KICAD_T enum value.
+     *      - Result of derived classes comparison.
+     *
+     * @note Make sure you call down to #SCH_ITEM::compare before doing any derived object
+     *       comparisons or you will break the sorting using the symbol library file format.
+     *
+     * @param aOther A reference to the other #SCH_ITEM to compare the arc against.
+     * @param aCompareFlags The flags used to perform the comparison.
+     *
+     * @return An integer value less than 0 if the object is less than \a aOther object,
+     *         zero if the object is equal to \a aOther object, or greater than 0 if the
+     *         object is greater than \a aOther object.
+     */
+    virtual int compare( const SCH_ITEM& aOther, int aCompareFlags = 0 ) const;
 
 private:
     friend class CONNECTION_GRAPH;
@@ -519,18 +701,23 @@ private:
 
 protected:
     SCH_LAYER_ID      m_layer;
-    EDA_ITEMS         m_connections;      // List of items connected to this item.
-    FIELDS_AUTOPLACED m_fieldsAutoplaced; // indicates status of field autoplacement
-    VECTOR2I          m_storedPos;        // a temporary variable used in some move commands
-                                          // to store a initial pos of the item or mouse cursor
+    int               m_unit;               // set to 0 if common to all units
+    int               m_bodyStyle;          // set to 0 if common to all body styles
+    bool              m_private;            // only shown in Symbol Editor
+    FIELDS_AUTOPLACED m_fieldsAutoplaced;   // indicates status of field autoplacement
+    VECTOR2I          m_storedPos;          // temp variable used in some move commands to store
+                                            // an initial position of the item or mouse cursor
 
     /// Store pointers to other items that are connected to this one, per sheet.
     std::map<SCH_SHEET_PATH, SCH_ITEM_SET, SHEET_PATH_CMP> m_connected_items;
 
     /// Store connectivity information, per sheet.
-    std::unordered_map<SCH_SHEET_PATH, SCH_CONNECTION*> m_connection_map;
+    std::unordered_map<SCH_SHEET_PATH, SCH_CONNECTION*>    m_connection_map;
 
-    bool              m_connectivity_dirty;
+    bool                                                   m_connectivity_dirty;
+
+private:
+    friend class LIB_SYMBOL;
 };
 
 #ifndef SWIG

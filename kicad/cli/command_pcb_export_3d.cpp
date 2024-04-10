@@ -68,53 +68,46 @@ CLI::PCB_EXPORT_3D_COMMAND::PCB_EXPORT_3D_COMMAND( const std::string&        aNa
 
     m_argParser.add_argument( ARG_FORCE, "-f" )
             .help( UTF8STDSTR( _( "Overwrite output file" ) ) )
+            .flag();
+
+    m_argParser.add_argument( ARG_NO_UNSPECIFIED )
+            .help( UTF8STDSTR(
+                    _( "Exclude 3D models for components with 'Unspecified' footprint type" ) ) )
             .implicit_value( true )
             .default_value( false );
+
+    m_argParser.add_argument( ARG_NO_DNP )
+            .help( UTF8STDSTR(
+                    _( "Exclude 3D models for components with 'Do not populate' attribute" ) ) )
+            .flag();
 
     if( m_format == JOB_EXPORT_PCB_3D::FORMAT::STEP || m_format == JOB_EXPORT_PCB_3D::FORMAT::GLB )
     {
         m_argParser.add_argument( ARG_GRID_ORIGIN )
                 .help( UTF8STDSTR( _( "Use Grid Origin for output origin" ) ) )
-                .implicit_value( true )
-                .default_value( false );
+                .flag();
 
         m_argParser.add_argument( ARG_DRILL_ORIGIN )
                 .help( UTF8STDSTR( _( "Use Drill Origin for output origin" ) ) )
-                .implicit_value( true )
-                .default_value( false );
-
-        m_argParser.add_argument( ARG_NO_UNSPECIFIED )
-                .help( UTF8STDSTR( _(
-                        "Exclude 3D models for components with 'Unspecified' footprint type" ) ) )
-                .implicit_value( true )
-                .default_value( false );
-
-        m_argParser.add_argument( ARG_NO_DNP )
-                .help( UTF8STDSTR(
-                        _( "Exclude 3D models for components with 'Do not populate' attribute" ) ) )
-                .implicit_value( true )
-                .default_value( false );
+                .flag();
 
         m_argParser.add_argument( "--subst-models" )
                 .help( UTF8STDSTR( _( "Substitute STEP or IGS models with the same name in place "
                                       "of VRML models" ) ) )
-                .implicit_value( true )
-                .default_value( false );
+                .flag();
 
         m_argParser.add_argument( ARG_BOARD_ONLY )
                 .help( UTF8STDSTR( _( "Only generate a board with no components" ) ) )
-                .implicit_value( true )
-                .default_value( false );
+                .flag();
 
         m_argParser.add_argument( ARG_INCLUDE_TRACKS )
-                .help( UTF8STDSTR( _( "Export tracks (time consuming)" ) ) )
+                .help( UTF8STDSTR( _( "Export tracks" ) ) )
                 .implicit_value( true )
                 .default_value( false );
 
         m_argParser.add_argument( ARG_INCLUDE_ZONES )
-                .help( UTF8STDSTR( _( "Export zones (time consuming)" ) ) )
-                .implicit_value( true )
-                .default_value( false );
+                .help( UTF8STDSTR( _( "Export zones" ) ) )
+                .flag();
 
         m_argParser.add_argument( ARG_MIN_DISTANCE )
                 .default_value( std::string( "0.01mm" ) )
@@ -126,32 +119,33 @@ CLI::PCB_EXPORT_3D_COMMAND::PCB_EXPORT_3D_COMMAND( const std::string&        aNa
     if( m_format == JOB_EXPORT_PCB_3D::FORMAT::STEP )
     {
         m_argParser.add_argument( ARG_NO_OPTIMIZE_STEP )
-                .help( UTF8STDSTR( _( "Do not optimize STEP file (enables writing parametric curves)" ) ) )
-                .implicit_value( true )
-                .default_value( false );
+                .help( UTF8STDSTR( _( "Do not optimize STEP file (enables writing parametric "
+                                      "curves)" ) ) )
+                .flag();
     }
 
     m_argParser.add_argument( ARG_USER_ORIGIN )
             .default_value( std::string() )
-            .help( UTF8STDSTR( _( "User-specified output origin ex. 1x1in, 1x1inch, 25.4x25.4mm (default unit mm)" ) ) );
+            .help( UTF8STDSTR( _( "User-specified output origin ex. 1x1in, 1x1inch, 25.4x25.4mm "
+                                  "(default unit mm)" ) ) );
 
     if( m_format == JOB_EXPORT_PCB_3D::FORMAT::VRML )
     {
         m_argParser.add_argument( ARG_VRML_UNITS )
                 .default_value( std::string( "in" ) )
                 .help( UTF8STDSTR(
-                        _( "Output units; ascii or csv format only; valid options: mm, m, in, tenths" ) ) );
+                        _( "Output units; valid options: mm, m, in, tenths" ) ) );
 
         m_argParser.add_argument( ARG_VRML_MODELS_DIR )
                 .default_value( std::string( "" ) )
                 .help( UTF8STDSTR(
                         _( "Name of folder to create and store 3d models in, if not specified or "
-                           "empty, the models will be embedded in main exported vrml file" ) ) );
+                           "empty, the models will be embedded in main exported VRML file" ) ) );
 
         m_argParser.add_argument( ARG_VRML_MODELS_RELATIVE )
-                .help( UTF8STDSTR( _( "Used with --models-dir to output relative paths in the resulting file" ) ) )
-                .implicit_value( true )
-                .default_value( false );
+                .help( UTF8STDSTR( _( "Used with --models-dir to output relative paths in the "
+                                      "resulting file" ) ) )
+                .flag();
     }
 }
 
@@ -163,8 +157,6 @@ int CLI::PCB_EXPORT_3D_COMMAND::doPerform( KIWAY& aKiway )
     {
         step->m_useDrillOrigin = m_argParser.get<bool>( ARG_DRILL_ORIGIN );
         step->m_useGridOrigin = m_argParser.get<bool>( ARG_GRID_ORIGIN );
-        step->m_includeUnspecified = !m_argParser.get<bool>( ARG_NO_UNSPECIFIED );
-        step->m_includeDNP = !m_argParser.get<bool>( ARG_NO_DNP );
         step->m_substModels = m_argParser.get<bool>( ARG_SUBST_MODELS );
         step->m_exportTracks = m_argParser.get<bool>( ARG_INCLUDE_TRACKS );
         step->m_exportZones = m_argParser.get<bool>( ARG_INCLUDE_ZONES );
@@ -176,6 +168,8 @@ int CLI::PCB_EXPORT_3D_COMMAND::doPerform( KIWAY& aKiway )
         step->m_optimizeStep = !m_argParser.get<bool>( ARG_NO_OPTIMIZE_STEP );
     }
 
+    step->m_includeUnspecified = !m_argParser.get<bool>( ARG_NO_UNSPECIFIED );
+    step->m_includeDNP = !m_argParser.get<bool>( ARG_NO_DNP );
     step->m_overwrite = m_argParser.get<bool>( ARG_FORCE );
     step->m_filename = m_argInput;
     step->m_outputFile = m_argOutput;

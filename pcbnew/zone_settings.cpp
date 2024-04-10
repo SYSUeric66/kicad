@@ -3,7 +3,7 @@
  *
  * Copyright (C) 2018 Jean-Pierre Charras, jp.charras at wanadoo.fr
  * Copyright (C) 2012 SoftPLC Corporation, Dick Hollenbeck <dick@softplc.com>
- * Copyright (C) 1992-2023 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2024 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -85,11 +85,54 @@ ZONE_SETTINGS::ZONE_SETTINGS()
 }
 
 
+bool ZONE_SETTINGS::operator==( const ZONE_SETTINGS& aOther ) const
+{
+    if( m_ZonePriority                != aOther.m_ZonePriority ) return false;
+    if( m_FillMode                    != aOther.m_FillMode ) return false;
+    if( m_ZoneClearance               != aOther.m_ZoneClearance ) return false;
+    if( m_ZoneMinThickness            != aOther.m_ZoneMinThickness ) return false;
+    if( m_HatchThickness              != aOther.m_HatchThickness ) return false;
+    if( m_HatchGap                    != aOther.m_HatchGap ) return false;
+    if( m_HatchOrientation            != aOther.m_HatchOrientation ) return false;
+    if( m_HatchSmoothingLevel         != aOther.m_HatchSmoothingLevel ) return false;
+    if( m_HatchSmoothingValue         != aOther.m_HatchSmoothingValue ) return false;
+    if( m_HatchBorderAlgorithm        != aOther.m_HatchBorderAlgorithm ) return false;
+    if( m_HatchHoleMinArea            != aOther.m_HatchHoleMinArea ) return false;
+    if( m_NetcodeSelection            != aOther.m_NetcodeSelection ) return false;
+    if( m_Name                        != aOther.m_Name ) return false;
+    if( m_ZoneBorderDisplayStyle      != aOther.m_ZoneBorderDisplayStyle ) return false;
+    if( m_BorderHatchPitch            != aOther.m_BorderHatchPitch ) return false;
+    if( m_ThermalReliefGap            != aOther.m_ThermalReliefGap ) return false;
+    if( m_ThermalReliefSpokeWidth     != aOther.m_ThermalReliefSpokeWidth ) return false;
+    if( m_padConnection               != aOther.m_padConnection ) return false;
+    if( m_cornerSmoothingType         != aOther.m_cornerSmoothingType ) return false;
+    if( m_cornerRadius                != aOther.m_cornerRadius ) return false;
+    if( m_isRuleArea                  != aOther.m_isRuleArea ) return false;
+    if( m_keepoutDoNotAllowCopperPour != aOther.m_keepoutDoNotAllowCopperPour ) return false;
+    if( m_keepoutDoNotAllowVias       != aOther.m_keepoutDoNotAllowVias ) return false;
+    if( m_keepoutDoNotAllowTracks     != aOther.m_keepoutDoNotAllowTracks ) return false;
+    if( m_keepoutDoNotAllowPads       != aOther.m_keepoutDoNotAllowPads ) return false;
+    if( m_keepoutDoNotAllowFootprints != aOther.m_keepoutDoNotAllowFootprints ) return false;
+    if( m_Locked                      != aOther.m_Locked ) return false;
+    if( m_removeIslands               != aOther.m_removeIslands ) return false;
+    if( m_minIslandArea               != aOther.m_minIslandArea ) return false;
+
+    // Currently, the teardrop area type is not really a ZONE_SETTINGS parameter,
+    // but a ZONE parameter only.
+    // However it can be used in dialogs
+    if( m_TeardropType != aOther.m_TeardropType ) return false;
+
+    if( m_Layers != aOther.m_Layers ) return false;
+
+    return true;
+}
+
+
 ZONE_SETTINGS& ZONE_SETTINGS::operator << ( const ZONE& aSource )
 {
     m_ZonePriority                = aSource.GetAssignedPriority();
     m_FillMode                    = aSource.GetFillMode();
-    m_ZoneClearance               = aSource.GetLocalClearance();
+    m_ZoneClearance               = aSource.GetLocalClearance().value();
     m_ZoneMinThickness            = aSource.GetMinThickness();
     m_HatchThickness              = aSource.GetHatchThickness();
     m_HatchGap                    = aSource.GetHatchGap();

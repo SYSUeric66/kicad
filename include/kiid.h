@@ -3,7 +3,7 @@
  *
  * Copyright (C) 2020 Ian McInerney <ian.s.mcinerney@ieee.org>
  * Copyright (C) 2007-2014 Jean-Pierre Charras, jp.charras at wanadoo.fr
- * Copyright (C) 1992-2022 KiCad Developers, see AUTHORS.TXT for contributors.
+ * Copyright (C) 1992-2023 KiCad Developers, see AUTHORS.TXT for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -64,6 +64,7 @@ public:
 
     wxString AsString() const;
     wxString AsLegacyTimestampString() const;
+    std::string AsStdString() const;
 
     /**
      * Returns true if a string has the correct formatting to be a KIID.
@@ -191,6 +192,20 @@ public:
 
         return false;
     }
+
+    KIID_PATH& operator+=( const KIID_PATH& aRhs )
+    {
+        for( const KIID& kiid : aRhs )
+            emplace_back( kiid );
+
+        return *this;
+    }
+
+    friend KIID_PATH operator+( KIID_PATH aLhs, const KIID_PATH& aRhs )
+    {
+        aLhs += aRhs;
+        return aLhs;
+    }
 };
 
 /**
@@ -213,5 +228,13 @@ public:
 KICOMMON_API void to_json( nlohmann::json& aJson, const KIID& aKIID );
 
 KICOMMON_API void from_json( const nlohmann::json& aJson, KIID& aKIID );
+
+template<> struct KICOMMON_API std::hash<KIID>
+{
+    std::size_t operator()( const KIID& aId ) const
+    {
+        return aId.Hash();
+    }
+};
 
 #endif // KIID_H

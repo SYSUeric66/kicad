@@ -26,14 +26,11 @@
 #ifndef CLASS_NETCLASS_H
 #define CLASS_NETCLASS_H
 
-
+#include <kicommon.h>
 #include <gal/color4d.h>
 #include <optional>
 #include <macros_swig.h>
 
-class LINE_READER;
-class BOARD;
-class BOARD_DESIGN_SETTINGS;
 using KIGFX::COLOR4D;
 
 
@@ -43,7 +40,7 @@ DECL_SET_FOR_SWIG( STRINGSET, wxString )
 /**
  * A collection of nets and the parameters used to route or test these nets.
  */
-class NETCLASS
+class KICOMMON_API NETCLASS
 {
 public:
     static const char Default[];        ///< the name of the default NETCLASS

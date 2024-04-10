@@ -44,7 +44,6 @@
 #include <footprint_editor_settings.h>
 #include <fp_lib_table.h>
 #include <kiface_base.h>
-#include <pcb_group.h>
 #include <pcb_painter.h>
 #include <pcbnew_id.h>
 #include <pcbnew_settings.h>
@@ -351,7 +350,7 @@ void PCB_BASE_FRAME::FocusOnItems( std::vector<BOARD_ITEM*> aItems, PCB_LAYER_ID
 
             focusPt = item->GetPosition();
 
-            if( aLayer == UNDEFINED_LAYER )
+            if( aLayer == UNDEFINED_LAYER && item->GetLayerSet().any() )
                 aLayer = item->GetLayerSet().Seq()[0];
 
             switch( item->Type() )
@@ -579,18 +578,6 @@ void PCB_BASE_FRAME::SetDrawBgColor( const COLOR4D& aColor )
 {
     m_drawBgColor= aColor;
     m_auimgr.Update();
-}
-
-
-const ZONE_SETTINGS& PCB_BASE_FRAME::GetZoneSettings() const
-{
-    return m_pcb->GetDesignSettings().GetDefaultZoneSettings();
-}
-
-
-void PCB_BASE_FRAME::SetZoneSettings( const ZONE_SETTINGS& aSettings )
-{
-    m_pcb->GetDesignSettings().SetDefaultZoneSettings( aSettings );
 }
 
 
@@ -1159,7 +1146,7 @@ void PCB_BASE_FRAME::setFPWatcher( FOOTPRINT* aFootprint )
     }
 
     m_watcherFileName.Assign( libfullname, aFootprint->GetFPID().GetLibItemName(),
-                              KiCadFootprintFileExtension );
+                              FILEEXT::KiCadFootprintFileExtension );
 
     if( !m_watcherFileName.FileExists() )
         return;
@@ -1239,7 +1226,7 @@ void PCB_BASE_FRAME::OnFpChangeDebounceTimer( wxTimerEvent& aEvent )
                     selectedItems.emplace_back( item->m_Uuid );
                 }
 
-                m_toolManager->RunAction( PCB_ACTIONS::selectionClear );
+                m_toolManager->ResetTools( TOOL_BASE::MODEL_RELOAD );
 
                 ReloadFootprint( newfp );
 

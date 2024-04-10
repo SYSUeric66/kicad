@@ -1,5 +1,5 @@
 ///////////////////////////////////////////////////////////////////////////
-// C++ code generated with wxFormBuilder (version 3.10.1-0-g8feb16b)
+// C++ code generated with wxFormBuilder (version 4.0.0-0-g0efcecf)
 // http://www.wxformbuilder.org/
 //
 // PLEASE DO *NOT* EDIT THIS FILE!
@@ -31,15 +31,13 @@ DIALOG_EXPORT_NETLIST_BASE::DIALOG_EXPORT_NETLIST_BASE( wxWindow* parent, wxWind
 	m_NoteBook->SetMinSize( wxSize( 540,-1 ) );
 
 
-	bUpperSizer->Add( m_NoteBook, 0, wxEXPAND|wxTOP|wxRIGHT|wxLEFT, 10 );
+	bUpperSizer->Add( m_NoteBook, 0, wxEXPAND|wxTOP|wxRIGHT|wxLEFT, 5 );
 
 	wxBoxSizer* bSizerMsgPanel;
 	bSizerMsgPanel = new wxBoxSizer( wxVERTICAL );
 
 	m_MessagesBox = new WX_HTML_REPORT_PANEL( this, wxID_ANY, wxDefaultPosition, wxDefaultSize, wxTAB_TRAVERSAL );
-	m_MessagesBox->SetMinSize( wxSize( 600,150 ) );
-
-	bSizerMsgPanel->Add( m_MessagesBox, 1, wxEXPAND|wxTOP|wxRIGHT|wxLEFT, 5 );
+	bSizerMsgPanel->Add( m_MessagesBox, 1, wxEXPAND|wxTOP, 5 );
 
 
 	bUpperSizer->Add( bSizerMsgPanel, 1, wxEXPAND|wxTOP|wxRIGHT|wxLEFT, 5 );
@@ -49,11 +47,11 @@ DIALOG_EXPORT_NETLIST_BASE::DIALOG_EXPORT_NETLIST_BASE( wxWindow* parent, wxWind
 
 	m_buttonSizer = new wxBoxSizer( wxHORIZONTAL );
 
-	m_buttonAddGenerator = new wxButton( this, ID_ADD_PLUGIN, _("Add Generator..."), wxDefaultPosition, wxDefaultSize, 0 );
-	m_buttonSizer->Add( m_buttonAddGenerator, 0, wxALL|wxEXPAND, 5 );
+	m_buttonAddGenerator = new wxButton( this, ID_ADD_PLUGIN, _("Add Exporter..."), wxDefaultPosition, wxDefaultSize, 0 );
+	m_buttonSizer->Add( m_buttonAddGenerator, 0, wxALIGN_CENTER_VERTICAL, 5 );
 
-	m_buttonDelGenerator = new wxButton( this, ID_DEL_PLUGIN, _("Remove Generator"), wxDefaultPosition, wxDefaultSize, 0 );
-	m_buttonSizer->Add( m_buttonDelGenerator, 0, wxALL|wxEXPAND, 5 );
+	m_buttonDelGenerator = new wxButton( this, ID_DEL_PLUGIN, _("Remove Exporter"), wxDefaultPosition, wxDefaultSize, 0 );
+	m_buttonSizer->Add( m_buttonDelGenerator, 0, wxALIGN_CENTER_VERTICAL|wxLEFT|wxRIGHT, 5 );
 
 	m_sdbSizer2 = new wxStdDialogButtonSizer();
 	m_sdbSizer2OK = new wxButton( this, wxID_OK );
@@ -65,7 +63,7 @@ DIALOG_EXPORT_NETLIST_BASE::DIALOG_EXPORT_NETLIST_BASE( wxWindow* parent, wxWind
 	m_buttonSizer->Add( m_sdbSizer2, 1, wxEXPAND, 5 );
 
 
-	bMainSizer->Add( m_buttonSizer, 0, wxEXPAND|wxTOP|wxBOTTOM|wxLEFT, 5 );
+	bMainSizer->Add( m_buttonSizer, 0, wxBOTTOM|wxEXPAND|wxLEFT|wxTOP, 5 );
 
 
 	this->SetSizer( bMainSizer );
@@ -100,7 +98,7 @@ NETLIST_DIALOG_ADD_GENERATOR_BASE::NETLIST_DIALOG_ADD_GENERATOR_BASE( wxWindow* 
 	m_textCtrlName = new wxTextCtrl( this, wxID_ANY, wxEmptyString, wxDefaultPosition, wxDefaultSize, 0 );
 	bSizerTop->Add( m_textCtrlName, 0, wxEXPAND|wxBOTTOM|wxRIGHT|wxLEFT, 5 );
 
-	m_staticTextCmd = new wxStaticText( this, wxID_ANY, _("Command line to run the generator:"), wxDefaultPosition, wxDefaultSize, 0 );
+	m_staticTextCmd = new wxStaticText( this, wxID_ANY, _("Command line to run the exporter:"), wxDefaultPosition, wxDefaultSize, 0 );
 	m_staticTextCmd->Wrap( -1 );
 	bSizerTop->Add( m_staticTextCmd, 0, wxTOP|wxRIGHT|wxLEFT, 5 );
 
@@ -115,7 +113,7 @@ NETLIST_DIALOG_ADD_GENERATOR_BASE::NETLIST_DIALOG_ADD_GENERATOR_BASE( wxWindow* 
 	wxBoxSizer* bSizerBottom;
 	bSizerBottom = new wxBoxSizer( wxHORIZONTAL );
 
-	m_buttonGenerator = new wxButton( this, wxID_BROWSE_PLUGINS, _("Browse Generators..."), wxDefaultPosition, wxDefaultSize, 0 );
+	m_buttonGenerator = new wxButton( this, wxID_BROWSE_PLUGINS, _("Browse Scripts..."), wxDefaultPosition, wxDefaultSize, 0 );
 	bSizerBottom->Add( m_buttonGenerator, 0, wxALL|wxEXPAND, 5 );
 
 	m_sdbSizer = new wxStdDialogButtonSizer();

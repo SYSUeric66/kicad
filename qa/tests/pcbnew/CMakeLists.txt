@@ -33,14 +33,20 @@ set( QA_PCBNEW_SRCS
     # test compilation units (start test_)
     test_array_pad_name_provider.cpp
     test_board_item.cpp
+    test_generator_load_save.cpp
     test_graphics_import_mgr.cpp
+    test_group_load_save.cpp
+    test_footprint_load_save.cpp
     test_io_mgr.cpp
     test_lset.cpp
     test_pns_basics.cpp
     test_pad_numbering.cpp
+    test_prettifier.cpp
     test_libeval_compiler.cpp
+    test_reference_image_load.cpp
     test_save_load.cpp
     test_tracks_cleaner.cpp
+    test_triangulation.cpp
     test_zone_filler.cpp
 
     drc/test_custom_rule_severities.cpp
@@ -52,10 +58,10 @@ set( QA_PCBNEW_SRCS
     drc/test_drc_copper_sliver.cpp
     drc/test_solder_mask_bridging.cpp
 
-    plugins/altium/test_altium_rule_transformer.cpp
-    plugins/altium/test_altium_pcblib_import.cpp
-    plugins/cadstar/test_cadstar_footprints.cpp
-    plugins/eagle/test_eagle_lbr_import.cpp
+    pcb_io/altium/test_altium_rule_transformer.cpp
+    pcb_io/altium/test_altium_pcblib_import.cpp
+    pcb_io/cadstar/test_cadstar_footprints.cpp
+    pcb_io/eagle/test_eagle_lbr_import.cpp
 
     group_saveload.cpp
 )
@@ -99,6 +105,7 @@ include_directories(
     ${CMAKE_SOURCE_DIR}/polygon
     ${CMAKE_SOURCE_DIR}/common/geometry
     ${CMAKE_SOURCE_DIR}/qa/qa_utils
+    ${CMAKE_SOURCE_DIR}/qa/mocks/include
     ${INC_AFTER}
 )
 

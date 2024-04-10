@@ -113,7 +113,7 @@ void SCH_EDIT_FRAME::doReCreateMenuBar()
 
     submenuImport->Add( EE_ACTIONS::importFPAssignments, ACTION_MENU::NORMAL,
                         _( "Footprint Assignments..." ) );
-    submenuImport->Add( EE_ACTIONS::schImportGraphics, ACTION_MENU::NORMAL, _( "Graphics..." ) );
+    submenuImport->Add( EE_ACTIONS::importGraphics, ACTION_MENU::NORMAL, _( "Graphics..." ) );
 
     fileMenu->Add( submenuImport );
 
@@ -171,6 +171,30 @@ void SCH_EDIT_FRAME::doReCreateMenuBar()
     editMenu->Add( EE_ACTIONS::changeSymbols );
     editMenu->Add( EE_ACTIONS::editPageNumber );
 
+    ACTION_MENU* submenuAttributes = new ACTION_MENU( false, selTool );
+    submenuAttributes->SetTitle( _( "Attributes" ) );
+
+    submenuAttributes->Add( EE_ACTIONS::setExcludeFromSimulation );
+    submenuAttributes->Add( EE_ACTIONS::unsetExcludeFromSimulation );
+    submenuAttributes->Add( EE_ACTIONS::toggleExcludeFromSimulation );
+
+    submenuAttributes->AppendSeparator();
+    submenuAttributes->Add( EE_ACTIONS::setExcludeFromBOM );
+    submenuAttributes->Add( EE_ACTIONS::unsetExcludeFromBOM );
+    submenuAttributes->Add( EE_ACTIONS::toggleExcludeFromBOM );
+
+    submenuAttributes->AppendSeparator();
+    submenuAttributes->Add( EE_ACTIONS::setExcludeFromBoard );
+    submenuAttributes->Add( EE_ACTIONS::unsetExcludeFromBoard );
+    submenuAttributes->Add( EE_ACTIONS::toggleExcludeFromBoard );
+
+    submenuAttributes->AppendSeparator();
+    submenuAttributes->Add( EE_ACTIONS::setDNP );
+    submenuAttributes->Add( EE_ACTIONS::unsetDNP );
+    submenuAttributes->Add( EE_ACTIONS::toggleDNP );
+
+    editMenu->Add( submenuAttributes );
+
     //-- View menu -----------------------------------------------------------
     //
     ACTION_MENU* viewMenu = new ACTION_MENU( false, selTool );
@@ -179,17 +203,16 @@ void SCH_EDIT_FRAME::doReCreateMenuBar()
     viewMenu->Add( ACTIONS::showSearch, ACTION_MENU::CHECK );
     viewMenu->Add( EE_ACTIONS::showHierarchy, ACTION_MENU::CHECK );
     viewMenu->Add( ACTIONS::showProperties, ACTION_MENU::CHECK );
+
+    if( ADVANCED_CFG::GetCfg().m_IncrementalConnectivity )
+        viewMenu->Add( EE_ACTIONS::showNetNavigator, ACTION_MENU::CHECK );
+
+    viewMenu->AppendSeparator();
     viewMenu->Add( EE_ACTIONS::navigateBack );
     viewMenu->Add( EE_ACTIONS::navigateUp );
     viewMenu->Add( EE_ACTIONS::navigateForward );
     viewMenu->Add( EE_ACTIONS::navigatePrevious );
     viewMenu->Add( EE_ACTIONS::navigateNext );
-
-    if( ADVANCED_CFG::GetCfg().m_IncrementalConnectivity )
-    {
-        viewMenu->AppendSeparator();
-        viewMenu->Add( EE_ACTIONS::showNetNavigator, ACTION_MENU::CHECK );
-    }
 
     viewMenu->AppendSeparator();
     viewMenu->Add( ACTIONS::zoomInCenter );
@@ -231,11 +254,13 @@ void SCH_EDIT_FRAME::doReCreateMenuBar()
     placeMenu->AppendSeparator();
     placeMenu->Add( EE_ACTIONS::placeHierLabel );
     placeMenu->Add( EE_ACTIONS::drawSheet );
-    placeMenu->Add( EE_ACTIONS::importSheetPin );
+    placeMenu->Add( EE_ACTIONS::placeSheetPin );
+    placeMenu->Add( EE_ACTIONS::syncAllSheetsPins );
 
     placeMenu->AppendSeparator();
     placeMenu->Add( EE_ACTIONS::placeSchematicText );
     placeMenu->Add( EE_ACTIONS::drawTextBox );
+    placeMenu->Add( EE_ACTIONS::drawTable );
     placeMenu->Add( EE_ACTIONS::drawRectangle );
     placeMenu->Add( EE_ACTIONS::drawCircle );
     placeMenu->Add( EE_ACTIONS::drawArc );
@@ -247,6 +272,9 @@ void SCH_EDIT_FRAME::doReCreateMenuBar()
     //
     ACTION_MENU* inspectMenu = new ACTION_MENU( false, selTool );
 
+    inspectMenu->Add( EE_ACTIONS::showBusSyntaxHelp );
+
+    inspectMenu->AppendSeparator();
     inspectMenu->Add( EE_ACTIONS::runERC );
     inspectMenu->Add( ACTIONS::prevMarker );
     inspectMenu->Add( ACTIONS::nextMarker );
@@ -297,6 +325,11 @@ void SCH_EDIT_FRAME::doReCreateMenuBar()
     toolsMenu->AppendSeparator();
     update = toolsMenu->Add( ACTIONS::updateSchematicFromPcb );
     update->Enable( !Kiface().IsSingle() );
+
+#ifdef KICAD_IPC_API
+    toolsMenu->AppendSeparator();
+    toolsMenu->Add( ACTIONS::pluginsReload );
+#endif
 
     //-- Preferences menu -----------------------------------------------
     //

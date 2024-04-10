@@ -16,6 +16,10 @@ include_directories(
     )
 
 set( KICAD_SRCS
+    dialogs/dialog_update_check_prompt_base.cpp
+    dialogs/dialog_update_check_prompt.cpp
+    dialogs/dialog_update_notice_base.cpp
+    dialogs/dialog_update_notice.cpp
     dialogs/dialog_template_selector_base.cpp
     dialogs/dialog_template_selector.cpp
     dialogs/panel_kicad_launcher_base.cpp
@@ -29,6 +33,7 @@ set( KICAD_SRCS
     project_tree_pane.cpp
     project_tree.cpp
     project_tree_item.cpp
+    update_manager.cpp
     tools/kicad_manager_actions.cpp
     tools/kicad_manager_control.cpp
     )
@@ -37,11 +42,13 @@ set( KICAD_CLI_SRCS
     cli/command.cpp
     cli/command_pcb_export_base.cpp
     cli/command_pcb_drc.cpp
+    cli/command_pcb_render.cpp
     cli/command_pcb_export_3d.cpp
     cli/command_pcb_export_drill.cpp
     cli/command_pcb_export_dxf.cpp
     cli/command_pcb_export_gerber.cpp
     cli/command_pcb_export_gerbers.cpp
+    cli/command_pcb_export_ipc2581.cpp
     cli/command_pcb_export_pdf.cpp
     cli/command_pcb_export_pos.cpp
     cli/command_pcb_export_svg.cpp
@@ -101,6 +108,11 @@ if( MSVC )
    set_target_properties(kicad-cli PROPERTIES LINK_FLAGS_RELWITHDEBINFO "/SUBSYSTEM:CONSOLE")
    set_target_properties(kicad-cli PROPERTIES LINK_FLAGS_RELEASE "/SUBSYSTEM:CONSOLE")
    set_target_properties(kicad-cli PROPERTIES LINK_FLAGS_MINSIZEREL "/SUBSYSTEM:CONSOLE")
+
+   # Allow running from build dir
+   add_custom_command( TARGET kicad POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different "$<TARGET_FILE:kiapi>" "$<TARGET_FILE_DIR:kicad>"
+        )
 endif()
 
 if( UNIX )

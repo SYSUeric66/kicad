@@ -34,7 +34,7 @@
 #include <board.h>
 #include <board_commit.h>
 #include <board_design_settings.h>
-#include <pcb_group.h>
+#include <pcb_generator.h>
 #include <footprint.h>
 #include <pad.h>
 #include <pcb_target.h>
@@ -57,6 +57,7 @@
 #include <tool/tool_event.h>
 #include <tools/drawing_tool.h>
 #include <tools/pcb_actions.h>
+#include <tools/pcb_edit_table_tool.h>
 #include <tools/pcb_picker_tool.h>
 #include <tools/pcb_selection_conditions.h>
 #include <tools/pcb_selection_tool.h>
@@ -378,11 +379,11 @@ int BOARD_EDITOR_CONTROL::ImportSpecctraSession( const TOOL_EVENT& aEvent )
     wxString ext;
 
     wxFileName::SplitPath( fullFileName, &path, &name, &ext );
-    name += wxT( "." ) + SpecctraSessionFileExtension;
+    name += wxT( "." ) + wxString( FILEEXT::SpecctraSessionFileExtension );
 
     fullFileName = wxFileSelector( _( "Specctra Session File" ), path, name,
-                                   wxT( "." ) + SpecctraSessionFileExtension,
-                                   SpecctraSessionFileWildcard(), wxFD_OPEN | wxFD_CHANGE_DIR,
+                                   wxT( "." ) + wxString( FILEEXT::SpecctraSessionFileExtension ),
+                                   FILEEXT::SpecctraSessionFileWildcard(), wxFD_OPEN | wxFD_CHANGE_DIR,
                                    frame() );
 
     if( !fullFileName.IsEmpty() )
@@ -400,7 +401,7 @@ int BOARD_EDITOR_CONTROL::ExportSpecctraDSN( const TOOL_EVENT& aEvent )
     if( fullFileName.IsEmpty() )
     {
         fn = m_frame->GetBoard()->GetFileName();
-        fn.SetExt( SpecctraDsnFileExtension );
+        fn.SetExt( FILEEXT::SpecctraDsnFileExtension );
     }
     else
     {
@@ -408,7 +409,7 @@ int BOARD_EDITOR_CONTROL::ExportSpecctraDSN( const TOOL_EVENT& aEvent )
     }
 
     fullFileName = wxFileSelector( _( "Specctra DSN File" ), fn.GetPath(), fn.GetFullName(),
-                                   SpecctraDsnFileExtension, SpecctraDsnFileWildcard(),
+                                   FILEEXT::SpecctraDsnFileExtension, FILEEXT::SpecctraDsnFileWildcard(),
                                    wxFD_SAVE | wxFD_OVERWRITE_PROMPT | wxFD_CHANGE_DIR, frame() );
 
     if( !fullFileName.IsEmpty() )
@@ -689,6 +690,13 @@ int BOARD_EDITOR_CONTROL::ToggleLayersManager( const TOOL_EVENT& aEvent )
 int BOARD_EDITOR_CONTROL::ToggleProperties( const TOOL_EVENT& aEvent )
 {
     getEditFrame<PCB_EDIT_FRAME>()->ToggleProperties();
+    return 0;
+}
+
+
+int BOARD_EDITOR_CONTROL::ToggleNetInspector( const TOOL_EVENT& aEvent )
+{
+    getEditFrame<PCB_EDIT_FRAME>()->ToggleNetInspector();
     return 0;
 }
 
@@ -1160,7 +1168,7 @@ int BOARD_EDITOR_CONTROL::PlaceFootprint( const TOOL_EVENT& aEvent )
             else
             {
                 m_toolMgr->RunAction( PCB_ACTIONS::selectionClear );
-                commit.Push( _( "Place a footprint" ) );
+                commit.Push( _( "Place a Footprint" ) );
                 fp = nullptr;  // to indicate that there is no footprint that we currently modify
                 m_placingFootprint = false;
             }
@@ -1248,28 +1256,32 @@ int BOARD_EDITOR_CONTROL::modifyLockSelected( MODIFY_MODE aMode )
         }
     }
 
-    bool modified = false;
-
     for( EDA_ITEM* item : selection )
     {
         BOARD_ITEM* board_item = dynamic_cast<BOARD_ITEM*>( item );
         wxCHECK2( board_item, continue );
 
+        PCB_GENERATOR* generator = dynamic_cast<PCB_GENERATOR*>( board_item->GetParentGroup() );
+
+        if( generator && commit.GetStatus( generator ) != CHT_MODIFY )
+        {
+            commit.Modify( generator );
+
+            if( aMode == ON )
+                generator->SetLocked( true );
+            else
+                generator->SetLocked( false );
+        }
+
         commit.Modify( board_item );
 
         if( aMode == ON )
-        {
-            modified |= !board_item->IsLocked();
             board_item->SetLocked( true );
-        }
         else
-        {
-            modified |= board_item->IsLocked();
             board_item->SetLocked( false );
-        }
     }
 
-    if( modified )
+    if( !commit.Empty() )
     {
         commit.Push( aMode == ON ? _( "Lock" ) : _( "Unlock" ) );
 
@@ -1564,7 +1576,14 @@ int BOARD_EDITOR_CONTROL::EditFpInFpEditor( const TOOL_EVENT& aEvent )
     const PCB_SELECTION& selection = selTool->RequestSelection( EDIT_TOOL::FootprintFilter );
 
     if( selection.Empty() )
+    {
+        // Giant hack: by default we assign Edit Table to the same hotkey, so give the table
+        // tool a chance to handle it if we can't.
+        if( PCB_EDIT_TABLE_TOOL* tableTool = m_toolMgr->GetTool<PCB_EDIT_TABLE_TOOL>() )
+            tableTool->EditTable( aEvent );
+
         return 0;
+    }
 
     FOOTPRINT* fp = selection.FirstOfKind<FOOTPRINT>();
 
@@ -1699,6 +1718,7 @@ void BOARD_EDITOR_CONTROL::setTransitions()
     Go( &BOARD_EDITOR_CONTROL::ShowEeschema,           PCB_ACTIONS::showEeschema.MakeEvent() );
     Go( &BOARD_EDITOR_CONTROL::ToggleLayersManager,    PCB_ACTIONS::showLayersManager.MakeEvent() );
     Go( &BOARD_EDITOR_CONTROL::ToggleProperties,       ACTIONS::showProperties.MakeEvent() );
+    Go( &BOARD_EDITOR_CONTROL::ToggleNetInspector,     PCB_ACTIONS::showNetInspector.MakeEvent() );
     Go( &BOARD_EDITOR_CONTROL::ToggleSearch,           PCB_ACTIONS::showSearch.MakeEvent() );
     Go( &BOARD_EDITOR_CONTROL::TogglePythonConsole,    PCB_ACTIONS::showPythonConsole.MakeEvent() );
     Go( &BOARD_EDITOR_CONTROL::RepairBoard,            PCB_ACTIONS::repairBoard.MakeEvent() );

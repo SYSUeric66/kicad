@@ -4,7 +4,7 @@
  * Copyright (C) 2019 Jean-Pierre Charras, jp.charras at wanadoo.fr
  * Copyright (C) 2013 Dick Hollenbeck, dick@softplc.com
  * Copyright (C) 2008-2013 Wayne Stambaugh <stambaughw@gmail.com>
- * Copyright (C) 1992-2023 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2024 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -138,6 +138,7 @@ void PCB_BASE_FRAME::ShowPadPropertiesDialog( PAD* aPad )
 {
     DIALOG_PAD_PROPERTIES dlg( this, aPad );
 
+    // QuasiModal required for NET_SELECTOR
     dlg.ShowQuasiModal();
 }
 
@@ -261,7 +262,6 @@ DIALOG_PAD_PROPERTIES::DIALOG_PAD_PROPERTIES( PCB_BASE_FRAME* aParent, PAD* aPad
     infoFont.SetStyle( wxFONTSTYLE_ITALIC );
     m_nonCopperNote->SetFont( infoFont );
     m_staticTextInfoPaste->SetFont( infoFont );
-    m_minTrackWidthHint->SetFont( infoFont );
 
     updateHoleControls();
     updatePadSizeControls();
@@ -316,6 +316,10 @@ DIALOG_PAD_PROPERTIES::~DIALOG_PAD_PROPERTIES()
                                   nullptr, this );
 
     m_page = m_notebook->GetSelection();
+
+    // Remove the preview pad from the group of the actual pad before deletion
+    if( m_previewPad )
+        m_previewPad->SetParentGroup( nullptr );
 
     delete m_previewPad;
     delete m_axisOrigin;
@@ -555,19 +559,34 @@ void DIALOG_PAD_PROPERTIES::initValues()
             m_FlippedWarningSizer->Show( footprint->IsFlipped() );
             m_parentInfo->SetLabel( msg );
         }
-    }
 
-    m_primitives = m_previewPad->GetPrimitives();
-
-    if( m_currentPad )
-    {
         m_padNumCtrl->SetValue( m_previewPad->GetNumber() );
     }
     else
     {
         PAD_TOOL* padTool = m_parent->GetToolManager()->GetTool<PAD_TOOL>();
         m_padNumCtrl->SetValue( padTool->GetLastPadNumber() );
+
+        if( m_isFpEditor )
+        {
+            switch( m_board->Footprints()[0]->GetAttributes() )
+            {
+            case FOOTPRINT_ATTR_T::FP_THROUGH_HOLE:
+                m_previewPad->SetAttribute( PAD_ATTRIB::PTH );
+
+                if( m_previewPad->GetDrillSizeX() == 0 )
+                    m_board->GetDesignSettings().SetDefaultMasterPad();
+
+                break;
+
+            case FOOTPRINT_ATTR_T::FP_SMD:
+                m_previewPad->SetAttribute( PAD_ATTRIB::SMD );
+                break;
+            }
+        }
     }
+
+    m_primitives = m_previewPad->GetPrimitives();
 
     m_padNetSelector->SetSelectedNetcode( m_previewPad->GetNetCode() );
 
@@ -603,13 +622,29 @@ void DIALOG_PAD_PROPERTIES::initValues()
     m_padToDieOpt->SetValue( m_previewPad->GetPadToDieLength() != 0 );
     m_padToDie.ChangeValue( m_previewPad->GetPadToDieLength() );
 
-    m_clearance.ChangeValue( m_previewPad->GetLocalClearance() );
-    m_maskMargin.ChangeValue( m_previewPad->GetLocalSolderMaskMargin() );
+    if( m_previewPad->GetLocalClearance().has_value() )
+        m_clearance.ChangeValue( m_previewPad->GetLocalClearance().value() );
+    else
+        m_clearance.ChangeValue( wxEmptyString );
+
+    if( m_previewPad->GetLocalSolderMaskMargin().has_value() )
+        m_maskMargin.ChangeValue( m_previewPad->GetLocalSolderMaskMargin().value() );
+    else
+        m_maskMargin.ChangeValue( wxEmptyString );
+
+    if( m_previewPad->GetLocalSolderPasteMargin().has_value() )
+        m_pasteMargin.ChangeValue( m_previewPad->GetLocalSolderPasteMargin().value() );
+    else
+        m_pasteMargin.ChangeValue( wxEmptyString );
+
+    if( m_previewPad->GetLocalSolderPasteMarginRatio().has_value() )
+        m_pasteMarginRatio.ChangeDoubleValue( m_previewPad->GetLocalSolderPasteMarginRatio().value() * 100.0 );
+    else
+        m_pasteMarginRatio.ChangeValue( wxEmptyString );
+
     m_spokeWidth.ChangeValue( m_previewPad->GetThermalSpokeWidth() );
     m_spokeAngle.ChangeAngleValue( m_previewPad->GetThermalSpokeAngle() );
     m_thermalGap.ChangeValue( m_previewPad->GetThermalGap() );
-    m_pasteMargin.ChangeValue( m_previewPad->GetLocalSolderPasteMargin() );
-    m_pasteMarginRatio.ChangeDoubleValue( m_previewPad->GetLocalSolderPasteMarginRatio() * 100.0 );
     m_pad_orientation.ChangeAngleValue( m_previewPad->GetOrientation() );
 
     m_cbTeardrops->SetValue( m_previewPad->GetTeardropParams().m_Enabled );
@@ -628,7 +663,7 @@ void DIALOG_PAD_PROPERTIES::initValues()
     else
         m_curvePointsCtrl->SetValue( 5 );
 
-    switch( m_previewPad->GetZoneConnection() )
+    switch( m_previewPad->GetLocalZoneConnection() )
     {
     default:
     case ZONE_CONNECTION::INHERITED: m_ZoneConnectionChoice->SetSelection( 0 ); break;
@@ -946,15 +981,23 @@ void DIALOG_PAD_PROPERTIES::PadTypeSelected( wxCommandEvent& event )
 
     m_gbSizerHole->Show( hasHole );
     m_staticline6->Show( hasHole );
+
     if( !hasHole )
     {
         m_holeX.ChangeValue( 0 );
         m_holeY.ChangeValue( 0 );
     }
-    else if ( m_holeX.GetValue() == 0 && m_currentPad )
+    else if( m_holeX.GetValue() == 0 )
     {
-        m_holeX.ChangeValue( m_currentPad->GetDrillSize().x );
-        m_holeY.ChangeValue( m_currentPad->GetDrillSize().y );
+        if( m_currentPad )
+        {
+            m_holeX.ChangeValue( m_currentPad->GetDrillSize().x );
+            m_holeY.ChangeValue( m_currentPad->GetDrillSize().y );
+        }
+        else
+        {
+            m_holeX.ChangeValue( pcbIUScale.mmToIU( DEFAULT_PAD_DRILL_DIAMETER_MM ) );
+        }
     }
 
     if( !hasConnection )
@@ -1260,15 +1303,17 @@ bool DIALOG_PAD_PROPERTIES::padValuesOK()
         }
     }
 
-    if( m_previewPad->GetLocalClearance() < 0 )
+    if( m_previewPad->GetLocalClearance().value_or( 0 ) < 0 )
         warning_msgs.Add( _( "Warning: Negative local clearance values will have no effect." ) );
 
     // Some pads need a negative solder mask clearance (mainly for BGA with small pads)
     // However the negative solder mask clearance must not create negative mask size
     // Therefore test for minimal acceptable negative value
-    if( m_previewPad->GetLocalSolderMaskMargin() < 0 )
+    std::optional<int> solderMaskMargin = m_previewPad->GetLocalSolderMaskMargin();
+
+    if( solderMaskMargin.has_value() && solderMaskMargin.value() < 0 )
     {
-        int absMargin = abs( m_previewPad->GetLocalSolderMaskMargin() );
+        int absMargin = abs( solderMaskMargin.value() );
 
         if( m_previewPad->GetShape() == PAD_SHAPE::CUSTOM )
         {
@@ -1298,8 +1343,8 @@ bool DIALOG_PAD_PROPERTIES::padValuesOK()
     // So we could ask for user to confirm the choice
     // For now we just check for disappearing paste
     wxSize paste_size;
-    int    paste_margin = m_previewPad->GetLocalSolderPasteMargin();
-    double paste_ratio = m_previewPad->GetLocalSolderPasteMarginRatio();
+    int    paste_margin = m_previewPad->GetLocalSolderPasteMargin().value_or( 0 );
+    double paste_ratio = m_previewPad->GetLocalSolderPasteMarginRatio().value_or( 0 );
 
     paste_size.x = pad_size.x + paste_margin + KiROUND( pad_size.x * paste_ratio );
     paste_size.y = pad_size.y + paste_margin + KiROUND( pad_size.y * paste_ratio );
@@ -1587,7 +1632,7 @@ bool DIALOG_PAD_PROPERTIES::TransferDataFromWindow()
     m_currentPad->SetRoundRectRadiusRatio( m_masterPad->GetRoundRectRadiusRatio() );
     m_currentPad->SetChamferRectRatio( m_masterPad->GetChamferRectRatio() );
     m_currentPad->SetChamferPositions( m_masterPad->GetChamferPositions() );
-    m_currentPad->SetZoneConnection( m_masterPad->GetZoneConnection() );
+    m_currentPad->SetLocalZoneConnection( m_masterPad->GetLocalZoneConnection() );
 
     m_currentPad->GetTeardropParams() = m_masterPad->GetTeardropParams();
 
@@ -1622,7 +1667,7 @@ bool DIALOG_PAD_PROPERTIES::TransferDataFromWindow()
     // redraw the area where the pad was
     m_parent->GetCanvas()->Refresh();
 
-    commit.Push( _( "Modify pad" ) );
+    commit.Push( _( "Edit Pad Properties" ) );
 
     return true;
 }
@@ -1670,12 +1715,18 @@ void DIALOG_PAD_PROPERTIES::updatePadSizeControls()
         m_sizeXLabel->SetLabel( _( "Diameter:" ) );
         m_sizeY.Show( false );
         m_bitmapTeardrop->SetBitmap( KiBitmapBundle( BITMAPS::teardrop_sizes ) );
+        m_minTrackWidthHint->SetLabel( _( "d" ) );
+        m_stLenPercentHint->SetLabel( _( "d" ) );
+        m_stWidthPercentHint->SetLabel( _( "d" ) );
     }
     else
     {
         m_sizeXLabel->SetLabel( _( "Pad size X:" ) );
         m_sizeY.Show( true );
         m_bitmapTeardrop->SetBitmap( KiBitmapBundle( BITMAPS::teardrop_rect_sizes ) );
+        m_minTrackWidthHint->SetLabel( _( "w" ) );
+        m_stLenPercentHint->SetLabel( _( "w" ) );
+        m_stWidthPercentHint->SetLabel( _( "w" ) );
     }
 
     m_sizeXLabel->GetParent()->Layout();
@@ -1726,10 +1777,26 @@ bool DIALOG_PAD_PROPERTIES::transferDataToPad( PAD* aPad )
     aPad->GetTeardropParams().m_WidthtoSizeFilterRatio = m_spTeardropHDPercent->GetValue() / 100;
 
     // Read pad clearances values:
-    aPad->SetLocalClearance( m_clearance.GetIntValue() );
-    aPad->SetLocalSolderMaskMargin( m_maskMargin.GetIntValue() );
-    aPad->SetLocalSolderPasteMargin( m_pasteMargin.GetIntValue() );
-    aPad->SetLocalSolderPasteMarginRatio( m_pasteMarginRatio.GetDoubleValue() / 100.0 );
+    if( m_clearance.IsNull() )
+        aPad->SetLocalClearance( {} );
+    else
+        aPad->SetLocalClearance( m_clearance.GetIntValue() );
+
+    if( m_maskMargin.IsNull() )
+        aPad->SetLocalSolderMaskMargin( {} );
+    else
+        aPad->SetLocalSolderMaskMargin( m_maskMargin.GetIntValue() );
+
+    if( m_pasteMargin.IsNull() )
+        aPad->SetLocalSolderPasteMargin( {} );
+    else
+        aPad->SetLocalSolderPasteMargin( m_pasteMargin.GetIntValue() );
+
+    if( m_pasteMarginRatio.IsNull() )
+        aPad->SetLocalSolderPasteMarginRatio( {} );
+    else
+        aPad->SetLocalSolderPasteMarginRatio( m_pasteMarginRatio.GetDoubleValue() / 100.0 );
+
     aPad->SetThermalSpokeWidth( m_spokeWidth.GetIntValue() );
     aPad->SetThermalSpokeAngle( m_spokeAngle.GetAngleValue() );
     aPad->SetThermalGap( m_thermalGap.GetIntValue() );
@@ -1740,10 +1807,10 @@ bool DIALOG_PAD_PROPERTIES::transferDataToPad( PAD* aPad )
     switch( m_ZoneConnectionChoice->GetSelection() )
     {
     default:
-    case 0: aPad->SetZoneConnection( ZONE_CONNECTION::INHERITED ); break;
-    case 1: aPad->SetZoneConnection( ZONE_CONNECTION::FULL );      break;
-    case 2: aPad->SetZoneConnection( ZONE_CONNECTION::THERMAL );   break;
-    case 3: aPad->SetZoneConnection( ZONE_CONNECTION::NONE );      break;
+    case 0: aPad->SetLocalZoneConnection( ZONE_CONNECTION::INHERITED ); break;
+    case 1: aPad->SetLocalZoneConnection( ZONE_CONNECTION::FULL );      break;
+    case 2: aPad->SetLocalZoneConnection( ZONE_CONNECTION::THERMAL );   break;
+    case 3: aPad->SetLocalZoneConnection( ZONE_CONNECTION::NONE );      break;
     }
 
     aPad->SetPosition( VECTOR2I( m_posX.GetIntValue(), m_posY.GetIntValue() ) );

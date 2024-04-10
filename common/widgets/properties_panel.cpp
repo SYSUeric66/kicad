@@ -24,6 +24,7 @@
 #include <eda_base_frame.h>
 #include <eda_item.h>
 #include <import_export.h>
+#include <pgm_base.h>
 #include <properties/pg_cell_renderer.h>
 
 #include <algorithm>
@@ -65,10 +66,11 @@ PROPERTIES_PANEL::PROPERTIES_PANEL( wxWindow* aParent, EDA_BASE_FRAME* aFrame ) 
         wxPGEditor_DatePickerCtrl = nullptr;
     }
 
-    if( !dynamic_cast<PG_CELL_RENDERER*>( wxPGGlobalVars->m_defaultRenderer ) )
+    if( !Pgm().m_PropertyGridInitialized )
     {
         delete wxPGGlobalVars->m_defaultRenderer;
         wxPGGlobalVars->m_defaultRenderer = new PG_CELL_RENDERER();
+        Pgm().m_PropertyGridInitialized = true;
     }
 
     m_caption = new wxStaticText( this, wxID_ANY, _( "No objects selected" ) );
@@ -85,11 +87,11 @@ PROPERTIES_PANEL::PROPERTIES_PANEL( wxWindow* aParent, EDA_BASE_FRAME* aFrame ) 
 #endif
 
 #if wxCHECK_VERSION( 3, 3, 0 )
-    m_grid->AddActionTrigger( wxPGKeyboardActions::NextProperty, WXK_RETURN );
-    m_grid->AddActionTrigger( wxPGKeyboardActions::NextProperty, WXK_NUMPAD_ENTER );
-    m_grid->AddActionTrigger( wxPGKeyboardActions::NextProperty, WXK_DOWN );
-    m_grid->AddActionTrigger( wxPGKeyboardActions::PrevProperty, WXK_UP );
-    m_grid->AddActionTrigger( wxPGKeyboardActions::Edit, WXK_SPACE );
+    m_grid->AddActionTrigger( wxPGKeyboardAction::NextProperty, WXK_RETURN );
+    m_grid->AddActionTrigger( wxPGKeyboardAction::NextProperty, WXK_NUMPAD_ENTER );
+    m_grid->AddActionTrigger( wxPGKeyboardAction::NextProperty, WXK_DOWN );
+    m_grid->AddActionTrigger( wxPGKeyboardAction::PrevProperty, WXK_UP );
+    m_grid->AddActionTrigger( wxPGKeyboardAction::Edit, WXK_SPACE );
 #else
     m_grid->AddActionTrigger( wxPG_ACTION_NEXT_PROPERTY, WXK_RETURN );
     m_grid->AddActionTrigger( wxPG_ACTION_NEXT_PROPERTY, WXK_NUMPAD_ENTER );
@@ -133,18 +135,34 @@ PROPERTIES_PANEL::PROPERTIES_PANEL( wxWindow* aParent, EDA_BASE_FRAME* aFrame ) 
     Bind( wxEVT_SIZE,
           [&]( wxSizeEvent& aEvent )
           {
-              CallAfter( [&]()
+              CallAfter( [this]()
                          {
                             RecalculateSplitterPos();
                          } );
               aEvent.Skip();
           } );
+
+    m_frame->Bind( EDA_LANG_CHANGED, &PROPERTIES_PANEL::OnLanguageChanged, this );
 }
 
 
-void PROPERTIES_PANEL::OnLanguageChanged()
+PROPERTIES_PANEL::~PROPERTIES_PANEL()
 {
+    m_frame->Unbind( EDA_LANG_CHANGED, &PROPERTIES_PANEL::OnLanguageChanged, this );
+}
+
+
+void PROPERTIES_PANEL::OnLanguageChanged( wxCommandEvent& aEvent )
+{
+    if( m_grid->IsEditorFocused() )
+        m_grid->CommitChangesFromEditor();
+
+    m_grid->Clear();
+    m_displayed.clear();
+
     UpdateData();
+
+    aEvent.Skip();
 }
 
 
@@ -165,6 +183,14 @@ void PROPERTIES_PANEL::rebuildProperties( const SELECTION& aSelection )
         m_caption->SetLabel( _( "No objects selected" ) );
         reset();
         return;
+    }
+    else if( aSelection.Size() == 1 )
+    {
+        m_caption->SetLabel( aSelection.Front()->GetFriendlyName() );
+    }
+    else
+    {
+        m_caption->SetLabel( wxString::Format( _( "%d objects selected" ), aSelection.Size() ) );
     }
 
     // Get all the selected types
@@ -219,7 +245,12 @@ void PROPERTIES_PANEL::rebuildProperties( const SELECTION& aSelection )
     }
 
     EDA_ITEM* firstItem = aSelection.Front();
-    bool isFootprintEditor = m_frame->IsType( FRAME_FOOTPRINT_EDITOR );
+
+    bool isLibraryEditor = m_frame->IsType( FRAME_FOOTPRINT_EDITOR )
+                        || m_frame->IsType( FRAME_SCH_SYMBOL_EDITOR );
+
+    bool isDesignEditor = m_frame->IsType( FRAME_PCB_EDITOR )
+                       || m_frame->IsType( FRAME_SCH );
 
     // Find a set of properties that is common to all selected items
     for( PROPERTY_BASE* property : commonProps )
@@ -227,7 +258,10 @@ void PROPERTIES_PANEL::rebuildProperties( const SELECTION& aSelection )
         if( property->IsHiddenFromPropertiesManager() )
             continue;
 
-        if( isFootprintEditor && property->IsHiddenFromLibraryEditors() )
+        if( isLibraryEditor && property->IsHiddenFromLibraryEditors() )
+            continue;
+
+        if( isDesignEditor && property->IsHiddenFromDesignEditors() )
             continue;
 
         if( propMgr.IsAvailableFor( TYPE_HASH( *firstItem ), property, firstItem ) )
@@ -282,15 +316,6 @@ void PROPERTIES_PANEL::rebuildProperties( const SELECTION& aSelection )
             pgPropOrders[pgProp] = displayOrder[property];
             pgPropGroups[property->Group()].emplace_back( pgProp );
         }
-    }
-
-    if( aSelection.Size() > 1 )
-    {
-        m_caption->SetLabel( wxString::Format( _( "%d objects selected" ), aSelection.Size() ) );
-    }
-    else
-    {
-        m_caption->SetLabel( aSelection.Front()->GetFriendlyName() );
     }
 
     const wxString unspecifiedGroupCaption = _( "Basic Properties" );
@@ -360,6 +385,9 @@ bool PROPERTIES_PANEL::extractValueAndWritability( const SELECTION& aSelection,
     for( EDA_ITEM* item : aSelection )
     {
         if( !propMgr.IsAvailableFor( TYPE_HASH( *item ), aProperty, item ) )
+            return false;
+
+        if( aProperty->IsHiddenFromPropertiesManager() )
             return false;
 
         // If read-only for any of the selection, read-only for the whole selection.

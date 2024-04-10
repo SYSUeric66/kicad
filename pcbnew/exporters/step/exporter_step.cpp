@@ -117,9 +117,9 @@ wxString EXPORTER_STEP_PARAMS::GetDefaultExportExtension()
 {
     switch( m_format )
     {
-    case EXPORTER_STEP_PARAMS::FORMAT::STEP: return wxS( "step" ); break;
-    case EXPORTER_STEP_PARAMS::FORMAT::GLB: return wxS( "glb" ); break;
-    default: return wxEmptyString; // shouldn't happen
+    case EXPORTER_STEP_PARAMS::FORMAT::STEP: return wxS( "step" );
+    case EXPORTER_STEP_PARAMS::FORMAT::GLB:  return wxS( "glb" );
+    default:                                 return wxEmptyString; // shouldn't happen
     }
 }
 
@@ -128,9 +128,9 @@ wxString EXPORTER_STEP_PARAMS::GetFormatName()
     switch( m_format )
     {
     // honestly these names shouldn't be translated since they are mostly industry standard acronyms
-    case EXPORTER_STEP_PARAMS::FORMAT::STEP: return wxS( "STEP" ); break;
-    case EXPORTER_STEP_PARAMS::FORMAT::GLB: return wxS("Binary GLTF" ); break;
-    default: return wxEmptyString; // shouldn't happen
+    case EXPORTER_STEP_PARAMS::FORMAT::STEP: return wxS( "STEP" );
+    case EXPORTER_STEP_PARAMS::FORMAT::GLB:  return wxS("Binary GLTF" );
+    default:                                 return wxEmptyString; // shouldn't happen
     }
 }
 
@@ -249,8 +249,12 @@ bool EXPORTER_STEP::buildFootprint3DShapes( FOOTPRINT* aFootprint, VECTOR2D aOri
         wxString mname = m_resolver->ResolvePath( fp_model.m_Filename, footprintBasePath );
 
 
-        if( !wxFileName::FileExists( mname ) )
+        if( mname.empty() || !wxFileName::FileExists( mname ) )
         {
+            // the error path will return an empty name sometimes, at least report back the original filename
+            if( mname.empty() )
+                mname = fp_model.m_Filename;
+
             ReportMessage( wxString::Format( wxT( "Could not add 3D model to %s.\n"
                                                   "File not found: %s\n" ),
                                              aFootprint->GetReference(), mname ) );
@@ -489,7 +493,7 @@ void EXPORTER_STEP::calculatePcbThickness()
 bool EXPORTER_STEP::Export()
 {
     // Display the export time, for statistics
-    unsigned stats_startExportTime = GetRunningMicroSecs();
+    int64_t stats_startExportTime = GetRunningMicroSecs();
 
     // setup opencascade message log
     Message::DefaultMessenger()->RemovePrinters( STANDARD_TYPE( Message_PrinterOStream ) );

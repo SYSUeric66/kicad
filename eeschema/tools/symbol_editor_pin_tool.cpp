@@ -35,17 +35,17 @@
 #include "symbol_editor_pin_tool.h"
 
 
-static ELECTRICAL_PINTYPE g_LastPinType          = ELECTRICAL_PINTYPE::PT_INPUT;
-static PIN_ORIENTATION    g_LastPinOrient        = PIN_ORIENTATION::PIN_RIGHT;
-static GRAPHIC_PINSHAPE   g_LastPinShape         = GRAPHIC_PINSHAPE::LINE;
-static bool               g_LastPinCommonConvert = false;
-static bool               g_LastPinCommonUnit    = false;
-static bool               g_LastPinVisible       = true;
+static ELECTRICAL_PINTYPE g_LastPinType            = ELECTRICAL_PINTYPE::PT_INPUT;
+static PIN_ORIENTATION    g_LastPinOrient          = PIN_ORIENTATION::PIN_RIGHT;
+static GRAPHIC_PINSHAPE   g_LastPinShape           = GRAPHIC_PINSHAPE::LINE;
+static bool               g_LastPinCommonBodyStyle = false;
+static bool               g_LastPinCommonUnit      = false;
+static bool               g_LastPinVisible         = true;
 
 // The -1 is a non-valid value to trigger delayed initialization
-static int                g_LastPinLength        = -1;
-static int                g_LastPinNameSize      = -1;
-static int                g_LastPinNumSize       = -1;
+static int                g_LastPinLength          = -1;
+static int                g_LastPinNameSize        = -1;
+static int                g_LastPinNumSize         = -1;
 
 static int GetLastPinLength()
 {
@@ -121,22 +121,23 @@ bool SYMBOL_EDITOR_PIN_TOOL::EditPinProperties( LIB_PIN* aPin )
     LIB_PIN               original_pin( *aPin );
     DIALOG_PIN_PROPERTIES dlg( m_frame, aPin );
     SCH_COMMIT            commit( m_frame );
+    LIB_SYMBOL*           parentSymbol = static_cast<LIB_SYMBOL*>( aPin->GetParentSymbol() );
 
     if( aPin->GetEditFlags() == 0 )
-        commit.Modify( aPin->GetParent() );
+        commit.Modify( parentSymbol );
 
     if( dlg.ShowModal() == wxID_CANCEL )
         return false;
 
-    if( !aPin->IsNew() && m_frame->SynchronizePins() && aPin->GetParent() )
+    if( !aPin->IsNew() && m_frame->SynchronizePins() && parentSymbol )
     {
-        LIB_PINS pinList;
-        aPin->GetParent()->GetPins( pinList );
+        std::vector<LIB_PIN*> pinList;
+        parentSymbol->GetPins( pinList );
 
         // a pin can have a unit id = 0 (common to all units) to unit count
         // So we need a buffer size = GetUnitCount()+1 to store a value in a vector
         // when using the unit id of a pin as index
-        std::vector<bool> got_unit( aPin->GetParent()->GetUnitCount() + 1 );
+        std::vector<bool> got_unit( parentSymbol->GetUnitCount() + 1 );
 
         got_unit[static_cast<size_t>(aPin->GetUnit())] = true;
 
@@ -157,12 +158,12 @@ bool SYMBOL_EDITOR_PIN_TOOL::EditPinProperties( LIB_PIN* aPin )
                 && other->IsVisible() == original_pin.IsVisible()
                 && other->GetName() == original_pin.GetName() )
             {
-                if( aPin->GetConvert() == 0 )
+                if( aPin->GetBodyStyle() == 0 )
                 {
                     if( !aPin->GetUnit() || other->GetUnit() == aPin->GetUnit() )
-                        aPin->GetParent()->RemoveDrawItem( other );
+                        parentSymbol->RemoveDrawItem( other );
                 }
-                else if( other->GetConvert() == aPin->GetConvert() )
+                else if( other->GetBodyStyle() == aPin->GetBodyStyle() )
                 {
                     other->SetPosition( aPin->GetPosition() );
                     other->ChangeLength( aPin->GetLength() );
@@ -171,8 +172,8 @@ bool SYMBOL_EDITOR_PIN_TOOL::EditPinProperties( LIB_PIN* aPin )
 
                 if( aPin->GetUnit() == 0 )
                 {
-                    if( !aPin->GetConvert() || other->GetConvert() == aPin->GetConvert() )
-                        aPin->GetParent()->RemoveDrawItem( other );
+                    if( !aPin->GetBodyStyle() || other->GetBodyStyle() == aPin->GetBodyStyle() )
+                        parentSymbol->RemoveDrawItem( other );
                 }
 
                 other->SetOrientation( aPin->GetOrientation() );
@@ -200,7 +201,7 @@ bool SYMBOL_EDITOR_PIN_TOOL::EditPinProperties( LIB_PIN* aPin )
     g_LastPinLength = aPin->GetLength();
     g_LastPinShape = aPin->GetShape();
     g_LastPinType = aPin->GetType();
-    g_LastPinCommonConvert = aPin->GetConvert() == 0;
+    g_LastPinCommonBodyStyle = aPin->GetBodyStyle() == 0;
     g_LastPinCommonUnit = aPin->GetUnit() == 0;
     g_LastPinVisible = aPin->IsVisible();
 
@@ -221,7 +222,7 @@ bool SYMBOL_EDITOR_PIN_TOOL::PlacePin( LIB_PIN* aPin )
             continue;
 
         // test for same body style
-        if( test->GetConvert() && test->GetConvert() != aPin->GetConvert() )
+        if( test->GetBodyStyle() && test->GetBodyStyle() != aPin->GetBodyStyle() )
             continue;
 
         if( ask_for_pin && m_frame->SynchronizePins() )
@@ -269,7 +270,7 @@ bool SYMBOL_EDITOR_PIN_TOOL::PlacePin( LIB_PIN* aPin )
         if( ( pin->GetEditFlags() & IS_LINKED ) == 0 )
             continue;
 
-        pin->MoveTo( aPin->GetPosition() );
+        pin->SetPosition( aPin->GetPosition() );
         pin->ClearFlags();
     }
 
@@ -295,14 +296,14 @@ LIB_PIN* SYMBOL_EDITOR_PIN_TOOL::CreatePin( const VECTOR2I& aPosition, LIB_SYMBO
     if( m_frame->SynchronizePins() )
         pin->SetFlags( IS_LINKED );
 
-    pin->MoveTo( aPosition );
+    pin->SetPosition( aPosition );
     pin->SetLength( GetLastPinLength() );
     pin->SetOrientation( g_LastPinOrient );
     pin->SetType( g_LastPinType );
     pin->SetShape( g_LastPinShape );
     pin->SetNameTextSize( GetLastPinNameSize() );
     pin->SetNumberTextSize( GetLastPinNumSize() );
-    pin->SetConvert( g_LastPinCommonConvert ? 0 : m_frame->GetConvert() );
+    pin->SetBodyStyle( g_LastPinCommonBodyStyle ? 0 : m_frame->GetBodyStyle() );
     pin->SetUnit( g_LastPinCommonUnit ? 0 : m_frame->GetUnit() );
     pin->SetVisible( g_LastPinVisible );
 
@@ -334,12 +335,12 @@ void SYMBOL_EDITOR_PIN_TOOL::CreateImagePins( LIB_PIN* aPin )
     // to facilitate pin editing, create pins for all other units for the current body style
     // at the same position as aPin
 
-    for( ii = 1; ii <= aPin->GetParent()->GetUnitCount(); ii++ )
+    for( ii = 1; ii <= aPin->GetParentSymbol()->GetUnitCount(); ii++ )
     {
         if( ii == aPin->GetUnit() )
             continue;
 
-        newPin = (LIB_PIN*) aPin->Duplicate();
+        newPin = static_cast<LIB_PIN*>( aPin->Duplicate() );
 
         // To avoid mistakes, gives this pin a new pin number because
         // it does no have the save pin number as the master pin
@@ -352,7 +353,8 @@ void SYMBOL_EDITOR_PIN_TOOL::CreateImagePins( LIB_PIN* aPin )
 
         try
         {
-            aPin->GetParent()->AddDrawItem( newPin );
+            LIB_SYMBOL* symbol = static_cast<LIB_SYMBOL*>( aPin->GetParentSymbol() );
+            symbol->AddDrawItem( newPin );
         }
         catch( const boost::bad_pointer& e )
         {
@@ -386,7 +388,7 @@ int SYMBOL_EDITOR_PIN_TOOL::PushPinProperties( const TOOL_EVENT& aEvent )
 
         if( aEvent.IsAction( &EE_ACTIONS::pushPinLength ) )
         {
-            if( !pin->GetConvert() || pin->GetConvert() == m_frame->GetConvert() )
+            if( !pin->GetBodyStyle() || pin->GetBodyStyle() == m_frame->GetBodyStyle() )
                 pin->ChangeLength( sourcePin->GetLength() );
         }
         else if( aEvent.IsAction( &EE_ACTIONS::pushPinNameSize ) )
@@ -425,7 +427,7 @@ LIB_PIN* SYMBOL_EDITOR_PIN_TOOL::RepeatPin( const LIB_PIN* aSourcePin )
     case PIN_ORIENTATION::PIN_RIGHT: step.y = schIUScale.MilsToIU(-settings->m_Repeat.pin_step);  break;
     }
 
-    pin->Offset( step );
+    pin->Move( step );
 
     wxString nextName = pin->GetName();
     IncrementLabelMember( nextName, settings->m_Repeat.label_delta );

@@ -20,6 +20,7 @@
 #include <wx/log.h>
 #include <fmt/core.h>
 #include <wx/translation.h>
+#include <ctime>
 
 #include <boost/algorithm/string.hpp>
 #include <nlohmann/json.hpp>
@@ -35,9 +36,7 @@ const char* const traceHTTPLib = "KICAD_HTTP_LIB";
 
 HTTP_LIB_CONNECTION::HTTP_LIB_CONNECTION( const HTTP_LIB_SOURCE& aSource, bool aTestConnectionNow )
 {
-    m_rootURL = aSource.root_url;
-    m_token = aSource.token;
-    m_sourceType = aSource.type;
+    m_source = aSource;
 
     if( aTestConnectionNow )
     {
@@ -58,7 +57,7 @@ bool HTTP_LIB_CONNECTION::ValidateHTTPLibraryEndpoints()
     std::string res = "";
 
     std::unique_ptr<KICAD_CURL_EASY> curl = createCurlEasyObject();
-    curl->SetURL( m_rootURL );
+    curl->SetURL( m_source.root_url );
 
     try
     {
@@ -124,7 +123,7 @@ bool HTTP_LIB_CONNECTION::syncCategories()
     std::string res = "";
 
     std::unique_ptr<KICAD_CURL_EASY> curl = createCurlEasyObject();
-    curl->SetURL( m_rootURL + http_endpoint_categories + ".json" );
+    curl->SetURL( m_source.root_url + http_endpoint_categories + ".json" );
 
     try
     {
@@ -176,18 +175,22 @@ bool HTTP_LIB_CONNECTION::SelectOne( const std::string& aPartID, HTTP_LIB_PART& 
         return false;
     }
 
-    // if the same part is selected again, use cached part
-    // instead to minimise http requests.
-    if( m_cached_part.id == aPartID )
+    // Check if there is already a part in our cache, if not fetch it
+    if( m_cachedParts.find( aPartID ) != m_cachedParts.end() )
     {
-        aFetchedPart = m_cached_part;
-        return true;
+        // check if it's outdated, if so re-fetch
+        if( std::difftime( std::time( nullptr ), m_cachedParts[aPartID].lastCached ) < m_source.timeout_parts )
+        {
+            aFetchedPart = m_cachedParts[aPartID];
+            return true;
+        }
+
     }
 
     std::string res = "";
 
     std::unique_ptr<KICAD_CURL_EASY> curl = createCurlEasyObject();
-    curl->SetURL( m_rootURL + fmt::format( http_endpoint_parts + "/{}.json", aPartID ) );
+    curl->SetURL( m_source.root_url + fmt::format( http_endpoint_parts + "/{}.json", aPartID ) );
 
     try
     {
@@ -205,8 +208,11 @@ bool HTTP_LIB_CONNECTION::SelectOne( const std::string& aPartID, HTTP_LIB_PART& 
         std::string    value = "";
 
         // the id used to identify the part, the name is needed to show a human-readable
-        // part descirption to the user inside the symbol chooser dialog
+        // part description to the user inside the symbol chooser dialog
         aFetchedPart.id = response.at( "id" );
+
+        // get a timestamp for caching
+        aFetchedPart.lastCached = std::time( nullptr );
 
         // API might not want to return an optional name.
         if( response.contains( "name" ) )
@@ -285,7 +291,7 @@ bool HTTP_LIB_CONNECTION::SelectOne( const std::string& aPartID, HTTP_LIB_PART& 
         return false;
     }
 
-    m_cached_part = aFetchedPart;
+    m_cachedParts[aFetchedPart.id] = aFetchedPart;
 
     return true;
 }
@@ -303,7 +309,7 @@ bool HTTP_LIB_CONNECTION::SelectAll( const HTTP_LIB_CATEGORY& aCategory,
     std::string res = "";
 
     std::unique_ptr<KICAD_CURL_EASY> curl = createCurlEasyObject();
-    curl->SetURL( m_rootURL
+    curl->SetURL( m_source.root_url
                     + fmt::format( http_endpoint_parts + "/category/{}.json", aCategory.id ) );
 
     try
@@ -362,15 +368,11 @@ bool HTTP_LIB_CONNECTION::SelectAll( const HTTP_LIB_CATEGORY& aCategory,
 
 bool HTTP_LIB_CONNECTION::checkServerResponse( std::unique_ptr<KICAD_CURL_EASY>& aCurl )
 {
-
-    long http_code = 0;
-
-    curl_easy_getinfo( aCurl->GetCurl(), CURLINFO_RESPONSE_CODE, &http_code );
-
-    if( http_code != 200 )
+    int statusCode = aCurl->GetResponseStatusCode();
+    if( statusCode != 200 )
     {
         m_lastError += wxString::Format( _( "API responded with error code: %s" ) + "\n",
-                                         httpErrorCodeDescription( http_code ) );
+                                         httpErrorCodeDescription( statusCode ) );
         return false;
     }
 

@@ -29,7 +29,6 @@
  */
 
 #include <wx/mimetype.h>
-#include <wx/filename.h>
 #include <wx/dir.h>
 
 #include <pgm_base.h>
@@ -63,6 +62,26 @@ wxString FindKicadFile( const wxString& shortname )
 #endif
     if( wxFileExists( fullFileName ) )
         return fullFileName;
+
+    if( wxGetEnv( wxT( "KICAD_RUN_FROM_BUILD_DIR" ), nullptr ) )
+    {
+        wxFileName buildDir( Pgm().GetExecutablePath(), shortname );
+        buildDir.RemoveLastDir();
+#ifndef __WXMSW__
+        buildDir.AppendDir( shortname );
+#else
+        buildDir.AppendDir( shortname.BeforeLast( '.' ) );
+#endif
+
+        if( buildDir.GetDirs().Last() == "pl_editor" )
+        {
+            buildDir.RemoveLastDir();
+            buildDir.AppendDir( "pagelayout_editor" );
+        }
+
+        if( wxFileExists( buildDir.GetFullPath() ) )
+            return buildDir.GetFullPath();
+    }
 
     // Test the presence of the file in the directory shortname
     // defined by the environment variable KiCad.
@@ -117,7 +136,8 @@ wxString FindKicadFile( const wxString& shortname )
 }
 
 
-int ExecuteFile( const wxString& aEditorName, const wxString& aFileName, wxProcess *aCallback )
+int ExecuteFile( const wxString& aEditorName, const wxString& aFileName, wxProcess* aCallback,
+                 bool aFileForKicad )
 {
     wxString              fullEditorName;
     std::vector<wxString> params;
@@ -186,31 +206,38 @@ int ExecuteFile( const wxString& aEditorName, const wxString& aFileName, wxProce
 
     pushParam();
 
-    fullEditorName = FindKicadFile( params[0] );
+    if( aFileForKicad )
+        fullEditorName = FindKicadFile( params[0] );
+    else
+        fullEditorName = params[0];
+
     params.erase( params.begin() );
 #else
-    fullEditorName = FindKicadFile( aEditorName );
+
+    if( aFileForKicad )
+        fullEditorName = FindKicadFile( aEditorName );
+    else
+        fullEditorName = aEditorName;
 #endif
 
     if( wxFileExists( fullEditorName ) )
     {
-        int i = 0;
-        const wchar_t* args[4];
+        std::vector<const wchar_t*> args;
 
-        args[i++] = fullEditorName.wc_str();
+        args.emplace_back( fullEditorName.wc_str() );
 
         if( !params.empty() )
         {
             for( const wxString& p : params )
-                args[i++] = p.wc_str();
+                args.emplace_back( p.wc_str() );
         }
 
         if( !aFileName.IsEmpty() )
-            args[i++] = aFileName.wc_str();
+            args.emplace_back( aFileName.wc_str() );
 
-        args[i] = nullptr;
+        args.emplace_back( nullptr );
 
-        return wxExecute( const_cast<wchar_t**>( args ), wxEXEC_ASYNC, aCallback );
+        return wxExecute( const_cast<wchar_t**>( args.data() ), wxEXEC_ASYNC, aCallback );
     }
 
     wxString msg;

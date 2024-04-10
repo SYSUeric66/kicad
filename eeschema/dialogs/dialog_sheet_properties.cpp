@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2009 Wayne Stambaugh <stambaughw@gmail.com>
- * Copyright (C) 2014-2023 KiCad Developers, see CHANGELOG.txt for contributors.
+ * Copyright (C) 2014-2024 KiCad Developers, see CHANGELOG.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -45,10 +45,12 @@
 #include "wx/dcclient.h"
 
 DIALOG_SHEET_PROPERTIES::DIALOG_SHEET_PROPERTIES( SCH_EDIT_FRAME* aParent, SCH_SHEET* aSheet,
-                                                  bool* aClearAnnotationNewItems ) :
+                                                  bool* aClearAnnotationNewItems,
+                                                  bool* aUpdateHierarchyNavigator ) :
     DIALOG_SHEET_PROPERTIES_BASE( aParent ),
     m_frame( aParent ),
     m_clearAnnotationNewItems( aClearAnnotationNewItems ),
+    m_updateHierarchyNavigator( aUpdateHierarchyNavigator ),
     m_borderWidth( aParent, m_borderWidthLabel, m_borderWidthCtrl, m_borderWidthUnits ),
     m_dummySheet( *aSheet ),
     m_dummySheetNameField( VECTOR2I( -1, -1 ), SHEETNAME, &m_dummySheet )
@@ -273,7 +275,7 @@ bool DIALOG_SHEET_PROPERTIES::TransferDataFromWindow()
 
     // Ensure the filename extension is OK.  (In normal use will be caught by grid validators,
     // but unedited data from existing files can be bad.)
-    sheetFileName = EnsureFileExtension( sheetFileName, KiCadSchematicFileExtension );
+    sheetFileName = EnsureFileExtension( sheetFileName, FILEEXT::KiCadSchematicFileExtension );
 
     wxFileName fn( sheetFileName );
     wxString newRelativeFilename = fn.GetFullPath();
@@ -335,6 +337,10 @@ bool DIALOG_SHEET_PROPERTIES::TransferDataFromWindow()
 
             return false;
         }
+        else if( m_updateHierarchyNavigator )
+        {
+            *m_updateHierarchyNavigator = true;
+        }
 
         if( clearFileName )
             currentScreen->SetFileName( wxEmptyString );
@@ -344,6 +350,9 @@ bool DIALOG_SHEET_PROPERTIES::TransferDataFromWindow()
     }
 
     wxString newSheetname = m_fields->at( SHEETNAME ).GetText();
+
+    if( ( newSheetname != m_sheet->GetName() ) && m_updateHierarchyNavigator )
+        *m_updateHierarchyNavigator = true;
 
     if( newSheetname.IsEmpty() )
         newSheetname = _( "Untitled Sheet" );
@@ -416,7 +425,8 @@ bool DIALOG_SHEET_PROPERTIES::TransferDataFromWindow()
 bool DIALOG_SHEET_PROPERTIES::onSheetFilenameChanged( const wxString& aNewFilename )
 {
     wxString   msg;
-    wxFileName sheetFileName( EnsureFileExtension( aNewFilename, KiCadSchematicFileExtension ) );
+    wxFileName sheetFileName(
+            EnsureFileExtension( aNewFilename, FILEEXT::KiCadSchematicFileExtension ) );
 
     // Sheet file names are relative to the path of the current sheet.  This allows for
     // nesting of schematic files in subfolders.  Screen file names are always absolute.
@@ -560,7 +570,7 @@ bool DIALOG_SHEET_PROPERTIES::onSheetFilenameChanged( const wxString& aNewFilena
 
         if( renameFile )
         {
-            SCH_PLUGIN::SCH_PLUGIN_RELEASER pi( SCH_IO_MGR::FindPlugin( SCH_IO_MGR::SCH_KICAD ) );
+            IO_RELEASER<SCH_IO> pi( SCH_IO_MGR::FindPlugin( SCH_IO_MGR::SCH_KICAD ) );
 
             // If the associated screen is shared by more than one sheet, do not
             // change the filename of the corresponding screen here.
@@ -647,6 +657,9 @@ bool DIALOG_SHEET_PROPERTIES::onSheetFilenameChanged( const wxString& aNewFilena
 
     if( m_clearAnnotationNewItems )
         *m_clearAnnotationNewItems = clearAnnotation;
+
+    // Rebuild the entire connection graph.
+    m_frame->RecalculateConnections( nullptr, GLOBAL_CLEANUP );
 
     return true;
 }

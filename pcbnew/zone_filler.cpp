@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2014-2017 CERN
- * Copyright (C) 2014-2023 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2014-2024 KiCad Developers, see AUTHORS.txt for contributors.
  * @author Tomasz Włostowski <tomasz.wlostowski@cern.ch>
  *
  * This program is free software: you can redistribute it and/or modify it
@@ -35,6 +35,9 @@
 #include <pcb_track.h>
 #include <pcb_text.h>
 #include <pcb_textbox.h>
+#include <pcb_tablecell.h>
+#include <pcb_table.h>
+#include <pcb_dimension.h>
 #include <connectivity/connectivity_data.h>
 #include <convert_basic_shapes_to_polygon.h>
 #include <board_commit.h>
@@ -84,7 +87,7 @@ void ZONE_FILLER::SetProgressReporter( PROGRESS_REPORTER* aReporter )
  *
  * Caller is also responsible for re-building connectivity afterwards.
  */
-bool ZONE_FILLER::Fill( std::vector<ZONE*>& aZones, bool aCheck, wxWindow* aParent )
+bool ZONE_FILLER::Fill( const std::vector<ZONE*>& aZones, bool aCheck, wxWindow* aParent )
 {
     std::lock_guard<KISPINLOCK> lock( m_board->GetConnectivity()->GetLock() );
 
@@ -607,7 +610,10 @@ bool ZONE_FILLER::Fill( std::vector<ZONE*>& aZones, bool aCheck, wxWindow* aPare
 
     for( ZONE* zone : aZones )
     {
-        LSET   zoneCopperLayers = zone->GetLayerSet() & LSET::AllCuMask( MAX_CU_LAYERS );
+        // Don't check for connections on layers that only exist in the zone but
+        // were disabled in the board
+        BOARD* board = zone->GetBoard();
+        LSET zoneCopperLayers = zone->GetLayerSet() & LSET::AllCuMask() & board->GetEnabledLayers();
 
         // Min-thickness is the web thickness.  On the other hand, a blob min-thickness by
         // min-thickness is not useful.  Since there's no obvious definition of web vs. blob, we
@@ -814,8 +820,11 @@ void ZONE_FILLER::addKnockout( BOARD_ITEM* aItem, PCB_LAYER_ID aLayer, int aGap,
         {
             if( text->IsKnockout() )
             {
-                int antiGap = -m_maxError * 2;   // Don't leave gaps around knockout text
-                text->TransformShapeToPolygon( aHoles, aLayer, antiGap, m_maxError, ERROR_OUTSIDE );
+                // Knockout text should only leave holes where the text is, not where the copper fill
+                // around it would be.
+                PCB_TEXT textCopy = *text;
+                textCopy.SetIsKnockout( false );
+                textCopy.TransformShapeToPolygon( aHoles, aLayer, 0, m_maxError, ERROR_OUTSIDE );
             }
             else
             {
@@ -827,20 +836,25 @@ void ZONE_FILLER::addKnockout( BOARD_ITEM* aItem, PCB_LAYER_ID aLayer, int aGap,
     }
 
     case PCB_TEXTBOX_T:
-    {
-        PCB_TEXTBOX* textbox = static_cast<PCB_TEXTBOX*>( aItem );
-
-        if( textbox->IsVisible() )
-            textbox->TransformShapeToPolygon( aHoles, aLayer, aGap, m_maxError, ERROR_OUTSIDE );
-
-        break;
-    }
-
+    case PCB_TABLE_T:
     case PCB_SHAPE_T:
     case PCB_TARGET_T:
         aItem->TransformShapeToPolygon( aHoles, aLayer, aGap, m_maxError, ERROR_OUTSIDE,
                                         aIgnoreLineWidth );
         break;
+
+    case PCB_DIM_ALIGNED_T:
+    case PCB_DIM_LEADER_T:
+    case PCB_DIM_CENTER_T:
+    case PCB_DIM_RADIAL_T:
+    case PCB_DIM_ORTHOGONAL_T:
+    {
+        PCB_DIMENSION_BASE* dim = static_cast<PCB_DIMENSION_BASE*>( aItem );
+
+        dim->TransformShapeToPolygon( aHoles, aLayer, aGap, m_maxError, ERROR_OUTSIDE, false );
+        dim->PCB_TEXT::TransformShapeToPolygon( aHoles, aLayer, aGap, m_maxError, ERROR_OUTSIDE );
+        break;
+    }
 
     default:
         break;
@@ -874,9 +888,18 @@ void ZONE_FILLER::knockoutThermalReliefs( const ZONE* aZone, PCB_LAYER_ID aLayer
             if( !padBBox.Intersects( aZone->GetBoundingBox() ) )
                 continue;
 
-            if( pad->GetNetCode() != aZone->GetNetCode()
-                || pad->GetNetCode() <= 0
-                || pad->GetZoneLayerOverride( aLayer ) == ZLO_FORCE_NO_ZONE_CONNECTION )
+            bool noConnection = pad->GetNetCode() != aZone->GetNetCode();
+
+            if( !aZone->IsTeardropArea() )
+            {
+                if( aZone->GetNetCode() == 0
+                    || pad->GetZoneLayerOverride( aLayer ) == ZLO_FORCE_NO_ZONE_CONNECTION )
+                {
+                    noConnection = true;
+                }
+            }
+
+            if( noConnection )
             {
                 // collect these for knockout in buildCopperItemClearances()
                 aNoConnectionPads.push_back( pad );
@@ -916,10 +939,10 @@ void ZONE_FILLER::knockoutThermalReliefs( const ZONE* aZone, PCB_LAYER_ID aLayer
                 constraint = bds.m_DRCEngine->EvalRules( PHYSICAL_CLEARANCE_CONSTRAINT, pad,
                                                          aZone, aLayer );
 
-                if( constraint.GetValue().Min() > aZone->GetLocalClearance() )
+                if( constraint.GetValue().Min() > aZone->GetLocalClearance().value() )
                     padClearance = constraint.GetValue().Min();
                 else
-                    padClearance = aZone->GetLocalClearance();
+                    padClearance = aZone->GetLocalClearance().value();
 
                 if( pad->FlashLayer( aLayer ) )
                 {
@@ -1038,8 +1061,10 @@ void ZONE_FILLER::buildCopperItemClearances( const ZONE* aZone, PCB_LAYER_ID aLa
             {
                 if( aTrack->GetBoundingBox().Intersects( zone_boundingbox ) )
                 {
-                    bool sameNet = aTrack->GetNetCode() == aZone->GetNetCode()
-                                        && aZone->GetNetCode() != 0;
+                    bool sameNet = aTrack->GetNetCode() == aZone->GetNetCode();
+
+                    if( !aZone->IsTeardropArea() && aZone->GetNetCode() == 0 )
+                        sameNet = false;
 
                     int  gap = evalRulesForItems( PHYSICAL_CLEARANCE_CONSTRAINT,
                                                   aZone, aTrack, aLayer );
@@ -1113,8 +1138,15 @@ void ZONE_FILLER::buildCopperItemClearances( const ZONE* aZone, PCB_LAYER_ID aLa
     auto knockoutGraphicClearance =
             [&]( BOARD_ITEM* aItem )
             {
-                int shapeNet = ( aItem->Type() == PCB_SHAPE_T ) ? static_cast<PCB_SHAPE*>( aItem )->GetNetCode() : -1;
-                bool sameNet = shapeNet == aZone->GetNetCode() && aZone->GetNetCode() != 0;
+                int shapeNet = -1;
+
+                if( aItem->Type() == PCB_SHAPE_T )
+                    shapeNet = static_cast<PCB_SHAPE*>( aItem )->GetNetCode();
+
+                bool sameNet = shapeNet == aZone->GetNetCode();
+
+                if( !aZone->IsTeardropArea() && aZone->GetNetCode() == 0 )
+                    sameNet = false;
 
                 // A item on the Edge_Cuts or Margin is always seen as on any layer:
                 if( aItem->IsOnLayer( aLayer )
@@ -1135,13 +1167,13 @@ void ZONE_FILLER::buildCopperItemClearances( const ZONE* aZone, PCB_LAYER_ID aLa
                         else if( aItem->IsOnLayer( Edge_Cuts ) )
                         {
                             gap = std::max( gap, evalRulesForItems( EDGE_CLEARANCE_CONSTRAINT,
-                                                                    aZone, aItem, Edge_Cuts ) );
+                                                                    aZone, aItem, aLayer ) );
                             ignoreLineWidths = true;
                         }
                         else if( aItem->IsOnLayer( Margin ) )
                         {
                             gap = std::max( gap, evalRulesForItems( EDGE_CLEARANCE_CONSTRAINT,
-                                                                    aZone, aItem, Margin ) );
+                                                                    aZone, aItem, aLayer ) );
                         }
 
                         if( gap > 0 )
@@ -1163,7 +1195,12 @@ void ZONE_FILLER::buildCopperItemClearances( const ZONE* aZone, PCB_LAYER_ID aLa
         {
             for( PAD* pad : footprint->Pads() )
             {
-                if( pad->GetNetCode() == aZone->GetNetCode() )
+                bool sameNet = pad->GetNetCode() == aZone->GetNetCode();
+
+                if( !aZone->IsTeardropArea() && aZone->GetNetCode() == 0 )
+                    sameNet = false;
+
+                if( sameNet )
                 {
                     if( pad->IsOnLayer( aLayer ) )
                         allowedNetTiePads.insert( pad );
@@ -1732,7 +1769,7 @@ void ZONE_FILLER::buildThermalSpokes( const ZONE* aZone, PCB_LAYER_ID aLayer,
     BOX2I                  zoneBB = aZone->GetBoundingBox();
     DRC_CONSTRAINT         constraint;
 
-    zoneBB.Inflate( std::max( bds.GetBiggestClearanceValue(), aZone->GetLocalClearance() ) );
+    zoneBB.Inflate( std::max( bds.GetBiggestClearanceValue(), aZone->GetLocalClearance().value() ) );
 
     // Is a point on the boundary of the polygon inside or outside?  The boundary may be off by
     // MaxError, and we add 1.5 mil for some wiggle room.
@@ -1930,6 +1967,9 @@ void ZONE_FILLER::buildThermalSpokes( const ZONE* aZone, PCB_LAYER_ID aLayer,
                 spokeIter->Rotate( pad->GetOrientation() + pad->GetThermalSpokeAngle() );
                 spokeIter->Move( pad->ShapePos() );
             }
+
+            // Remove group membership from dummy item before deleting
+            dummy_pad.SetParentGroup( nullptr );
         }
         // And lastly, even when we have to resort to trig, we can use it only in a post-process
         // after the rotated-bounding-box trick from above.
@@ -1977,6 +2017,9 @@ void ZONE_FILLER::buildThermalSpokes( const ZONE* aZone, PCB_LAYER_ID aLayer,
                 spokeIter->SetPoint( 3, end );
                 spokeIter->SetPoint( 4, end_p );
             }
+
+            // Remove group membership from dummy item before deleting
+            dummy_pad.SetParentGroup( nullptr );
         }
     }
 

@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2004-2015 Jean-Pierre Charras, jp.charras at wanadoo.fr
- * Copyright (C) 2004-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2004-2024 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -49,11 +49,13 @@
 #include "cli/command_pcb.h"
 #include "cli/command_pcb_export.h"
 #include "cli/command_pcb_drc.h"
+#include "cli/command_pcb_render.h"
 #include "cli/command_pcb_export_3d.h"
 #include "cli/command_pcb_export_drill.h"
 #include "cli/command_pcb_export_dxf.h"
 #include "cli/command_pcb_export_gerber.h"
 #include "cli/command_pcb_export_gerbers.h"
+#include "cli/command_pcb_export_ipc2581.h"
 #include "cli/command_pcb_export_pdf.h"
 #include "cli/command_pcb_export_pos.h"
 #include "cli/command_pcb_export_svg.h"
@@ -92,28 +94,6 @@ KIFACE_BASE& Kiface()
 }
 
 
-static PGM_KICAD program;
-
-
-PGM_BASE& Pgm()
-{
-    return program;
-}
-
-
-// Similar to PGM_BASE& Pgm(), but return nullptr when a *.ki_face is run from a python script.
-PGM_BASE* PgmOrNull()
-{
-    return &program;
-}
-
-
-PGM_KICAD& PgmTop()
-{
-    return program;
-}
-
-
 struct COMMAND_ENTRY
 {
     CLI::COMMAND* handler;
@@ -127,6 +107,7 @@ struct COMMAND_ENTRY
 
 static CLI::PCB_COMMAND                  pcbCmd{};
 static CLI::PCB_DRC_COMMAND              pcbDrcCmd{};
+static CLI::PCB_RENDER_COMMAND           pcbRenderCmd{};
 static CLI::PCB_EXPORT_DRILL_COMMAND     exportPcbDrillCmd{};
 static CLI::PCB_EXPORT_DXF_COMMAND       exportPcbDxfCmd{};
 static CLI::PCB_EXPORT_3D_COMMAND        exportPcbGlbCmd{ "glb", UTF8STDSTR( _( "Export GLB (binary GLTF)" ) ), JOB_EXPORT_PCB_3D::FORMAT::GLB };
@@ -137,6 +118,7 @@ static CLI::PCB_EXPORT_PDF_COMMAND       exportPcbPdfCmd{};
 static CLI::PCB_EXPORT_POS_COMMAND       exportPcbPosCmd{};
 static CLI::PCB_EXPORT_GERBER_COMMAND    exportPcbGerberCmd{};
 static CLI::PCB_EXPORT_GERBERS_COMMAND   exportPcbGerbersCmd{};
+static CLI::PCB_EXPORT_IPC2581_COMMAND   exportPcbIpc2581Cmd{};
 static CLI::PCB_EXPORT_COMMAND           exportPcbCmd{};
 static CLI::SCH_EXPORT_COMMAND           exportSchCmd{};
 static CLI::SCH_COMMAND                  schCmd{};
@@ -182,6 +164,9 @@ static std::vector<COMMAND_ENTRY> commandStack = {
                 &pcbDrcCmd
             },
             {
+                &pcbRenderCmd
+            },
+            {
                 &exportPcbCmd,
                 {
                     &exportPcbDrillCmd,
@@ -189,6 +174,7 @@ static std::vector<COMMAND_ENTRY> commandStack = {
                     &exportPcbGerberCmd,
                     &exportPcbGerbersCmd,
                     &exportPcbGlbCmd,
+                    &exportPcbIpc2581Cmd,
                     &exportPcbPdfCmd,
                     &exportPcbPosCmd,
                     &exportPcbStepCmd,
@@ -455,8 +441,9 @@ void PGM_KICAD::Destroy()
 }
 
 
-KIWAY Kiway( &Pgm(), KFCTL_CPP_PROJECT_SUITE | KFCTL_CLI );
+KIWAY Kiway( KFCTL_CPP_PROJECT_SUITE | KFCTL_CLI );
 
+static PGM_KICAD program;
 
 /**
  * Not publicly visible because most of the action is in #PGM_KICAD these days.
@@ -465,6 +452,8 @@ struct APP_KICAD_CLI : public wxAppConsole
 {
     APP_KICAD_CLI() : wxAppConsole()
     {
+        SetPgm( &program );
+
         // Init the environment each platform wants
         KIPLATFORM::ENV::Init();
     }
@@ -475,6 +464,17 @@ struct APP_KICAD_CLI : public wxAppConsole
         // Perform platform-specific init tasks
         if( !KIPLATFORM::APP::Init() )
             return false;
+
+#ifndef DEBUG
+        // Enable logging traces to the console in release build.
+        // This is usually disabled, but it can be useful for users to run to help
+        // debug issues and other problems.
+        if( wxGetEnv( wxS( "KICAD_ENABLE_WXTRACE" ), nullptr ) )
+        {
+            wxLog::EnableLogging( true );
+            wxLog::SetLogLevel( wxLOG_Trace );
+        }
+#endif
 
         if( !program.OnPgmInit() )
         {

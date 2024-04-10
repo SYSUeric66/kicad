@@ -1,7 +1,7 @@
 /*
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
- * Copyright (C) 1992-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2024 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -60,10 +60,9 @@ PROJECT_TREE_ITEM::PROJECT_TREE_ITEM( TREE_FILE_TYPE type, const wxString& data,
 
 void PROJECT_TREE_ITEM::SetState( int state )
 {
-    wxImageList* imglist     = m_parent->GetImageList();
-    int          treeEnumMax = static_cast<int>( TREE_FILE_TYPE::MAX );
+    int treeEnumMax = static_cast<int>( TREE_FILE_TYPE::MAX );
 
-    if( !imglist || state < 0 || state >= imglist->GetImageCount() / ( treeEnumMax - 2 ) )
+    if( state < 0 || state >= m_parent->GetImageCount() / ( treeEnumMax - 2 ) )
         return;
 
     m_state   = state;

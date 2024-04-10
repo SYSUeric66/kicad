@@ -44,11 +44,7 @@
 #include <template_fieldnames.h>
 
 
-namespace KIGFX
-{
-    class SCH_RENDER_SETTINGS;
-}
-
+class SCH_RENDER_SETTINGS;
 class PAGE_INFO;
 class TITLE_BLOCK;
 class SYMBOL_VIEWER_FRAME;
@@ -61,6 +57,7 @@ class SYMBOL_LIB_TABLE;
 class EESCHEMA_SETTINGS;
 class SYMBOL_EDITOR_SETTINGS;
 class NL_SCHEMATIC_PLUGIN;
+class PANEL_SCH_SELECTION_FILTER;
 
 /**
  * Load symbol from symbol library table.
@@ -110,7 +107,7 @@ public:
     void LoadSettings( APP_SETTINGS_BASE* aCfg ) override;
     void SaveSettings( APP_SETTINGS_BASE* aCfg ) override;
 
-    KIGFX::SCH_RENDER_SETTINGS* GetRenderSettings();
+    SCH_RENDER_SETTINGS* GetRenderSettings();
 
     COLOR4D GetDrawBgColor() const override;
 
@@ -241,6 +238,18 @@ public:
      */
     void OnSymChangeDebounceTimer( wxTimerEvent& aEvent );
 
+    /**
+     * Set the modification time of the symbol library table file.
+     *
+     * This is used to detect changes to the symbol library table file.
+     *
+     * @param aTime is the modification time of the symbol library table file.
+     */
+    void SetSymModificationTime( const wxDateTime& aTime )
+    {
+        m_watcherLastModified = aTime;
+    }
+
 protected:
     void handleActivateEvent( wxActivateEvent& aEvent ) override;
 
@@ -261,9 +270,17 @@ protected:
      */
     void setSymWatcher( const LIB_ID* aSymbol );
 
+    /**
+     * Selection filter panel doesn't have a dedicated visibility control, so show it if any
+     * other AUI panel is shown and docked
+     */
+    virtual void updateSelectionFilterVisbility() {}
+
     /// These are only used by symbol_editor.  Eeschema should be using the one inside
     /// the SCHEMATIC.
     SCHEMATIC_SETTINGS  m_base_frame_defaults;
+
+    PANEL_SCH_SELECTION_FILTER* m_selectionFilterPanel;
 
 private:
 

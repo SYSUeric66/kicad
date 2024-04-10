@@ -68,7 +68,7 @@ LIB_SYMBOL* SchGetLibSymbol( const LIB_ID& aLibId, SYMBOL_LIB_TABLE* aLibTable,
             wxCHECK_MSG( aCacheLib->IsCache(), nullptr, wxS( "Invalid cache library." ) );
 
             wxString cacheName = aLibId.GetLibNickname().wx_str();
-            cacheName += "_" + aLibId.GetLibItemName();
+            cacheName << "_" << aLibId.GetLibItemName();
             symbol = aCacheLib->FindSymbol( cacheName );
         }
     }
@@ -92,7 +92,9 @@ SCH_BASE_FRAME::SCH_BASE_FRAME( KIWAY* aKiway, wxWindow* aParent, FRAME_T aWindo
                                 const wxSize& aSize, long aStyle, const wxString& aFrameName ) :
         EDA_DRAW_FRAME( aKiway, aParent, aWindowType, aTitle, aPosition, aSize, aStyle,
                         aFrameName, schIUScale ),
-        m_base_frame_defaults( nullptr, "base_Frame_defaults" ), m_spaceMouse( nullptr )
+        m_base_frame_defaults( nullptr, "base_Frame_defaults" ),
+        m_selectionFilterPanel( nullptr ),
+        m_spaceMouse( nullptr )
 {
     if( ( aStyle & wxFRAME_NO_TASKBAR ) == 0 )
         createCanvas();
@@ -324,12 +326,12 @@ SCH_DRAW_PANEL* SCH_BASE_FRAME::GetCanvas() const
 }
 
 
-KIGFX::SCH_RENDER_SETTINGS* SCH_BASE_FRAME::GetRenderSettings()
+SCH_RENDER_SETTINGS* SCH_BASE_FRAME::GetRenderSettings()
 {
     if( GetCanvas() && GetCanvas()->GetView() )
     {
         if( KIGFX::PAINTER* painter = GetCanvas()->GetView()->GetPainter() )
-            return static_cast<KIGFX::SCH_RENDER_SETTINGS*>( painter->GetSettings() );
+            return static_cast<SCH_RENDER_SETTINGS*>( painter->GetSettings() );
     }
 
     return nullptr;
@@ -380,7 +382,7 @@ void SCH_BASE_FRAME::UpdateItem( EDA_ITEM* aItem, bool isAddOrDelete, bool aUpda
             GetCanvas()->GetView()->Update( aItem );
 
         // Some children are drawn from their parents.  Mark them for re-paint.
-        if( parent && parent->IsType( { SCH_SYMBOL_T, SCH_SHEET_T, SCH_LABEL_LOCATE_ANY_T } ) )
+        if( parent && parent->IsType( { SCH_SYMBOL_T, SCH_SHEET_T, SCH_LABEL_LOCATE_ANY_T, SCH_TABLE_T } ) )
             GetCanvas()->GetView()->Update( parent, KIGFX::REPAINT );
     }
 
@@ -446,7 +448,8 @@ void SCH_BASE_FRAME::AddToScreen( EDA_ITEM* aItem, SCH_SCREEN* aScreen )
     if( aScreen == nullptr )
         screen = GetScreen();
 
-    screen->Append( (SCH_ITEM*) aItem );
+    if( aItem->Type() != SCH_TABLECELL_T )
+        screen->Append( (SCH_ITEM*) aItem );
 
     if( screen == GetScreen() )
     {
@@ -466,7 +469,8 @@ void SCH_BASE_FRAME::RemoveFromScreen( EDA_ITEM* aItem, SCH_SCREEN* aScreen )
     if( screen == GetScreen() )
         GetCanvas()->GetView()->Remove( aItem );
 
-    screen->Remove( (SCH_ITEM*) aItem );
+    if( aItem->Type() != SCH_TABLECELL_T )
+        screen->Remove( (SCH_ITEM*) aItem );
 
     if( screen == GetScreen() )
         UpdateItem( aItem, true );           // handle any additional parent semantics

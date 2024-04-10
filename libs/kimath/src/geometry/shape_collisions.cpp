@@ -302,53 +302,89 @@ static inline bool Collide( const SHAPE_LINE_CHAIN_BASE& aA, const SHAPE_LINE_CH
         closest_dist = 0;
         nearest = aA.GetPoint( 0 );
     }
+    else if( aA.IsClosed() && aB.GetPointCount() > 0 && aA.PointInside( aB.GetPoint( 0 ) ) )
+    {
+        closest_dist = 0;
+        nearest = aB.GetPoint( 0 );
+    }
     else
     {
-        for( size_t i = 0; i < aB.GetSegmentCount(); i++ )
+        std::vector<SEG> a_segs;
+        std::vector<SEG> b_segs;
+
+        for( size_t ii = 0; ii < aA.GetSegmentCount(); ii++ )
         {
-            int collision_dist = 0;
-            VECTOR2I pn;
-
-            if( aB.Type() == SH_LINE_CHAIN )
+            if( aA.Type() != SH_LINE_CHAIN
+                || !static_cast<const SHAPE_LINE_CHAIN*>( &aA )->IsArcSegment( ii ) )
             {
-                const SHAPE_LINE_CHAIN* aB_line_chain = static_cast<const SHAPE_LINE_CHAIN*>( &aB );
-
-                // ignore arcs - we will collide these separately
-                if( aB_line_chain->IsArcSegment( i ) )
-                    continue;
-            }
-
-            if( aA.Collide( aB.GetSegment( i ), aClearance,
-                            aActual || aLocation ? &collision_dist : nullptr,
-                            aLocation ? &pn : nullptr ) )
-            {
-                if( collision_dist < closest_dist )
-                {
-                    nearest = pn;
-                    closest_dist = collision_dist;
-                }
-
-                if( closest_dist == 0 )
-                    break;
-
-                // If we're not looking for aActual then any collision will do
-                if( !aActual )
-                    break;
+                a_segs.push_back( aA.GetSegment( ii ) );
             }
         }
 
-        if( aB.Type() == SH_LINE_CHAIN )
+        for( size_t ii = 0; ii < aB.GetSegmentCount(); ii++ )
         {
-            const SHAPE_LINE_CHAIN* aB_line_chain = static_cast<const SHAPE_LINE_CHAIN*>( &aB );
-
-            for( size_t i = 0; i < aB_line_chain->ArcCount(); i++ )
+            if( aB.Type() != SH_LINE_CHAIN
+                || !static_cast<const SHAPE_LINE_CHAIN*>( &aB )->IsArcSegment( ii ) )
             {
-                const SHAPE_ARC& arc = aB_line_chain->Arc( i );
+                b_segs.push_back( aB.GetSegment( ii ) );
+            }
+        }
 
-                // The arcs in the chain should have zero width
-                wxASSERT_MSG( arc.GetWidth() == 0, wxT( "Invalid arc width - should be zero" ) );
+        auto seg_sort = []( const SEG& a, const SEG& b )
+        {
+            return a.A.x < b.A.x || ( a.A.x == b.A.x && a.A.y < b.A.y );
+        };
 
-                if( arc.Collide( &aA, aClearance, aActual, aLocation ) )
+        std::sort( a_segs.begin(), a_segs.end(), seg_sort );
+        std::sort( b_segs.begin(), b_segs.end(), seg_sort );
+
+        for( const SEG& a_seg : a_segs )
+        {
+            for( const SEG& b_seg : b_segs )
+            {
+                int dist = 0;
+
+                if( a_seg.Collide( b_seg, aClearance, aActual || aLocation ? &dist : nullptr ) )
+                {
+                    if( dist < closest_dist )
+                    {
+                        nearest = a_seg.NearestPoint( b_seg );
+                        closest_dist = dist;
+                    }
+
+                    if( closest_dist == 0 )
+                        break;
+
+                    // If we're not looking for aActual then any collision will do
+                    if( !aActual )
+                        break;
+                }
+            }
+        }
+    }
+
+    if( (!aActual && !aLocation ) || closest_dist > 0 )
+    {
+        std::vector<const SHAPE_LINE_CHAIN*> chains = {
+            dynamic_cast<const SHAPE_LINE_CHAIN*>( &aA ),
+            dynamic_cast<const SHAPE_LINE_CHAIN*>( &aB )
+        };
+
+        std::vector<const SHAPE*> shapes = { &aA, &aB };
+
+        for( int ii = 0; ii < 2; ii++ )
+        {
+            const SHAPE_LINE_CHAIN* chain = chains[ii];
+            const SHAPE* other = shapes[( ii + 1 ) % 2];
+
+            if( !chain )
+                continue;
+
+            for( size_t jj = 0; jj < chain->ArcCount(); jj++ )
+            {
+                const SHAPE_ARC& arc = chain->Arc( jj );
+
+                if( arc.Collide( other, aClearance, aActual, aLocation ) )
                     return true;
             }
         }
@@ -540,11 +576,11 @@ static inline bool Collide( const SHAPE_ARC& aA, const SHAPE_LINE_CHAIN& aB, int
     }
     else
     {
+        int      collision_dist = 0;
+        VECTOR2I pn;
+
         for( size_t i = 0; i < aB.GetSegmentCount(); i++ )
         {
-            int      collision_dist = 0;
-            VECTOR2I pn;
-
             // ignore arcs - we will collide these separately
             if( aB.IsArcSegment( i ) )
                 continue;
@@ -575,8 +611,21 @@ static inline bool Collide( const SHAPE_ARC& aA, const SHAPE_LINE_CHAIN& aB, int
             // The arcs in the chain should have zero width
             wxASSERT_MSG( arc.GetWidth() == 0, wxT( "Invalid arc width - should be zero" ) );
 
-            if( arc.Collide( &aA, aClearance, aActual, aLocation ) )
-                return true;
+            if( aA.Collide( &arc, aClearance, aActual || aLocation ? &collision_dist : nullptr,
+                            aLocation ? &pn : nullptr ) )
+            {
+                if( collision_dist < closest_dist )
+                {
+                    nearest = pn;
+                    closest_dist = collision_dist;
+                }
+
+                if( closest_dist == 0 )
+                    break;
+
+                if( !aActual )
+                    break;
+            }
         }
     }
 

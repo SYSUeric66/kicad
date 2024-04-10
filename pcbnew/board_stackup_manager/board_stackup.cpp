@@ -27,6 +27,22 @@
 #include <board.h>
 #include <i18n_utility.h>       // For _HKI definition
 #include "stackup_predefined_prms.h"
+#include <google/protobuf/any.pb.h>
+#include <api/board/board.pb.h>
+#include <api/api_enums.h>
+
+
+bool DIELECTRIC_PRMS::operator==( const DIELECTRIC_PRMS& aOther ) const
+{
+    if( m_Material        != aOther.m_Material ) return false;
+    if( m_Thickness       != aOther.m_Thickness ) return false;
+    if( m_ThicknessLocked != aOther.m_ThicknessLocked ) return false;
+    if( m_EpsilonR        != aOther.m_EpsilonR ) return false;
+    if( m_LossTangent     != aOther.m_LossTangent ) return false;
+    if( m_Color           != aOther.m_Color ) return false;
+
+    return true;
+}
 
 
 BOARD_STACKUP_ITEM::BOARD_STACKUP_ITEM( BOARD_STACKUP_ITEM_TYPE aType )
@@ -88,6 +104,29 @@ BOARD_STACKUP_ITEM::BOARD_STACKUP_ITEM( const BOARD_STACKUP_ITEM& aOther )
     m_DielectricPrmsList = aOther.m_DielectricPrmsList;
     m_TypeName = aOther.m_TypeName;
     m_LayerName = aOther.m_LayerName;
+}
+
+
+bool BOARD_STACKUP_ITEM::operator==( const BOARD_STACKUP_ITEM& aOther ) const
+{
+    if( m_Type              != aOther.m_Type ) return false;
+    if( m_LayerName         != aOther.m_LayerName ) return false;
+    if( m_TypeName          != aOther.m_TypeName ) return false;
+    if( m_LayerId           != aOther.m_LayerId ) return false;
+    if( m_DielectricLayerId != aOther.m_DielectricLayerId ) return false;
+    if( m_enabled           != aOther.m_enabled ) return false;
+
+    if( !std::equal( std::begin( m_DielectricPrmsList ), std::end( m_DielectricPrmsList ),
+                     std::begin( aOther.m_DielectricPrmsList ),
+                     []( const DIELECTRIC_PRMS& aA, const DIELECTRIC_PRMS& aB )
+                     {
+                         return aA == aB;
+                     } ) )
+    {
+        return false;
+    }
+
+    return true;
 }
 
 
@@ -357,6 +396,66 @@ BOARD_STACKUP& BOARD_STACKUP::operator=( const BOARD_STACKUP& aOther )
     }
 
     return *this;
+}
+
+
+bool BOARD_STACKUP::operator==( const BOARD_STACKUP& aOther ) const
+{
+    if( m_HasDielectricConstrains  != aOther.m_HasDielectricConstrains ) return false;
+    if( m_HasThicknessConstrains   != aOther.m_HasThicknessConstrains ) return false;
+    if( m_EdgeConnectorConstraints != aOther.m_EdgeConnectorConstraints ) return false;
+    if( m_CastellatedPads          != aOther.m_CastellatedPads ) return false;
+    if( m_EdgePlating              != aOther.m_EdgePlating ) return false;
+    if( m_FinishType               != aOther.m_FinishType ) return false;
+
+    if( !std::equal( std::begin( m_list ), std::end( m_list ), std::begin( aOther.m_list ),
+                     []( const BOARD_STACKUP_ITEM* aA, const BOARD_STACKUP_ITEM* aB )
+                     {
+                         return *aA == *aB;
+                     } ) )
+    {
+        return false;
+    }
+
+    return true;
+}
+
+
+void BOARD_STACKUP::Serialize( google::protobuf::Any& aContainer ) const
+{
+    kiapi::board::BoardStackup stackup;
+
+    for( const BOARD_STACKUP_ITEM* item : m_list )
+    {
+        kiapi::board::BoardStackupLayer* layer = stackup.mutable_layers()->Add();
+
+        // TODO dielectric sub-layers
+        layer->mutable_thickness()->set_value_nm( item->GetThickness() );
+        layer->set_layer( ToProtoEnum<PCB_LAYER_ID, kiapi::board::types::BoardLayer>(
+                item->GetBrdLayerId() ) );
+
+        switch( item->GetType() )
+        {
+        case BOARD_STACKUP_ITEM_TYPE::BS_ITEM_TYPE_COPPER:
+        {
+            layer->mutable_copper()->New();
+            // (no copper params yet...)
+            break;
+        }
+
+        default:
+            // TODO
+            break;
+        }
+    }
+
+    aContainer.PackFrom( stackup );
+}
+
+
+bool BOARD_STACKUP::Deserialize( const google::protobuf::Any& aContainer )
+{
+    return true;
 }
 
 

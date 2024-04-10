@@ -41,7 +41,6 @@
 #include <wx/snglinst.h>
 #include <netlist_reader/pcb_netlist.h>
 #include <pcbnew_id.h>
-#include <io_mgr.h>
 #include <wildcards_and_files_ext.h>
 #include <tool/tool_manager.h>
 #include <board.h>
@@ -57,12 +56,13 @@
 #include <project_pcb.h>
 #include <project/project_local_settings.h>
 #include <project/net_settings.h>
-#include <plugins/cadstar/cadstar_pcb_archive_plugin.h>
-#include <plugins/kicad/pcb_plugin.h>
+#include <io/common/plugin_common_choose_project.h>
+#include <pcb_io/pcb_io_mgr.h>
+#include <pcb_io/cadstar/pcb_io_cadstar_archive.h>
+#include <pcb_io/kicad_sexpr/pcb_io_kicad_sexpr.h>
 #include <dialogs/dialog_export_2581.h>
 #include <dialogs/dialog_imported_layers.h>
 #include <dialogs/dialog_import_choose_project.h>
-#include <plugins/common/plugin_common_choose_project.h>
 #include <tools/pcb_actions.h>
 #include "footprint_info_impl.h"
 #include <board_commit.h>
@@ -95,11 +95,11 @@
  */
 bool AskLoadBoardFileName( PCB_EDIT_FRAME* aParent, wxString* aFileName, int aCtl = 0 )
 {
-    std::vector<PLUGIN_FILE_DESC> descriptions;
+    std::vector<IO_BASE::IO_FILE_DESC> descriptions;
 
-    for( const auto& plugin : IO_MGR::PLUGIN_REGISTRY::Instance()->AllPlugins() )
+    for( const auto& plugin : PCB_IO_MGR::PLUGIN_REGISTRY::Instance()->AllPlugins() )
     {
-        bool isKiCad = plugin.m_type == IO_MGR::KICAD_SEXP || plugin.m_type == IO_MGR::LEGACY;
+        bool isKiCad = plugin.m_type == PCB_IO_MGR::KICAD_SEXP || plugin.m_type == PCB_IO_MGR::LEGACY;
 
         if( ( aCtl & KICTL_KICAD_ONLY ) && !isKiCad )
             continue;
@@ -107,11 +107,10 @@ bool AskLoadBoardFileName( PCB_EDIT_FRAME* aParent, wxString* aFileName, int aCt
         if( ( aCtl & KICTL_NONKICAD_ONLY ) && isKiCad )
             continue;
 
-        // release the PLUGIN even if an exception is thrown.
-        PLUGIN::RELEASER pi( plugin.m_createFunc() );
+        IO_RELEASER<PCB_IO> pi( plugin.m_createFunc() );
         wxCHECK( pi, false );
 
-        const PLUGIN_FILE_DESC& desc = pi->GetBoardFileDesc();
+        const IO_BASE::IO_FILE_DESC& desc = pi->GetBoardFileDesc();
 
         if( desc.m_FileExtensions.empty() )
             continue;
@@ -123,7 +122,7 @@ bool AskLoadBoardFileName( PCB_EDIT_FRAME* aParent, wxString* aFileName, int aCt
     std::vector<std::string> allExtensions;
     std::set<wxString>       allWildcardsSet;
 
-    for( const PLUGIN_FILE_DESC& desc : descriptions )
+    for( const IO_BASE::IO_FILE_DESC& desc : descriptions )
     {
         if( !fileFiltersStr.IsEmpty() )
             fileFiltersStr += wxChar( '|' );
@@ -199,10 +198,10 @@ bool AskLoadBoardFileName( PCB_EDIT_FRAME* aParent, wxString* aFileName, int aCt
  */
 bool AskSaveBoardFileName( PCB_EDIT_FRAME* aParent, wxString* aFileName, bool* aCreateProject )
 {
-    wxString    wildcard =  PcbFileWildcard();
+    wxString   wildcard = FILEEXT::PcbFileWildcard();
     wxFileName  fn = *aFileName;
 
-    fn.SetExt( KiCadPcbFileExtension );
+    fn.SetExt( FILEEXT::KiCadPcbFileExtension );
 
     wxFileDialog dlg( aParent, _( "Save Board File As" ), fn.GetPath(), fn.GetFullName(), wildcard,
                       wxFD_SAVE | wxFD_OVERWRITE_PROMPT );
@@ -217,7 +216,7 @@ bool AskSaveBoardFileName( PCB_EDIT_FRAME* aParent, wxString* aFileName, bool* a
         return false;
 
     *aFileName = dlg.GetPath();
-    *aFileName = EnsureFileExtension( *aFileName, KiCadPcbFileExtension );
+    *aFileName = EnsureFileExtension( *aFileName, FILEEXT::KiCadPcbFileExtension );
 
     if( newProjectHook.IsAttachedToDialog() )
         *aCreateProject = newProjectHook.GetCreateNewProject();
@@ -266,6 +265,10 @@ bool PCB_EDIT_FRAME::Files_io_from_id( int id )
     {
     case ID_LOAD_FILE:
     {
+        // Only standalone mode can directly load a new document
+        if( !Kiface().IsSingle() )
+            return false;
+
         int      open_ctl = KICTL_KICAD_ONLY;
         wxString fileName = Prj().AbsolutePath( GetBoard()->GetFileName() );
 
@@ -275,6 +278,7 @@ bool PCB_EDIT_FRAME::Files_io_from_id( int id )
 
     case ID_IMPORT_NON_KICAD_BOARD:
     {
+        // Note: we explicitly allow this even if not in standalone mode for now, even though it is dangerous.
         int      open_ctl = KICTL_NONKICAD_ONLY;
         wxString fileName; // = Prj().AbsolutePath( GetBoard()->GetFileName() );
 
@@ -333,6 +337,10 @@ bool PCB_EDIT_FRAME::Files_io_from_id( int id )
 
     case ID_NEW_BOARD:
     {
+        // Only standalone mode can directly load a new document
+        if( !Kiface().IsSingle() )
+            return false;
+
         if( IsContentModified() )
         {
             wxFileName fileName = GetBoard()->GetFileName();
@@ -407,7 +415,7 @@ bool PCB_EDIT_FRAME::Files_io_from_id( int id )
                 savePath = PATHS::GetDefaultUserProjectsPath();
         }
 
-        wxFileName  fn( savePath.GetPath(), orig_name, KiCadPcbFileExtension );
+        wxFileName  fn( savePath.GetPath(), orig_name, FILEEXT::KiCadPcbFileExtension );
         wxString    filename = fn.GetFullPath();
         bool        createProject = false;
         bool        success = false;
@@ -436,7 +444,7 @@ bool PCB_EDIT_FRAME::Files_io_from_id( int id )
 }
 
 
-int PCB_EDIT_FRAME::inferLegacyEdgeClearance( BOARD* aBoard )
+int PCB_EDIT_FRAME::inferLegacyEdgeClearance( BOARD* aBoard, bool aShowUserMsg )
 {
     PCB_LAYER_COLLECTOR collector;
 
@@ -464,14 +472,15 @@ int PCB_EDIT_FRAME::inferLegacyEdgeClearance( BOARD* aBoard )
         }
     }
 
-    if( mixed )
+    if( mixed && aShowUserMsg )
     {
         // If they had different widths then we can't ensure that fills will be the same.
-        DisplayInfoMessage( this, _( "If the zones on this board are refilled the Copper Edge Clearance "
-                         "setting will be used (see Board Setup > Design Rules > Constraints).\n"
-                         "This may result in different fills from previous KiCad versions which "
-                         "used the line thicknesses of the board boundary on the Edge Cuts "
-                          "layer." ) );
+        DisplayInfoMessage( this,
+                            _( "If the zones on this board are refilled the Copper Edge "
+                               "Clearance setting will be used (see Board Setup > Design "
+                               "Rules > Constraints).\n This may result in different fills "
+                               "from previous KiCad versions which used the line thicknesses "
+                               "of the board boundary on the Edge Cuts layer." ) );
     }
 
     return std::max( 0, edgeWidth / 2 );
@@ -535,7 +544,7 @@ bool PCB_EDIT_FRAME::OpenProjectFiles( const std::vector<wxString>& aFileSet, in
     }
 
     wxFileName pro = fullFileName;
-    pro.SetExt( ProjectFileExtension );
+    pro.SetExt( FILEEXT::ProjectFileExtension );
 
     bool is_new = !wxFileName::IsFileReadable( fullFileName );
 
@@ -558,15 +567,15 @@ bool PCB_EDIT_FRAME::OpenProjectFiles( const std::vector<wxString>& aFileSet, in
     // No save prompt (we already prompted above), and only reset to a new blank board if new
     Clear_Pcb( false, !is_new );
 
-    IO_MGR::PCB_FILE_T pluginType = IO_MGR::KICAD_SEXP;
+    PCB_IO_MGR::PCB_FILE_T pluginType = PCB_IO_MGR::KICAD_SEXP;
 
     if( !is_new )
-        pluginType = IO_MGR::FindPluginTypeFromBoardPath( fullFileName, aCtl );
+        pluginType = PCB_IO_MGR::FindPluginTypeFromBoardPath( fullFileName, aCtl );
 
-    if( pluginType == IO_MGR::FILE_TYPE_NONE )
+    if( pluginType == PCB_IO_MGR::FILE_TYPE_NONE )
         return false;
 
-    bool converted =  pluginType != IO_MGR::LEGACY && pluginType != IO_MGR::KICAD_SEXP;
+    bool converted =  pluginType != PCB_IO_MGR::LEGACY && pluginType != PCB_IO_MGR::KICAD_SEXP;
 
     // Loading a project should only be done under carefully considered circumstances.
 
@@ -606,24 +615,22 @@ bool PCB_EDIT_FRAME::OpenProjectFiles( const std::vector<wxString>& aFileSet, in
     }
     else
     {
-        BOARD*           loadedBoard = nullptr;   // it will be set to non-NULL if loaded OK
-        PLUGIN::RELEASER pi( IO_MGR::PluginFind( pluginType ) );
+        BOARD*              loadedBoard = nullptr;   // it will be set to non-NULL if loaded OK
+        IO_RELEASER<PCB_IO> pi( PCB_IO_MGR::PluginFind( pluginType ) );
 
-        LAYER_REMAPPABLE_PLUGIN* layerRemappablePlugin =
-            dynamic_cast< LAYER_REMAPPABLE_PLUGIN* >( (PLUGIN*) pi );
+        LAYER_REMAPPABLE_PLUGIN* layerRemappableIO = dynamic_cast<LAYER_REMAPPABLE_PLUGIN*>( pi.get() );
 
-        if( layerRemappablePlugin )
+        if( layerRemappableIO )
         {
-            layerRemappablePlugin->RegisterLayerMappingCallback(
+            layerRemappableIO->RegisterLayerMappingCallback(
                     std::bind( DIALOG_IMPORTED_LAYERS::GetMapModal, this, std::placeholders::_1 ) );
         }
 
-        PROJECT_CHOOSER_PLUGIN* projectChooserPlugin =
-                dynamic_cast<PROJECT_CHOOSER_PLUGIN*>( (PLUGIN*) pi );
+        PROJECT_CHOOSER_PLUGIN* projectChooserIO = dynamic_cast<PROJECT_CHOOSER_PLUGIN*>( pi.get() );
 
-        if( projectChooserPlugin )
+        if( projectChooserIO )
         {
-            projectChooserPlugin->RegisterChooseProjectCallback(
+            projectChooserIO->RegisterChooseProjectCallback(
                     std::bind( DIALOG_IMPORT_CHOOSE_PROJECT::GetSelectionsModal, this,
                                std::placeholders::_1 ) );
         }
@@ -653,7 +660,7 @@ bool PCB_EDIT_FRAME::OpenProjectFiles( const std::vector<wxString>& aFileSet, in
             if( m_importProperties )
                 props.insert( m_importProperties->begin(), m_importProperties->end() );
 
-            // EAGLE_PLUGIN can use this info to center the BOARD, but it does not yet.
+            // PCB_IO_EAGLE can use this info to center the BOARD, but it does not yet.
             props["page_width"] = std::to_string( GetPageSizeIU().x );
             props["page_height"] = std::to_string( GetPageSizeIU().y );
 
@@ -672,14 +679,15 @@ bool PCB_EDIT_FRAME::OpenProjectFiles( const std::vector<wxString>& aFileSet, in
 
 #if USE_INSTRUMENTATION
             // measure the time to load a BOARD.
-            unsigned startTime = GetRunningMicroSecs();
+            int64_t startTime = GetRunningMicroSecs();
 #endif
 
-            loadedBoard = pi->LoadBoard( fullFileName, nullptr, &props, &Prj(), &progressReporter );
+            pi->SetProgressReporter( &progressReporter );
+            loadedBoard = pi->LoadBoard( fullFileName, nullptr, &props, &Prj() );
 
 #if USE_INSTRUMENTATION
-            unsigned stopTime = GetRunningMicroSecs();
-            printf( "PLUGIN::Load(): %u usecs\n", stopTime - startTime );
+            int64_t stopTime = GetRunningMicroSecs();
+            printf( "PCB_IO::Load(): %u usecs\n", stopTime - startTime );
 #endif
         }
         catch( const FUTURE_FORMAT_ERROR& ffe )
@@ -738,7 +746,10 @@ bool PCB_EDIT_FRAME::OpenProjectFiles( const std::vector<wxString>& aFileSet, in
             // edge widths.
             if( !loadedBoard->m_LegacyCopperEdgeClearanceLoaded )
             {
-                int edgeClearance = inferLegacyEdgeClearance( loadedBoard );
+                // Do not show the inferred edge clearance warning dialog when loading third
+                // party boards.  For some reason the dialog completely hangs all of KiCad and
+                // the imported board cannot be saved.
+                int edgeClearance = inferLegacyEdgeClearance( loadedBoard, !converted );
                 loadedBoard->GetDesignSettings().m_CopperEdgeClearance = edgeClearance;
             }
 
@@ -759,7 +770,7 @@ bool PCB_EDIT_FRAME::OpenProjectFiles( const std::vector<wxString>& aFileSet, in
             loadedBoard->SetModified();
         }
 
-        // we should not ask PLUGINs to do these items:
+        // we should not ask PCB_IOs to do these items:
         loadedBoard->BuildListOfNets();
         ResolveDRCExclusions( true );
         m_toolManager->RunAction( PCB_ACTIONS::repairBoard, true);
@@ -769,8 +780,8 @@ bool PCB_EDIT_FRAME::OpenProjectFiles( const std::vector<wxString>& aFileSet, in
         else
             GetScreen()->SetContentModified( false );
 
-        if( ( pluginType == IO_MGR::LEGACY )
-         || ( pluginType == IO_MGR::KICAD_SEXP
+        if( ( pluginType == PCB_IO_MGR::LEGACY )
+         || ( pluginType == PCB_IO_MGR::KICAD_SEXP
                 && loadedBoard->GetFileFormatVersionAtLoad() < SEXPR_BOARD_FILE_VERSION
                 && loadedBoard->GetGenerator().Lower() != wxT( "gerbview" ) ) )
         {
@@ -801,7 +812,7 @@ bool PCB_EDIT_FRAME::OpenProjectFiles( const std::vector<wxString>& aFileSet, in
             // which prompts the user to continue with overwrite or abort)
             if( newLibPath.Length() > 0 )
             {
-                PLUGIN::RELEASER piSexpr( IO_MGR::PluginFind( IO_MGR::KICAD_SEXP ) );
+                IO_RELEASER<PCB_IO> piSexpr( PCB_IO_MGR::PluginFind( PCB_IO_MGR::KICAD_SEXP ) );
 
                 for( FOOTPRINT* footprint : loadedFootprints )
                 {
@@ -871,7 +882,7 @@ bool PCB_EDIT_FRAME::OpenProjectFiles( const std::vector<wxString>& aFileSet, in
         wxFileName fn = fullFileName;
 
         if( converted )
-            fn.SetExt( PcbFileExtension );
+            fn.SetExt( FILEEXT::PcbFileExtension );
 
         wxString fname = fn.GetFullPath();
 
@@ -931,8 +942,8 @@ bool PCB_EDIT_FRAME::SavePcbFile( const wxString& aFileName, bool addToHistory,
     // please, keep it simple.  prompting goes elsewhere.
     wxFileName pcbFileName = aFileName;
 
-    if( pcbFileName.GetExt() == LegacyPcbFileExtension )
-        pcbFileName.SetExt( KiCadPcbFileExtension );
+    if( pcbFileName.GetExt() == FILEEXT::LegacyPcbFileExtension )
+        pcbFileName.SetExt( FILEEXT::KiCadPcbFileExtension );
 
     // Write through symlinks, don't replace them
     WX_FILENAME::ResolvePossibleSymlinks( pcbFileName );
@@ -951,8 +962,8 @@ bool PCB_EDIT_FRAME::SavePcbFile( const wxString& aFileName, bool addToHistory,
     wxFileName rulesFile( pcbFileName );
     wxString   msg;
 
-    projectFile.SetExt( ProjectFileExtension );
-    rulesFile.SetExt( DesignRulesFileExtension );
+    projectFile.SetExt( FILEEXT::ProjectFileExtension );
+    rulesFile.SetExt( FILEEXT::DesignRulesFileExtension );
 
     if( projectFile.FileExists() )
     {
@@ -991,7 +1002,7 @@ bool PCB_EDIT_FRAME::SavePcbFile( const wxString& aFileName, bool addToHistory,
 
     try
     {
-        PLUGIN::RELEASER    pi( IO_MGR::PluginFind( IO_MGR::KICAD_SEXP ) );
+        IO_RELEASER<PCB_IO> pi( PCB_IO_MGR::PluginFind( PCB_IO_MGR::KICAD_SEXP ) );
 
         pi->SaveBoard( tempFile, GetBoard(), nullptr );
     }
@@ -1074,7 +1085,7 @@ bool PCB_EDIT_FRAME::SavePcbFile( const wxString& aFileName, bool addToHistory,
 
 bool PCB_EDIT_FRAME::SavePcbCopy( const wxString& aFileName, bool aCreateProject )
 {
-    wxFileName pcbFileName( EnsureFileExtension( aFileName, KiCadPcbFileExtension ) );
+    wxFileName pcbFileName( EnsureFileExtension( aFileName, FILEEXT::KiCadPcbFileExtension ) );
 
     if( !IsWritable( pcbFileName ) )
     {
@@ -1091,7 +1102,7 @@ bool PCB_EDIT_FRAME::SavePcbCopy( const wxString& aFileName, bool aCreateProject
 
     try
     {
-        PLUGIN::RELEASER    pi( IO_MGR::PluginFind( IO_MGR::KICAD_SEXP ) );
+        IO_RELEASER<PCB_IO> pi( PCB_IO_MGR::PluginFind( PCB_IO_MGR::KICAD_SEXP ) );
 
         wxASSERT( pcbFileName.IsAbsolute() );
 
@@ -1110,8 +1121,8 @@ bool PCB_EDIT_FRAME::SavePcbCopy( const wxString& aFileName, bool aCreateProject
     wxFileName rulesFile( pcbFileName );
     wxString   msg;
 
-    projectFile.SetExt( ProjectFileExtension );
-    rulesFile.SetExt( DesignRulesFileExtension );
+    projectFile.SetExt( FILEEXT::ProjectFileExtension );
+    rulesFile.SetExt( FILEEXT::DesignRulesFileExtension );
 
     if( aCreateProject && !projectFile.FileExists() )
         GetSettingsManager()->SaveProjectCopy( projectFile.GetFullPath() );
@@ -1147,7 +1158,7 @@ bool PCB_EDIT_FRAME::doAutoSave()
     if( GetBoard()->GetFileName().IsEmpty() )
     {
         tmpFileName = wxFileName( PATHS::GetDefaultUserProjectsPath(), NAMELESS_PROJECT,
-                                  KiCadPcbFileExtension );
+                                  FILEEXT::KiCadPcbFileExtension );
         GetBoard()->SetFileName( tmpFileName.GetFullPath() );
     }
     else
@@ -1208,12 +1219,12 @@ bool PCB_EDIT_FRAME::importFile( const wxString& aFileName, int aFileType,
 {
     m_importProperties = aProperties;
 
-    switch( (IO_MGR::PCB_FILE_T) aFileType )
+    switch( (PCB_IO_MGR::PCB_FILE_T) aFileType )
     {
-    case IO_MGR::CADSTAR_PCB_ARCHIVE:
-    case IO_MGR::EAGLE:
-    case IO_MGR::EASYEDA:
-    case IO_MGR::EASYEDAPRO:
+    case PCB_IO_MGR::CADSTAR_PCB_ARCHIVE:
+    case PCB_IO_MGR::EAGLE:
+    case PCB_IO_MGR::EASYEDA:
+    case PCB_IO_MGR::EASYEDAPRO:
         return OpenProjectFiles( std::vector<wxString>( 1, aFileName ),
                                  KICTL_NONKICAD_ONLY | KICTL_IMPORT_LIB );
 
@@ -1272,9 +1283,9 @@ void PCB_EDIT_FRAME::GenIPC2581File( wxCommandEvent& event )
     {
         try
         {
-            PLUGIN::RELEASER pi( IO_MGR::PluginFind( IO_MGR::IPC2581 ) );
-
-            pi->SaveBoard( tempFile, GetBoard(), &props, &reporter );
+            IO_RELEASER<PCB_IO> pi( PCB_IO_MGR::PluginFind( PCB_IO_MGR::IPC2581 ) );
+            pi->SetProgressReporter( &reporter );
+            pi->SaveBoard( tempFile, GetBoard(), &props );
             return true;
         }
         catch( const IO_ERROR& ioe )
@@ -1323,7 +1334,7 @@ void PCB_EDIT_FRAME::GenIPC2581File( wxCommandEvent& event )
     if( dlg.GetCompress() )
     {
         wxFileName tempfn = pcbFileName;
-        tempfn.SetExt( Ipc2581FileExtension );
+        tempfn.SetExt( FILEEXT::Ipc2581FileExtension );
         wxFileName zipfn = tempFile;
         zipfn.SetExt( "zip" );
 
@@ -1463,9 +1474,9 @@ void PCB_EDIT_FRAME::GenODBPPFiles( wxCommandEvent& event )
     {
         try
         {
-            PLUGIN::RELEASER pi( IO_MGR::PluginFind( IO_MGR::ODBPP ) );
-
-            pi->SaveBoard( outputfile.GetFullPath(), GetBoard(), nullptr, &reporter );
+            IO_RELEASER<PCB_IO> pi( PCB_IO_MGR::PluginFind( PCB_IO_MGR::ODBPP ) );
+            pi->SetProgressReporter( &reporter );
+            pi->SaveBoard( outputfile.GetFullPath(), GetBoard(), nullptr );
             return true;
         }
         catch( const IO_ERROR& ioe )

@@ -3,7 +3,7 @@
  *
  * Copyright (C) 2015-2022 Mario Luzeiro <mrluzeiro@ua.pt>
  * Copyright (C) 2023 CERN
- * Copyright (C) 2015-2023 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2015-2024 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -23,7 +23,7 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA
  */
 
-#include "render_3d_raytrace.h"
+#include "render_3d_raytrace_base.h"
 #include "shapes3D/plane_3d.h"
 #include "shapes3D/round_segment_3d.h"
 #include "shapes3D/layer_item_3d.h"
@@ -72,7 +72,7 @@ static float TransparencyControl( float aGrayColorValue, float aTransparency )
 #define UNITS3D_TO_UNITSPCB ( pcbIUScale.IU_PER_MM )
 
 
-void RENDER_3D_RAYTRACE::setupMaterials()
+void RENDER_3D_RAYTRACE_BASE::setupMaterials()
 {
     MATERIAL::SetDefaultRefractionRayCount( m_boardAdapter.m_Cfg->m_Render.raytrace_nrsamples_refractions );
     MATERIAL::SetDefaultReflectionRayCount( m_boardAdapter.m_Cfg->m_Render.raytrace_nrsamples_reflections );
@@ -170,13 +170,13 @@ void RENDER_3D_RAYTRACE::setupMaterials()
 
     m_materials.m_Floor = BLINN_PHONG_MATERIAL( bgTop * 0.125f, SFVEC3F( 0.0f, 0.0f, 0.0f ),
                                                 ( SFVEC3F( 1.0f ) - bgTop ) / 3.0f,
-                                                0.10f * 128.0f, 0.0f, 0.50f );
+                                                0.10f * 128.0f, 1.0f, 0.50f );
     m_materials.m_Floor.SetCastShadows( false );
     m_materials.m_Floor.SetReflectionRecursionCount( 1 );
 }
 
 
-void RENDER_3D_RAYTRACE::createObject( CONTAINER_3D& aDstContainer, const OBJECT_2D* aObject2D,
+void RENDER_3D_RAYTRACE_BASE::createObject( CONTAINER_3D& aDstContainer, const OBJECT_2D* aObject2D,
                                        float aZMin, float aZMax, const MATERIAL* aMaterial,
                                        const SFVEC3F& aObjColor )
 {
@@ -227,7 +227,7 @@ void RENDER_3D_RAYTRACE::createObject( CONTAINER_3D& aDstContainer, const OBJECT
 }
 
 
-void RENDER_3D_RAYTRACE::createItemsFromContainer( const BVH_CONTAINER_2D* aContainer2d,
+void RENDER_3D_RAYTRACE_BASE::createItemsFromContainer( const BVH_CONTAINER_2D* aContainer2d,
                                                    PCB_LAYER_ID aLayer_id,
                                                    const MATERIAL* aMaterialLayer,
                                                    const SFVEC3F& aLayerColor,
@@ -358,7 +358,7 @@ void RENDER_3D_RAYTRACE::createItemsFromContainer( const BVH_CONTAINER_2D* aCont
 extern void buildBoardBoundingBoxPoly( const BOARD* aBoard, SHAPE_POLY_SET& aOutline );
 
 
-void RENDER_3D_RAYTRACE::Reload( REPORTER* aStatusReporter, REPORTER* aWarningReporter,
+void RENDER_3D_RAYTRACE_BASE::Reload( REPORTER* aStatusReporter, REPORTER* aWarningReporter,
                                  bool aOnlyLoadCopperAndShapes )
 {
     m_reloadRequested = false;
@@ -368,7 +368,7 @@ void RENDER_3D_RAYTRACE::Reload( REPORTER* aStatusReporter, REPORTER* aWarningRe
     OBJECT_2D_STATS::Instance().ResetStats();
     OBJECT_3D_STATS::Instance().ResetStats();
 
-    unsigned stats_startReloadTime = GetRunningMicroSecs();
+    int64_t stats_startReloadTime = GetRunningMicroSecs();
 
     if( !aOnlyLoadCopperAndShapes )
     {
@@ -771,8 +771,8 @@ void RENDER_3D_RAYTRACE::Reload( REPORTER* aStatusReporter, REPORTER* aWarningRe
     }
 
 #ifdef PRINT_STATISTICS_3D_VIEWER
-    unsigned stats_endConvertTime        = GetRunningMicroSecs();
-    unsigned stats_startLoad3DmodelsTime = stats_endConvertTime;
+    int64_t stats_endConvertTime = GetRunningMicroSecs();
+    int64_t stats_startLoad3DmodelsTime = stats_endConvertTime;
 #endif
 
     if( aStatusReporter )
@@ -781,7 +781,7 @@ void RENDER_3D_RAYTRACE::Reload( REPORTER* aStatusReporter, REPORTER* aWarningRe
     load3DModels( m_objectContainer, aOnlyLoadCopperAndShapes );
 
 #ifdef PRINT_STATISTICS_3D_VIEWER
-    unsigned stats_endLoad3DmodelsTime = GetRunningMicroSecs();
+    int64_t stats_endLoad3DmodelsTime = GetRunningMicroSecs();
 #endif
 
     if( !aOnlyLoadCopperAndShapes )
@@ -817,7 +817,7 @@ void RENDER_3D_RAYTRACE::Reload( REPORTER* aStatusReporter, REPORTER* aWarningRe
                     const SFVEC3F v2 = SFVEC3F( v1.x, v3.y, v1.z );
                     const SFVEC3F v4 = SFVEC3F( v3.x, v1.y, v1.z );
 
-                    SFVEC3F backgroundColor = ConvertSRGBToLinear( m_boardAdapter.m_BgColorTop );
+                    SFVEC3F floorColor = ConvertSRGBToLinear( m_boardAdapter.m_BgColorTop );
 
                     TRIANGLE* newTriangle1 = new TRIANGLE( v1, v2, v3 );
                     TRIANGLE* newTriangle2 = new TRIANGLE( v3, v4, v1 );
@@ -828,8 +828,8 @@ void RENDER_3D_RAYTRACE::Reload( REPORTER* aStatusReporter, REPORTER* aWarningRe
                     newTriangle1->SetMaterial( &m_materials.m_Floor );
                     newTriangle2->SetMaterial( &m_materials.m_Floor );
 
-                    newTriangle1->SetColor( backgroundColor );
-                    newTriangle2->SetColor( backgroundColor );
+                    newTriangle1->SetColor( floorColor );
+                    newTriangle2->SetColor( floorColor );
 
                     // Ceiling triangles
                     const float maxZ = glm::max( containerBBox.Max().z, boardBBox.Max().z );
@@ -848,8 +848,8 @@ void RENDER_3D_RAYTRACE::Reload( REPORTER* aStatusReporter, REPORTER* aWarningRe
                     newTriangle3->SetMaterial( &m_materials.m_Floor );
                     newTriangle4->SetMaterial( &m_materials.m_Floor );
 
-                    newTriangle3->SetColor( backgroundColor );
-                    newTriangle4->SetColor( backgroundColor );
+                    newTriangle3->SetColor( floorColor );
+                    newTriangle4->SetColor( floorColor );
                 }
             }
         }
@@ -955,14 +955,14 @@ void RENDER_3D_RAYTRACE::Reload( REPORTER* aStatusReporter, REPORTER* aWarningRe
     if( aStatusReporter )
     {
         // Calculation time in seconds
-        double calculation_time = (double) GetRunningMicroSecs() - stats_startReloadTime / 1e6;
+        double calculation_time = (double) ( GetRunningMicroSecs() - stats_startReloadTime ) / 1e6;
 
         aStatusReporter->Report( wxString::Format( _( "Reload time %.3f s" ), calculation_time ) );
     }
 }
 
 
-void RENDER_3D_RAYTRACE::insertHole( const PCB_VIA* aVia )
+void RENDER_3D_RAYTRACE_BASE::insertHole( const PCB_VIA* aVia )
 {
     PCB_LAYER_ID top_layer, bottom_layer;
     int          radiusBUI = ( aVia->GetDrillValue() / 2 );
@@ -993,7 +993,7 @@ void RENDER_3D_RAYTRACE::insertHole( const PCB_VIA* aVia )
 }
 
 
-void RENDER_3D_RAYTRACE::insertHole( const PAD* aPad )
+void RENDER_3D_RAYTRACE_BASE::insertHole( const PAD* aPad )
 {
     const OBJECT_2D* object2d_A = nullptr;
 
@@ -1164,7 +1164,7 @@ void RENDER_3D_RAYTRACE::insertHole( const PAD* aPad )
 }
 
 
-void RENDER_3D_RAYTRACE::addPadsAndVias()
+void RENDER_3D_RAYTRACE_BASE::addPadsAndVias()
 {
     if( !m_boardAdapter.GetBoard() )
         return;
@@ -1193,7 +1193,7 @@ void RENDER_3D_RAYTRACE::addPadsAndVias()
 }
 
 
-void RENDER_3D_RAYTRACE::load3DModels( CONTAINER_3D& aDstContainer, bool aSkipMaterialInformation )
+void RENDER_3D_RAYTRACE_BASE::load3DModels( CONTAINER_3D& aDstContainer, bool aSkipMaterialInformation )
 {
     if( !m_boardAdapter.GetBoard() )
         return;
@@ -1315,7 +1315,7 @@ void RENDER_3D_RAYTRACE::load3DModels( CONTAINER_3D& aDstContainer, bool aSkipMa
 }
 
 
-MODEL_MATERIALS* RENDER_3D_RAYTRACE::getModelMaterial( const S3DMODEL* a3DModel )
+MODEL_MATERIALS* RENDER_3D_RAYTRACE_BASE::getModelMaterial( const S3DMODEL* a3DModel )
 {
     MODEL_MATERIALS* materialVector;
 
@@ -1418,7 +1418,7 @@ MODEL_MATERIALS* RENDER_3D_RAYTRACE::getModelMaterial( const S3DMODEL* a3DModel 
 }
 
 
-void RENDER_3D_RAYTRACE::addModels( CONTAINER_3D& aDstContainer, const S3DMODEL* a3DModel,
+void RENDER_3D_RAYTRACE_BASE::addModels( CONTAINER_3D& aDstContainer, const S3DMODEL* a3DModel,
                                     const glm::mat4& aModelMatrix, float aFPOpacity,
                                     bool aSkipMaterialInformation, BOARD_ITEM* aBoardItem )
 {

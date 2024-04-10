@@ -54,7 +54,6 @@ public:
     ~STDSTREAM_THREAD()
     {
         delete[] m_buffer;
-        delete m_process;
     }
 
 private:
@@ -170,12 +169,30 @@ void DIALOG_EXPORT_STEP_LOG::onProcessTerminate( wxProcessEvent& aEvent )
         m_stdioThread = nullptr;
         m_sdbSizerOK->Enable( true );
 
+        int exitCode = aEvent.GetExitCode();
+
         // set the progress bar to complete/incomplete base don status
         m_activityGauge->SetRange( 1 );
-        if( aEvent.GetExitCode() )
+
+        if( exitCode != 0 )
+        {
+            m_textCtrlLog->SetForegroundColour( *wxRED );
+
+            m_textCtrlLog->AppendText( wxS( "\n*** " ) );
+            m_textCtrlLog->AppendText(
+                    wxString::Format( _( "Process failed with exit code %d" ), exitCode ) );
+            m_textCtrlLog->AppendText( wxS( " ***\n" ) );
+
             m_activityGauge->SetValue( 0 );
+        }
         else
+        {
+            m_textCtrlLog->AppendText( wxS( "\n*** " ) );
+            m_textCtrlLog->AppendText( wxString::Format( _( "Success" ) ) );
+            m_textCtrlLog->AppendText( wxS( " ***\n" ) );
+
             m_activityGauge->SetValue( 1 );
+        }
     }
 }
 
@@ -192,10 +209,21 @@ void DIALOG_EXPORT_STEP_LOG::onClose( wxCloseEvent& aEvent )
     {
         m_msgQueue.Post( STATE_MESSAGE::REQUEST_EXIT );
         m_stdioThread->Wait();
-        delete m_stdioThread;
+
+        m_process->DeletePendingEvents();
+        m_process->Unlink();
+        m_process->CloseOutput();
+        m_process->Detach();
+
+        m_stdioThread->Delete();
     }
 
-    Destroy();
+    aEvent.Skip();
+}
+
+DIALOG_EXPORT_STEP_LOG::~DIALOG_EXPORT_STEP_LOG()
+{
+    delete m_stdioThread;
 }
 
 

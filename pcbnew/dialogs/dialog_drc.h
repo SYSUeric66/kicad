@@ -27,6 +27,7 @@
 #ifndef _DIALOG_DRC_H_
 #define _DIALOG_DRC_H_
 
+#include <chrono>
 #include <wx/htmllbox.h>
 #include <rc_item.h>
 #include <pcb_marker.h>
@@ -98,8 +99,6 @@ private:
 
     void OnChangingNotebookPage( wxNotebookEvent& aEvent ) override;
 
-    void centerMarkerIdleHandler( wxIdleEvent& aEvent );
-
     void deleteAllMarkers( bool aIncludeExclusions );
     void refreshEditor();
 
@@ -128,9 +127,10 @@ private:
     RC_TREE_MODEL*                     m_unconnectedTreeModel;  // wx reference-counted ptr
     RC_TREE_MODEL*                     m_fpWarningsTreeModel;   // wx reference-counted ptr
 
-    const PCB_MARKER*                  m_centerMarkerOnIdle;
-
     int                                m_severities;            // A mask of SEVERITY flags
+
+    /// Used to slow down the rate of yields in updateUi()
+    std::chrono::steady_clock::time_point m_lastUpdateUi;
 };
 
 #endif  // _DIALOG_DRC_H_

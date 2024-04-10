@@ -25,7 +25,7 @@
 
 
 class PCB_SELECTION_TOOL;
-struct SELECTION_FILTER_OPTIONS;
+struct PCB_SELECTION_FILTER_OPTIONS;
 
 
 class PANEL_SELECTION_FILTER : public PANEL_SELECTION_FILTER_BASE
@@ -33,17 +33,16 @@ class PANEL_SELECTION_FILTER : public PANEL_SELECTION_FILTER_BASE
 public:
     PANEL_SELECTION_FILTER( wxWindow* aParent );
 
-    ~PANEL_SELECTION_FILTER() = default;
+    ~PANEL_SELECTION_FILTER();
 
-    void SetCheckboxesFromFilter( SELECTION_FILTER_OPTIONS& aOptions );
-
-    void OnLanguageChanged();
+    void SetCheckboxesFromFilter( PCB_SELECTION_FILTER_OPTIONS& aOptions );
 
 protected:
     void OnFilterChanged( wxCommandEvent& aEvent ) override;
+    void OnLanguageChanged( wxCommandEvent& aEvent );
 
 private:
-    bool setFilterFromCheckboxes( SELECTION_FILTER_OPTIONS& aOptions );
+    bool setFilterFromCheckboxes( PCB_SELECTION_FILTER_OPTIONS& aOptions );
 
     void onRightClick( wxMouseEvent& aEvent );
 

@@ -65,6 +65,8 @@ public:
                         UNDO_REDO aModFlag = UNDO_REDO::UNSPECIFIED,
                         BASE_SCREEN* aScreen = nullptr ) override;
 
+    static EDA_ITEM* MakeImage( EDA_ITEM* aItem );
+
 private:
     EDA_ITEM* parentObject( EDA_ITEM* aItem ) const override;
 
@@ -75,6 +77,7 @@ private:
 private:
     TOOL_MANAGER*  m_toolMgr;
     bool           m_isBoardEditor;
+    bool           m_isFootprintEditor;
 };
 
 #endif

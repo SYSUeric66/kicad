@@ -94,6 +94,7 @@ wxString EDA_SHAPE::SHAPE_T_asString() const
     case SHAPE_T::CIRCLE:    return wxS( "S_CIRCLE" );
     case SHAPE_T::POLY:      return wxS( "S_POLYGON" );
     case SHAPE_T::BEZIER:    return wxS( "S_CURVE" );
+    case SHAPE_T::UNDEFINED: return wxS( "UNDEFINED" );
     }
 
     return wxEmptyString;  // Just to quiet GCC.
@@ -243,12 +244,14 @@ void EDA_SHAPE::move( const VECTOR2I& aMoveVector )
     switch ( m_shape )
     {
     case SHAPE_T::ARC:
+        m_arcCenter += aMoveVector;
+        KI_FALLTHROUGH;
+
     case SHAPE_T::SEGMENT:
     case SHAPE_T::RECTANGLE:
     case SHAPE_T::CIRCLE:
         m_start += aMoveVector;
         m_end += aMoveVector;
-        m_arcCenter += aMoveVector;
         break;
 
     case SHAPE_T::POLY:
@@ -284,11 +287,13 @@ void EDA_SHAPE::scale( double aScale )
     switch( m_shape )
     {
     case SHAPE_T::ARC:
+        scalePt( m_arcCenter );
+        KI_FALLTHROUGH;
+
     case SHAPE_T::SEGMENT:
     case SHAPE_T::RECTANGLE:
         scalePt( m_start );
         scalePt( m_end );
-        scalePt( m_arcCenter );
         break;
 
     case SHAPE_T::CIRCLE: //  ring or circle
@@ -1353,6 +1358,16 @@ void EDA_SHAPE::beginEdit( const VECTOR2I& aPosition )
         m_editState = 1;
         break;
 
+    case SHAPE_T::BEZIER:
+        SetStart( aPosition );
+        SetEnd( aPosition );
+        SetBezierC1( aPosition );
+        SetBezierC2( aPosition );
+        m_editState = 1;
+
+        RebuildBezierToSegmentsPointsList( GetWidth() );
+        break;
+
     case SHAPE_T::POLY:
         m_poly.NewOutline();
         m_poly.Outline( 0 ).SetClosed( false );
@@ -1377,6 +1392,13 @@ bool EDA_SHAPE::continueEdit( const VECTOR2I& aPosition )
     case SHAPE_T::CIRCLE:
     case SHAPE_T::RECTANGLE:
         return false;
+
+    case SHAPE_T::BEZIER:
+        if( m_editState == 3 )
+            return false;
+
+        m_editState++;
+        return true;
 
     case SHAPE_T::POLY:
     {
@@ -1407,9 +1429,31 @@ void EDA_SHAPE::calcEdit( const VECTOR2I& aPosition )
         SetEnd( aPosition );
         break;
 
+    case SHAPE_T::BEZIER:
+    {
+        switch( m_editState )
+        {
+        case 0:
+            SetStart( aPosition );
+            SetEnd( aPosition );
+            SetBezierC1( aPosition );
+            SetBezierC2( aPosition );
+            break;
+        case 1:
+            SetBezierC2( aPosition );
+            SetEnd( aPosition );
+            break;
+        case 2: SetBezierC1( aPosition ); break;
+        case 3: SetBezierC2( aPosition ); break;
+        }
+
+        RebuildBezierToSegmentsPointsList( GetWidth() );
+    }
+    break;
+
     case SHAPE_T::ARC:
     {
-        int       radius = GetRadius();
+        double    radius = GetRadius();
         EDA_ANGLE lastAngle = GetArcAngle();
 
         // Edit state 0: drawing: place start
@@ -1427,7 +1471,7 @@ void EDA_SHAPE::calcEdit( const VECTOR2I& aPosition )
 
         case 1:
             m_end = aPosition;
-            radius = KiROUND( sqrt( sq( GetLineLength( m_start, m_end ) ) / 2.0 ) );
+            radius = sqrt( sq( GetLineLength( m_start, m_end ) ) / 2.0 );
             break;
 
         case 2:
@@ -1442,14 +1486,15 @@ void EDA_SHAPE::calcEdit( const VECTOR2I& aPosition )
                 m_end = aPosition;
 
             v = m_start - m_end;
+
             double chordAfter = sq( v.x ) + sq( v.y );
-            double ratio = chordAfter / chordBefore;
+            double ratio = 0.0;
+
+            if( chordBefore > 0 )
+                ratio = chordAfter / chordBefore;
 
             if( ratio != 0 )
-            {
-                radius = std::max( int( sqrt( sq( radius ) * ratio ) ) + 1,
-                                   int( sqrt( chordAfter ) / 2 ) + 1 );
-            }
+                radius = std::max( sqrt( sq( radius ) * ratio ), sqrt( chordAfter ) / 2 );
         }
             break;
 
@@ -1457,7 +1502,7 @@ void EDA_SHAPE::calcEdit( const VECTOR2I& aPosition )
         {
             double radialA = GetLineLength( m_start, aPosition );
             double radialB = GetLineLength( m_end, aPosition );
-            radius = int( ( radialA + radialB ) / 2.0 ) + 1;
+            radius = ( radialA + radialB ) / 2.0;
         }
             break;
 
@@ -1469,16 +1514,21 @@ void EDA_SHAPE::calcEdit( const VECTOR2I& aPosition )
         // Calculate center based on start, end, and radius
         //
         // Let 'l' be the length of the chord and 'm' the middle point of the chord
-        double  l = GetLineLength( m_start, m_end );
-        VECTOR2I m = ( m_start + m_end ) / 2;
+        double   l = GetLineLength( m_start, m_end );
+        VECTOR2D m = ( m_start + m_end ) / 2;
+        double   sqRadDiff = sq( radius ) - sq( l / 2 );
 
         // Calculate 'd', the vector from the chord midpoint to the center
-        VECTOR2I d;
-        d.x = KiROUND( sqrt( sq( radius ) - sq( l/2 ) ) * ( m_start.y - m_end.y ) / l );
-        d.y = KiROUND( sqrt( sq( radius ) - sq( l/2 ) ) * ( m_end.x - m_start.x ) / l );
+        VECTOR2D d;
 
-        VECTOR2I c1 = m + d;
-        VECTOR2I c2 = m - d;
+        if( l > 0 && sqRadDiff >= 0 )
+        {
+            d.x = sqrt( sqRadDiff ) * ( m_start.y - m_end.y ) / l;
+            d.y = sqrt( sqRadDiff ) * ( m_end.x - m_start.x ) / l;
+        }
+
+        VECTOR2I c1 = KiROUND( m + d );
+        VECTOR2I c2 = KiROUND( m - d );
 
         // Solution gives us 2 centers; we need to pick one:
         switch( m_editState )
@@ -1486,7 +1536,7 @@ void EDA_SHAPE::calcEdit( const VECTOR2I& aPosition )
         case 1:
             // Keep arc clockwise while drawing i.e. arc angle = 90 deg.
             // it can be 90 or 270 deg depending on the arc center choice (c1 or c2)
-            m_arcCenter = c1;   // first trial
+            m_arcCenter = c1; // first trial
 
             if( GetArcAngle() > ANGLE_180 )
                 m_arcCenter = c2;
@@ -1529,6 +1579,7 @@ void EDA_SHAPE::endEdit( bool aClosed )
     case SHAPE_T::SEGMENT:
     case SHAPE_T::CIRCLE:
     case SHAPE_T::RECTANGLE:
+    case SHAPE_T::BEZIER:
         break;
 
     case SHAPE_T::POLY:
@@ -1691,7 +1742,14 @@ void EDA_SHAPE::TransformShapeToPolygon( SHAPE_POLY_SET& aBuffer, int aClearance
                     tmp.Append( poly.GetPoint( jj ) );
 
                 if( width > 0 )
-                    tmp.Inflate( width/2, CORNER_STRATEGY::ROUND_ALL_CORNERS, aError, false);
+                {
+                    int inflate = width / 2;
+
+                    if( aErrorLoc == ERROR_OUTSIDE )
+                        inflate += aError;
+
+                    tmp.Inflate( inflate, CORNER_STRATEGY::ROUND_ALL_CORNERS, aError );
+                }
 
                 aBuffer.Append( tmp );
             }
@@ -1902,45 +1960,83 @@ static struct EDA_SHAPE_DESC
         PROPERTY_MANAGER& propMgr = PROPERTY_MANAGER::Instance();
         REGISTER_TYPE( EDA_SHAPE );
 
-        auto isNotPolygon =
-                []( INSPECTABLE* aItem ) -> bool
-                {
-                    // Polygons, unlike other shapes, have no meaningful start or end coordinates
-                    if( EDA_SHAPE* shape = dynamic_cast<EDA_SHAPE*>( aItem ) )
-                        return shape->GetShape() != SHAPE_T::POLY;
+        auto isNotPolygonOrCircle = []( INSPECTABLE* aItem ) -> bool
+        {
+            // Polygons, unlike other shapes, have no meaningful start or end coordinates
+            if( EDA_SHAPE* shape = dynamic_cast<EDA_SHAPE*>( aItem ) )
+                return shape->GetShape() != SHAPE_T::POLY && shape->GetShape() != SHAPE_T::CIRCLE;
 
-                    return false;
-                };
+            return false;
+        };
+
+        auto isCircle = []( INSPECTABLE* aItem ) -> bool
+        {
+            // Polygons, unlike other shapes, have no meaningful start or end coordinates
+            if( EDA_SHAPE* shape = dynamic_cast<EDA_SHAPE*>( aItem ) )
+                return shape->GetShape() == SHAPE_T::CIRCLE;
+
+            return false;
+        };
+
+        const wxString shapeProps = _HKI( "Shape Properties" );
 
         auto shape = new PROPERTY_ENUM<EDA_SHAPE, SHAPE_T>( _HKI( "Shape" ),
                      NO_SETTER( EDA_SHAPE, SHAPE_T ), &EDA_SHAPE::GetShape );
-        propMgr.AddProperty( shape );
+        propMgr.AddProperty( shape, shapeProps );
+
         propMgr.AddProperty( new PROPERTY<EDA_SHAPE, int>( _HKI( "Start X" ),
                     &EDA_SHAPE::SetStartX, &EDA_SHAPE::GetStartX, PROPERTY_DISPLAY::PT_COORD,
-                    ORIGIN_TRANSFORMS::ABS_X_COORD ) )
-                .SetAvailableFunc( isNotPolygon );
+                    ORIGIN_TRANSFORMS::ABS_X_COORD ),
+                    shapeProps )
+                .SetAvailableFunc( isNotPolygonOrCircle );
         propMgr.AddProperty( new PROPERTY<EDA_SHAPE, int>( _HKI( "Start Y" ),
                     &EDA_SHAPE::SetStartY, &EDA_SHAPE::GetStartY, PROPERTY_DISPLAY::PT_COORD,
-                    ORIGIN_TRANSFORMS::ABS_Y_COORD ) )
-                .SetAvailableFunc( isNotPolygon );
+                    ORIGIN_TRANSFORMS::ABS_Y_COORD ),
+                    shapeProps )
+                .SetAvailableFunc( isNotPolygonOrCircle );
+
+        propMgr.AddProperty( new PROPERTY<EDA_SHAPE, int>( _HKI( "Center X" ),
+                    &EDA_SHAPE::SetStartX, &EDA_SHAPE::GetStartX, PROPERTY_DISPLAY::PT_COORD,
+                    ORIGIN_TRANSFORMS::ABS_X_COORD ),
+                    shapeProps )
+                .SetAvailableFunc( isCircle );
+
+        propMgr.AddProperty( new PROPERTY<EDA_SHAPE, int>( _HKI( "Center Y" ),
+                    &EDA_SHAPE::SetStartY, &EDA_SHAPE::GetStartY, PROPERTY_DISPLAY::PT_COORD,
+                    ORIGIN_TRANSFORMS::ABS_Y_COORD ),
+                    shapeProps )
+                .SetAvailableFunc( isCircle );
+
+        propMgr.AddProperty( new PROPERTY<EDA_SHAPE, int>( _HKI( "Radius" ),
+                    &EDA_SHAPE::SetRadius, &EDA_SHAPE::GetRadius, PROPERTY_DISPLAY::PT_SIZE,
+                    ORIGIN_TRANSFORMS::NOT_A_COORD ),
+                    shapeProps )
+                .SetAvailableFunc( isCircle );
+
         propMgr.AddProperty( new PROPERTY<EDA_SHAPE, int>( _HKI( "End X" ),
                     &EDA_SHAPE::SetEndX, &EDA_SHAPE::GetEndX, PROPERTY_DISPLAY::PT_COORD,
-                    ORIGIN_TRANSFORMS::ABS_X_COORD ) )
-                .SetAvailableFunc( isNotPolygon );
+                    ORIGIN_TRANSFORMS::ABS_X_COORD ),
+                    shapeProps )
+                .SetAvailableFunc( isNotPolygonOrCircle );
+
         propMgr.AddProperty( new PROPERTY<EDA_SHAPE, int>( _HKI( "End Y" ),
                     &EDA_SHAPE::SetEndY, &EDA_SHAPE::GetEndY, PROPERTY_DISPLAY::PT_COORD,
-                    ORIGIN_TRANSFORMS::ABS_Y_COORD ) )
-                .SetAvailableFunc( isNotPolygon );
+                    ORIGIN_TRANSFORMS::ABS_Y_COORD ),
+                    shapeProps )
+                .SetAvailableFunc( isNotPolygonOrCircle );
 
         propMgr.AddProperty( new PROPERTY<EDA_SHAPE, int>( _HKI( "Line Width" ),
-                    &EDA_SHAPE::SetWidth, &EDA_SHAPE::GetWidth, PROPERTY_DISPLAY::PT_SIZE ) );
+                    &EDA_SHAPE::SetWidth, &EDA_SHAPE::GetWidth, PROPERTY_DISPLAY::PT_SIZE ),
+                    shapeProps );
 
         void ( EDA_SHAPE::*lineStyleSetter )( LINE_STYLE ) = &EDA_SHAPE::SetLineStyle;
-        propMgr.AddProperty( new PROPERTY_ENUM<EDA_SHAPE, LINE_STYLE>(
-                    _HKI( "Line Style" ), lineStyleSetter, &EDA_SHAPE::GetLineStyle ) );
+        propMgr.AddProperty( new PROPERTY_ENUM<EDA_SHAPE, LINE_STYLE>( _HKI( "Line Style" ),
+                    lineStyleSetter, &EDA_SHAPE::GetLineStyle ),
+                    shapeProps );
 
         propMgr.AddProperty( new PROPERTY<EDA_SHAPE, COLOR4D>( _HKI( "Line Color" ),
-                    &EDA_SHAPE::SetLineColor, &EDA_SHAPE::GetLineColor ) )
+                    &EDA_SHAPE::SetLineColor, &EDA_SHAPE::GetLineColor ),
+                    shapeProps )
                 .SetIsHiddenFromRulesEditor();
 
         auto angle = new PROPERTY<EDA_SHAPE, EDA_ANGLE>( _HKI( "Angle" ),
@@ -1954,11 +2050,19 @@ static struct EDA_SHAPE_DESC
 
                     return false;
                 } );
-        propMgr.AddProperty( angle );
+        propMgr.AddProperty( angle, shapeProps );
 
         auto fillAvailable =
                 [=]( INSPECTABLE* aItem ) -> bool
                 {
+                    if( EDA_ITEM* edaItem = dynamic_cast<EDA_ITEM*>( aItem ) )
+                    {
+                        // For some reason masking "Filled" and "Fill Color" at the
+                        // PCB_TABLECELL level doesn't work.
+                        if( edaItem->Type() == PCB_TABLECELL_T )
+                            return false;
+                    }
+
                     if( EDA_SHAPE* edaShape = dynamic_cast<EDA_SHAPE*>( aItem ) )
                     {
                         switch( edaShape->GetShape() )
@@ -1977,11 +2081,13 @@ static struct EDA_SHAPE_DESC
                 };
 
         propMgr.AddProperty( new PROPERTY<EDA_SHAPE, bool>( _HKI( "Filled" ),
-                    &EDA_SHAPE::SetFilled, &EDA_SHAPE::IsFilled ) )
+                    &EDA_SHAPE::SetFilled, &EDA_SHAPE::IsFilled ),
+                    shapeProps )
                 .SetAvailableFunc( fillAvailable );
 
         propMgr.AddProperty( new PROPERTY<EDA_SHAPE, COLOR4D>( _HKI( "Fill Color" ),
-                    &EDA_SHAPE::SetFillColor, &EDA_SHAPE::GetFillColor ) )
+                    &EDA_SHAPE::SetFillColor, &EDA_SHAPE::GetFillColor ),
+                    shapeProps )
                 .SetAvailableFunc( fillAvailable )
                 .SetIsHiddenFromRulesEditor();
     }

@@ -33,8 +33,8 @@
 #include <kiway.h>
 #include <core/profile.h>
 #include <wx_filename.h>
-#include <sch_io_mgr.h>
-#include <sch_plugins/legacy/sch_legacy_plugin.h>
+#include <sch_io/sch_io_mgr.h>
+#include <sch_io/kicad_legacy/sch_io_kicad_legacy.h>
 #include <symbol_lib_table.h>
 #include <symbol_async_loader.h>
 #include <progress_reporter.h>
@@ -173,11 +173,12 @@ bool SYMBOL_LIBRARY_MANAGER::SaveLibrary( const wxString& aLibrary, const wxStri
     wxCHECK( aFileType != SCH_IO_MGR::SCH_FILE_T::SCH_LEGACY && LibraryExists( aLibrary ), false );
     wxFileName fn( aFileName );
     wxCHECK( !fn.FileExists() || fn.IsFileWritable(), false );
-    SCH_PLUGIN::SCH_PLUGIN_RELEASER pi( SCH_IO_MGR::FindPlugin( aFileType ) );
+
+    IO_RELEASER<SCH_IO> pi( SCH_IO_MGR::FindPlugin( aFileType ) );
     bool res = true;    // assume all libraries are successfully saved
 
     STRING_UTF8_MAP properties;
-    properties.emplace( SCH_LEGACY_PLUGIN::PropBuffering, "" );
+    properties.emplace( SCH_IO_KICAD_LEGACY::PropBuffering, "" );
 
     auto it = m_libs.find( aLibrary );
 
@@ -984,7 +985,7 @@ bool LIB_BUFFER::DeleteBuffer( std::shared_ptr<SYMBOL_BUFFER> aSymbolBuf )
 
 
 bool LIB_BUFFER::SaveBuffer( std::shared_ptr<SYMBOL_BUFFER> aSymbolBuf,
-                             const wxString& aFileName, SCH_PLUGIN* aPlugin, bool aBuffer )
+                             const wxString& aFileName, SCH_IO* aPlugin, bool aBuffer )
 {
     wxCHECK( aSymbolBuf, false );
     wxCHECK( !aFileName.IsEmpty(), false );
@@ -993,7 +994,7 @@ bool LIB_BUFFER::SaveBuffer( std::shared_ptr<SYMBOL_BUFFER> aSymbolBuf,
 
     // Set properties to prevent saving the file on every symbol save.
     STRING_UTF8_MAP properties;
-    properties.emplace( SCH_LEGACY_PLUGIN::PropBuffering, "" );
+    properties.emplace( SCH_IO_KICAD_LEGACY::PropBuffering, "" );
 
     std::shared_ptr<SYMBOL_BUFFER>& symbolBuf = aSymbolBuf;
     LIB_SYMBOL* libSymbol = symbolBuf->GetSymbol();

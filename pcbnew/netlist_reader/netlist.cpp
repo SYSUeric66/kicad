@@ -39,7 +39,7 @@ using namespace std::placeholders;
 #include <footprint.h>
 #include <spread_footprints.h>
 #include <ratsnest/ratsnest_data.h>
-#include <io_mgr.h>
+#include <pcb_io/pcb_io_mgr.h>
 #include "board_netlist_updater.h"
 #include <tool/tool_manager.h>
 #include <tools/pcb_actions.h>
@@ -128,8 +128,9 @@ void PCB_EDIT_FRAME::OnNetlistChanged( BOARD_NETLIST_UPDATER& aUpdater, bool* aR
     // Start drag command for new footprints
     if( !newFootprints.empty() )
     {
-        for( FOOTPRINT* footprint : newFootprints )
-            GetToolManager()->RunAction<EDA_ITEM*>( PCB_ACTIONS::selectItem, footprint );
+        EDA_ITEMS items;
+        std::copy( newFootprints.begin(), newFootprints.end(), std::back_inserter( items ) );
+        GetToolManager()->RunAction<EDA_ITEMS*>( PCB_ACTIONS::selectItems, &items );
 
         *aRunDragCommand = true;
     }

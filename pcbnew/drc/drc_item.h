@@ -71,6 +71,7 @@ enum PCB_DRC_CODE {
     DRCE_DUPLICATE_FOOTPRINT,            // more than one footprints found for netlist item
     DRCE_EXTRA_FOOTPRINT,                // netlist item not found for footprint
     DRCE_NET_CONFLICT,                   // pad net doesn't match netlist
+    DRCE_SCHEMATIC_PARITY_ISSUES,        // footprint attributes don't match symbol attributes
 
     DRCE_FOOTPRINT_TYPE_MISMATCH,        // footprint attribute does not match actual pads
     DRCE_LIB_FOOTPRINT_ISSUES,           // footprint not found in active libraries
@@ -94,7 +95,7 @@ enum PCB_DRC_CODE {
 
     DRCE_LENGTH_OUT_OF_RANGE,
     DRCE_SKEW_OUT_OF_RANGE,
-    DRCE_TOO_MANY_VIAS,
+    DRCE_VIA_COUNT_OUT_OF_RANGE,
     DRCE_DIFF_PAIR_GAP_OUT_OF_RANGE,
     DRCE_DIFF_PAIR_UNCOUPLED_LENGTH_TOO_LONG,
 
@@ -187,6 +188,7 @@ private:
     static DRC_ITEM missingFootprint;
     static DRC_ITEM extraFootprint;
     static DRC_ITEM netConflict;
+    static DRC_ITEM schematicParityIssues;
     static DRC_ITEM libFootprintIssues;
     static DRC_ITEM libFootprintMismatch;
     static DRC_ITEM unresolvedVariable;
@@ -200,7 +202,7 @@ private:
     static DRC_ITEM textThicknessOutOfRange;
     static DRC_ITEM lengthOutOfRange;
     static DRC_ITEM skewOutOfRange;
-    static DRC_ITEM tooManyVias;
+    static DRC_ITEM viaCountOutOfRange;
     static DRC_ITEM diffPairGapOutOfRange;
     static DRC_ITEM diffPairUncoupledLengthTooLong;
     static DRC_ITEM footprint;
@@ -216,8 +218,8 @@ private:
 class DRC_ITEMS_PROVIDER : public RC_ITEMS_PROVIDER
 {
 public:
-    DRC_ITEMS_PROVIDER( BOARD* aBoard, MARKER_BASE::TYPEMARKER aMarkerType,
-                        MARKER_BASE::TYPEMARKER otherMarkerType = MARKER_BASE::MARKER_UNSPEC ) :
+    DRC_ITEMS_PROVIDER( BOARD* aBoard, MARKER_BASE::MARKER_T aMarkerType,
+                        MARKER_BASE::MARKER_T otherMarkerType = MARKER_BASE::MARKER_UNSPEC ) :
             m_board( aBoard ),
             m_severities( 0 )
     {
@@ -236,11 +238,11 @@ public:
     void DeleteItem( int aIndex, bool aDeep ) override;
 
 private:
-    BOARD*                               m_board;
-    std::vector<MARKER_BASE::TYPEMARKER> m_markerTypes;
+    BOARD*                             m_board;
+    std::vector<MARKER_BASE::MARKER_T> m_markerTypes;
 
-    int                                  m_severities;
-    std::vector<PCB_MARKER*>             m_filteredMarkers;
+    int                                m_severities;
+    std::vector<PCB_MARKER*>           m_filteredMarkers;
 };
 
 

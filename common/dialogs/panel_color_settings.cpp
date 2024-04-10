@@ -53,6 +53,9 @@ PANEL_COLOR_SETTINGS::PANEL_COLOR_SETTINGS( wxWindow* aParent ) :
     m_colorsListWindow->SetWindowStyle( wxBORDER_SUNKEN|wxVSCROLL );
 #endif
 
+    m_cbTheme->SetMinSize( FromDIP( m_cbTheme->GetMinSize() ) );
+    m_colorsListWindow->SetMinSize( FromDIP( m_colorsListWindow->GetMinSize() ) );
+    m_colorsGridSizer->SetMinSize( FromDIP( m_colorsGridSizer->GetMinSize() ) );
     m_panel1->SetBorders( false, false, true, false );
 }
 
@@ -128,7 +131,8 @@ void PANEL_COLOR_SETTINGS::OnThemeChanged( wxCommandEvent& event )
             return;
 
         FOOTPRINT_NAME_VALIDATOR themeNameValidator;
-        wxTextEntryDialog dlg( this, _( "New theme name:" ), _( "Add Color Theme" ) );
+        wxTextEntryDialog dlg( wxGetTopLevelParent( this ), _( "New theme name:" ),
+                               _( "Add Color Theme" ) );
         dlg.SetTextValidator( themeNameValidator );
 
         if( dlg.ShowModal() != wxID_OK )

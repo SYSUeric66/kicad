@@ -119,6 +119,7 @@ protected:
 
         case SCH_PIN_T:
         case SCH_FIELD_T:
+        case SCH_TABLECELL_T:
             getView()->Update( aItem );
             getView()->Update( aItem->GetParent() );
 
@@ -132,6 +133,8 @@ protected:
 
             if( aUpdateRTree && dynamic_cast<SCH_ITEM*>( aItem ) )
                 m_frame->GetScreen()->Update( static_cast<SCH_ITEM*>( aItem ) );
+
+            break;
         }
     }
 
@@ -155,7 +158,7 @@ protected:
             SYMBOL_EDIT_FRAME* editFrame = dynamic_cast<SYMBOL_EDIT_FRAME*>( m_frame );
             wxCHECK_RET( editFrame, wxT( "editFrame is null" ) );
 
-            editFrame->SaveCopyInUndoList( wxEmptyString, static_cast<LIB_ITEM*>( aItem ) );
+            editFrame->SaveCopyInUndoList( wxEmptyString, dynamic_cast<LIB_SYMBOL*>( aItem ) );
         }
         else
         {

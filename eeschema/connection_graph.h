@@ -452,6 +452,8 @@ public:
      */
     void Merge( CONNECTION_GRAPH& aGraph );
 
+    void RemoveItem( SCH_ITEM* aItem );
+
 private:
     /**
      * Update the graphical connectivity between items (i.e. where they touch)
@@ -682,6 +684,11 @@ private:
      * @return                the number of errors found.
      */
     int ercCheckHierSheets();
+
+    /**
+     * Check that a global label is instantiated more that once across the schematic heirarchy
+     */
+    int ercCheckSingleGlobalLabel();
 
     /**
      * Get the number of pins in a given subgraph.

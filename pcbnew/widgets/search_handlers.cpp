@@ -24,6 +24,7 @@
 #include <pcb_painter.h>
 #include <pcb_textbox.h>
 #include <pcb_text.h>
+#include <pcb_dimension.h>
 #include <ratsnest/ratsnest_data.h>
 #include <string_utils.h>
 #include <tool/tool_manager.h>
@@ -76,13 +77,13 @@ void PCB_SEARCH_HANDLER::SelectItems( std::vector<long>& aItemRows )
 
 
 FOOTPRINT_SEARCH_HANDLER::FOOTPRINT_SEARCH_HANDLER( PCB_EDIT_FRAME* aFrame ) :
-        PCB_SEARCH_HANDLER( wxT( "Footprints" ), aFrame )
+        PCB_SEARCH_HANDLER( _HKI( "Footprints" ), aFrame )
 {
-    m_columns.emplace_back( wxT( "Reference" ), 2, wxLIST_FORMAT_LEFT );
-    m_columns.emplace_back( wxT( "Value" ),     8, wxLIST_FORMAT_LEFT );
-    m_columns.emplace_back( wxT( "Layer" ),     3, wxLIST_FORMAT_CENTER );
-    m_columns.emplace_back( wxT( "X" ),         3, wxLIST_FORMAT_CENTER );
-    m_columns.emplace_back( wxT( "Y" ),         3, wxLIST_FORMAT_CENTER );
+    m_columns.emplace_back( _HKI( "Reference" ), 2, wxLIST_FORMAT_LEFT );
+    m_columns.emplace_back( _HKI( "Value" ),     8, wxLIST_FORMAT_LEFT );
+    m_columns.emplace_back( _HKI( "Layer" ),     3, wxLIST_FORMAT_CENTER );
+    m_columns.emplace_back( wxT( "X" ),          3, wxLIST_FORMAT_CENTER );
+    m_columns.emplace_back( wxT( "Y" ),          3, wxLIST_FORMAT_CENTER );
 }
 
 
@@ -134,14 +135,14 @@ wxString FOOTPRINT_SEARCH_HANDLER::getResultCell( BOARD_ITEM* aItem, int aCol )
 
 
 ZONE_SEARCH_HANDLER::ZONE_SEARCH_HANDLER( PCB_EDIT_FRAME* aFrame ) :
-        PCB_SEARCH_HANDLER( wxT( "Zones" ), aFrame )
+        PCB_SEARCH_HANDLER( _HKI( "Zones" ), aFrame )
 {
-    m_columns.emplace_back( wxT( "Name" ),     6, wxLIST_FORMAT_LEFT );
-    m_columns.emplace_back( wxT( "Net" ),      6, wxLIST_FORMAT_LEFT);
-    m_columns.emplace_back( wxT( "Layer" ),    3, wxLIST_FORMAT_CENTER );
-    m_columns.emplace_back( wxT( "Priority" ), 2, wxLIST_FORMAT_CENTER );
-    m_columns.emplace_back( wxT( "X" ),        3, wxLIST_FORMAT_CENTER );
-    m_columns.emplace_back( wxT( "Y" ),        3, wxLIST_FORMAT_CENTER );
+    m_columns.emplace_back( _HKI( "Name" ),     6, wxLIST_FORMAT_LEFT );
+    m_columns.emplace_back( _HKI( "Net" ),      6, wxLIST_FORMAT_LEFT);
+    m_columns.emplace_back( _HKI( "Layer" ),    3, wxLIST_FORMAT_CENTER );
+    m_columns.emplace_back( _HKI( "Priority" ), 2, wxLIST_FORMAT_CENTER );
+    m_columns.emplace_back( wxT( "X" ),         3, wxLIST_FORMAT_CENTER );
+    m_columns.emplace_back( wxT( "Y" ),         3, wxLIST_FORMAT_CENTER );
 }
 
 
@@ -199,13 +200,13 @@ wxString ZONE_SEARCH_HANDLER::getResultCell( BOARD_ITEM* aItem, int aCol )
 
 
 TEXT_SEARCH_HANDLER::TEXT_SEARCH_HANDLER( PCB_EDIT_FRAME* aFrame ) :
-        PCB_SEARCH_HANDLER( wxT( "Text" ), aFrame )
+        PCB_SEARCH_HANDLER( _HKI( "Text" ), aFrame )
 {
-    m_columns.emplace_back( wxT( "Type" ),  2,  wxLIST_FORMAT_LEFT );
-    m_columns.emplace_back( wxT( "Text" ),  12, wxLIST_FORMAT_LEFT );
-    m_columns.emplace_back( wxT( "Layer" ), 3,  wxLIST_FORMAT_CENTER );
-    m_columns.emplace_back( wxT( "X" ),     3,  wxLIST_FORMAT_CENTER );
-    m_columns.emplace_back( wxT( "Y" ),     3,  wxLIST_FORMAT_CENTER );
+    m_columns.emplace_back( _HKI( "Type" ),  2,  wxLIST_FORMAT_LEFT );
+    m_columns.emplace_back( _HKI( "Text" ),  12, wxLIST_FORMAT_LEFT );
+    m_columns.emplace_back( _HKI( "Layer" ), 3,  wxLIST_FORMAT_CENTER );
+    m_columns.emplace_back( wxT( "X" ),      3,  wxLIST_FORMAT_CENTER );
+    m_columns.emplace_back( wxT( "Y" ),      3,  wxLIST_FORMAT_CENTER );
 }
 
 
@@ -243,6 +244,8 @@ wxString TEXT_SEARCH_HANDLER::getResultCell( BOARD_ITEM* aItem, int aCol )
             return _( "Text" );
         else if( PCB_TEXTBOX::ClassOf( aItem ) )
             return _( "Textbox" );
+        else if( dynamic_cast<PCB_DIMENSION_BASE*>( aItem ) )
+            return _( "Dimension" );
     }
     else if( aCol == 1 )
     {
@@ -250,6 +253,8 @@ wxString TEXT_SEARCH_HANDLER::getResultCell( BOARD_ITEM* aItem, int aCol )
             return UnescapeString( static_cast<PCB_TEXT*>( aItem )->GetText() );
         else if( PCB_TEXTBOX::ClassOf( aItem ) )
             return UnescapeString( static_cast<PCB_TEXTBOX*>( aItem )->GetText() );
+        else if( PCB_DIMENSION_BASE* dimension = dynamic_cast<PCB_DIMENSION_BASE*>( aItem ) )
+            return UnescapeString( dimension->GetText() );
     }
     else if( aCol == 2 )
         return aItem->GetLayerName();
@@ -263,10 +268,10 @@ wxString TEXT_SEARCH_HANDLER::getResultCell( BOARD_ITEM* aItem, int aCol )
 
 
 NETS_SEARCH_HANDLER::NETS_SEARCH_HANDLER( PCB_EDIT_FRAME* aFrame ) :
-        PCB_SEARCH_HANDLER( wxT( "Nets" ), aFrame )
+        PCB_SEARCH_HANDLER( _HKI( "Nets" ), aFrame )
 {
-    m_columns.emplace_back( wxT( "Name" ),  6, wxLIST_FORMAT_LEFT );
-    m_columns.emplace_back( wxT( "Class" ), 6, wxLIST_FORMAT_LEFT );
+    m_columns.emplace_back( _HKI( "Name" ),  6, wxLIST_FORMAT_LEFT );
+    m_columns.emplace_back( _HKI( "Class" ), 6, wxLIST_FORMAT_LEFT );
 }
 
 
@@ -342,10 +347,10 @@ void NETS_SEARCH_HANDLER::ActivateItem( long aItemRow )
 
 
 RATSNEST_SEARCH_HANDLER::RATSNEST_SEARCH_HANDLER( PCB_EDIT_FRAME* aFrame ) :
-        PCB_SEARCH_HANDLER( wxT( "Ratsnest" ), aFrame )
+        PCB_SEARCH_HANDLER( _HKI( "Ratsnest" ), aFrame )
 {
-    m_columns.emplace_back( wxT( "Name" ),  6, wxLIST_FORMAT_LEFT );
-    m_columns.emplace_back( wxT( "Class" ), 6, wxLIST_FORMAT_LEFT );
+    m_columns.emplace_back( _HKI( "Name" ),  6, wxLIST_FORMAT_LEFT );
+    m_columns.emplace_back( _HKI( "Class" ), 6, wxLIST_FORMAT_LEFT );
 }
 
 

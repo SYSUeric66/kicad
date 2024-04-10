@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2015 Jean-Pierre Charras, jp.charras at wanadoo.fr
- * Copyright (C) 2004-2022 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2004-2024 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -31,7 +31,7 @@
 #include <tool/tool_manager.h>
 #include <project_sch.h>
 #include <sch_edit_frame.h>
-#include <sch_plugins/legacy/sch_legacy_plugin.h>
+#include <sch_io/kicad_legacy/sch_io_kicad_legacy.h>
 #include <sch_sheet.h>
 #include <sch_sheet_path.h>
 #include <sch_view.h>
@@ -46,26 +46,32 @@
 #include <wx/log.h>
 
 
-bool SCH_EDIT_FRAME::CheckSheetForRecursion( SCH_SHEET* aSheet, SCH_SHEET_PATH* aHierarchy )
+bool SCH_EDIT_FRAME::CheckSheetForRecursion( SCH_SHEET* aSheet, SCH_SHEET_PATH* aCurrentSheet )
 {
-    wxASSERT( aSheet && aHierarchy );
+    wxASSERT( aSheet && aCurrentSheet );
 
     wxString msg;
     SCH_SHEET_LIST hierarchy = Schematic().GetSheets();  // The full schematic sheet hierarchy.
     SCH_SHEET_LIST sheetHierarchy( aSheet );  // This is the hierarchy of the loaded file.
 
-    wxFileName destFile = aHierarchy->LastScreen()->GetFileName();
+    wxString destFilePath = aCurrentSheet->LastScreen()->GetFileName();
+
+    if( destFilePath.IsEmpty() )
+    {
+        // If file is unsaved then there can't (yet) be any recursion.
+        return false;
+    }
 
     // SCH_SCREEN object file paths are expected to be absolute.  If this assert fires,
     // something is seriously broken.
-    wxASSERT( destFile.IsAbsolute() );
+    wxASSERT( wxFileName( destFilePath ).IsAbsolute() );
 
-    if( hierarchy.TestForRecursion( sheetHierarchy, destFile.GetFullPath() ) )
+    if( hierarchy.TestForRecursion( sheetHierarchy, destFilePath ) )
     {
         msg.Printf( _( "The sheet changes cannot be made because the destination sheet already "
                        "has the sheet '%s' or one of its subsheets as a parent somewhere in the "
                        "schematic hierarchy." ),
-                    destFile.GetFullPath() );
+                    destFilePath );
         DisplayError( this, msg );
         return true;
     }
@@ -155,10 +161,10 @@ void SCH_EDIT_FRAME::InitSheet( SCH_SHEET* aSheet, const wxString& aNewFilename 
 }
 
 
-bool SCH_EDIT_FRAME::LoadSheetFromFile( SCH_SHEET* aSheet, SCH_SHEET_PATH* aHierarchy,
+bool SCH_EDIT_FRAME::LoadSheetFromFile( SCH_SHEET* aSheet, SCH_SHEET_PATH* aCurrentSheet,
                                         const wxString& aFileName )
 {
-    wxASSERT( aSheet && aHierarchy );
+    wxASSERT( aSheet && aCurrentSheet );
 
     wxString    msg;
     wxFileName  currentSheetFileName;
@@ -169,7 +175,7 @@ bool SCH_EDIT_FRAME::LoadSheetFromFile( SCH_SHEET* aSheet, SCH_SHEET_PATH* aHier
     if( schFileType == SCH_IO_MGR::SCH_FILE_UNKNOWN )
         schFileType = SCH_IO_MGR::SCH_KICAD;
 
-    SCH_PLUGIN::SCH_PLUGIN_RELEASER pi( SCH_IO_MGR::FindPlugin( schFileType ) );
+    IO_RELEASER<SCH_IO> pi( SCH_IO_MGR::FindPlugin( schFileType ) );
     std::unique_ptr< SCH_SHEET> tmpSheet = std::make_unique<SCH_SHEET>( &Schematic() );
 
     // This will cause the sheet UUID to be set to the UUID of the aSheet argument.  This is
@@ -271,7 +277,7 @@ bool SCH_EDIT_FRAME::LoadSheetFromFile( SCH_SHEET* aSheet, SCH_SHEET_PATH* aHier
     SCH_SHEET_LIST hierarchy = Schematic().GetSheets(); // This is the schematic sheet hierarchy.
 
     // Make sure any new sheet changes do not cause any recursion issues.
-    if( CheckSheetForRecursion( tmpSheet.get(), aHierarchy )
+    if( CheckSheetForRecursion( tmpSheet.get(), aCurrentSheet )
           || checkForNoFullyDefinedLibIds( tmpSheet.get() ) )
     {
         return false;
@@ -564,10 +570,10 @@ bool SCH_EDIT_FRAME::LoadSheetFromFile( SCH_SHEET* aSheet, SCH_SHEET_PATH* aHier
     newScreen->MigrateSimModels();
 
     // Attempt to create new symbol instances using the instance data loaded above.
-    sheetHierarchy.AddNewSymbolInstances( *aHierarchy );
+    sheetHierarchy.AddNewSymbolInstances( *aCurrentSheet );
 
     // Add new sheet instance data.
-    sheetHierarchy.AddNewSheetInstances( *aHierarchy, hierarchy.GetLastVirtualPageNumber() );
+    sheetHierarchy.AddNewSheetInstances( *aCurrentSheet, hierarchy.GetLastVirtualPageNumber() );
 
     // It is finally safe to add or append the imported schematic.
     if( aSheet->GetScreen() == nullptr )
@@ -583,16 +589,20 @@ bool SCH_EDIT_FRAME::LoadSheetFromFile( SCH_SHEET* aSheet, SCH_SHEET_PATH* aHier
 
 
 bool SCH_EDIT_FRAME::EditSheetProperties( SCH_SHEET* aSheet, SCH_SHEET_PATH* aHierarchy,
-                                          bool* aClearAnnotationNewItems )
+                                          bool* aClearAnnotationNewItems,
+                                          bool* aUpdateHierarchyNavigator )
 {
     if( aSheet == nullptr || aHierarchy == nullptr )
         return false;
 
     // Get the new texts
-    DIALOG_SHEET_PROPERTIES dlg( this, aSheet, aClearAnnotationNewItems );
+    DIALOG_SHEET_PROPERTIES dlg( this, aSheet, aClearAnnotationNewItems,
+                                 aUpdateHierarchyNavigator );
 
     if( dlg.ShowModal() == wxID_CANCEL )
         return false;
+
+    m_toolManager->ProcessEvent( EVENTS::SelectedItemsModified );
 
     return true;
 }
@@ -644,7 +654,7 @@ void SCH_EDIT_FRAME::DrawCurrentSheetToClipboard()
     GRForceBlackPen( false );
     dc.SetUserScale( scale, scale );
 
-    KIGFX::SCH_RENDER_SETTINGS* cfg = GetRenderSettings();
+    SCH_RENDER_SETTINGS* cfg = GetRenderSettings();
 
     cfg->SetPrintDC( &dc );
 

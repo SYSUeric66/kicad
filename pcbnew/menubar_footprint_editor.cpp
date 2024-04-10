@@ -112,6 +112,7 @@ void FOOTPRINT_EDIT_FRAME::doReCreateMenuBar()
     editMenu->Add( PCB_ACTIONS::editTextAndGraphics );
     editMenu->Add( PCB_ACTIONS::defaultPadProperties );
     editMenu->Add( PCB_ACTIONS::enumeratePads );
+    editMenu->Add( ACTIONS::gridOrigin );
 
 
     //-- View menu -------------------------------------------------------
@@ -173,6 +174,7 @@ void FOOTPRINT_EDIT_FRAME::doReCreateMenuBar()
     placeMenu->Add( PCB_ACTIONS::placeReferenceImage );
     placeMenu->Add( PCB_ACTIONS::placeText );
     placeMenu->Add( PCB_ACTIONS::drawTextBox );
+    placeMenu->Add( PCB_ACTIONS::drawTable );
 
     placeMenu->AppendSeparator();
     placeMenu->Add( PCB_ACTIONS::drawAlignedDimension );

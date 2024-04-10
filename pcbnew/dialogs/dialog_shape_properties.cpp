@@ -61,8 +61,10 @@ private:
     // Show/hide the widgets used in net selection (shown only for copper layers)
     void showHideNetInfo()
     {
-        m_netSelector->Show( m_item->IsOnCopperLayer() );
-        m_netLabel->Show( m_item->IsOnCopperLayer() );
+        bool isCopper = IsCopperLayer( m_LayerSelectionCtrl->GetLayerSelection() );
+
+        m_netSelector->Show( isCopper );
+        m_netLabel->Show( isCopper );
     }
 
 
@@ -138,7 +140,7 @@ DIALOG_SHAPE_PROPERTIES::DIALOG_SHAPE_PROPERTIES( PCB_BASE_EDIT_FRAME* aParent, 
     }
 
     for( const auto& [ lineStyle, lineStyleDesc ] : lineTypeNames )
-        m_lineStyleCombo->Append( lineStyleDesc.name, KiBitmap( lineStyleDesc.bitmap ) );
+        m_lineStyleCombo->Append( lineStyleDesc.name, KiBitmapBundle( lineStyleDesc.bitmap ) );
 
     m_lineStyleCombo->Append( DEFAULT_STYLE );
 
@@ -199,15 +201,11 @@ DIALOG_SHAPE_PROPERTIES::DIALOG_SHAPE_PROPERTIES( PCB_BASE_EDIT_FRAME* aParent, 
         m_endY.Show( false );
     }
 
-    showHideNetInfo();
-
     SetInitialFocus( m_startXCtrl );
-
     SetupStandardButtons();
 
     // Now all widgets have the size fixed, call FinishDialogSettings
     finishDialogSettings();
-    Layout();
 }
 
 
@@ -232,7 +230,6 @@ void DIALOG_SHAPE_PROPERTIES::onLayerSelection( wxCommandEvent& event )
 {
     if( m_LayerSelectionCtrl->GetLayerSelection() >= 0 )
     {
-        m_item->SetLayer(  ToLAYER_ID( m_LayerSelectionCtrl->GetLayerSelection() ) );
         showHideNetInfo();
     }
 }
@@ -335,6 +332,7 @@ bool DIALOG_SHAPE_PROPERTIES::TransferDataToWindow()
         wxFAIL_MSG( "Line type not found in the type lookup map" );
 
     m_LayerSelectionCtrl->SetLayerSelection( m_item->GetLayer() );
+    showHideNetInfo();
 
     return DIALOG_SHAPE_PROPERTIES_BASE::TransferDataToWindow();
 }
@@ -385,7 +383,7 @@ bool DIALOG_SHAPE_PROPERTIES::TransferDataFromWindow()
 
     if( m_item->GetShape() == SHAPE_T::CIRCLE )
     {
-        m_item->SetEnd( m_item->GetStart() + VECTOR2I( m_endX.GetIntValue(), 0 ) );
+        m_item->SetRadius( m_endX.GetIntValue() );
     }
     else if( m_flipStartEnd && m_item->GetShape() != SHAPE_T::ARC )
     {
@@ -514,7 +512,7 @@ bool DIALOG_SHAPE_PROPERTIES::TransferDataFromWindow()
     else
         m_item->SetNetCode( -1 );
 
-    commit.Push( _( "Modify drawing properties" ) );
+    commit.Push( _( "Edit Shape Properties" ) );
 
     // Notify clients which treat locked and unlocked items differently (ie: POINT_EDITOR)
     if( wasLocked != m_item->IsLocked() )

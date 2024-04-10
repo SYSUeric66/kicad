@@ -3,7 +3,7 @@
  *
  * Copyright (C) 2009 jean-pierre.charras@gipsa-lab.inpg.fr
  * Copyright (C) 2011 Wayne Stambaugh <stambaughw@gmail.com>
- * Copyright (C) 2009-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2009-2024 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -29,6 +29,7 @@
 #include <core/typeinfo.h>
 #include <eda_item_flags.h>
 #include <functional>
+#include <kiid.h>
 #include <vector>
 #include <wx/string.h>
 
@@ -67,8 +68,8 @@ enum class UNDO_REDO {
     DRILLORIGIN,        // origin changed (like CHANGED, contains the origin and a copy)
     GRIDORIGIN,         // origin changed (like CHANGED, contains the origin and a copy)
     PAGESETTINGS,       // page settings or title block changes
-    REGROUP,            // new group of items created (do not use GROUP to avoid collision
-                        // with an header on msys2)
+    REGROUP,            // new group of items created (NB: can't use GROUP because of collision
+                        // with a header on msys2)
     UNGROUP             // existing group destroyed (items not destroyed)
 };
 
@@ -99,11 +100,15 @@ public:
 
     EDA_ITEM* GetLink() const { return m_link; }
 
+    KIID GetGroupId() const { return m_groupId; }
+
+    void SetGroupId( KIID aId ) { m_groupId = aId; }
+
     BASE_SCREEN* GetScreen() const { return m_screen; }
 
 private:
-    EDA_ITEM_FLAGS m_pickerFlags;      /* a copy of m_flags member. useful in mode/drag
-                                        * undo/redo commands */
+    EDA_ITEM_FLAGS m_pickerFlags;      /* A copy of m_flags member. Currently used only to flag
+                                        * transient items. */
     UNDO_REDO      m_undoRedoStatus;   /* type of operation to undo/redo for this item */
     EDA_ITEM*      m_pickedItem;       /* Pointer on the schematic or board item that is concerned
                                         * (picked), or in undo redo commands, the copy of an
@@ -116,6 +121,7 @@ private:
                                         * duplicate) m_Item points the duplicate (i.e the old
                                         * copy of an active item) and m_Link points the active
                                         * item in schematic */
+    KIID           m_groupId;           /* Id of the group of items in case this is a group/ungroup command */
 
     BASE_SCREEN*   m_screen;           /* For new and deleted items the screen the item should
                                         * be added to/removed from. */
@@ -150,6 +156,14 @@ public:
      * @return True if \a aItem is found in the pick list.
      */
     bool ContainsItem( const EDA_ITEM* aItem ) const;
+
+    /**
+     * Check the undo/redo list for any #EDA_ITEM of type \a aItemType.
+     *
+     * @param aItemType is an #EDA_ITEM type from the list of #KICAD_T types.
+     * @return true if an item of \a aItemType is found in the pick list.
+     */
+    bool ContainsItemType( KICAD_T aItemType ) const;
 
     /**
      * @return Index of the searched item. If the item is not stored in the list, negative value
@@ -218,6 +232,12 @@ public:
     UNDO_REDO GetPickedItemStatus( unsigned int aIdx ) const;
 
     /**
+     * @return The group id of the picked item, or null KIID if does not exist.
+     * @param aIdx Index of the picked item in the picked list.
+     */
+    KIID GetPickedItemGroupId( unsigned int aIdx ) const;
+
+    /**
      * Return the value of the picker flag.
      *
      * @param aIdx Index of the picker in the picked list.
@@ -248,6 +268,15 @@ public:
      * @return true if the picker exists, or false if does not exist.
      */
     bool SetPickedItemLink( EDA_ITEM* aLink, unsigned aIdx );
+
+    /**
+     * Set the group id associated to a given picked item.
+     *
+     * @param aId is the group id to associate to the picked item.
+     * @param aIdx is index of the picker in the picked list.
+     * @return true if the picker exists, or false if does not exist.
+     */
+    bool SetPickedItemGroupId( KIID aId, unsigned aIdx );
 
     /**
      * Set the type of undo/redo operation for a given picked item.

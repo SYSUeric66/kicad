@@ -80,8 +80,19 @@ PCB_PROPERTIES_PANEL::PCB_PROPERTIES_PANEL( wxWindow* aParent, PCB_BASE_EDIT_FRA
     {
         m_checkboxEditorInstance = static_cast<PG_CHECKBOX_EDITOR*>( it->second );
     }
-}
 
+    it = wxPGGlobalVars->m_mapEditorClasses.find( PG_RATIO_EDITOR::EDITOR_NAME );
+
+    if( it == wxPGGlobalVars->m_mapEditorClasses.end() )
+    {
+        PG_RATIO_EDITOR* ratioEditor = new PG_RATIO_EDITOR();
+        m_ratioEditorInstance = static_cast<PG_RATIO_EDITOR*>( wxPropertyGrid::RegisterEditorClass( ratioEditor ) );
+    }
+    else
+    {
+        m_ratioEditorInstance = static_cast<PG_RATIO_EDITOR*>( it->second );
+    }
+}
 
 
 PCB_PROPERTIES_PANEL::~PCB_PROPERTIES_PANEL()
@@ -110,7 +121,7 @@ void PCB_PROPERTIES_PANEL::AfterCommit()
 
     rebuildProperties( selection );
 
-    CallAfter( [&]()
+    CallAfter( [this]()
                {
                    static_cast<PCB_EDIT_FRAME*>( m_frame )->GetCanvas()->SetFocus();
                } );
@@ -207,6 +218,8 @@ void PCB_PROPERTIES_PANEL::valueChanged( wxPropertyGridEvent& aEvent )
     wxVariant newValue = aEvent.GetPropertyValue();
     BOARD_COMMIT changes( m_frame );
 
+    PROPERTY_COMMIT_HANDLER handler( &changes );
+
     for( EDA_ITEM* edaItem : selection )
     {
         BOARD_ITEM* item = static_cast<BOARD_ITEM*>( edaItem );
@@ -214,16 +227,7 @@ void PCB_PROPERTIES_PANEL::valueChanged( wxPropertyGridEvent& aEvent )
         item->Set( property, newValue );
     }
 
-    changes.Push( _( "Change property" ) );
-
-    for( EDA_ITEM* edaItem : selection )
-    {
-        if( edaItem->Type() == PCB_GENERATOR_T )
-        {
-            m_frame->GetToolManager()->RunAction<PCB_GENERATOR*>(
-                    PCB_ACTIONS::regenerateItem, static_cast<PCB_GENERATOR*>( edaItem ) );
-        }
-    }
+    changes.Push( _( "Edit Properties" ) );
 
     m_frame->Refresh();
 
@@ -256,8 +260,20 @@ void PCB_PROPERTIES_PANEL::updateLists( const BOARD* aBoard )
     m_propMgr.GetProperty( TYPE_HASH( PCB_VIA ), _HKI( "Layer Bottom" ) )->SetChoices( layersCu );
 
     // Regenerate nets
+
+    std::vector<std::pair<wxString, int>> netNames;
+    netNames.reserve( aBoard->GetNetInfo().NetsByNetcode().size() );
+
     for( const auto& [ netCode, netInfo ] : aBoard->GetNetInfo().NetsByNetcode() )
-        nets.Add( UnescapeString( netInfo->GetNetname() ), netCode );
+        netNames.emplace_back( UnescapeString( netInfo->GetNetname() ), netCode );
+
+    std::sort( netNames.begin(), netNames.end(), []( const auto& a, const auto& b )
+    {
+        return a.first.CmpNoCase( b.first ) < 0;
+    } );
+
+    for( const auto& [ netName, netCode ] : netNames )
+        nets.Add( netName, netCode );
 
     auto netProperty = m_propMgr.GetProperty( TYPE_HASH( BOARD_CONNECTED_ITEM ), _HKI( "Net" ) );
     netProperty->SetChoices( nets );

@@ -25,24 +25,29 @@
 #ifndef QA_PCBNEW_BOARD_TEST_UTILS__H
 #define QA_PCBNEW_BOARD_TEST_UTILS__H
 
-#include <memory>
-#include <string>
-#include <wx/string.h>
-#include <mutex>
 #include <map>
+#include <memory>
+#include <mutex>
+#include <functional>
+#include <optional>
+#include <string>
+
+#include <wx/string.h>
+
 #include <reporter.h>
+#include <core/typeinfo.h>
 #include <tool/tool_manager.h>
 
 class BOARD;
 class BOARD_ITEM;
 class FOOTPRINT;
+class KIID;
 class PCB_TEXT;
 class PCB_SHAPE;
 class ZONE;
 class PAD;
 class SHAPE_POLY_SET;
 class SETTINGS_MANAGER;
-
 
 namespace KI_TEST
 {
@@ -172,6 +177,34 @@ private:
 
 void LoadBoard( SETTINGS_MANAGER& aSettingsManager, const wxString& aRelPath,
                 std::unique_ptr<BOARD>& aBoard );
+
+/**
+ * @brief Get an item from the given board with a certain type and UUID.
+ *
+ * If this doesn't exist, it's a BOOST_REQUIRE failure.
+ *
+ * @param aBoard the board to look in
+ * @param aItemType the required item type
+ * @param aID the required
+ * @return BOARD_ITEM& the required board item
+ */
+BOARD_ITEM& RequireBoardItemWithTypeAndId( const BOARD& aBoard, KICAD_T aItemType,
+                                           const KIID& aID );
+
+/**
+ * @brief Perform "some test" on a board file loaded from the path,
+ * then optionally save and reload and run the test again.
+ *
+ * The roundtrip is useful to test stability of serialisation/reload.
+ *
+ * @param aRelativePath relative path of file to load
+ * @param aRoundtrip true to save, reload and re-test
+ * @param aBoardTestFunction the function that runs tests on the board
+ * @param aExpectedBoardVersion the expected board version, or nullopt to not check
+ */
+void LoadAndTestBoardFile( const wxString aRelativePath, bool aRoundtrip,
+                           std::function<void( BOARD& )> aBoardTestFunction,
+                           std::optional<int> aExpectedBoardVersion = std::nullopt );
 
 void FillZones( BOARD* m_board );
 

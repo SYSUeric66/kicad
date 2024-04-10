@@ -354,21 +354,21 @@ void PDF_PLOTTER::Arc( const VECTOR2D& aCenter, const EDA_ANGLE& aStartAngle,
     SetCurrentLineWidth( aWidth );
 
     // Usual trig arc plotting routine...
-    start.x = aCenter.x + KiROUND( aRadius * (-startAngle).Cos() );
-    start.y = aCenter.y + KiROUND( aRadius * (-startAngle).Sin() );
+    start.x = KiROUND( aCenter.x + aRadius * ( -startAngle ).Cos() );
+    start.y = KiROUND( aCenter.y + aRadius * ( -startAngle ).Sin() );
     VECTOR2D pos_dev = userToDeviceCoordinates( start );
     fprintf( m_workFile, "%g %g m ", pos_dev.x, pos_dev.y );
 
     for( EDA_ANGLE ii = startAngle + delta; ii < endAngle; ii += delta )
     {
-        end.x = aCenter.x + KiROUND( aRadius * (-ii).Cos() );
-        end.y = aCenter.y + KiROUND( aRadius * (-ii).Sin() );
+        end.x = KiROUND( aCenter.x + aRadius * ( -ii ).Cos() );
+        end.y = KiROUND( aCenter.y + aRadius * ( -ii ).Sin() );
         pos_dev = userToDeviceCoordinates( end );
         fprintf( m_workFile, "%g %g l ", pos_dev.x, pos_dev.y );
     }
 
-    end.x = aCenter.x + KiROUND( aRadius * (-endAngle).Cos() );
-    end.y = aCenter.y + KiROUND( aRadius * (-endAngle).Sin() );
+    end.x = KiROUND( aCenter.x + aRadius * ( -endAngle ).Cos() );
+    end.y = KiROUND( aCenter.y + aRadius * ( -endAngle ).Sin() );
     pos_dev = userToDeviceCoordinates( end );
     fprintf( m_workFile, "%g %g l ", pos_dev.x, pos_dev.y );
 
@@ -390,6 +390,9 @@ void PDF_PLOTTER::PlotPoly( const std::vector<VECTOR2I>& aCornerList, FILL_T aFi
                             void* aData )
 {
     wxASSERT( m_workFile );
+
+    if( aFill == FILL_T::NO_FILL && aWidth <= 0 )
+        return;
 
     if( aCornerList.size() <= 1 )
         return;
@@ -1460,10 +1463,14 @@ function ShM(aEntries) {
              "/Producer (KiCad PDF)\n"
              "/CreationDate (%s)\n"
              "/Creator %s\n"
-             "/Title %s\n",
+             "/Title %s\n"
+             "/Author %s\n"
+             "/Subject %s\n",
              date_buf,
              encodeStringForPlotter( m_creator ).c_str(),
-             encodeStringForPlotter( m_title ).c_str() );
+             encodeStringForPlotter( m_title ).c_str(),
+             encodeStringForPlotter( m_author ).c_str(),
+             encodeStringForPlotter( m_subject ).c_str() );
 
     fputs( ">>\n", m_outputFile );
     closePdfObject();

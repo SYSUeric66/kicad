@@ -1,7 +1,7 @@
 /*
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
- * Copyright (C) 2023 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2023-2024 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -28,6 +28,7 @@
 #include <tool/tool_interactive.h>
 
 class SIMULATOR_FRAME;
+class SCH_EDIT_FRAME;
 class SPICE_CIRCUIT_MODEL;
 class SPICE_SIMULATOR;
 class SIM_TAB;
@@ -58,6 +59,8 @@ public:
     int SaveWorkbook( const TOOL_EVENT& aEvent );
     int ExportPlotAsPNG( const TOOL_EVENT& aEvent );
     int ExportPlotAsCSV( const TOOL_EVENT& aEvent );
+    int ExportPlotToClipboard( const TOOL_EVENT& aEvent );
+    int ExportPlotToSchematic( const TOOL_EVENT& aEvent );
     int Close( const TOOL_EVENT& aEvent );
 
     int Zoom( const TOOL_EVENT& aEvent );

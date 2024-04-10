@@ -89,22 +89,21 @@ public:
     static TOOL_ACTION placeGlobalLabel;
     static TOOL_ACTION placeHierLabel;
     static TOOL_ACTION drawSheet;
-    static TOOL_ACTION importSheetPin;
+    static TOOL_ACTION placeSheetPin;
+    // Sync sheet pins for selected sheet symbol
+    static TOOL_ACTION syncSheetPins;
+    // Sync sheet pins for all sheet symbols
+    static TOOL_ACTION syncAllSheetsPins;
     static TOOL_ACTION placeSchematicText;
     static TOOL_ACTION drawTextBox;
+    static TOOL_ACTION drawTable;
     static TOOL_ACTION drawRectangle;
     static TOOL_ACTION drawCircle;
     static TOOL_ACTION drawArc;
     static TOOL_ACTION drawLines;
     static TOOL_ACTION placeImage;
-    static TOOL_ACTION schImportGraphics;
     static TOOL_ACTION undoLastSegment;
     static TOOL_ACTION switchSegmentPosture;
-    static TOOL_ACTION finishLineWireOrBus;
-    static TOOL_ACTION finishWire;
-    static TOOL_ACTION finishBus;
-    static TOOL_ACTION finishLine;
-    static TOOL_ACTION finishSheet;
 
     // Symbol Tools
     static TOOL_ACTION placeSymbolPin;
@@ -113,8 +112,6 @@ public:
     static TOOL_ACTION drawSymbolLines;
     static TOOL_ACTION drawSymbolPolygon;
     static TOOL_ACTION placeSymbolAnchor;
-    static TOOL_ACTION symbolImportGraphics;
-    static TOOL_ACTION finishDrawing;
 
     // Interactive Editing
     static TOOL_ACTION alignToGrid;
@@ -164,6 +161,7 @@ public:
     static TOOL_ACTION editPageNumber;
     static TOOL_ACTION checkSymbol;
     static TOOL_ACTION diffSymbol;
+    static TOOL_ACTION showBusSyntaxHelp;
 
     static TOOL_ACTION rescueSymbols;
     static TOOL_ACTION remapSymbols;
@@ -176,6 +174,7 @@ public:
     static TOOL_ACTION exportNetlist;
     static TOOL_ACTION generateBOM;
     static TOOL_ACTION generateBOMLegacy;
+    static TOOL_ACTION generateBOMExternal;
     static TOOL_ACTION addSymbolToSchematic;
     static TOOL_ACTION exportSymbolsToLibrary;
     static TOOL_ACTION exportSymbolsToNewLibrary;
@@ -210,6 +209,7 @@ public:
     static TOOL_ACTION exportSymbol;
     static TOOL_ACTION updateSymbolFields;
     static TOOL_ACTION setUnitDisplayName;
+    static TOOL_ACTION openWithTextEditor;
 
     // Hierarchy navigation
     static TOOL_ACTION changeSheet;
@@ -230,6 +230,8 @@ public:
     // Miscellaneous
     static TOOL_ACTION toggleHiddenPins;
     static TOOL_ACTION toggleHiddenFields;
+    static TOOL_ACTION showHiddenPins;
+    static TOOL_ACTION showHiddenFields;
     static TOOL_ACTION toggleDirectiveLabels;
     static TOOL_ACTION toggleERCWarnings;
     static TOOL_ACTION toggleERCErrors;
@@ -247,6 +249,7 @@ public:
     static TOOL_ACTION showSymbolTree;
     static TOOL_ACTION hideSymbolTree;
     static TOOL_ACTION drawSheetOnClipboard;
+    static TOOL_ACTION importGraphics;
     static TOOL_ACTION exportSymbolView;
     static TOOL_ACTION exportSymbolAsSVG;
     static TOOL_ACTION showPythonConsole;
@@ -268,6 +271,8 @@ public:
     static TOOL_ACTION saveWorkbookAs;
     static TOOL_ACTION exportPlotAsPNG;
     static TOOL_ACTION exportPlotAsCSV;
+    static TOOL_ACTION exportPlotToClipboard;
+    static TOOL_ACTION exportPlotToSchematic;
     static TOOL_ACTION showSimulator;
     static TOOL_ACTION simProbe;
     static TOOL_ACTION simTune;

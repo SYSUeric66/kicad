@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2018 CERN
- * Copyright (C) 2019-2023 KiCad Developers, see AUTHOR.txt for contributors.
+ * Copyright (C) 2019-2024 KiCad Developers, see AUTHOR.txt for contributors.
  * @author Jon Evans <jon@craftyjon.com>
  *
  * This program is free software; you can redistribute it and/or
@@ -54,8 +54,6 @@ public:
         return wxT( "SCH_PIN" );
     }
 
-    SCH_SYMBOL* GetParentSymbol() const;
-
     LIB_PIN* GetLibPin() const { return m_libPin; }
 
     void ClearDefaultNetName( const SCH_SHEET_PATH* aPath );
@@ -71,13 +69,14 @@ public:
     wxString GetItemDescription( UNITS_PROVIDER* aUnitsProvider ) const override;
     void GetMsgPanelInfo( EDA_DRAW_FRAME* aFrame, std::vector<MSG_PANEL_ITEM>& aList ) override;
 
-    void Print( const RENDER_SETTINGS* aSettings, const VECTOR2I& aOffset ) override {}
+    void Print( const SCH_RENDER_SETTINGS* aSettings, int aUnit, int aBodyStyle,
+                const VECTOR2I& aOffset, bool aForceNoFill, bool aDimmed ) override {}
 
     void Move( const VECTOR2I& aMoveVector ) override {}
 
     void MirrorHorizontally( int aCenter ) override {}
     void MirrorVertically( int aCenter ) override {}
-    void Rotate( const VECTOR2I& aCenter ) override {}
+    void Rotate( const VECTOR2I& aCenter, bool aRotateCCW ) override {}
 
     VECTOR2I       GetPosition() const override { return GetTransformedPosition(); }
     const VECTOR2I GetLocalPosition() const { return m_position; }
@@ -99,6 +98,9 @@ public:
     EDA_ITEM* Clone() const override;
 
     bool IsConnectable() const override { return true; }
+
+    bool HasConnectivityChanges( const SCH_ITEM* aItem,
+                                 const SCH_SHEET_PATH* aInstance = nullptr ) const override;
 
     bool IsDangling() const override
     {
@@ -134,7 +136,7 @@ public:
      * While many of these are currently simply covers for the equivalent LIB_PIN methods,
      * the new Eeschema file format will soon allow us to override them at the schematic level.
      */
-    bool IsVisible() const { return m_libPin->IsVisible(); }
+    bool IsVisible() const;
 
     wxString GetName() const;
     wxString GetShownName() const;
@@ -157,7 +159,7 @@ public:
 
     int GetLength() const;
 
-    bool IsGlobalPower() const { return m_libPin->IsGlobalPower(); }
+    bool IsGlobalPower() const;
 
     bool ConnectionPropagatesTo( const EDA_ITEM* aItem ) const override;
 
@@ -167,6 +169,8 @@ public:
     double Similarity( const SCH_ITEM& aItem ) const override;
 
     bool operator==( const SCH_ITEM& aItem ) const override;
+
+    bool operator!=( const SCH_PIN& aRhs ) const { return !( *this == aRhs ); }
 
 #if defined(DEBUG)
     void Show( int nestLevel, std::ostream& os ) const override {}

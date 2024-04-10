@@ -93,8 +93,6 @@ struct OBSTACLE
     int              m_distFirst;      ///< ... and the distance thereof
     int              m_maxFanoutWidth; ///< worst case (largest) width of the tracks connected to the item
 
-    CONSTRAINT_TYPE  m_violatingConstraint;
-
     bool operator==(const OBSTACLE& other) const
     {
         return m_head == other.m_head && m_item == other.m_item;
@@ -151,7 +149,10 @@ public:
 
     virtual bool IsInNetTie( const ITEM* aA ) = 0;
     virtual bool IsNetTieExclusion( const ITEM* aItem, const VECTOR2I& aCollisionPos,
-                                    const ITEM* aCollidingItem )= 0;
+                                    const ITEM* aCollidingItem ) = 0;
+
+    virtual bool IsDrilledHole( const PNS::ITEM* aItem ) = 0;
+    virtual bool IsNonPlatedSlot( const PNS::ITEM* aItem ) = 0;
 
     /**
      * @return true if \a aObstacle is a keepout.  Set \a aEnforce if said keepout's rules
@@ -278,8 +279,7 @@ public:
      * starting point.
      *
      * @param aLine the item to find collisions with
-     * @param aKindMask mask of obstacle types to take into account
-     * @param aRestrictedSet is an optional set of items that should be considered as obstacles
+     * @param aOpts options for the search
      * @return the obstacle, if found, otherwise empty.
      */
     OPT_OBSTACLE NearestObstacle( const LINE* aLine,
@@ -307,6 +307,16 @@ public:
     OPT_OBSTACLE CheckColliding( const ITEM_SET&  aSet, int aKindMask = ITEM::ANY_T );
 
     /**
+     * Check if the item collides with anything else in the world, and if found, returns the
+     * obstacle.
+     *
+     * @param aItem the item to find collisions with
+     * @param aOpts options for the search
+     * @return the obstacle, if found, otherwise empty.
+     */
+    OPT_OBSTACLE CheckColliding( const ITEM* aItem, const COLLISION_SEARCH_OPTIONS& aOpts );
+
+    /**
      * Find all items that contain the point \a aPoint.
      *
      * @param aPoint the point.
@@ -322,10 +332,10 @@ public:
      *                        at the same coordinates as an existing one).
      * @return true if added
      */
-    bool Add( std::unique_ptr< SEGMENT >&& aSegment, bool aAllowRedundant = false );
-    void Add( std::unique_ptr< SOLID >&&   aSolid );
-    void Add( std::unique_ptr< VIA >&&     aVia );
-    bool Add( std::unique_ptr< ARC >&&     aArc, bool aAllowRedundant = false );
+    bool Add( std::unique_ptr<SEGMENT> aSegment, bool aAllowRedundant = false );
+    void Add( std::unique_ptr<SOLID>   aSolid );
+    void Add( std::unique_ptr<VIA>     aVia );
+    bool Add( std::unique_ptr<ARC>     aArc, bool aAllowRedundant = false );
 
     void Add( LINE& aLine, bool aAllowRedundant = false );
 
@@ -354,7 +364,7 @@ public:
      * @param aOldItem item to be removed
      * @param aNewItem item add instead
      */
-    void Replace( ITEM* aOldItem, std::unique_ptr< ITEM >&& aNewItem );
+    void Replace( ITEM* aOldItem, std::unique_ptr< ITEM > aNewItem );
     void Replace( LINE& aOldLine, LINE& aNewLine );
 
     /**

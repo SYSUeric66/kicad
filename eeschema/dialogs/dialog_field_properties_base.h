@@ -1,5 +1,5 @@
 ///////////////////////////////////////////////////////////////////////////
-// C++ code generated with wxFormBuilder (version 3.10.1-0-g8feb16b)
+// C++ code generated with wxFormBuilder (version 4.0.0-0-g0efcecf)
 // http://www.wxformbuilder.org/
 //
 // PLEASE DO *NOT* EDIT THIS FILE!
@@ -83,8 +83,8 @@ class DIALOG_FIELD_PROPERTIES_BASE : public DIALOG_SHIM
 		wxStaticText* m_yPosLabel;
 		wxTextCtrl* m_yPosCtrl;
 		wxStaticText* m_yPosUnits;
-		wxCheckBox* m_CommonUnit;
-		wxCheckBox* m_CommonConvert;
+		wxCheckBox* m_commonToAllUnits;
+		wxCheckBox* m_commonToAllBodyStyles;
 		wxStdDialogButtonSizer* m_sdbSizerButtons;
 		wxButton* m_sdbSizerButtonsOK;
 		wxButton* m_sdbSizerButtonsCancel;

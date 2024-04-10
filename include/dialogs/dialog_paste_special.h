@@ -45,10 +45,24 @@ class DIALOG_PASTE_SPECIAL : public DIALOG_PASTE_SPECIAL_BASE
 
 public:
     DIALOG_PASTE_SPECIAL( wxWindow* aParent, PASTE_MODE* aMode,
-                          wxString aReplacement = wxT( "?" ) );
+                          const wxString& aReplacement = wxS( "?" ) );
 
     bool TransferDataToWindow() override;
     bool TransferDataFromWindow() override;
+
+    bool GetClearNets() const
+    {
+        return m_clearNetsCB->IsChecked();
+    }
+
+    void HideClearNets()
+    {
+        m_clearNetsCB->Hide();
+        finishDialogSettings();
+    }
+
+protected:
+    virtual void onRadioBoxEvent( wxCommandEvent& event ) override;
 
 private:
     PASTE_MODE* m_mode;

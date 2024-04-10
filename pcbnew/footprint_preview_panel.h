@@ -39,6 +39,7 @@ class FOOTPRINT;
 class KIWAY;
 class IO_MGR;
 class BOARD;
+class FOOTPRINT;
 
 
 /**
@@ -54,6 +55,11 @@ public:
     virtual ~FOOTPRINT_PREVIEW_PANEL( );
 
     virtual void SetUserUnits( EDA_UNITS aUnits ) override { m_userUnits = aUnits; }
+    virtual void SetPinFunctions( const std::map<wxString, wxString>& aPinFunctions ) override
+    {
+        m_pinFunctions = aPinFunctions;
+    }
+
     virtual bool DisplayFootprint( const LIB_ID& aFPID ) override;
     virtual void DisplayFootprints( std::shared_ptr<FOOTPRINT> aFootprintA,
                                     std::shared_ptr<FOOTPRINT> aFootprintB ) override;
@@ -68,6 +74,7 @@ public:
 
     static FOOTPRINT_PREVIEW_PANEL* New( KIWAY* aKiway, wxWindow* aParent,
                                          UNITS_PROVIDER* aUnitsProvider );
+    const FOOTPRINT* GetCurrentFootprint() const { return m_currentFootprint.get(); }
 
 private:
     /**
@@ -89,6 +96,7 @@ private:
     std::unique_ptr<BOARD>                      m_dummyBoard;
     std::unique_ptr<KIGFX::GAL_DISPLAY_OPTIONS> m_displayOptions;
     EDA_UNITS                                   m_userUnits;
+    std::map<wxString, wxString>                m_pinFunctions;
     std::shared_ptr<FOOTPRINT>                  m_currentFootprint;
     std::shared_ptr<FOOTPRINT>                  m_otherFootprint;
 };

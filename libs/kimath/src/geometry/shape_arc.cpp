@@ -261,13 +261,18 @@ bool SHAPE_ARC::Collide( const SEG& aSeg, int aClearance, int* aActual, VECTOR2I
     candidatePts.push_back( aSeg.A );
     candidatePts.push_back( aSeg.B );
 
+    bool any_collides = false;
+
     for( const VECTOR2I& candidate : candidatePts )
     {
-        if( Collide( candidate, aClearance, aActual, aLocation ) )
+        bool collides = Collide( candidate, aClearance, aActual, aLocation );
+        any_collides |= collides;
+
+        if( collides && ( !aActual || *aActual == 0 ) )
             return true;
     }
 
-    return false;
+    return any_collides;
 }
 
 
@@ -328,25 +333,34 @@ void SHAPE_ARC::update_bbox()
     int quad_angle_start = std::ceil( start_angle.AsDegrees() / 90.0 );
     int quad_angle_end = std::floor( end_angle.AsDegrees() / 90.0 );
 
-    VECTOR2I center = GetCenter();
-    const int radius = KiROUND( GetRadius() );
+    // very large radius means the arc is similar to a segment
+    // so do not try to add more points, center cannot be handled
+    // Very large is here > INT_MAX/2
+    double d_radius = GetRadius();
 
-    // count through quadrants included in arc
-    for( int quad_angle = quad_angle_start; quad_angle <= quad_angle_end; ++quad_angle )
+    if( d_radius < (double)INT_MAX/2.0 )
     {
-        VECTOR2I  quad_pt = center;
+        VECTOR2I center = GetCenter();
 
-        switch( quad_angle % 4 )
+        const int radius = KiROUND( d_radius );
+
+        // count through quadrants included in arc
+        for( int quad_angle = quad_angle_start; quad_angle <= quad_angle_end; ++quad_angle )
         {
-        case 0:          quad_pt += { radius, 0 };  break;
-        case 1: case -3: quad_pt += { 0, radius };  break;
-        case 2: case -2: quad_pt += { -radius, 0 }; break;
-        case 3: case -1: quad_pt += { 0, -radius }; break;
-        default:
-            assert( false );
-        }
+            VECTOR2I  quad_pt = center;
 
-        points.push_back( quad_pt );
+            switch( quad_angle % 4 )
+            {
+            case 0:          quad_pt += { radius, 0 };  break;
+            case 1: case -3: quad_pt += { 0, radius };  break;
+            case 2: case -2: quad_pt += { -radius, 0 }; break;
+            case 3: case -1: quad_pt += { 0, -radius }; break;
+            default:
+                assert( false );
+            }
+
+            points.push_back( quad_pt );
+        }
     }
 
     m_bbox.Compute( points );
@@ -356,6 +370,9 @@ void SHAPE_ARC::update_bbox()
 const BOX2I SHAPE_ARC::BBox( int aClearance ) const
 {
     BOX2I bbox( m_bbox );
+
+    if( m_width != 0 )
+        bbox.Inflate( KiROUND( m_width / 2.0 ) + 1 );
 
     if( aClearance != 0 )
         bbox.Inflate( aClearance );
@@ -367,6 +384,29 @@ const BOX2I SHAPE_ARC::BBox( int aClearance ) const
 bool SHAPE_ARC::IsClockwise() const
 {
     return GetCentralAngle() < ANGLE_0;
+}
+
+
+VECTOR2I SHAPE_ARC::NearestPoint( const VECTOR2I& aP ) const
+{
+    const static int s_epsilon = 8;
+
+    CIRCLE   fullCircle( GetCenter(), GetRadius() );
+    VECTOR2I nearestPt = fullCircle.NearestPoint( aP );
+
+    if( ( nearestPt - m_start ).SquaredEuclideanNorm() <= s_epsilon )
+        return m_start;
+
+    if( ( nearestPt - m_end ).SquaredEuclideanNorm() <= s_epsilon )
+        return m_end;
+
+    if( sliceContainsPoint( nearestPt ) )
+        return nearestPt;
+
+    if( ( aP - m_start ).SquaredEuclideanNorm() <= ( aP - m_end ).SquaredEuclideanNorm() )
+        return m_start;
+    else
+        return m_end;
 }
 
 
@@ -464,7 +504,7 @@ EDA_ANGLE SHAPE_ARC::GetCentralAngle() const
 
 double SHAPE_ARC::GetRadius() const
 {
-    return ( m_start - GetCenter() ).EuclideanNorm();
+    return std::sqrt( ( m_start - GetCenter() ).SquaredEuclideanNorm() );
 }
 
 
@@ -477,6 +517,9 @@ const SHAPE_LINE_CHAIN SHAPE_ARC::ConvertToPolyline( double aAccuracy,
     VECTOR2I  c    = GetCenter();
     EDA_ANGLE ca   = GetCentralAngle();
 
+    SEG    startToEnd( GetP0(), GetP1() );
+    double halfAccuracy = std::max( 1.0, aAccuracy / 2 );
+
     int n;
 
     // To calculate the arc to segment count, use the external radius instead of the radius.
@@ -484,7 +527,8 @@ const SHAPE_LINE_CHAIN SHAPE_ARC::ConvertToPolyline( double aAccuracy,
     double external_radius = r+(m_width/2);
     double effectiveAccuracy;
 
-    if( external_radius < aAccuracy/2 )     // Should be a very rare case
+    if( external_radius < halfAccuracy
+        || startToEnd.Distance( GetArcMid() ) < halfAccuracy ) // Should be a very rare case
     {
         // In this case, the arc is approximated by one segment, with a effective error
         // between -aAccuracy/2 and +aAccuracy/2, as expected.

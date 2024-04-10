@@ -193,8 +193,7 @@ bool TestSegmentHit( const VECTOR2I& aRefPoint, const VECTOR2I& aStart, const VE
  */
 inline double GetLineLength( const VECTOR2I& aPointA, const VECTOR2I& aPointB )
 {
-    // Implicitly casted to double
-    return hypot( aPointA.x - aPointB.x, aPointA.y - aPointB.y );
+    return hypot( (double) aPointA.x - aPointB.x, (double) aPointA.y - aPointB.y );
 }
 
 // These are the usual degrees <-> radians conversion routines
@@ -274,5 +273,31 @@ inline bool InterceptsNegativeX( double aStartAngle, double aEndAngle )
 
     return aStartAngle < 180.0 && end > 180.0;
 }
+
+/**
+ * Calculate the area of a parallelogram defined by \a aPointA, \a aPointB, and \a aPointC.
+ *                     B ______________________
+ *                      /                      /
+ *                     /                      /
+ *                    /______________________/
+ *                   A                       C
+ * The area of a parallelogram is the cross product of the vectors A->B and A->C.
+ * The order of the vertices is not important, the result will be the same (modulo sign).
+ */
+template <class T>
+inline typename VECTOR2<T>::extended_type
+ParallelogramArea( const VECTOR2<T>& aPointA, const VECTOR2<T>& aPointB, const VECTOR2<T>& aPointC )
+{
+    VECTOR2<T> v1 = aPointB - aPointA;
+    VECTOR2<T> v2 = aPointC - aPointA;
+    return v1.Cross( v2 );
+}
+
+/**
+ * Test if a point hits a line segment within a given distance.  This is a faster version of
+ * TestSegmentHit() that does not calculate the distance.
+*/
+bool TestSegmentHitFast( const VECTOR2I& aRefPoint, const VECTOR2I& aStart, const VECTOR2I& aEnd,
+                         int aDist );
 
 #endif

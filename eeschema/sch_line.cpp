@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2015 Jean-Pierre Charras, jp.charras at wanadoo.fr
- * Copyright (C) 1992-2023 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2024 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -38,6 +38,9 @@
 #include <project/net_settings.h>
 #include <trigo.h>
 #include <board_item.h>
+#include <api/api_enums.h>
+#include <api/api_utils.h>
+#include <api/schematic/schematic_types.pb.h>
 
 
 SCH_LINE::SCH_LINE( const VECTOR2I& pos, int layer ) :
@@ -90,6 +93,49 @@ SCH_LINE::SCH_LINE( const SCH_LINE& aLine ) :
 }
 
 
+void SCH_LINE::Serialize( google::protobuf::Any &aContainer ) const
+{
+    kiapi::schematic::types::Line line;
+
+    line.mutable_id()->set_value( m_Uuid.AsStdString() );
+    kiapi::common::PackVector2( *line.mutable_start(), GetStartPoint() );
+    kiapi::common::PackVector2( *line.mutable_end(), GetEndPoint() );
+    line.set_layer(
+            ToProtoEnum<SCH_LAYER_ID, kiapi::schematic::types::SchematicLayer>( GetLayer() ) );
+
+    aContainer.PackFrom( line );
+}
+
+
+bool SCH_LINE::Deserialize( const google::protobuf::Any &aContainer )
+{
+    kiapi::schematic::types::Line line;
+
+    if( !aContainer.UnpackTo( &line ) )
+        return false;
+
+    const_cast<KIID&>( m_Uuid ) = KIID( line.id().value() );
+    SetStartPoint( kiapi::common::UnpackVector2( line.start() ) );
+    SetEndPoint( kiapi::common::UnpackVector2( line.end() ) );
+    SCH_LAYER_ID layer =
+            FromProtoEnum<SCH_LAYER_ID, kiapi::schematic::types::SchematicLayer>( line.layer() );
+
+    switch( layer )
+    {
+    case LAYER_WIRE:
+    case LAYER_BUS:
+    case LAYER_NOTES:
+        SetLayer( layer );
+        break;
+
+    default:
+        break;
+    }
+
+    return true;
+}
+
+
 wxString SCH_LINE::GetFriendlyName() const
 {
     switch( GetLayer() )
@@ -98,46 +144,6 @@ wxString SCH_LINE::GetFriendlyName() const
     case LAYER_BUS:  return _( "Bus" );
     default:         return _( "Graphic Line" );
     }
-}
-
-
-wxString SCH_LINE::GetNetname( const SCH_SHEET_PATH& aSheet )
-{
-    std::list<const SCH_LINE *> checkedLines;
-    checkedLines.push_back(this);
-    return FindWireSegmentNetNameRecursive( this, checkedLines, aSheet );
-}
-
-
-wxString SCH_LINE::FindWireSegmentNetNameRecursive( SCH_LINE *line,
-                                                    std::list<const SCH_LINE *> &checkedLines,
-                                                    const SCH_SHEET_PATH& aSheet ) const
-{
-    for ( auto connected : line->ConnectedItems( aSheet ) )
-    {
-        if( connected->Type() == SCH_LINE_T )
-        {
-            if( std::find(checkedLines.begin(), checkedLines.end(), connected ) == checkedLines.end() )
-            {
-                SCH_LINE* connectedLine = static_cast<SCH_LINE*>( connected );
-                checkedLines.push_back( connectedLine );
-
-                wxString netName = FindWireSegmentNetNameRecursive( connectedLine, checkedLines,
-                                                                    aSheet );
-
-                if( !netName.IsEmpty() )
-                    return netName;
-            }
-        }
-        else if( connected->Type() == SCH_LABEL_T
-                 || connected->Type() == SCH_GLOBAL_LABEL_T
-                 || connected->Type() == SCH_DIRECTIVE_LABEL_T)
-        {
-            return static_cast<SCH_TEXT*>( connected )->GetText();
-        }
-
-    }
-    return "";
 }
 
 
@@ -353,7 +359,8 @@ int SCH_LINE::GetPenWidth() const
 }
 
 
-void SCH_LINE::Print( const RENDER_SETTINGS* aSettings, const VECTOR2I& offset )
+void SCH_LINE::Print( const SCH_RENDER_SETTINGS* aSettings, int aUnit, int aBodyStyle,
+                      const VECTOR2I& offset, bool aForceNoFill, bool aDimmed )
 {
     wxDC*   DC = aSettings->GetPrintDC();
     COLOR4D color = GetLineColor();
@@ -364,7 +371,7 @@ void SCH_LINE::Print( const RENDER_SETTINGS* aSettings, const VECTOR2I& offset )
     VECTOR2I   start = m_start;
     VECTOR2I   end = m_end;
     LINE_STYLE lineStyle = GetEffectiveLineStyle();
-    int        penWidth = std::max( GetPenWidth(), aSettings->GetDefaultPenWidth() );
+    int        penWidth = GetEffectivePenWidth( aSettings );
 
     if( lineStyle <= LINE_STYLE::FIRST_TYPE )
     {
@@ -403,16 +410,16 @@ void SCH_LINE::MirrorHorizontally( int aCenter )
 }
 
 
-void SCH_LINE::Rotate( const VECTOR2I& aCenter )
+void SCH_LINE::Rotate( const VECTOR2I& aCenter, bool aRotateCCW )
 {
     // When we allow off grid items, the
     // else if should become a plain if to allow
     // rotation around the center of the line
     if( m_flags & STARTPOINT )
-        RotatePoint( m_start, aCenter, ANGLE_90 );
+        RotatePoint( m_start, aCenter, aRotateCCW ? ANGLE_270 : ANGLE_90 );
 
     else if( m_flags & ENDPOINT )
-        RotatePoint( m_end, aCenter, ANGLE_90 );
+        RotatePoint( m_end, aCenter, aRotateCCW ? ANGLE_270 : ANGLE_90 );
 }
 
 
@@ -610,44 +617,56 @@ void SCH_LINE::GetEndPoints( std::vector <DANGLING_END_ITEM>& aItemList )
 }
 
 
-bool SCH_LINE::UpdateDanglingState( std::vector<DANGLING_END_ITEM>& aItemList,
-                                    const SCH_SHEET_PATH* aPath )
+bool SCH_LINE::UpdateDanglingState( std::vector<DANGLING_END_ITEM>& aItemListByType,
+                                    std::vector<DANGLING_END_ITEM>& aItemListByPos,
+                                    const SCH_SHEET_PATH*           aPath )
 {
-    if( IsConnectable() )
+    if( !IsConnectable() )
+        return false;
+
+    bool previousStartState = m_startIsDangling;
+    bool previousEndState = m_endIsDangling;
+
+    m_startIsDangling = m_endIsDangling = true;
+
+    for( auto it = DANGLING_END_ITEM_HELPER::get_lower_pos( aItemListByPos, m_start );
+         it < aItemListByPos.end() && it->GetPosition() == m_start; it++ )
     {
-        bool previousStartState = m_startIsDangling;
-        bool previousEndState = m_endIsDangling;
+        DANGLING_END_ITEM& item = *it;
 
-        m_startIsDangling = m_endIsDangling = true;
+        if( item.GetItem() == this )
+            continue;
 
-        for( DANGLING_END_ITEM item : aItemList )
+        if( ( IsWire() && item.GetType() != BUS_END && item.GetType() != BUS_ENTRY_END )
+            || ( IsBus() && item.GetType() != WIRE_END && item.GetType() != PIN_END ) )
         {
-            if( item.GetItem() == this )
-                continue;
-
-            if( ( IsWire() && item.GetType() != BUS_END && item.GetType() != BUS_ENTRY_END )
-                || ( IsBus() && item.GetType() != WIRE_END && item.GetType() != PIN_END ) )
-            {
-                if( m_start == item.GetPosition() )
-                    m_startIsDangling = false;
-
-                if( m_end == item.GetPosition() )
-                    m_endIsDangling = false;
-
-                if( !m_startIsDangling && !m_endIsDangling )
-                    break;
-            }
+            m_startIsDangling = false;
+            break;
         }
-
-        // We only use the bus dangling state for automatic line starting, so we don't care if it
-        // has changed or not (and returning true will result in extra work)
-        if( IsBus() )
-            return false;
-
-        return previousStartState != m_startIsDangling || previousEndState != m_endIsDangling;
     }
 
-    return false;
+    for( auto it = DANGLING_END_ITEM_HELPER::get_lower_pos( aItemListByPos, m_end );
+         it < aItemListByPos.end() && it->GetPosition() == m_end; it++ )
+    {
+        DANGLING_END_ITEM& item = *it;
+
+        if( item.GetItem() == this )
+            continue;
+
+        if( ( IsWire() && item.GetType() != BUS_END && item.GetType() != BUS_ENTRY_END )
+            || ( IsBus() && item.GetType() != WIRE_END && item.GetType() != PIN_END ) )
+        {
+            m_endIsDangling = false;
+            break;
+        }
+    }
+
+    // We only use the bus dangling state for automatic line starting, so we don't care if it
+    // has changed or not (and returning true will result in extra work)
+    if( IsBus() )
+        return false;
+
+    return previousStartState != m_startIsDangling || previousEndState != m_endIsDangling;
 }
 
 
@@ -700,6 +719,25 @@ bool SCH_LINE::CanConnect( const SCH_ITEM* aItem ) const
     }
 
     return aItem->GetLayer() == m_layer;
+}
+
+
+bool SCH_LINE::HasConnectivityChanges( const SCH_ITEM* aItem,
+                                       const SCH_SHEET_PATH* aInstance ) const
+{
+    // Do not compare to ourself.
+    if( aItem == this || !IsConnectable() )
+        return false;
+
+    const SCH_LINE* line = dynamic_cast<const SCH_LINE*>( aItem );
+
+    // Don't compare against a different SCH_ITEM.
+    wxCHECK( line, false );
+
+    if( GetStartPoint() != line->GetStartPoint() )
+        return true;
+
+    return GetEndPoint() != line->GetEndPoint();
 }
 
 
@@ -860,18 +898,18 @@ bool SCH_LINE::doIsConnected( const VECTOR2I& aPosition ) const
 }
 
 
-void SCH_LINE::Plot( PLOTTER* aPlotter, bool aBackground,
-                     const SCH_PLOT_SETTINGS& aPlotSettings ) const
+void SCH_LINE::Plot( PLOTTER* aPlotter, bool aBackground, const SCH_PLOT_OPTS& aPlotOpts,
+                     int aUnit, int aBodyStyle, const VECTOR2I& aOffset, bool aDimmed )
 {
     if( aBackground )
         return;
 
-    auto*   settings = static_cast<KIGFX::SCH_RENDER_SETTINGS*>( aPlotter->RenderSettings() );
-    int     penWidth = std::max( GetPenWidth(), settings->GetMinPenWidth() );
-    COLOR4D color = GetLineColor();
+    SCH_RENDER_SETTINGS* renderSettings = getRenderSettings( aPlotter );
+    int                  penWidth = GetEffectivePenWidth( renderSettings );
+    COLOR4D              color = GetLineColor();
 
     if( color == COLOR4D::UNSPECIFIED )
-        color = settings->GetLayerColor( GetLayer() );
+        color = renderSettings->GetLayerColor( GetLayer() );
 
     aPlotter->SetColor( color );
 
@@ -886,9 +924,9 @@ void SCH_LINE::Plot( PLOTTER* aPlotter, bool aBackground,
     // Plot attributes to a hypertext menu
     std::vector<wxString> properties;
     BOX2I                 bbox = GetBoundingBox();
-    bbox.Inflate( GetPenWidth() * 3 );
+    bbox.Inflate( penWidth * 3 );
 
-    if( aPlotSettings.m_PDFPropertyPopups )
+    if( aPlotOpts.m_PDFPropertyPopups )
     {
         if( GetLayer() == LAYER_WIRE )
         {

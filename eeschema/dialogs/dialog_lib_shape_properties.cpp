@@ -21,7 +21,6 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA
  */
 
-#include <lib_item.h>
 #include <dialog_lib_shape_properties.h>
 #include <symbol_edit_frame.h>
 #include <symbol_editor_settings.h>
@@ -51,7 +50,7 @@ DIALOG_LIB_SHAPE_PROPERTIES::DIALOG_LIB_SHAPE_PROPERTIES( SYMBOL_EDIT_FRAME* aPa
     m_borderColorSwatch->SetSwatchBackground( schematicBackground );
 
     for( const auto& [ lineStyle, lineStyleDesc ] : lineTypeNames )
-        m_borderStyleCombo->Append( lineStyleDesc.name, KiBitmap( lineStyleDesc.bitmap ) );
+        m_borderStyleCombo->Append( lineStyleDesc.name, KiBitmapBundle( lineStyleDesc.bitmap ) );
 
     m_borderStyleCombo->Append( DEFAULT_STYLE );
 
@@ -97,7 +96,7 @@ bool DIALOG_LIB_SHAPE_PROPERTIES::TransferDataToWindow()
     if( !wxDialog::TransferDataToWindow() )
         return false;
 
-    LIB_SYMBOL* symbol = m_shape->GetParent();
+    const SYMBOL* symbol = m_shape->GetParentSymbol();
 
     m_checkBorder->SetValue( m_shape->GetWidth() >= 0 );
 
@@ -126,18 +125,18 @@ bool DIALOG_LIB_SHAPE_PROPERTIES::TransferDataToWindow()
     m_checkApplyToAllUnits->SetValue(
             symbol && symbol->GetUnitCount() > 1 && m_shape->GetUnit() == 0 );
     m_checkApplyToAllUnits->Enable( symbol && symbol->GetUnitCount() > 1 );
-    m_checkApplyToAllConversions->SetValue( m_shape->GetConvert() == 0 );
+    m_checkApplyToAllBodyStyles->SetValue( m_shape->GetBodyStyle() == 0 );
 
-    bool enblConvOptStyle = symbol && symbol->HasConversion();
+    bool enableAlternateBodyStyle = symbol && symbol->HasAlternateBodyStyle();
 
-    // If a symbol contains no conversion-specific pins or graphic items, symbol->HasConversion()
-    // will return false.
-    // But when creating a new symbol, with DeMorgan option set, the ApplyToAllConversions
+    // If a symbol contains no body-style-specific pins or graphic items,
+    // symbol->HasAlternateBodyStyle() will return false.
+    // But when creating a new symbol, with DeMorgan option set, the m_checkApplyToAllBodyStyles
     // must be enabled in order to be able to create graphic items shared by all body styles.
     if( m_frame->GetShowDeMorgan() )
-        enblConvOptStyle = true;
+        enableAlternateBodyStyle = true;
 
-    m_checkApplyToAllConversions->Enable( enblConvOptStyle );
+    m_checkApplyToAllBodyStyles->Enable( enableAlternateBodyStyle );
 
     m_rbFillNone->Enable( true );
     m_rbFillOutline->Enable( true );
@@ -282,9 +281,9 @@ bool DIALOG_LIB_SHAPE_PROPERTIES::TransferDataFromWindow()
     m_shape->SetPrivate( m_privateCheckbox->GetValue() );
 
     if( GetApplyToAllConversions() )
-        m_shape->SetConvert( 0 );
+        m_shape->SetBodyStyle( 0 );
     else
-        m_shape->SetConvert( m_frame->GetConvert() );
+        m_shape->SetBodyStyle( m_frame->GetBodyStyle() );
 
     if( GetApplyToAllUnits() )
         m_shape->SetUnit( 0 );
@@ -297,7 +296,7 @@ bool DIALOG_LIB_SHAPE_PROPERTIES::TransferDataFromWindow()
 
 bool DIALOG_LIB_SHAPE_PROPERTIES::GetApplyToAllConversions()
 {
-    return m_checkApplyToAllConversions->IsChecked();
+    return m_checkApplyToAllBodyStyles->IsChecked();
 }
 
 

@@ -73,7 +73,7 @@ private:
 
         // prepare curl
         aCurl->SetHeader( "Accept", "application/json" );
-        aCurl->SetHeader( "Authorization", "Token " + m_token );
+        aCurl->SetHeader( "Authorization", "Token " + m_source.token );
 
         return aCurl;
     }
@@ -88,12 +88,10 @@ private:
 
     wxString httpErrorCodeDescription( uint16_t aHttpCode );
 
-    std::string m_token;
-    std::string m_rootURL;
+    HTTP_LIB_SOURCE      m_source;
 
-    HTTP_LIB_SOURCE_TYPE m_sourceType;
-
-    HTTP_LIB_PART m_cached_part;
+    //          part.id     part
+    std::map<std::string, HTTP_LIB_PART> m_cachedParts;
 
     //        part.name               part.id     category.id
     std::map<std::string, std::tuple<std::string, std::string>> m_cache;

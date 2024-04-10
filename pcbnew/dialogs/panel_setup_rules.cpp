@@ -1,7 +1,7 @@
 /*
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
- * Copyright (C) 2020-2023 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2020-2024 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -48,10 +48,16 @@ PANEL_SETUP_RULES::PANEL_SETUP_RULES( wxWindow* aParentWindow, PCB_EDIT_FRAME* a
         m_helpWindow( nullptr )
 {
     m_scintillaTricks = new SCINTILLA_TRICKS( m_textEditor, wxT( "()" ), false,
+            // onAcceptFn
             [this]( wxKeyEvent& aEvent )
             {
                 wxPostEvent( PAGED_DIALOG::GetDialog( this ),
                              wxCommandEvent( wxEVT_COMMAND_BUTTON_CLICKED, wxID_OK ) );
+            },
+            // onCharFn
+            [this]( wxStyledTextEvent& aEvent )
+            {
+                onScintillaCharAdded( aEvent );
             } );
 
     m_textEditor->AutoCompSetSeparator( '|' );
@@ -64,24 +70,24 @@ PANEL_SETUP_RULES::PANEL_SETUP_RULES( wxWindow* aParentWindow, PCB_EDIT_FRAME* a
     m_pinTypeRegex.Compile( "^Pin_Type\\s*[!=]=\\s*$", wxRE_ADVANCED );
     m_fabPropRegex.Compile( "^Fabrication_Property\\s*[!=]=\\s*$", wxRE_ADVANCED );
     m_shapeRegex.Compile( "^Shape\\s*[!=]=\\s*$", wxRE_ADVANCED );
+    m_padShapeRegex.Compile( "^Pad_Shape\\s*[!=]=\\s*$", wxRE_ADVANCED );
+    m_padConnectionsRegex.Compile( "^Pad_Connections\\s*[!=]=\\s*$", wxRE_ADVANCED );
     m_zoneConnStyleRegex.Compile( "^Zone_Connection_Style\\s*[!=]=\\s*$", wxRE_ADVANCED );
+    m_lineStyleRegex.Compile( "^Line_Style\\s*[!=]=\\s*$", wxRE_ADVANCED );
+    m_hJustRegex.Compile( "^Horizontal_Justification\\s*[!=]=\\s*$", wxRE_ADVANCED );
+    m_vJustRegex.Compile( "^Vertical_Justification\\s*[!=]=\\s*$", wxRE_ADVANCED );
 
     m_compileButton->SetBitmap( KiBitmapBundle( BITMAPS::drc ) );
 
     m_textEditor->SetZoom( Pgm().GetCommonSettings()->m_Appearance.text_editor_zoom );
 
     m_textEditor->UsePopUp( 0 );
-    m_textEditor->Bind( wxEVT_STC_CHARADDED, &PANEL_SETUP_RULES::onScintillaCharAdded, this );
-    m_textEditor->Bind( wxEVT_STC_AUTOCOMP_CHAR_DELETED, &PANEL_SETUP_RULES::onScintillaCharAdded, this );
     m_textEditor->Bind( wxEVT_CHAR_HOOK, &PANEL_SETUP_RULES::onCharHook, this );
 }
 
 
 PANEL_SETUP_RULES::~PANEL_SETUP_RULES( )
 {
-    m_textEditor->Unbind( wxEVT_STC_CHARADDED, &PANEL_SETUP_RULES::onScintillaCharAdded, this );
-    m_textEditor->Unbind( wxEVT_STC_AUTOCOMP_CHAR_DELETED, &PANEL_SETUP_RULES::onScintillaCharAdded,
-                          this );
     m_textEditor->Unbind( wxEVT_CHAR_HOOK, &PANEL_SETUP_RULES::onCharHook, this );
     Pgm().GetCommonSettings()->m_Appearance.text_editor_zoom = m_textEditor->GetZoom();
 
@@ -98,7 +104,7 @@ void PANEL_SETUP_RULES::onCharHook( wxKeyEvent& aEvent )
     {
         if( m_originalText != m_textEditor->GetText() )
         {
-            if( IsOK( this, _( "Cancel Changes?" ) ) )
+            if( IsOK( wxGetTopLevelParent( this ), _( "Cancel Changes?" ) ) )
             {
                 m_textEditor->SetText( m_originalText );
                 m_textEditor->SelectAll();
@@ -181,7 +187,15 @@ void PANEL_SETUP_RULES::OnContextMenu(wxMouseEvent &event)
 
 void PANEL_SETUP_RULES::onScintillaCharAdded( wxStyledTextEvent &aEvent )
 {
-    PAGED_DIALOG::GetDialog( this )->SetModified();
+    if( aEvent.GetModifiers() == wxMOD_CONTROL && aEvent.GetKey() == ' ' )
+    {
+        // This is just a short-cut for do-auto-complete
+    }
+    else
+    {
+        PAGED_DIALOG::GetDialog( this )->SetModified();
+    }
+
     m_textEditor->SearchAnchor();
 
     wxString rules = m_textEditor->GetText();
@@ -305,16 +319,28 @@ void PANEL_SETUP_RULES::onScintillaCharAdded( wxStyledTextEvent &aEvent )
         }
         else if( c == ' ' )
         {
-            if( context == SEXPR_OPEN && ( partial == wxT( "constraint" )
-                                        || partial == wxT( "disallow" )
-                                        || partial == wxT( "layer" )
-                                        || partial == wxT( "severity" ) ) )
+            if( context == SEXPR_OPEN && !partial.IsEmpty() )
             {
                 m_textEditor->AutoCompCancel();
                 sexprs.push( partial );
 
+                if(    partial == wxT( "constraint" )
+                    || partial == wxT( "layer" )
+                    || partial == wxT( "severity" ) )
+                {
+                    context = SEXPR_TOKEN;
+                }
+                else if( partial == wxT( "rule" )
+                      || partial == wxT( "condition" ) )
+                {
+                    context = SEXPR_STRING;
+                }
+                else
+                {
+                    context = NONE;
+                }
+
                 partial = wxEmptyString;
-                context = SEXPR_TOKEN;
                 continue;
             }
             else if( partial == wxT( "disallow" )
@@ -329,9 +355,7 @@ void PANEL_SETUP_RULES::onScintillaCharAdded( wxStyledTextEvent &aEvent )
                 context = SEXPR_TOKEN;
                 continue;
             }
-            else if( partial == wxT( "rule" )
-                  || partial == wxT( "assertion" )
-                  || partial == wxT( "condition" ) )
+            else if( partial == wxT( "assertion" ) )
             {
                 m_textEditor->AutoCompCancel();
                 sexprs.push( partial );
@@ -408,6 +432,7 @@ void PANEL_SETUP_RULES::onScintillaCharAdded( wxStyledTextEvent &aEvent )
         else if( sexprs.top() == wxT( "disallow" ) || isDisallowToken( sexprs.top() ) )
         {
             tokens = wxT( "buried_via|"
+                          "footprint|"
                           "graphic|"
                           "hole|"
                           "micro_via|"
@@ -556,12 +581,51 @@ void PANEL_SETUP_RULES::onScintillaCharAdded( wxStyledTextEvent &aEvent )
                               "Polygon|"
                               "Bezier" );
             }
+            else if( m_padShapeRegex.Matches( last ) )
+            {
+                tokens = wxT( "Circle|"
+                              "Rectangle|"
+                              "Oval|"
+                              "Trapezoid|"
+                              "Rounded rectangle|"
+                              "Chamfered rectangle|"
+                              "Custom" );
+            }
+            else if( m_padConnectionsRegex.Matches( last ) )
+            {
+                tokens = wxT( "Inherited|"
+                              "None|"
+                              "Solid|"
+                              "Thermal reliefs|"
+                              "Thermal reliefs for PTH" );
+            }
             else if( m_zoneConnStyleRegex.Matches( last ) )
             {
                 tokens = wxT( "Inherited|"
                               "None|"
                               "Solid|"
                               "Thermal reliefs" );
+            }
+            else if( m_lineStyleRegex.Matches( last ) )
+            {
+                tokens = wxT( "Default|"
+                              "Solid|"
+                              "Dashed|"
+                              "Dotted|"
+                              "Dash-Dot|"
+                              "Dash-Dot-Dot" );
+            }
+            else if( m_hJustRegex.Matches( last ) )
+            {
+                tokens = wxT( "Left|"
+                              "Center|"
+                              "Right" );
+            }
+            else if( m_vJustRegex.Matches( last ) )
+            {
+                tokens = wxT( "Top|"
+                              "Center|"
+                              "Bottom" );
             }
         }
     }
@@ -720,7 +784,7 @@ void PANEL_SETUP_RULES::ImportSettingsFrom( BOARD* aBoard )
     if( !m_frame->Prj().IsNullProject() )
     {
         wxFileName relFile = aBoard->GetFileName();
-        relFile.SetExt( DesignRulesFileExtension );
+        relFile.SetExt( FILEEXT::DesignRulesFileExtension );
 
         wxFileName absFile( aBoard->GetProject()->AbsolutePath( relFile.GetFullName() ) );
 
@@ -733,6 +797,7 @@ void PANEL_SETUP_RULES::ImportSettingsFrom( BOARD* aBoard )
                 for ( wxString str = file.GetFirstLine(); !file.Eof(); str = file.GetNextLine() )
                 {
                     ConvertSmartQuotesAndDashes( &str );
+                    m_textEditor->ClearAll();
                     m_textEditor->AddText( str << '\n' );
                 }
 

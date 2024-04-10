@@ -109,6 +109,9 @@ APP_SETTINGS_BASE::APP_SETTINGS_BASE( const std::string& aFilename, int aSchemaV
             },
             {} ) );
 
+    m_params.emplace_back(
+            new PARAM_LIST<wxString>( "lib_tree.open_libs", &m_LibTree.open_libs, {} ) );
+
     m_params.emplace_back( new PARAM<bool>( "printing.background",
             &m_Printing.background, false ) );
 
@@ -318,7 +321,8 @@ void APP_SETTINGS_BASE::addParamsForWindow( WINDOW_SETTINGS* aWindow, const std:
 
     m_params.emplace_back( new PARAM<int>( aJsonPath + ".pos_y", &aWindow->state.pos_y, 0 ) );
 
-    m_params.emplace_back( new PARAM<unsigned int>( aJsonPath + ".display", &aWindow->state.display, 0 ) );
+    m_params.emplace_back( new PARAM<unsigned int>( aJsonPath + ".display",
+                                                    &aWindow->state.display, 0 ) );
 
     m_params.emplace_back( new PARAM_LIST<double>( aJsonPath + ".zoom_factors",
             &aWindow->zoom_factors, {} ) );
@@ -328,14 +332,17 @@ void APP_SETTINGS_BASE::addParamsForWindow( WINDOW_SETTINGS* aWindow, const std:
 
     int defaultGridIdx;
 
-    if( m_filename == wxS( "pl_editor" )
-        || ( m_filename == wxS( "eeschema" ) || m_filename == wxS( "symbol_editor" ) ) )
+    if( ( m_filename == wxS( "eeschema" ) || m_filename == wxS( "symbol_editor" ) ) )
     {
         defaultGridIdx = 1;
     }
-    else
+    else if( m_filename == wxS( "pl_editor" ) )
     {
         defaultGridIdx = 4;
+    }
+    else
+    {
+        defaultGridIdx = 15;
     }
 
     m_params.emplace_back( new PARAM_LIST<GRID>( aJsonPath + ".grid.sizes", &aWindow->grid.grids,
@@ -410,14 +417,8 @@ void APP_SETTINGS_BASE::addParamsForWindow( WINDOW_SETTINGS* aWindow, const std:
                                                &aWindow->grid.override_graphics_idx, 15 ) );
     }
 
-#ifdef __WXMAC__
-    #define DEFAULT_GRID_THICKNESS 2.0
-#else
-    #define DEFAULT_GRID_THICKNESS 1.0
-#endif
-
     m_params.emplace_back( new PARAM<double>( aJsonPath + ".grid.line_width",
-            &aWindow->grid.line_width, DEFAULT_GRID_THICKNESS ) );
+            &aWindow->grid.line_width, 1.0 ) );
 
     m_params.emplace_back( new PARAM<double>( aJsonPath + ".grid.min_spacing",
             &aWindow->grid.min_spacing, 10 ) );

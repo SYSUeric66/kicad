@@ -43,8 +43,13 @@
 #include <wx/filedlg.h>
 #include <wx/textfile.h>
 #include <fmt/format.h>
+#include <sch_edit_frame.h>
+#include <sim/sim_model_l_mutual.h>
+#include <sim/spice_circuit_model.h>
 
 using CATEGORY = SIM_MODEL::PARAM::CATEGORY;
+
+#define FORCE_UPDATE_PINS true
 
 
 bool equivalent( SIM_MODEL::DEVICE_T a, SIM_MODEL::DEVICE_T b )
@@ -57,9 +62,11 @@ bool equivalent( SIM_MODEL::DEVICE_T a, SIM_MODEL::DEVICE_T b )
 
 
 template <typename T_symbol, typename T_field>
-DIALOG_SIM_MODEL<T_symbol, T_field>::DIALOG_SIM_MODEL( wxWindow* aParent, T_symbol& aSymbol,
-                                                       std::vector<T_field>& aFields ) :\
+DIALOG_SIM_MODEL<T_symbol, T_field>::DIALOG_SIM_MODEL( wxWindow* aParent, EDA_BASE_FRAME* aFrame,
+                                                       T_symbol& aSymbol,
+                                                       std::vector<T_field>& aFields ) :
         DIALOG_SIM_MODEL_BASE( aParent ),
+        m_frame( aFrame ),
         m_symbol( aSymbol ),
         m_fields( aFields ),
         m_libraryModelsMgr( &Prj() ),
@@ -78,7 +85,7 @@ DIALOG_SIM_MODEL<T_symbol, T_field>::DIALOG_SIM_MODEL( wxWindow* aParent, T_symb
     for( LIB_PIN* pin : aSymbol.GetAllLibPins() )
     {
         // De Morgan conversions are equivalences, not additional items to simulate
-        if( !pin->GetParent()->HasConversion() || pin->GetConvert() < 2 )
+        if( !pin->GetParentSymbol()->HasAlternateBodyStyle() || pin->GetBodyStyle() < 2 )
             m_sortedPartPins.push_back( pin );
     }
 
@@ -91,7 +98,7 @@ DIALOG_SIM_MODEL<T_symbol, T_field>::DIALOG_SIM_MODEL( wxWindow* aParent, T_symb
 
     m_waveformChoice->Clear();
     m_deviceChoice->Clear();
-    m_deviceTypeChoice->Clear();
+    m_deviceSubtypeChoice->Clear();
 
     m_scintillaTricksCode = new SCINTILLA_TRICKS( m_codePreview, wxT( "{}" ), false );
     m_scintillaTricksSubckt = new SCINTILLA_TRICKS( m_subckt, wxT( "()" ), false );
@@ -112,10 +119,10 @@ DIALOG_SIM_MODEL<T_symbol, T_field>::DIALOG_SIM_MODEL( wxWindow* aParent, T_symb
     grid->DedicateKey( WXK_DOWN );
 
 #if wxCHECK_VERSION( 3, 3, 0 )
-    grid->AddActionTrigger( wxPGKeyboardActions::Edit, WXK_RETURN );
-    grid->AddActionTrigger( wxPGKeyboardActions::NextProperty, WXK_RETURN );
-    grid->AddActionTrigger( wxPGKeyboardActions::Edit, WXK_NUMPAD_ENTER );
-    grid->AddActionTrigger( wxPGKeyboardActions::NextProperty, WXK_NUMPAD_ENTER );
+    grid->AddActionTrigger( wxPGKeyboardAction::Edit, WXK_RETURN );
+    grid->AddActionTrigger( wxPGKeyboardAction::NextProperty, WXK_RETURN );
+    grid->AddActionTrigger( wxPGKeyboardAction::Edit, WXK_NUMPAD_ENTER );
+    grid->AddActionTrigger( wxPGKeyboardAction::NextProperty, WXK_NUMPAD_ENTER );
 #else
     grid->AddActionTrigger( wxPG_ACTION_EDIT, WXK_RETURN );
     grid->AddActionTrigger( wxPG_ACTION_NEXT_PROPERTY, WXK_RETURN );
@@ -123,6 +130,7 @@ DIALOG_SIM_MODEL<T_symbol, T_field>::DIALOG_SIM_MODEL( wxWindow* aParent, T_symb
     grid->AddActionTrigger( wxPG_ACTION_NEXT_PROPERTY, WXK_NUMPAD_ENTER );
 #endif
 
+    m_pinAssignmentsGrid->ClearRows();
     m_pinAssignmentsGrid->PushEventHandler( new GRID_TRICKS( m_pinAssignmentsGrid ) );
 
     m_subcktLabel->SetFont( KIUI::GetInfoFont( m_subcktLabel ) );
@@ -188,10 +196,10 @@ bool DIALOG_SIM_MODEL<T_symbol, T_field>::TransferDataToWindow()
     if( SIM_MODEL::InferSimModel( m_symbol, &m_fields, false, SIM_VALUE_GRAMMAR::NOTATION::SI,
                                   &deviceType, &modelType, &modelParams, &pinMap ) )
     {
-        setFieldValue( SIM_DEVICE_TYPE_FIELD, deviceType );
+        setFieldValue( SIM_DEVICE_FIELD, deviceType );
 
         if( !modelType.IsEmpty() )
-            setFieldValue(  SIM_TYPE_FIELD, modelType );
+            setFieldValue( SIM_DEVICE_SUBTYPE_FIELD, modelType );
 
         setFieldValue( SIM_PARAMS_FIELD, modelParams );
 
@@ -288,8 +296,8 @@ bool DIALOG_SIM_MODEL<T_symbol, T_field>::TransferDataToWindow()
             }
         }
     }
-    else if( !SIM_MODEL::GetFieldValue( &m_fields, SIM_DEVICE_TYPE_FIELD ).empty()
-                || !SIM_MODEL::GetFieldValue( &m_fields, SIM_TYPE_FIELD ).empty() )
+    else if( !SIM_MODEL::GetFieldValue( &m_fields, SIM_DEVICE_FIELD ).empty()
+                || !SIM_MODEL::GetFieldValue( &m_fields, SIM_DEVICE_SUBTYPE_FIELD ).empty() )
     {
         // The model is sourced from the instance.
         m_rbBuiltinModel->SetValue( true );
@@ -344,6 +352,7 @@ bool DIALOG_SIM_MODEL<T_symbol, T_field>::TransferDataFromWindow()
     if( !DIALOG_SIM_MODEL_BASE::TransferDataFromWindow() )
         return false;
 
+    SIM_MODEL& model = curModel();
     std::string path;
     std::string name;
 
@@ -357,7 +366,7 @@ bool DIALOG_SIM_MODEL<T_symbol, T_field>::TransferDataFromWindow()
 
         if( !m_modelNameChoice->IsEmpty() )
             name = m_modelNameChoice->GetStringSelection().ToStdString();
-        else if( dynamic_cast<SIM_MODEL_SPICE_FALLBACK*>( &curModel() ) )
+        else if( dynamic_cast<SIM_MODEL_SPICE_FALLBACK*>( &model ) )
             name = SIM_MODEL::GetFieldValue( &m_fields, SIM_LIBRARY::NAME_FIELD, false );
     }
 
@@ -387,16 +396,27 @@ bool DIALOG_SIM_MODEL<T_symbol, T_field>::TransferDataFromWindow()
         }
     }
 
-    if( curModel().GetType() == SIM_MODEL::TYPE::RAWSPICE )
+    if( model.GetType() == SIM_MODEL::TYPE::RAWSPICE )
     {
         if( m_modelNotebook->GetSelection() == 0 )
-            updateModelCodeTab( &curModel() );
+            updateModelCodeTab( &model );
 
         wxString code = m_codePreview->GetText().Trim( true ).Trim( false );
-        curModel().SetParamValue( "model", std::string( code.ToUTF8() ) );
+        model.SetParamValue( "model", std::string( code.ToUTF8() ) );
     }
 
-    curModel().SetIsStoredInValue( m_saveInValueCheckbox->GetValue() );
+    model.SetIsStoredInValue( m_saveInValueCheckbox->GetValue() );
+
+    for( int row = 0; row < m_pinAssignmentsGrid->GetNumberRows(); ++row )
+    {
+        wxString modelPinName = m_pinAssignmentsGrid->GetCellValue( row, PIN_COLUMN::MODEL );
+        wxString symbolPinName = m_sortedPartPins.at( row )->GetShownNumber();
+
+        model.SetPinSymbolPinNumber( getModelPinIndex( modelPinName ),
+                                     std::string( symbolPinName.ToUTF8() ) );
+    }
+
+    removeOrphanedPinAssignments( &model );
 
     curModel().WriteFields( m_fields );
 
@@ -407,13 +427,39 @@ bool DIALOG_SIM_MODEL<T_symbol, T_field>::TransferDataFromWindow()
 template <typename T_symbol, typename T_field>
 void DIALOG_SIM_MODEL<T_symbol, T_field>::updateWidgets()
 {
+    // always enable the library browser button -- it makes for fewer clicks if the user has a
+    // whole bunch of inferred passives that they want to specify library models for
+    m_browseButton->Enable();
+
+    // if we're in an undetermined state then enable everything for faster access
+    bool undetermined = !m_rbLibraryModel->GetValue() && !m_rbBuiltinModel->GetValue();
+    bool enableLibCtrls = m_rbLibraryModel->GetValue() || undetermined;
+    bool enableBuiltinCtrls = m_rbBuiltinModel->GetValue() || undetermined;
+
+    m_pathLabel->Enable( enableLibCtrls );
+    m_libraryPathText->Enable( enableLibCtrls );
+    m_modelNameLabel->Enable( enableLibCtrls );
+    m_modelNameChoice->Enable( enableLibCtrls );
+    m_pinLabel->Enable( enableLibCtrls );
+    m_pinCombobox->Enable( enableLibCtrls );
+    m_differentialCheckbox->Enable( enableLibCtrls );
+    m_pinModelLabel->Enable( enableLibCtrls );
+    m_pinModelCombobox->Enable( enableLibCtrls );
+    m_waveformLabel->Enable( enableLibCtrls );
+    m_waveformChoice->Enable( enableLibCtrls );
+
+    m_deviceLabel->Enable( enableBuiltinCtrls );
+    m_deviceChoice->Enable( enableBuiltinCtrls );
+    m_deviceSubtypeLabel->Enable( enableBuiltinCtrls );
+    m_deviceSubtypeChoice->Enable( enableBuiltinCtrls );
+
     SIM_MODEL* model = &curModel();
 
     updateIbisWidgets( model );
     updateBuiltinModelWidgets( model );
     updateModelParamsTab( model );
     updateModelCodeTab( model );
-    updatePinAssignments( model );
+    updatePinAssignments( model, false );
 
     std::string ref = SIM_MODEL::GetFieldValue( &m_fields, SIM_REFERENCE_FIELD );
 
@@ -479,9 +525,9 @@ void DIALOG_SIM_MODEL<T_symbol, T_field>::updateBuiltinModelWidgets( SIM_MODEL* 
     if( aModel != m_prevModel )
     {
         m_deviceChoice->Clear();
-        m_deviceTypeChoice->Clear();
+        m_deviceSubtypeChoice->Clear();
 
-        if( m_rbBuiltinModel->GetValue() )
+        if( !m_rbLibraryModel->GetValue() )
         {
             for( SIM_MODEL::DEVICE_T deviceType : SIM_MODEL::DEVICE_T_ITERATOR() )
             {
@@ -510,16 +556,17 @@ void DIALOG_SIM_MODEL<T_symbol, T_field>::updateBuiltinModelWidgets( SIM_MODEL* 
                 if( deviceType == aModel->GetDeviceType()
                     || deviceTypeDesc == aModel->GetDeviceInfo().description )
                 {
-                    m_deviceTypeChoice->Append( SIM_MODEL::TypeInfo( type ).description );
+                    m_deviceSubtypeChoice->Append( SIM_MODEL::TypeInfo( type ).description );
 
                     if( type == aModel->GetType() )
-                        m_deviceTypeChoice->SetSelection( m_deviceTypeChoice->GetCount() - 1 );
+                        m_deviceSubtypeChoice->SetSelection( m_deviceSubtypeChoice->GetCount() - 1 );
                 }
             }
         }
-    }
 
-    m_deviceTypeChoice->Enable( !m_rbLibraryModel->GetValue() );
+        m_deviceSubtypeLabel->Show( m_deviceSubtypeChoice->GetCount() > 1 );
+        m_deviceSubtypeChoice->Show( m_deviceSubtypeChoice->GetCount() > 1 );
+    }
 
     if( dynamic_cast<SIM_MODEL_RAW_SPICE*>( aModel ) )
         m_modelNotebook->SetSelection( 1 );
@@ -664,45 +711,51 @@ void DIALOG_SIM_MODEL<T_symbol, T_field>::updateModelCodeTab( SIM_MODEL* aModel 
 
 
 template <typename T_symbol, typename T_field>
-void DIALOG_SIM_MODEL<T_symbol, T_field>::updatePinAssignments( SIM_MODEL* aModel )
+void DIALOG_SIM_MODEL<T_symbol, T_field>::updatePinAssignments( SIM_MODEL* aModel,
+                                                                bool aForceUpdatePins )
 {
-    removeOrphanedPinAssignments( aModel );
-
-    // Reset the grid.
-
-    m_pinAssignmentsGrid->ClearRows();
-    m_pinAssignmentsGrid->AppendRows( static_cast<int>( m_sortedPartPins.size() ) );
-
-    for( int row = 0; row < m_pinAssignmentsGrid->GetNumberRows(); ++row )
-        m_pinAssignmentsGrid->SetCellValue( row, PIN_COLUMN::MODEL, _( "Not Connected" ) );
-
-    // Now set up the grid values in the Model column.
-    for( int modelPinIndex = 0; modelPinIndex < aModel->GetPinCount(); ++modelPinIndex )
+    if( m_pinAssignmentsGrid->GetNumberRows() == 0 )
     {
-        wxString symbolPinNumber = aModel->GetPin( modelPinIndex ).symbolPinNumber;
+        m_pinAssignmentsGrid->AppendRows( static_cast<int>( m_sortedPartPins.size() ) );
 
-        if( symbolPinNumber == "" )
-            continue;
+        for( int ii = 0; ii < m_pinAssignmentsGrid->GetNumberRows(); ++ii )
+        {
+            wxString symbolPinString = getSymbolPinString( ii );
 
-        int symbolPinRow = findSymbolPinRow( symbolPinNumber );
+            m_pinAssignmentsGrid->SetReadOnly( ii, PIN_COLUMN::SYMBOL );
+            m_pinAssignmentsGrid->SetCellValue( ii, PIN_COLUMN::SYMBOL, symbolPinString );
+        }
 
-        if( symbolPinRow == -1 )
-            continue;
-
-        wxString modelPinString = getModelPinString( aModel, modelPinIndex );
-        m_pinAssignmentsGrid->SetCellValue( symbolPinRow, PIN_COLUMN::MODEL, modelPinString );
+        aForceUpdatePins = true;
     }
 
-    // Set up the Symbol column grid values and Model column cell editors with dropdown options.
+    if( aForceUpdatePins )
+    {
+        // Reset the grid.
+        for( int row = 0; row < m_pinAssignmentsGrid->GetNumberRows(); ++row )
+            m_pinAssignmentsGrid->SetCellValue( row, PIN_COLUMN::MODEL, _( "Not Connected" ) );
+
+        // Now set up the grid values in the Model column.
+        for( int modelPinIndex = 0; modelPinIndex < aModel->GetPinCount(); ++modelPinIndex )
+        {
+            wxString symbolPinNumber = aModel->GetPin( modelPinIndex ).symbolPinNumber;
+
+            if( symbolPinNumber == "" )
+                continue;
+
+            int symbolPinRow = findSymbolPinRow( symbolPinNumber );
+
+            if( symbolPinRow == -1 )
+                continue;
+
+            wxString modelPinString = getModelPinString( aModel, modelPinIndex );
+            m_pinAssignmentsGrid->SetCellValue( symbolPinRow, PIN_COLUMN::MODEL, modelPinString );
+        }
+    }
+
     for( int ii = 0; ii < m_pinAssignmentsGrid->GetNumberRows(); ++ii )
     {
-        wxString symbolPinString = getSymbolPinString( ii );
-
-        m_pinAssignmentsGrid->SetReadOnly( ii, PIN_COLUMN::SYMBOL );
-        m_pinAssignmentsGrid->SetCellValue( ii, PIN_COLUMN::SYMBOL, symbolPinString );
-
-        wxString curModelPinString = m_pinAssignmentsGrid->GetCellValue( ii, PIN_COLUMN::MODEL );
-
+        // Set up the Model column cell editors with dropdown options.
         std::vector<BITMAPS> modelPinIcons;
         wxArrayString        modelPinChoices;
 
@@ -926,14 +979,59 @@ wxPGProperty* DIALOG_SIM_MODEL<T_symbol, T_field>::newParamProperty( SIM_MODEL* 
     //  break;
 
     case SIM_VALUE::TYPE_STRING:
-        if( param.info.enumValues.empty() )
+        // Special case: K-line mutual inductance statement parameters l1 and l2 are references
+        // to other inductors in the circuit.
+        if( dynamic_cast<SIM_MODEL_L_MUTUAL*>( aModel ) != nullptr
+                    && ( param.info.name == "l1" || param.info.name == "l2" ) )
+        {
+            wxArrayString inductors;
+
+            if( SCH_EDIT_FRAME* schEditFrame = dynamic_cast<SCH_EDIT_FRAME*>( m_frame ) )
+            {
+                SPICE_CIRCUIT_MODEL circuit( &schEditFrame->Schematic() );
+                NULL_REPORTER       devNul;
+
+                circuit.ReadSchematicAndLibraries( NETLIST_EXPORTER_SPICE::OPTION_DEFAULT_FLAGS,
+                                                   devNul );
+
+                for( const SPICE_ITEM& item : circuit.GetItems() )
+                {
+                    if( item.model->GetDeviceType() == SIM_MODEL::DEVICE_T::L )
+                        inductors.push_back( item.refName );
+                }
+
+                inductors.Sort(
+                        []( const wxString& a, const wxString& b ) -> int
+                        {
+                            return StrNumCmp( a, b, true );
+                        } );
+            }
+
+            if( inductors.empty() )
+            {
+                prop = new SIM_STRING_PROPERTY( paramDescription, param.info.name, *aModel,
+                                                aParamIndex, SIM_VALUE::TYPE_STRING );
+            }
+            else
+            {
+                prop = new SIM_ENUM_PROPERTY( paramDescription, param.info.name, *aModel,
+                                              aParamIndex, inductors );
+            }
+        }
+        else if( param.info.enumValues.empty() )
         {
             prop = new SIM_STRING_PROPERTY( paramDescription, param.info.name, *aModel,
                                             aParamIndex, SIM_VALUE::TYPE_STRING );
         }
         else
         {
-            prop = new SIM_ENUM_PROPERTY( paramDescription, param.info.name, *aModel, aParamIndex );
+            wxArrayString values;
+
+            for( const std::string& string : aModel->GetParam( aParamIndex ).info.enumValues )
+                values.Add( string );
+
+            prop = new SIM_ENUM_PROPERTY( paramDescription, param.info.name, *aModel, aParamIndex,
+                                          values );
         }
         break;
 
@@ -1071,26 +1169,15 @@ int DIALOG_SIM_MODEL<T_symbol, T_field>::getModelPinIndex( const wxString& aMode
 template <typename T_symbol, typename T_field>
 void DIALOG_SIM_MODEL<T_symbol, T_field>::onRadioButton( wxCommandEvent& aEvent )
 {
-    bool fromLibrary = m_rbLibraryModel->GetValue();
-
-    m_pathLabel->Enable( fromLibrary );
-    m_libraryPathText->Enable( fromLibrary );
-    m_browseButton->Enable( fromLibrary );
-    m_modelNameLabel->Enable( fromLibrary );
-    m_modelNameChoice->Enable( fromLibrary );
-    m_pinLabel->Enable( fromLibrary );
-    m_pinCombobox->Enable( fromLibrary );
-    m_differentialCheckbox->Enable( fromLibrary );
-    m_pinModelLabel->Enable( fromLibrary );
-    m_pinModelCombobox->Enable( fromLibrary );
-    m_waveformLabel->Enable( fromLibrary );
-    m_waveformChoice->Enable( fromLibrary );
-
-    m_deviceLabel->Enable( !fromLibrary );
-    m_deviceChoice->Enable( !fromLibrary );
-    m_deviceTypeLabel->Enable( !fromLibrary );
-
     m_prevModel = nullptr;  // Ensure the Model panel will be rebuild after updating other params.
+    updateWidgets();
+}
+
+
+template <typename T_symbol, typename T_field>
+void DIALOG_SIM_MODEL<T_symbol, T_field>::onLibrarayPathText( wxCommandEvent& aEvent )
+{
+    m_rbLibraryModel->SetValue( true );
     updateWidgets();
 }
 
@@ -1144,6 +1231,8 @@ void DIALOG_SIM_MODEL<T_symbol, T_field>::onBrowseButtonClick( wxCommandEvent& a
     if( dlg.ShowModal() == wxID_CANCEL )
         return;
 
+    m_rbLibraryModel->SetValue( true );
+
     path = dlg.GetPath();
     wxFileName fn( path );
 
@@ -1176,6 +1265,7 @@ void DIALOG_SIM_MODEL<T_symbol, T_field>::onModelNameChoice( wxCommandEvent& aEv
         m_pinModelCombobox->Set( emptyArray );
     }
 
+    m_rbLibraryModel->SetValue( true );
     updateWidgets();
 }
 
@@ -1249,6 +1339,8 @@ void DIALOG_SIM_MODEL<T_symbol, T_field>::onDifferentialCheckbox( wxCommandEvent
 template <typename T_symbol, typename T_field>
 void DIALOG_SIM_MODEL<T_symbol, T_field>::onDeviceTypeChoice( wxCommandEvent& aEvent )
 {
+    m_rbBuiltinModel->SetValue( true );
+
     for( SIM_MODEL::DEVICE_T deviceType : SIM_MODEL::DEVICE_T_ITERATOR() )
     {
         if( SIM_MODEL::DeviceInfo( deviceType ).description == m_deviceChoice->GetStringSelection() )
@@ -1305,7 +1397,7 @@ template <typename T_symbol, typename T_field>
 void DIALOG_SIM_MODEL<T_symbol, T_field>::onTypeChoice( wxCommandEvent& aEvent )
 {
     SIM_MODEL::DEVICE_T deviceType = curModel().GetDeviceType();
-    wxString            typeDescription = m_deviceTypeChoice->GetStringSelection();
+    wxString            typeDescription = m_deviceSubtypeChoice->GetStringSelection();
 
     for( SIM_MODEL::TYPE type : SIM_MODEL::TYPE_ITERATOR() )
     {
@@ -1348,7 +1440,7 @@ void DIALOG_SIM_MODEL<T_symbol, T_field>::onPinAssignmentsGridCellChange( wxGrid
             std::string( m_sortedPartPins.at( symbolPinIndex )->GetShownNumber().ToUTF8() ) );
     }
 
-    updatePinAssignments( &curModel() );
+    updatePinAssignments( &curModel(), FORCE_UPDATE_PINS );
 
     aEvent.Skip();
 }

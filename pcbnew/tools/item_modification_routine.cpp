@@ -22,6 +22,7 @@
  */
 
 #include "item_modification_routine.h"
+#include <geometry/geometry_utils.h>
 
 namespace
 {
@@ -112,6 +113,8 @@ void LINE_FILLET_ROUTINE::ProcessLinePair( PCB_SHAPE& aLineA, PCB_SHAPE& aLineB 
         // Nothing to do
         return;
 
+    if( seg_a.Angle( seg_b ).IsHorizontal() )
+        return;
 
     SHAPE_ARC sArc( seg_a, seg_b, m_filletRadiusIU );
     VECTOR2I  t1newPoint, t2newPoint;
@@ -289,10 +292,14 @@ void LINE_EXTENSION_ROUTINE::ProcessLinePair( PCB_SHAPE& aLineA, PCB_SHAPE& aLin
             const int dist_end = ( *intersection - aSeg.B ).EuclideanNorm();
 
             const VECTOR2I& furthest_pt = ( dist_start < dist_end ) ? aSeg.B : aSeg.A;
+            // Note, the drawing tool has COORDS_PADDING of 20mm, but we need a larger buffer
+            // or we are not able to select the generated segments
+            unsigned int    edge_padding = static_cast<unsigned>( pcbIUScale.mmToIU( 200 ) );
+            VECTOR2I        new_end = GetClampedCoords( *intersection, edge_padding );
 
             handler.MarkItemModified( aLine );
             aLine.SetStart( furthest_pt );
-            aLine.SetEnd( *intersection );
+            aLine.SetEnd( new_end );
         }
     };
 

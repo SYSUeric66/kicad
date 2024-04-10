@@ -78,9 +78,9 @@ bool SYMBOL_TREE_MODEL_ADAPTER::AddLibraries( const std::vector<wxString>& aNick
     // Disable KIID generation: not needed for library parts; sometimes very slow
     KIID::CreateNilUuids( true );
 
-    std::unordered_map<wxString, std::vector<LIB_SYMBOL*>> loadedSymbols;
+    std::unordered_map<wxString, std::vector<LIB_SYMBOL*>> loadedSymbolMap;
 
-    SYMBOL_ASYNC_LOADER loader( aNicknames, m_libs, GetFilter() != nullptr, &loadedSymbols,
+    SYMBOL_ASYNC_LOADER loader( aNicknames, m_libs, GetFilter() != nullptr, &loadedSymbolMap,
                                 progressReporter.get() );
 
     LOCALE_IO toggle;
@@ -115,13 +115,13 @@ bool SYMBOL_TREE_MODEL_ADAPTER::AddLibraries( const std::vector<wxString>& aNick
         dlg.ShowModal();
     }
 
-    if( loadedSymbols.size() > 0 )
+    if( loadedSymbolMap.size() > 0 )
     {
         COMMON_SETTINGS* cfg = Pgm().GetCommonSettings();
         PROJECT_FILE&    project = aFrame->Prj().GetProjectFile();
 
         auto addFunc =
-                [&]( const wxString& aLibName, std::vector<LIB_SYMBOL*> aSymbolList,
+                [&]( const wxString& aLibName, const std::vector<LIB_SYMBOL*>& aSymbolList,
                      const wxString& aDescription )
                 {
                     std::vector<LIB_TREE_ITEM*> treeItems( aSymbolList.begin(), aSymbolList.end() );
@@ -131,9 +131,9 @@ bool SYMBOL_TREE_MODEL_ADAPTER::AddLibraries( const std::vector<wxString>& aNick
                     DoAddLibrary( aLibName, aDescription, treeItems, pinned, false );
                 };
 
-        for( const std::pair<const wxString, std::vector<LIB_SYMBOL*>>& pair : loadedSymbols )
+        for( const auto& [libNickname, libSymbols] : loadedSymbolMap )
         {
-            SYMBOL_LIB_TABLE_ROW* row = m_libs->FindRow( pair.first );
+            SYMBOL_LIB_TABLE_ROW* row = m_libs->FindRow( libNickname );
 
             wxCHECK2( row, continue );
 
@@ -151,25 +151,27 @@ bool SYMBOL_TREE_MODEL_ADAPTER::AddLibraries( const std::vector<wxString>& aNick
                 std::vector<wxString> subLibraries;
                 row->GetSubLibraryNames( subLibraries );
 
-                wxString parentDesc = m_libs->GetDescription( pair.first );
+                wxString parentDesc = m_libs->GetDescription( libNickname );
 
                 for( const wxString& lib : subLibraries )
                 {
                     wxString suffix = lib.IsEmpty() ? wxString( wxT( "" ) )
                                                     : wxString::Format( wxT( " - %s" ), lib );
-                    wxString name = wxString::Format( wxT( "%s%s" ), pair.first, suffix );
+                    wxString name = wxString::Format( wxT( "%s%s" ), libNickname, suffix );
                     wxString desc;
 
                     if( !parentDesc.IsEmpty() )
                         desc = wxString::Format( wxT( "%s (%s)" ), parentDesc, lib );
 
+                    UTF8 utf8Lib( lib );
+
                     std::vector<LIB_SYMBOL*> symbols;
 
-                    std::copy_if( pair.second.begin(), pair.second.end(),
+                    std::copy_if( libSymbols.begin(), libSymbols.end(),
                                   std::back_inserter( symbols ),
-                                  [&lib]( LIB_SYMBOL* aSym )
+                                  [&utf8Lib]( LIB_SYMBOL* aSym )
                                   {
-                                      return lib.IsSameAs( aSym->GetLibId().GetSubLibraryName() );
+                                      return utf8Lib == aSym->GetLibId().GetSubLibraryName();
                                   } );
 
                     addFunc( name, symbols, desc );
@@ -177,7 +179,7 @@ bool SYMBOL_TREE_MODEL_ADAPTER::AddLibraries( const std::vector<wxString>& aNick
             }
             else
             {
-                addFunc( pair.first, pair.second, m_libs->GetDescription( pair.first ) );
+                addFunc( libNickname, libSymbols, m_libs->GetDescription( libNickname ) );
             }
         }
     }

@@ -2,7 +2,7 @@
  * KiRouter - a push-and-(sometimes-)shove PCB router
  *
  * Copyright (C) 2013-2014 CERN
- * Copyright (C) 2016-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2016-2023 KiCad Developers, see AUTHORS.txt for contributors.
  * Author: Tomasz Wlostowski <tomasz.wlostowski@cern.ch>
  *
  * This program is free software: you can redistribute it and/or modify it
@@ -45,6 +45,12 @@ class ROUTER;
 
 }
 
+#define PNS_HEAD_TRACE 1
+#define PNS_HOVER_ITEM 2
+#define PNS_SEMI_SOLID 4
+#define PNS_COLLISION  8
+
+
 class ROUTER_PREVIEW_ITEM : public EDA_ITEM
 {
 public:
@@ -55,47 +61,35 @@ public:
         PR_SHAPE
     };
 
-    // fixme: shouldn't this go to VIEW?
-    static const int ClearanceOverlayDepth;
-    static const int BaseOverlayDepth;
-    static const int ViaOverlayDepth;
-    static const int PathOverlayDepth;
+    /**
+     * We draw this item on a single layer, but we stack up all the layers from
+     * the various components that form this preview item.  In order to make this
+     * work, we need to map that layer stack onto fractional depths that are less
+     * than 1.0 so that this preview item doesn't draw on top of other overlays
+     * that are in front of it.
+     *
+     * This factor is chosen to be fairly small so that we can fit an entire
+     * GAL layer stack into the space of one view group sublayer (which is
+     * currently hard-coded via GAL::AdvanceDepth take a depth of 0.1)
+     */
+    static constexpr double LayerDepthFactor = 0.0001;
+    static constexpr double PathOverlayDepth = LayerDepthFactor * LAYER_ZONE_END;
 
-    ROUTER_PREVIEW_ITEM( const SHAPE& aShape, KIGFX::VIEW* aView = nullptr);
-    ROUTER_PREVIEW_ITEM( const PNS::ITEM* aItem = nullptr, KIGFX::VIEW* aView = nullptr);
+    ROUTER_PREVIEW_ITEM( const SHAPE& aShape, KIGFX::VIEW* aView = nullptr );
+    ROUTER_PREVIEW_ITEM( const PNS::ITEM* aItem = nullptr, KIGFX::VIEW* aView = nullptr,
+                         int aFlags = 0 );
     ~ROUTER_PREVIEW_ITEM();
 
     void Update( const PNS::ITEM* aItem );
 
-    void SetColor( const KIGFX::COLOR4D& aColor )
-    {
-        m_color = aColor;
-    }
+    void SetColor( const KIGFX::COLOR4D& aColor ) { m_color = aColor; }
+    void SetDepth( double aDepth ) { m_depth = aDepth; }
+    void SetWidth( int aWidth ) { m_width = aWidth; }
 
-    void SetDepth( double aDepth )
-    {
-        m_depth = aDepth;
-    }
+    void SetClearance( int aClearance ) { m_clearance = aClearance; }
+    void ShowClearance( bool aEnabled ) { m_showClearance = aEnabled; }
 
-    void SetWidth( double aWidth )
-    {
-        m_width = aWidth;
-    }
-
-    void SetClearance( int aClearance )
-    {
-        m_clearance = aClearance;
-    }
-
-    void ShowClearance( bool aEnabled )
-    {
-        m_showClearance = aEnabled;
-    }
-
-    void SetIsHeadTrace( bool aIsHead )
-    {
-        m_isHeadTrace = aIsHead;
-    }
+    double GetOriginDepth() const { return m_originDepth; }
 
 #if defined(DEBUG)
     void Show( int aA, std::ostream& aB ) const override {}
@@ -124,24 +118,24 @@ public:
     void drawShape( const SHAPE* aShape, KIGFX::GAL* aGal ) const;
 
 private:
-    const KIGFX::COLOR4D assignColor( int aStyle ) const;
     const KIGFX::COLOR4D getLayerColor( int aLayer ) const;
 
 private:
-    KIGFX::VIEW* m_view;
+    KIGFX::VIEW*   m_view;
 
-    SHAPE*       m_shape;
-    SHAPE*       m_hole;
+    SHAPE*         m_shape;
+    SHAPE*         m_hole;
 
-    ITEM_TYPE    m_type;
+    ITEM_TYPE      m_type;
 
-    bool         m_isHeadTrace;
-    int          m_width;
-    int          m_layer;
-    int          m_originLayer;
-    int          m_clearance;
-    bool         m_showClearance;
+    int            m_flags;
+    int            m_width;
+    int            m_layer;
+    int            m_originLayer;
+    int            m_clearance;
+    bool           m_showClearance;
 
+    double         m_originDepth;
     double         m_depth;
 
     KIGFX::COLOR4D m_color;

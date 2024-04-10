@@ -1,5 +1,5 @@
 ///////////////////////////////////////////////////////////////////////////
-// C++ code generated with wxFormBuilder (version 3.10.1-0-g8feb16b)
+// C++ code generated with wxFormBuilder (version 4.0.0-0-g0efcecf)
 // http://www.wxformbuilder.org/
 //
 // PLEASE DO *NOT* EDIT THIS FILE!
@@ -178,18 +178,23 @@ class DIALOG_PAD_PROPERTIES_BASE : public DIALOG_SHIM
 		wxSpinCtrlDouble* m_spTeardropHDPercent;
 		wxStaticText* m_minTrackWidthUnits;
 		wxStaticText* m_minTrackWidthHint;
+		wxStaticText* m_staticText87;
 		wxStaticText* m_teardropShapeLabel;
 		wxStaticLine* m_staticline51;
 		wxStaticBitmap* m_bitmapTeardrop;
 		wxStaticText* m_stHsetting;
 		wxSpinCtrlDouble* m_spTeardropLenPercent;
-		wxStaticText* m_stTeardropLenUnits;
+		wxStaticText* m_stLenPercentUnits;
+		wxStaticText* m_stLenPercentHint;
+		wxStaticText* m_staticText88;
 		wxStaticText* m_stMaxLen;
 		wxTextCtrl* m_tcTdMaxLen;
 		wxStaticText* m_stMaxLenUnits;
 		wxStaticText* m_stVsetting;
 		wxSpinCtrlDouble* m_spTeardropSizePercent;
-		wxStaticText* m_stLenPercent;
+		wxStaticText* m_stWidthPercentUnits;
+		wxStaticText* m_stWidthPercentHint;
+		wxStaticText* m_staticText89;
 		wxStaticText* m_stTdMaxSize;
 		wxTextCtrl* m_tcMaxHeight;
 		wxStaticText* m_stMaxHeightUnits;

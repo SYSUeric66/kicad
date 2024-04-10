@@ -6,7 +6,7 @@
  * Copyright (C) 2012 SoftPLC Corporation, Dick Hollenbeck <dick@softplc.com>
  * Copyright (C) 2011 Wayne Stambaugh <stambaughw@gmail.com>
  *
- * Copyright (C) 1992-2023 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2024 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -58,6 +58,7 @@ BOARD_NETLIST_UPDATER::BOARD_NETLIST_UPDATER( PCB_EDIT_FRAME* aFrame, BOARD* aBo
     m_isDryRun = false;
     m_replaceFootprints = true;
     m_lookupByTimestamp = false;
+    m_overrideLocks = false;
 
     m_warningCount = 0;
     m_errorCount = 0;
@@ -229,27 +230,55 @@ FOOTPRINT* BOARD_NETLIST_UPDATER::replaceFootprint( NETLIST& aNetlist, FOOTPRINT
 
     if( m_isDryRun )
     {
-        msg.Printf( _( "Change %s footprint from '%s' to '%s'."),
-                    aFootprint->GetReference(),
-                    aFootprint->GetFPID().Format().wx_str(),
-                    aNewComponent->GetFPID().Format().wx_str() );
-
-        delete newFootprint;
-        newFootprint = nullptr;
+        if( aFootprint->IsLocked() && !m_overrideLocks )
+        {
+            msg.Printf( _( "Cannot change %s footprint from '%s' to '%s' (footprint is locked)."),
+                        aFootprint->GetReference(),
+                        aFootprint->GetFPID().Format().wx_str(),
+                        aNewComponent->GetFPID().Format().wx_str() );
+            m_reporter->Report( msg, RPT_SEVERITY_WARNING );
+            ++m_warningCount;
+            delete newFootprint;
+            return nullptr;
+        }
+        else
+        {
+            msg.Printf( _( "Change %s footprint from '%s' to '%s'."),
+                        aFootprint->GetReference(),
+                        aFootprint->GetFPID().Format().wx_str(),
+                        aNewComponent->GetFPID().Format().wx_str() );
+            m_reporter->Report( msg, RPT_SEVERITY_ACTION );
+            ++m_newFootprintsCount;
+            delete newFootprint;
+            return nullptr;
+        }
     }
     else
     {
-        m_frame->ExchangeFootprint( aFootprint, newFootprint, m_commit );
+        if( aFootprint->IsLocked() && !m_overrideLocks )
+        {
+            msg.Printf( _( "Could not change %s footprint from '%s' to '%s' (footprint is locked)."),
+                        aFootprint->GetReference(),
+                        aFootprint->GetFPID().Format().wx_str(),
+                        aNewComponent->GetFPID().Format().wx_str() );
+            m_reporter->Report( msg, RPT_SEVERITY_WARNING );
+            ++m_warningCount;
+            delete newFootprint;
+            return nullptr;
+        }
+        else
+        {
+            m_frame->ExchangeFootprint( aFootprint, newFootprint, m_commit );
 
-        msg.Printf( _( "Changed %s footprint from '%s' to '%s'."),
-                    aFootprint->GetReference(),
-                    aFootprint->GetFPID().Format().wx_str(),
-                    aNewComponent->GetFPID().Format().wx_str() );
+            msg.Printf( _( "Changed %s footprint from '%s' to '%s'."),
+                        aFootprint->GetReference(),
+                        aFootprint->GetFPID().Format().wx_str(),
+                        aNewComponent->GetFPID().Format().wx_str() );
+            m_reporter->Report( msg, RPT_SEVERITY_ACTION );
+            ++m_newFootprintsCount;
+            return newFootprint;
+        }
     }
-
-    m_reporter->Report( msg, RPT_SEVERITY_ACTION );
-    m_newFootprintsCount++;
-    return newFootprint;
 }
 
 
@@ -320,8 +349,16 @@ bool BOARD_NETLIST_UPDATER::updateFootprintParameters( FOOTPRINT* aPcbFootprint,
     if( ( m_replaceFootprints || ( aPcbFootprint->GetAttributes() & FP_JUST_ADDED ) )
         && !m_isDryRun )
     {
-        aPcbFootprint->Footprint().SetText(
+        // Update FOOTPRINT_FIELD (if exists in the netlist)
+        try
+        {
+            aPcbFootprint->Footprint().SetText(
                 aNetlistComponent->GetFields()[GetCanonicalFieldName( FOOTPRINT_FIELD )] );
+        }
+        catch( ... )
+        {
+            // If not exist (old netlist), just skip it: What else?
+        }
     }
 
     // Test for time stamp change.
@@ -436,11 +473,7 @@ bool BOARD_NETLIST_UPDATER::updateFootprintParameters( FOOTPRINT* aPcbFootprint,
                     newField->Rotate( aPcbFootprint->GetPosition(), aPcbFootprint->GetOrientation() );
 
                     if( m_frame )
-                    {
                         newField->StyleFromSettings( m_frame->GetDesignSettings() );
-                        KIGFX::PCB_VIEW* view = m_frame->GetCanvas()->GetView();
-                        view->Add( newField );
-                    }
                 }
             }
 
@@ -712,8 +745,8 @@ bool BOARD_NETLIST_UPDATER::updateComponentPadConnections( FOOTPRINT* aFootprint
             {
                 // pad is connectable but has no net found in netlist
                 msg.Printf( _( "No net found for component %s pad %s (no pin %s in symbol)." ),
-                            pad->GetNumber(),
                             aFootprint->GetReference(),
+                            pad->GetNumber(),
                             pad->GetNumber() );
                 m_reporter->Report( msg, RPT_SEVERITY_WARNING);
                 ++m_warningCount;
@@ -1219,21 +1252,21 @@ bool BOARD_NETLIST_UPDATER::UpdateNetlist( NETLIST& aNetlist )
         if( component && component->GetProperties().count( wxT( "exclude_from_board" ) ) == 0 )
             matched = true;
 
-        if( doDelete && !matched && footprint->IsLocked() )
+        if( doDelete && !matched && footprint->IsLocked() && !m_overrideLocks )
         {
             if( m_isDryRun )
             {
-                msg.Printf( _( "Cannot remove unused footprint %s (locked)." ),
+                msg.Printf( _( "Cannot remove unused footprint %s (footprint is locked)." ),
                             footprint->GetReference() );
             }
             else
             {
-                msg.Printf( _( "Could not remove unused footprint %s (locked)." ),
+                msg.Printf( _( "Could not remove unused footprint %s (footprint is locked)." ),
                             footprint->GetReference() );
             }
 
-            m_reporter->Report( msg, RPT_SEVERITY_ERROR );
-            m_errorCount++;
+            m_reporter->Report( msg, RPT_SEVERITY_WARNING );
+            m_warningCount++;
             doDelete = false;
         }
 
@@ -1245,6 +1278,9 @@ bool BOARD_NETLIST_UPDATER::UpdateNetlist( NETLIST& aNetlist )
             }
             else
             {
+                if( footprint->GetParentGroup() )
+                    m_commit.Stage( footprint, CHT_UNGROUP );
+
                 m_commit.Remove( footprint );
                 msg.Printf( _( "Removed unused footprint %s." ), footprint->GetReference() );
             }
@@ -1284,7 +1320,7 @@ bool BOARD_NETLIST_UPDATER::UpdateNetlist( NETLIST& aNetlist )
         // * it creates crashes when calculating dynamic ratsnests if auto refill is enabled.
         // (the auto refills rebuild the connectivity with incomplete data)
         // * it is useless because zones will be refilled after placing new footprints
-        m_commit.Push( _( "Update netlist" ), m_newFootprintsCount ? ZONE_FILL_OP  : 0 );
+        m_commit.Push( _( "Update Netlist" ), m_newFootprintsCount ? ZONE_FILL_OP  : 0 );
 
         m_board->SynchronizeNetsAndNetClasses( true );
 

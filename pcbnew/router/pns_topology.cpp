@@ -21,6 +21,7 @@
 
 #include "pns_line.h"
 #include "pns_segment.h"
+#include "pns_arc.h"
 #include "pns_node.h"
 #include "pns_joint.h"
 #include "pns_solid.h"
@@ -197,23 +198,31 @@ ITEM* TOPOLOGY::NearestUnconnectedItem( const JOINT* aStart, int* aAnchor, int a
 }
 
 
-bool TOPOLOGY::followTrivialPath( LINE* aLine, bool aLeft, ITEM_SET& aSet,
-                                  std::set<ITEM*>& aVisited, const JOINT** aTerminalJoint,
-                                  bool aFollowLockedSegments )
+bool TOPOLOGY::followTrivialPath( LINE* aLine2, bool aLeft, ITEM_SET& aSet,
+                                  const JOINT** aTerminalJoint, bool aFollowLockedSegments )
 {
-    assert( aLine->IsLinked() );
+    assert( aLine2->IsLinked() );
+    LINE*           curr_line = aLine2;
+    std::set<ITEM*> visited;
 
-    VECTOR2I     anchor = aLeft ? aLine->CPoint( 0 ) : aLine->CPoint( -1 );
-    LINKED_ITEM* last   = aLeft ? aLine->Links().front() : aLine->Links().back();
-    const JOINT* jt     = m_world->FindJoint( anchor, aLine );
-
-    assert( jt != nullptr );
-
-    aVisited.insert( last );
-
-    if( jt->IsNonFanoutVia() || jt->IsTraceWidthChange() )
+    while( true )
     {
-        ITEM* via = nullptr;
+        VECTOR2I     anchor = aLeft ? curr_line->CPoint( 0 ) : curr_line->CPoint( -1 );
+        LINKED_ITEM* last = aLeft ? curr_line->Links().front() : curr_line->Links().back();
+        const JOINT* jt = m_world->FindJoint( anchor, curr_line );
+
+        assert( jt != nullptr );
+
+        if( !visited.insert( last ).second
+            || ( !jt->IsNonFanoutVia() && !jt->IsTraceWidthChange() ) )
+        {
+            if( aTerminalJoint )
+                *aTerminalJoint = jt;
+
+            return false;
+        }
+
+        ITEM*    via = nullptr;
         SEGMENT* next_seg = nullptr;
 
         ITEM_SET links( jt->CLinks() );
@@ -222,7 +231,7 @@ bool TOPOLOGY::followTrivialPath( LINE* aLine, bool aLeft, ITEM_SET& aSet,
         {
             if( link->OfKind( ITEM::VIA_T ) )
                 via = link;
-            else if( aVisited.find( link ) == aVisited.end() )
+            else if( visited.insert( link ).second )
                 next_seg = static_cast<SEGMENT*>( link );
         }
 
@@ -234,8 +243,7 @@ bool TOPOLOGY::followTrivialPath( LINE* aLine, bool aLeft, ITEM_SET& aSet,
             return false;
         }
 
-        LINE l = m_world->AssembleLine( next_seg, nullptr, false, aFollowLockedSegments );
-
+        LINE     l = m_world->AssembleLine( next_seg, nullptr, false, aFollowLockedSegments );
         VECTOR2I nextAnchor = ( aLeft ? l.CLine().CPoint( -1 ) : l.CLine().CPoint( 0 ) );
 
         if( nextAnchor != anchor )
@@ -249,6 +257,7 @@ bool TOPOLOGY::followTrivialPath( LINE* aLine, bool aLeft, ITEM_SET& aSet,
                 aSet.Prepend( via );
 
             aSet.Prepend( l );
+            curr_line = static_cast<PNS::LINE*>( aSet[0] );
         }
         else
         {
@@ -256,15 +265,11 @@ bool TOPOLOGY::followTrivialPath( LINE* aLine, bool aLeft, ITEM_SET& aSet,
                 aSet.Add( via );
 
             aSet.Add( l );
+            curr_line = static_cast<PNS::LINE*>( aSet[aSet.Size() - 1] );
         }
 
-        return followTrivialPath( &l, aLeft, aSet, aVisited, aTerminalJoint, aFollowLockedSegments );
+        continue;
     }
-
-    if( aTerminalJoint )
-        *aTerminalJoint = jt;
-
-    return false;
 }
 
 
@@ -273,7 +278,6 @@ const ITEM_SET TOPOLOGY::AssembleTrivialPath( ITEM* aStart,
                                               bool aFollowLockedSegments )
 {
     ITEM_SET        path;
-    std::set<ITEM*> visited;
     LINKED_ITEM*    seg = nullptr;
 
     if( aStart->Kind() == ITEM::VIA_T )
@@ -312,8 +316,8 @@ const ITEM_SET TOPOLOGY::AssembleTrivialPath( ITEM* aStart,
     const JOINT* jointA = nullptr;
     const JOINT* jointB = nullptr;
 
-    followTrivialPath( &l, false, path, visited, &jointB, aFollowLockedSegments );
-    followTrivialPath( &l, true, path, visited, &jointA, aFollowLockedSegments );
+    followTrivialPath( &l, false, path, &jointB, aFollowLockedSegments );
+    followTrivialPath( &l, true, path, &jointA, aFollowLockedSegments );
 
     if( aTerminalJoints )
     {
@@ -466,68 +470,145 @@ bool commonParallelProjection( SEG p, SEG n, SEG &pClip, SEG& nClip );
 
 bool TOPOLOGY::AssembleDiffPair( ITEM* aStart, DIFF_PAIR& aPair )
 {
-    NET_HANDLE refNet = aStart->Net();
-    NET_HANDLE coupledNet = m_world->GetRuleResolver()->DpCoupledNet( refNet );
+    NET_HANDLE   refNet = aStart->Net();
+    NET_HANDLE   coupledNet = m_world->GetRuleResolver()->DpCoupledNet( refNet );
+    LINKED_ITEM* startItem = dynamic_cast<LINKED_ITEM*>( aStart );
 
-    if( !coupledNet )
+    if( !coupledNet || !startItem )
         return false;
 
-    std::set<ITEM*> coupledItems;
+    LINE lp = m_world->AssembleLine( startItem );
 
+    std::vector<ITEM*> pItems;
+    std::vector<ITEM*> nItems;
+
+    for( ITEM* item : lp.Links() )
+    {
+        if( item->OfKind( ITEM::SEGMENT_T | ITEM::ARC_T ) && item->Layers() == startItem->Layers() )
+            pItems.push_back( item );
+    }
+
+    std::set<ITEM*> coupledItems;
     m_world->AllItemsInNet( coupledNet, coupledItems );
 
-    SEGMENT* coupledSeg = nullptr, *refSeg;
-    int minDist = std::numeric_limits<int>::max();
-
-    if( ( refSeg = dyn_cast<SEGMENT*>( aStart ) ) != nullptr )
+    for( ITEM* item : coupledItems )
     {
-        for( ITEM* item : coupledItems )
+        if( item->OfKind( ITEM::SEGMENT_T | ITEM::ARC_T ) && item->Layers() == startItem->Layers() )
+            nItems.push_back( item );
+    }
+
+    LINKED_ITEM* refItem = nullptr;
+    LINKED_ITEM* coupledItem = nullptr;
+    SEG::ecoord  minDist_sq = std::numeric_limits<SEG::ecoord>::max();
+    SEG::ecoord  minDistTarget_sq = std::numeric_limits<SEG::ecoord>::max();
+    VECTOR2I     targetPoint = aStart->Shape()->Centre();
+
+    auto findNItem = [&]( ITEM* p_item )
+    {
+        for( ITEM* n_item : nItems )
         {
-            if( SEGMENT* s = dyn_cast<SEGMENT*>( item ) )
+            SEG::ecoord dist_sq = std::numeric_limits<SEG::ecoord>::max();
+
+            if( n_item->Kind() != p_item->Kind() )
+                continue;
+
+            if( p_item->Kind() == ITEM::SEGMENT_T )
             {
-                if( s->Layers().Start() == refSeg->Layers().Start() &&
-                    s->Width() == refSeg->Width() )
+                const SEGMENT* p_seg = static_cast<const SEGMENT*>( p_item );
+                const SEGMENT* n_seg = static_cast<const SEGMENT*>( n_item );
+
+                if( n_seg->Width() != p_seg->Width() )
+                    continue;
+
+                if( !p_seg->Seg().ApproxParallel( n_seg->Seg(), DP_PARALLELITY_THRESHOLD ) )
+                    continue;
+
+                SEG p_clip, n_clip;
+
+                if( !commonParallelProjection( p_seg->Seg(), n_seg->Seg(), p_clip, n_clip ) )
+                    continue;
+
+                dist_sq = n_seg->Seg().SquaredDistance( p_seg->Seg() );
+            }
+            else if( p_item->Kind() == ITEM::ARC_T )
+            {
+                const ARC* p_arc = static_cast<const ARC*>( p_item );
+                const ARC* n_arc = static_cast<const ARC*>( n_item );
+
+                if( n_arc->Width() != p_arc->Width() )
+                    continue;
+
+                VECTOR2I    centerDiff = n_arc->CArc().GetCenter() - p_arc->CArc().GetCenter();
+                SEG::ecoord centerDist_sq = centerDiff.SquaredEuclideanNorm();
+
+                if( centerDist_sq > SEG::Square( DP_PARALLELITY_THRESHOLD ) )
+                    continue;
+
+                dist_sq = SEG::Square( p_arc->CArc().GetRadius() - n_arc->CArc().GetRadius() );
+            }
+
+            if( dist_sq <= minDist_sq )
+            {
+                SEG::ecoord distTarget_sq = n_item->Shape()->SquaredDistance( targetPoint );
+                if( distTarget_sq < minDistTarget_sq )
                 {
-                    int dist = s->Seg().Distance( refSeg->Seg() );
-                    bool isParallel = refSeg->Seg().ApproxParallel( s->Seg(), DP_PARALLELITY_THRESHOLD );
-                    SEG p_clip, n_clip;
+                    minDistTarget_sq = distTarget_sq;
+                    minDist_sq = dist_sq;
 
-                    bool isCoupled = commonParallelProjection( refSeg->Seg(), s->Seg(), p_clip,
-                                                               n_clip );
-
-                    if( isParallel && isCoupled && dist < minDist )
-                    {
-                        minDist = dist;
-                        coupledSeg = s;
-                    }
+                    refItem = static_cast<LINKED_ITEM*>( p_item );
+                    coupledItem = static_cast<LINKED_ITEM*>( n_item );
                 }
             }
         }
-    }
-    else
+    };
+
+    findNItem( startItem );
+
+    if( !coupledItem )
     {
-        return false;
+        LINKED_ITEM*    linked = static_cast<LINKED_ITEM*>( startItem );
+        std::set<ITEM*> linksToTest;
+
+        for( int i = 0; i < linked->AnchorCount(); i++ )
+        {
+            const JOINT* jt = m_world->FindJoint( linked->Anchor( i ), linked );
+
+            if( !jt )
+                continue;
+
+            for( ITEM* link : jt->LinkList() )
+            {
+                if( link != linked )
+                    linksToTest.emplace( link );
+            }
+        }
+
+        for( ITEM* link : linksToTest )
+            findNItem( link );
     }
 
-    if( !coupledSeg )
+    if( !coupledItem )
         return false;
 
-    LINE lp = m_world->AssembleLine( refSeg );
-    LINE ln = m_world->AssembleLine( coupledSeg );
+    LINE ln = m_world->AssembleLine( coupledItem );
 
     if( m_world->GetRuleResolver()->DpNetPolarity( refNet ) < 0 )
-    {
         std::swap( lp, ln );
-    }
 
     int gap = -1;
 
-    if( refSeg->Seg().ApproxParallel( coupledSeg->Seg(), DP_PARALLELITY_THRESHOLD ) )
+    if( refItem && refItem->Kind() == ITEM::SEGMENT_T )
     {
         // Segments are parallel -> compute pair gap
-        const VECTOR2I refDir       = refSeg->Anchor( 1 ) - refSeg->Anchor( 0 );
-        const VECTOR2I displacement = refSeg->Anchor( 1 ) - coupledSeg->Anchor( 1 );
+        const VECTOR2I refDir       = refItem->Anchor( 1 ) - refItem->Anchor( 0 );
+        const VECTOR2I displacement = refItem->Anchor( 1 ) - coupledItem->Anchor( 1 );
         gap = (int) std::abs( refDir.Cross( displacement ) / refDir.EuclideanNorm() ) - lp.Width();
+    }
+    else if( refItem && refItem->Kind() == ITEM::ARC_T )
+    {
+        const ARC* refArc = static_cast<ARC*>( refItem );
+        const ARC* coupledArc = static_cast<ARC*>( coupledItem );
+        gap = (int) std::abs( refArc->CArc().GetRadius() - coupledArc->CArc().GetRadius() ) - lp.Width();
     }
 
     aPair = DIFF_PAIR( lp, ln );

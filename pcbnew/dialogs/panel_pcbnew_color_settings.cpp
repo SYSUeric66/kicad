@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2020 Jon Evans <jon@craftyjon.com>
- * Copyright (C) 2020-2023 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2020-2024 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software: you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -32,7 +32,7 @@
 #include <footprint_preview_panel.h>
 #include <drawing_sheet/ds_proxy_view_item.h>
 #include <pcb_painter.h>
-#include <plugins/kicad/pcb_plugin.h>
+#include <pcb_io/kicad_sexpr/pcb_io_kicad_sexpr.h>
 #include <wx/treebook.h>
 
 
@@ -707,9 +707,12 @@ PANEL_PCBNEW_COLOR_SETTINGS::PANEL_PCBNEW_COLOR_SETTINGS( wxWindow* aParent, BOA
         m_validLayers.push_back( id );
     }
 
+    // These layers are not in GAL_LAYER_ID_START ... GAL_LAYER_ID_BITMASK_END
     m_validLayers.push_back( LAYER_LOCKED_ITEM_SHADOW );
     m_validLayers.push_back( LAYER_CONFLICTS_SHADOW );
     m_validLayers.push_back( LAYER_PAGE_LIMITS );
+    m_validLayers.push_back( LAYER_DRC_WARNING );
+    m_validLayers.push_back( LAYER_DRC_EXCLUSION );
 
     // NOTE: Main board layers are added by createSwatches()
 
@@ -793,7 +796,7 @@ void PANEL_PCBNEW_COLOR_SETTINGS::createPreviewItems()
     m_page->SetWidthMils( 6000 );
 
     STRING_LINE_READER reader( g_previewBoard, wxT( "preview" ) );
-    PCB_PLUGIN         pi;
+    PCB_IO_KICAD_SEXPR         pi;
 
     try
     {

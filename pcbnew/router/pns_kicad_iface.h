@@ -52,7 +52,7 @@ class PNS_KICAD_IFACE_BASE : public PNS::ROUTER_IFACE
 {
 public:
     PNS_KICAD_IFACE_BASE();
-    ~PNS_KICAD_IFACE_BASE();
+    ~PNS_KICAD_IFACE_BASE() override;
 
     void EraseView() override {};
     void SetBoard( BOARD* aBoard );
@@ -63,7 +63,7 @@ public:
     bool IsItemVisible( const PNS::ITEM* aItem ) const override { return true; };
     void HideItem( PNS::ITEM* aItem ) override {}
     void DisplayItem( const PNS::ITEM* aItem, int aClearance, bool aEdit = false,
-                      bool aIsHeadTrace = false ) override {}
+                      int aFlags = 0 ) override {}
     void DisplayPathLine( const SHAPE_LINE_CHAIN& aLine, int aImportance ) override {}
     void DisplayRatline( const SHAPE_LINE_CHAIN& aRatline, PNS::NET_HANDLE aNet ) override {}
     void AddItem( PNS::ITEM* aItem ) override;
@@ -115,7 +115,7 @@ class PNS_KICAD_IFACE : public PNS_KICAD_IFACE_BASE
 {
 public:
     PNS_KICAD_IFACE();
-    ~PNS_KICAD_IFACE();
+    ~PNS_KICAD_IFACE() override;
 
     virtual void SetHostTool( PCB_TOOL_BASE* aTool );
 
@@ -124,7 +124,8 @@ public:
     bool IsAnyLayerVisible( const LAYER_RANGE& aLayer ) const override;
     bool IsItemVisible( const PNS::ITEM* aItem ) const override;
     void HideItem( PNS::ITEM* aItem ) override;
-    void DisplayItem( const PNS::ITEM* aItem, int aClearance, bool aEdit = false, bool aIsHeadTrace = false ) override;
+    void DisplayItem( const PNS::ITEM* aItem, int aClearance, bool aEdit = false,
+                      int aFlags = 0 ) override;
     void DisplayPathLine( const SHAPE_LINE_CHAIN& aLine, int aImportance ) override;
     void DisplayRatline( const SHAPE_LINE_CHAIN& aRatline, PNS::NET_HANDLE aNet ) override;
     void Commit() override;

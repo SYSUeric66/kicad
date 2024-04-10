@@ -23,8 +23,8 @@
 
 #include "kigit_pcb_merge.h"
 
-#include <plugins/kicad/pcb_plugin.h>
-#include <plugins/kicad/pcb_parser.h>
+#include <pcb_io/kicad_sexpr/pcb_io_kicad_sexpr.h>
+#include <pcb_io/kicad_sexpr/pcb_io_kicad_sexpr_parser.h>
 #include <richio.h>
 
 #include <board.h>
@@ -63,6 +63,8 @@ void KIGIT_PCB_MERGE::findSetDifferences( const BOARD_ITEM_SET& aAncestorSet, co
         }
     }
 }
+
+
 KIGIT_PCB_MERGE_DIFFERENCES KIGIT_PCB_MERGE::compareBoards( BOARD* aAncestor, BOARD* aOther )
 {
     KIGIT_PCB_MERGE_DIFFERENCES differences;
@@ -75,9 +77,10 @@ KIGIT_PCB_MERGE_DIFFERENCES KIGIT_PCB_MERGE::compareBoards( BOARD* aAncestor, BO
     return differences;
 }
 
+
 int KIGIT_PCB_MERGE::Merge()
 {
-    git_repository* repo = git_merge_driver_source_repo( m_mergeDriver );
+    auto repo = const_cast<git_repository*>( git_merge_driver_source_repo( m_mergeDriver ) );
     const git_index_entry* ancestor = git_merge_driver_source_ancestor( m_mergeDriver );
     const git_index_entry* ours = git_merge_driver_source_ours( m_mergeDriver );
     const git_index_entry* theirs = git_merge_driver_source_theirs( m_mergeDriver );
@@ -108,11 +111,11 @@ int KIGIT_PCB_MERGE::Merge()
 
     // Get the raw data from the blobs
     BLOB_READER ancestor_reader( ancestor_blob );
-    PCB_PARSER ancestor_parser( &ancestor_reader, nullptr, nullptr );
+    PCB_IO_KICAD_SEXPR_PARSER ancestor_parser( &ancestor_reader, nullptr, nullptr );
     BLOB_READER ours_reader( ours_blob );
-    PCB_PARSER ours_parser( &ours_reader, nullptr, nullptr );
+    PCB_IO_KICAD_SEXPR_PARSER ours_parser( &ours_reader, nullptr, nullptr );
     BLOB_READER theirs_reader( theirs_blob );
-    PCB_PARSER theirs_parser( &theirs_reader, nullptr, nullptr );
+    PCB_IO_KICAD_SEXPR_PARSER theirs_parser( &theirs_reader, nullptr, nullptr );
 
     std::unique_ptr<BOARD> ancestor_board;
     std::unique_ptr<BOARD> ours_board;
@@ -164,7 +167,7 @@ std::unique_ptr<BOARD> readBoard( wxString& aFilename )
     // Take input from stdin
     FILE_LINE_READER reader( aFilename );
 
-    PCB_PARSER             parser( &reader, nullptr, nullptr );
+    PCB_IO_KICAD_SEXPR_PARSER             parser( &reader, nullptr, nullptr );
     std::unique_ptr<BOARD> board;
 
     try
@@ -177,4 +180,3 @@ std::unique_ptr<BOARD> readBoard( wxString& aFilename )
 
     return board;
 }
-

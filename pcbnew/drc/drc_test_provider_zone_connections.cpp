@@ -1,7 +1,7 @@
 /*
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
- * Copyright (C) 2021-2022 KiCad Developers.
+ * Copyright (C) 2021-2024 KiCad Developers.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -144,7 +144,7 @@ void DRC_TEST_PROVIDER_ZONE_CONNECTIONS::testZoneLayer( ZONE* aZone, PCB_LAYER_I
             pad->TransformShapeToPolygon( padPoly, aLayer, mid_gap, ARC_LOW_DEF, ERROR_OUTSIDE );
 
             SHAPE_LINE_CHAIN& padOutline = padPoly.Outline( 0 );
-            BOX2I             padBBox( item_bbox );
+            BOX2I             padBBox( padOutline.BBox() );
             int               spokes = 0;
             int               ignoredSpokes = 0;
             VECTOR2I          ignoredSpokePos;
@@ -194,6 +194,18 @@ void DRC_TEST_PROVIDER_ZONE_CONNECTIONS::testZoneLayer( ZONE* aZone, PCB_LAYER_I
                     if( aZone->GetFilledPolysList( aLayer )->Collide( track->GetStart() ) )
                         spokes++;
                 }
+            }
+
+            //
+            // If we're *only* connected to isolated islands, then ignore the fact that they're
+            // isolated.  (We leave that for the connectivity tester, which checks connections on
+            // all layers.)
+            //
+
+            if( spokes == 0 )
+            {
+                spokes += ignoredSpokes;
+                ignoredSpokes = 0;
             }
 
             //
@@ -287,7 +299,7 @@ bool DRC_TEST_PROVIDER_ZONE_CONNECTIONS::Run()
 
         while( status != std::future_status::ready )
         {
-            m_drcEngine->ReportProgress( static_cast<double>( done ) / total_effort );
+            reportProgress( done, total_effort );
             status = ret.wait_for( std::chrono::milliseconds( 250 ) );
         }
     }

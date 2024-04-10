@@ -24,11 +24,8 @@
 #include <jobs/job_dispatcher.h>
 #include <wx/string.h>
 
-namespace KIGFX
-{
 class SCH_RENDER_SETTINGS;
-};
-
+class KIWAY;
 class SCHEMATIC;
 class JOB_SYM_EXPORT_SVG;
 class LIB_SYMBOL;
@@ -40,7 +37,7 @@ class DS_PROXY_VIEW_ITEM;
 class EESCHEMA_JOBS_HANDLER : public JOB_DISPATCHER
 {
 public:
-    EESCHEMA_JOBS_HANDLER();
+    EESCHEMA_JOBS_HANDLER( KIWAY* aKiway );
     int JobExportBom( JOB* aJob );
     int JobExportPythonBom( JOB* aJob );
     int JobExportNetlist( JOB* aJob );
@@ -60,13 +57,13 @@ public:
      *        left blank for default.
      * @param aSch The schematic to further copy settings from to be put into aRenderSettings.
      */
-    void InitRenderSettings( KIGFX::SCH_RENDER_SETTINGS* aRenderSettings, const wxString& aTheme,
+    void InitRenderSettings( SCH_RENDER_SETTINGS* aRenderSettings, const wxString& aTheme,
                              SCHEMATIC* aSch,
                              const wxString& aDrawingSheetOverride = wxEmptyString );
 
 private:
 
-    int doSymExportSvg( JOB_SYM_EXPORT_SVG* aSvgJob, KIGFX::SCH_RENDER_SETTINGS* aRenderSettings,
+    int doSymExportSvg( JOB_SYM_EXPORT_SVG* aSvgJob, SCH_RENDER_SETTINGS* aRenderSettings,
                         LIB_SYMBOL* symbol );
 
     DS_PROXY_VIEW_ITEM* getDrawingSheetProxyView( SCHEMATIC* aSch );

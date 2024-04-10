@@ -161,12 +161,35 @@ if( CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang" )
         message( STATUS "Enabling warning -Wmismatched-tags" )
     endif()
 
+    # Warn about improper move statements
+    CHECK_CXX_COMPILER_FLAG( "-Wpessimizing-move" COMPILER_SUPPORTS_WPESSIMIZING_MOVE )
+
+    if( COMPILER_SUPPORTS_WPESSIMIZING_MOVE )
+        set( WARN_FLAGS_CXX "${WARN_FLAGS_CXX} -Wpessimizing-move" )
+        message( STATUS "Enabling warning -Wpessimizing-move" )
+    endif()
+
+    CHECK_CXX_COMPILER_FLAG( "-Wredundant-move" COMPILER_SUPPORTS_WREDUNDANT_MOVE )
+
+    if( COMPILER_SUPPORTS_WREDUNDANT_MOVE )
+        set( WARN_FLAGS_CXX "${WARN_FLAGS_CXX} -Wredundant-move" )
+        message( STATUS "Enabling warning -Wredundant-move" )
+    endif()
+
     # See if the compiler will throw warnings on these conversions
     CHECK_CXX_COMPILER_FLAG( "-Wimplicit-int-float-conversion" COMPILER_SUPPORTS_WIMPLICIT_FLOAT_CONVERSION )
 
     if( COMPILER_SUPPORTS_WIMPLICIT_FLOAT_CONVERSION )
         # This one is different, it is used to guard warning removal for this inside the code
         set( HAVE_WIMPLICIT_FLOAT_CONVERSION true )
+    endif()
+
+    # See if the compiler will throw warnings on these conversions
+    CHECK_CXX_COMPILER_FLAG( "-Wunused-const-variable" COMPILER_SUPPORTS_WUNUSED_CONST_VARIABLE )
+
+    if( COMPILER_SUPPORTS_WUNUSED_CONST_VARIABLE )
+        # This one is different, it is used to guard warning removal for this inside the code
+        set( HAVE_WUNUSED_CONST_VARIABLE true )
     endif()
 
     # Suppress GCC warnings about unknown/unused attributes (e.g. cdecl, [[maybe_unused, etc)
@@ -249,4 +272,6 @@ if( MSVC )
     string( APPEND WARN_FLAGS_CXX " /wd4668" )
     # disable "definition of implicit copy constructor for 'X' is deprecated because it has a user-provided destructor"
     string( APPEND WARN_FLAGS_CXX " /wd5267" )
+    # disable "reinterpret_cast used between related classes"
+    string( APPEND WARN_FLAGS_CXX " /wd4946" )
 endif()

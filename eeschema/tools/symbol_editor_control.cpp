@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2019 CERN
- * Copyright (C) 2019-2023 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2019-2024 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -22,6 +22,7 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA
  */
 
+#include <advanced_config.h>
 #include <kiway.h>
 #include <pgm_base.h>
 #include <sch_painter.h>
@@ -35,6 +36,7 @@
 #include <wildcards_and_files_ext.h>
 #include <bitmaps/bitmap_types.h>
 #include <confirm.h>
+#include <gestfich.h> // To open with a text editor
 #include <wx/filedlg.h>
 #include "wx/generic/textdlgg.h"
 #include "string_utils.h"
@@ -96,6 +98,15 @@ bool SYMBOL_EDITOR_CONTROL::Init()
                 {
                     return editFrame->GetTreeSelectionCount() > 1;
                 };
+        auto canOpenWithTextEditor =
+                [ editFrame ]( const SELECTION& aSel )
+                {
+                    // The option is shown if the lib has no current edits
+                    LIB_SYMBOL_LIBRARY_MANAGER& libMgr = editFrame->GetLibManager();
+                    wxString libName = editFrame->GetTargetLibId().GetLibNickname();
+                    bool     ret = !libMgr.IsLibraryModified( libName );
+                    return ret;
+                };
 
         ctxMenu.AddItem( ACTIONS::pinLibrary,            unpinnedLibSelectedCondition );
         ctxMenu.AddItem( ACTIONS::unpinLibrary,          pinnedLibSelectedCondition );
@@ -123,7 +134,16 @@ bool SYMBOL_EDITOR_CONTROL::Init()
         ctxMenu.AddItem( EE_ACTIONS::exportSymbol,       symbolSelectedCondition );
 
         // If we've got nothing else to show, at least show a hide tree option
+        ctxMenu.AddSeparator();
         ctxMenu.AddItem( EE_ACTIONS::hideSymbolTree,    !libInferredCondition );
+
+        if( ADVANCED_CFG::GetCfg().m_EnableLibWithText )
+        {
+            ctxMenu.AddSeparator();
+            ctxMenu.AddItem( EE_ACTIONS::openWithTextEditor,
+                             canOpenWithTextEditor
+                                     && ( symbolSelectedCondition || libSelectedCondition ) );
+        }
     }
 
     return true;
@@ -242,6 +262,36 @@ int SYMBOL_EDITOR_CONTROL::ExportSymbol( const TOOL_EVENT& aEvent )
     if( m_frame->IsType( FRAME_SCH_SYMBOL_EDITOR ) )
         static_cast<SYMBOL_EDIT_FRAME*>( m_frame )->ExportSymbol();
 
+    return 0;
+}
+
+
+int SYMBOL_EDITOR_CONTROL::OpenWithTextEditor( const TOOL_EVENT& aEvent )
+{
+    if( m_frame->IsType( FRAME_SCH_SYMBOL_EDITOR ) )
+    {
+        wxString fullEditorName = Pgm().GetTextEditor();
+
+        if( fullEditorName.IsEmpty() )
+        {
+            wxMessageBox( _( "No text editor selected in KiCad. Please choose one." ) );
+            return 0;
+        }
+
+        SYMBOL_EDIT_FRAME* editFrame = static_cast<SYMBOL_EDIT_FRAME*>( m_frame );
+
+        LIB_SYMBOL_LIBRARY_MANAGER& libMgr = editFrame->GetLibManager();
+
+        LIB_ID libId = editFrame->GetTreeLIBID();
+
+        wxString libName = libId.GetLibNickname();
+        wxString tempFName = libMgr.GetLibrary( libName )->GetFullURI( true ).wc_str();
+
+        if( !tempFName.IsEmpty() )
+        {
+            ExecuteFile( fullEditorName, tempFName, nullptr, false );
+        }
+    }
     return 0;
 }
 
@@ -433,8 +483,8 @@ int SYMBOL_EDITOR_CONTROL::RenameSymbol( const TOOL_EVENT& aEvent )
 
 int SYMBOL_EDITOR_CONTROL::OnDeMorgan( const TOOL_EVENT& aEvent )
 {
-    int convert = aEvent.IsAction( &EE_ACTIONS::showDeMorganStandard ) ?
-            LIB_ITEM::LIB_CONVERT::BASE : LIB_ITEM::LIB_CONVERT::DEMORGAN;
+    int bodyStyle = aEvent.IsAction( &EE_ACTIONS::showDeMorganStandard ) ? BODY_STYLE::BASE
+                                                                         : BODY_STYLE::DEMORGAN;
 
     if( m_frame->IsType( FRAME_SCH_SYMBOL_EDITOR ) )
     {
@@ -442,7 +492,7 @@ int SYMBOL_EDITOR_CONTROL::OnDeMorgan( const TOOL_EVENT& aEvent )
         m_toolMgr->RunAction( EE_ACTIONS::clearSelection );
 
         SYMBOL_EDIT_FRAME* symbolEditor = static_cast<SYMBOL_EDIT_FRAME*>( m_frame );
-        symbolEditor->SetConvert( convert );
+        symbolEditor->SetBodyStyle( bodyStyle );
 
         m_toolMgr->ResetTools( TOOL_BASE::MODEL_RELOAD );
         symbolEditor->RebuildView();
@@ -450,7 +500,7 @@ int SYMBOL_EDITOR_CONTROL::OnDeMorgan( const TOOL_EVENT& aEvent )
     else if( m_frame->IsType( FRAME_SCH_VIEWER ) )
     {
         SYMBOL_VIEWER_FRAME* symbolViewer = static_cast<SYMBOL_VIEWER_FRAME*>( m_frame );
-        symbolViewer->SetUnitAndConvert( symbolViewer->GetUnit(), convert );
+        symbolViewer->SetUnitAndBodyStyle( symbolViewer->GetUnit(), bodyStyle );
     }
 
     return 0;
@@ -520,7 +570,7 @@ int SYMBOL_EDITOR_CONTROL::ToggleProperties( const TOOL_EVENT& aEvent )
 
 int SYMBOL_EDITOR_CONTROL::ShowElectricalTypes( const TOOL_EVENT& aEvent )
 {
-    KIGFX::SCH_RENDER_SETTINGS* renderSettings = m_frame->GetRenderSettings();
+    SCH_RENDER_SETTINGS* renderSettings = m_frame->GetRenderSettings();
     renderSettings->m_ShowPinsElectricalType = !renderSettings->m_ShowPinsElectricalType;
 
     // Update canvas
@@ -533,7 +583,7 @@ int SYMBOL_EDITOR_CONTROL::ShowElectricalTypes( const TOOL_EVENT& aEvent )
 
 int SYMBOL_EDITOR_CONTROL::ShowPinNumbers( const TOOL_EVENT& aEvent )
 {
-    KIGFX::SCH_RENDER_SETTINGS* renderSettings = m_frame->GetRenderSettings();
+    SCH_RENDER_SETTINGS* renderSettings = m_frame->GetRenderSettings();
     renderSettings->m_ShowPinNumbers = !renderSettings->m_ShowPinNumbers;
 
     // Update canvas
@@ -551,6 +601,32 @@ int SYMBOL_EDITOR_CONTROL::ToggleSyncedPinsMode( const TOOL_EVENT& aEvent )
 
     SYMBOL_EDIT_FRAME* editFrame = getEditFrame<SYMBOL_EDIT_FRAME>();
     editFrame->m_SyncPinEdit = !editFrame->m_SyncPinEdit;
+
+    return 0;
+}
+
+
+int SYMBOL_EDITOR_CONTROL::ToggleHiddenPins( const TOOL_EVENT& aEvent )
+{
+    SYMBOL_EDIT_FRAME* editFrame = getEditFrame<SYMBOL_EDIT_FRAME>();
+    editFrame->GetRenderSettings()->m_ShowHiddenPins =
+                    !editFrame->GetRenderSettings()->m_ShowHiddenPins;
+
+    getView()->UpdateAllItems( KIGFX::REPAINT );
+    editFrame->GetCanvas()->Refresh();
+
+    return 0;
+}
+
+
+int SYMBOL_EDITOR_CONTROL::ToggleHiddenFields( const TOOL_EVENT& aEvent )
+{
+    SYMBOL_EDIT_FRAME* editFrame = getEditFrame<SYMBOL_EDIT_FRAME>();
+    editFrame->GetRenderSettings()->m_ShowHiddenFields =
+                    !editFrame->GetRenderSettings()->m_ShowHiddenFields;
+
+    getView()->UpdateAllItems( KIGFX::REPAINT );
+    editFrame->GetCanvas()->Refresh();
 
     return 0;
 }
@@ -576,7 +652,7 @@ int SYMBOL_EDITOR_CONTROL::ExportView( const TOOL_EVENT& aEvent )
     wxString projectPath = wxPathOnly( m_frame->Prj().GetProjectFullName() );
 
     wxFileDialog dlg( editFrame, _( "Export View as PNG" ), projectPath, fn.GetFullName(),
-                      PngFileWildcard(), wxFD_SAVE | wxFD_OVERWRITE_PROMPT );
+                      FILEEXT::PngFileWildcard(), wxFD_SAVE | wxFD_OVERWRITE_PROMPT );
 
     if( dlg.ShowModal() == wxID_OK && !dlg.GetPath().IsEmpty() )
     {
@@ -609,12 +685,13 @@ int SYMBOL_EDITOR_CONTROL::ExportSymbolAsSVG( const TOOL_EVENT& aEvent )
     }
 
     wxFileName fn( symbol->GetName() );
-    fn.SetExt( SVGFileExtension );
+    fn.SetExt( FILEEXT::SVGFileExtension );
 
     wxString pro_dir = wxPathOnly( m_frame->Prj().GetProjectFullName() );
 
     wxString fullFileName = wxFileSelector( _( "SVG File Name" ), pro_dir, fn.GetFullName(),
-                                            SVGFileExtension, SVGFileWildcard(), wxFD_SAVE,
+                                            FILEEXT::SVGFileExtension, FILEEXT::SVGFileWildcard(),
+                                            wxFD_SAVE,
                                             m_frame );
 
     if( !fullFileName.IsEmpty() )
@@ -623,7 +700,7 @@ int SYMBOL_EDITOR_CONTROL::ExportSymbolAsSVG( const TOOL_EVENT& aEvent )
         PAGE_INFO pageTemp = pageSave;
 
         BOX2I symbolBBox = symbol->GetUnitBoundingBox( editFrame->GetUnit(),
-                                                       editFrame->GetConvert(), false );
+                                                       editFrame->GetBodyStyle(), false );
 
         // Add a small margin (10% of size)to the plot bounding box
         symbolBBox.Inflate( symbolBBox.GetSize().x * 0.1, symbolBBox.GetSize().y * 0.1 );
@@ -647,15 +724,15 @@ int SYMBOL_EDITOR_CONTROL::AddSymbolToSchematic( const TOOL_EVENT& aEvent )
 {
     LIB_SYMBOL* libSymbol = nullptr;
     LIB_ID      libId;
-    int         unit, convert;
+    int         unit, bodyStyle;
 
     if( m_isSymbolEditor )
     {
         SYMBOL_EDIT_FRAME* editFrame = getEditFrame<SYMBOL_EDIT_FRAME>();
 
         libSymbol = editFrame->GetCurSymbol();
-        unit = editFrame->GetUnit();
-        convert = editFrame->GetConvert();
+        unit      = editFrame->GetUnit();
+        bodyStyle = editFrame->GetBodyStyle();
 
         if( libSymbol )
             libId = libSymbol->GetLibId();
@@ -666,7 +743,7 @@ int SYMBOL_EDITOR_CONTROL::AddSymbolToSchematic( const TOOL_EVENT& aEvent )
 
         libSymbol = viewerFrame->GetSelectedSymbol();
         unit      = viewerFrame->GetUnit();
-        convert   = viewerFrame->GetConvert();
+        bodyStyle = viewerFrame->GetBodyStyle();
 
         if( libSymbol )
             libId = libSymbol->GetLibId();
@@ -694,7 +771,7 @@ int SYMBOL_EDITOR_CONTROL::AddSymbolToSchematic( const TOOL_EVENT& aEvent )
         wxCHECK( libSymbol->GetLibId().IsValid(), 0 );
 
         SCH_SYMBOL* symbol = new SCH_SYMBOL( *libSymbol, libId, &schframe->GetCurrentSheet(),
-                                             unit, convert );
+                                             unit, bodyStyle );
 
         symbol->SetParent( schframe->GetScreen() );
 
@@ -733,6 +810,7 @@ void SYMBOL_EDITOR_CONTROL::setTransitions()
     Go( &SYMBOL_EDITOR_CONTROL::CutCopyDelete,         EE_ACTIONS::copySymbol.MakeEvent() );
     Go( &SYMBOL_EDITOR_CONTROL::DuplicateSymbol,       EE_ACTIONS::pasteSymbol.MakeEvent() );
     Go( &SYMBOL_EDITOR_CONTROL::ExportSymbol,          EE_ACTIONS::exportSymbol.MakeEvent() );
+    Go( &SYMBOL_EDITOR_CONTROL::OpenWithTextEditor,    EE_ACTIONS::openWithTextEditor.MakeEvent() );
     Go( &SYMBOL_EDITOR_CONTROL::ExportView,            EE_ACTIONS::exportSymbolView.MakeEvent() );
     Go( &SYMBOL_EDITOR_CONTROL::ExportSymbolAsSVG,     EE_ACTIONS::exportSymbolAsSVG.MakeEvent() );
     Go( &SYMBOL_EDITOR_CONTROL::AddSymbolToSchematic,  EE_ACTIONS::addSymbolToSchematic.MakeEvent() );
@@ -747,5 +825,8 @@ void SYMBOL_EDITOR_CONTROL::setTransitions()
     Go( &SYMBOL_EDITOR_CONTROL::ToggleSymbolTree,      EE_ACTIONS::showSymbolTree.MakeEvent() );
     Go( &SYMBOL_EDITOR_CONTROL::ToggleSymbolTree,      EE_ACTIONS::hideSymbolTree.MakeEvent() );
     Go( &SYMBOL_EDITOR_CONTROL::ToggleSyncedPinsMode,  EE_ACTIONS::toggleSyncedPinsMode.MakeEvent() );
+
     Go( &SYMBOL_EDITOR_CONTROL::ToggleProperties,      ACTIONS::showProperties.MakeEvent() );
+    Go( &SYMBOL_EDITOR_CONTROL::ToggleHiddenPins,      EE_ACTIONS::showHiddenPins.MakeEvent() );
+    Go( &SYMBOL_EDITOR_CONTROL::ToggleHiddenFields,    EE_ACTIONS::showHiddenFields.MakeEvent() );
 }

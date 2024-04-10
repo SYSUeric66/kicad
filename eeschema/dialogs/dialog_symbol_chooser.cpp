@@ -52,6 +52,10 @@ DIALOG_SYMBOL_CHOOSER::DIALOG_SYMBOL_CHOOSER( SCH_BASE_FRAME* aParent, const LIB
                                                [this]()
                                                {
                                                    EndModal( wxID_OK );
+                                               },
+                                               [this]()
+                                               {
+                                                   EndModal( wxID_CANCEL );
                                                } );
 
     sizer->Add( m_chooserPanel, 1, wxEXPAND, 5 );
@@ -59,7 +63,7 @@ DIALOG_SYMBOL_CHOOSER::DIALOG_SYMBOL_CHOOSER( SCH_BASE_FRAME* aParent, const LIB
     if( aPreselect && aPreselect->IsValid() )
         m_chooserPanel->SetPreselect( *aPreselect );
 
-    if( aFilter->GetFilterPowerSymbols() )
+    if( aFilter && aFilter->GetFilterPowerSymbols() )
         SetTitle( _( "Choose Power Symbol" ) );
 
     SetTitle( GetTitle() + wxString::Format( _( " (%d items loaded)" ),
@@ -100,6 +104,8 @@ DIALOG_SYMBOL_CHOOSER::DIALOG_SYMBOL_CHOOSER( SCH_BASE_FRAME* aParent, const LIB
 
     m_chooserPanel->FinishSetup();
     Layout();
+
+    Bind( wxEVT_CHAR_HOOK, &PANEL_SYMBOL_CHOOSER::OnChar, m_chooserPanel );
 }
 
 

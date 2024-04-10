@@ -113,7 +113,8 @@ void DIALOG_IMPORT_SETTINGS::OnBrowseClicked( wxCommandEvent& event )
     wxFileName fn = m_frame->GetBoard()->GetFileName();
 
     wxFileDialog dlg( this, _( "Import Settings From" ), fn.GetPath(), fn.GetFullName(),
-                      PcbFileWildcard(), wxFD_OPEN | wxFD_FILE_MUST_EXIST | wxFD_CHANGE_DIR );
+                      FILEEXT::PcbFileWildcard(),
+                      wxFD_OPEN | wxFD_FILE_MUST_EXIST | wxFD_CHANGE_DIR );
 
     if( dlg.ShowModal() == wxID_OK )
         m_filePathCtrl->SetValue( dlg.GetPath() );
@@ -145,6 +146,7 @@ void DIALOG_IMPORT_SETTINGS::OnSelectAll( wxCommandEvent& event )
     m_TracksAndViasOpt->SetValue( m_showSelectAllOnBtn );
     m_MaskAndPasteOpt->SetValue( m_showSelectAllOnBtn );
     m_SeveritiesOpt->SetValue( m_showSelectAllOnBtn );
+    m_TeardropsOpt->SetValue( m_showSelectAllOnBtn );
     m_TuningPatternsOpt->SetValue( m_showSelectAllOnBtn );
     m_CustomRulesOpt->SetValue( m_showSelectAllOnBtn );
 

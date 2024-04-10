@@ -3,20 +3,21 @@
   "default-registry": {
     "kind": "git",
     "repository": "https://github.com/microsoft/vcpkg",
-    "baseline": "b40de44891dc1cab11d4722094ae44807a837b98"
+    "baseline": "3dd44b931481d7a8e9ba412621fa810232b66289"
   },
   "registries": [
     {
       "kind": "git",
       "repository": "https://gitlab.com/kicad/packaging/kicad-vcpkg-registry.git",
-      "baseline": "6c26bbf7fdad980960994be23833eeacc7ecb9fa",
+      "baseline": "2c877ed563ef15d7e1c08b0c21817d2125eb37ca",
       "packages": [
         "glew",
         "python3",
         "opencascade",
         "wxpython",
         "wxwidgets",
-        "ngspice"
+        "ngspice",
+        "liblzma"
       ]
     }
   ]

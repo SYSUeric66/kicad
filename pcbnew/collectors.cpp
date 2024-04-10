@@ -42,6 +42,8 @@ const std::vector<KICAD_T> GENERAL_COLLECTOR::AllBoardItems = {
     PCB_TEXT_T,             // in m_drawings
     PCB_REFERENCE_IMAGE_T,  // in m_drawings
     PCB_TEXTBOX_T,          // in m_drawings
+    PCB_TABLE_T,            // in m_drawings
+    PCB_TABLECELL_T,        // in tables
     PCB_SHAPE_T,            // in m_drawings
     PCB_DIM_ALIGNED_T,      // in m_drawings
     PCB_DIM_CENTER_T,       // in m_drawings
@@ -66,6 +68,7 @@ const std::vector<KICAD_T> GENERAL_COLLECTOR::BoardLevelItems = {
     PCB_REFERENCE_IMAGE_T,
     PCB_TEXT_T,
     PCB_TEXTBOX_T,
+    PCB_TABLE_T,
     PCB_SHAPE_T,
     PCB_DIM_ALIGNED_T,
     PCB_DIM_ORTHOGONAL_T,
@@ -101,6 +104,8 @@ const std::vector<KICAD_T> GENERAL_COLLECTOR::FootprintItems = {
     PCB_FIELD_T,
     PCB_TEXT_T,
     PCB_TEXTBOX_T,
+    PCB_TABLE_T,
+    PCB_TABLECELL_T,
     PCB_SHAPE_T,
     PCB_DIM_ALIGNED_T,
     PCB_DIM_ORTHOGONAL_T,
@@ -194,6 +199,8 @@ INSPECT_RESULT GENERAL_COLLECTOR::Inspect( EDA_ITEM* aTestItem, void* aTestData 
 
     case PCB_TEXTBOX_T:
     case PCB_SHAPE_T:
+    case PCB_TABLE_T:
+    case PCB_TABLECELL_T:
         boardItem = static_cast<BOARD_ITEM*>( aTestItem );
         break;
 
@@ -271,10 +278,10 @@ INSPECT_RESULT GENERAL_COLLECTOR::Inspect( EDA_ITEM* aTestItem, void* aTestData 
 
     if( footprint )
     {
-        if( m_Guide->IgnoreFootprintsOnBack() && ( footprint->GetLayer() == B_Cu ) )
+        if( m_Guide->IgnoreFootprintsOnBack() && footprint->GetSide() == B_Cu )
             return INSPECT_RESULT::CONTINUE;
 
-        if( m_Guide->IgnoreFootprintsOnFront() && ( footprint->GetLayer() == F_Cu ) )
+        if( m_Guide->IgnoreFootprintsOnFront() && footprint->GetSide() == F_Cu )
             return INSPECT_RESULT::CONTINUE;
     }
 
@@ -335,7 +342,7 @@ INSPECT_RESULT GENERAL_COLLECTOR::Inspect( EDA_ITEM* aTestItem, void* aTestData 
         // controls for vias, GetLayer() has no meaning, but IsOnLayer() works fine. User
         // text in a footprint *is* sensitive to layer visibility but that was already handled.
 
-        int  accuracy = KiROUND( 5 * m_Guide->OnePixelInIU() );
+        int accuracy = m_Guide->Accuracy();
 
         if( zone )
         {
@@ -408,7 +415,7 @@ INSPECT_RESULT GENERAL_COLLECTOR::Inspect( EDA_ITEM* aTestItem, void* aTestData 
         // controls for vias, GetLayer() has no meaning, but IsOnLayer() works fine. User
         // text in a footprint *is* sensitive to layer visibility but that was already handled.
 
-        int  accuracy = KiROUND( 5 * m_Guide->OnePixelInIU() );
+        int accuracy = m_Guide->Accuracy();
 
         if( zone )
         {

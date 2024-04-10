@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2004 Jean-Pierre Charras, jaen-pierre.charras@gipsa-lab.inpg.com
- * Copyright (C) 2004-2023 KiCad Developers, see change_log.txt for contributors.
+ * Copyright (C) 2004-2024 KiCad Developers, see change_log.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -27,9 +27,12 @@
 #include <tool/tool_manager.h>
 #include <schematic.h>
 #include <sch_bus_entry.h>
+#include <sch_commit.h>
 #include <sch_junction.h>
 #include <sch_line.h>
 #include <sch_bitmap.h>
+#include <sch_sheet_pin.h>
+#include <sch_table.h>
 #include <tools/ee_selection_tool.h>
 #include <drawing_sheet/ds_proxy_undo_item.h>
 #include <tool/actions.h>
@@ -107,8 +110,11 @@ void SCH_EDIT_FRAME::SaveCopyInUndoList( SCH_SCREEN* aScreen, SCH_ITEM* aItem,
     if( aDirtyConnectivity )
     {
         if( !aItem->IsConnectivityDirty() && aItem->Connection()
-          && ( aItem->Connection()->Name() == m_highlightedConn ) )
+            && ( aItem->Connection()->Name() == m_highlightedConn
+                 || aItem->Connection()->HasDriverChanged() ) )
+        {
             m_highlightedConnChanged = true;
+        }
 
         aItem->SetConnectivityDirty();
     }
@@ -263,6 +269,10 @@ void SCH_EDIT_FRAME::PutDataInPreviousState( PICKED_ITEMS_LIST* aList )
     std::vector<SCH_ITEM*> bulkAddedItems;
     std::vector<SCH_ITEM*> bulkRemovedItems;
     std::vector<SCH_ITEM*> bulkChangedItems;
+    std::set<SCH_TABLE*>   changedTables;
+    bool                   dirtyConnectivity = false;
+    bool                   rebuildHierarchyNavigator = false;
+    SCH_CLEANUP_FLAGS      connectivityCleanUp = NO_CLEANUP;
 
     // Undo in the reverse order of list creation: (this can allow stacked changes like the
     // same item can be changed and deleted in the same complex command).
@@ -279,19 +289,59 @@ void SCH_EDIT_FRAME::PutDataInPreviousState( PICKED_ITEMS_LIST* aList )
         eda_item->ClearEditFlags();
         eda_item->ClearTempFlags();
 
+        SCH_ITEM*   schItem = dynamic_cast<SCH_ITEM*>( eda_item );
+
+        // Set connectable object connectivity status.
+        auto updateConnectivityFlag = [&, this]()
+        {
+            if( schItem && schItem->IsConnectable() )
+            {
+                schItem->SetConnectivityDirty();
+
+                if( schItem->Type() == SCH_SYMBOL_T )
+                {
+                    SCH_SYMBOL* symbol = static_cast<SCH_SYMBOL*>( schItem );
+
+                    wxCHECK( symbol, /* void */ );
+
+                    for( SCH_PIN* pin : symbol->GetPins() )
+                        pin->SetConnectivityDirty();
+                }
+                else if( schItem->Type() == SCH_SHEET_T )
+                {
+                    SCH_SHEET* sheet = static_cast<SCH_SHEET*>( schItem );
+
+                    wxCHECK( sheet, /* void */ );
+
+                    for( SCH_SHEET_PIN* pin : sheet->GetPins() )
+                        pin->SetConnectivityDirty();
+                }
+
+                m_highlightedConnChanged = true;
+                dirtyConnectivity = true;
+
+                // Do a local clean up if there are any connectable objects in the commit.
+                if( connectivityCleanUp == NO_CLEANUP )
+                    connectivityCleanUp = LOCAL_CLEANUP;
+
+                // Do a full rebauild of the connectivity if there is a sheet in the commit.
+                if( schItem->Type() == SCH_SHEET_T )
+                    connectivityCleanUp = GLOBAL_CLEANUP;
+            }
+        };
+
         if( status == UNDO_REDO::NEWITEM )
         {
+            updateConnectivityFlag();
+
             // If we are removing the current sheet, get out first
             if( eda_item->Type() == SCH_SHEET_T )
             {
+                rebuildHierarchyNavigator = true;
+
                 if( static_cast<SCH_SHEET*>( eda_item )->GetScreen() == GetScreen() )
                     GetToolManager()->PostAction( EE_ACTIONS::leaveSheet );
             }
-
-            SCH_ITEM* schItem = static_cast<SCH_ITEM*>( eda_item );
-
-            if( schItem && schItem->IsConnectable() )
-                m_highlightedConnChanged = true;
 
             RemoveFromScreen( eda_item, screen );
             aList->SetPickedItemStatus( UNDO_REDO::DELETED, ii );
@@ -300,10 +350,10 @@ void SCH_EDIT_FRAME::PutDataInPreviousState( PICKED_ITEMS_LIST* aList )
         }
         else if( status == UNDO_REDO::DELETED )
         {
-            SCH_ITEM* schItem = static_cast<SCH_ITEM*>( eda_item );
+            if( eda_item->Type() == SCH_SHEET_T )
+                rebuildHierarchyNavigator = true;
 
-            if( schItem && schItem->IsConnectable() )
-                m_highlightedConnChanged = true;
+            updateConnectivityFlag();
 
             // deleted items are re-inserted on undo
             AddToScreen( eda_item, screen );
@@ -325,33 +375,48 @@ void SCH_EDIT_FRAME::PutDataInPreviousState( PICKED_ITEMS_LIST* aList )
             DS_PROXY_UNDO_ITEM  alt_item( this );
             DS_PROXY_UNDO_ITEM* item = static_cast<DS_PROXY_UNDO_ITEM*>( eda_item );
             item->Restore( this );
-            *item = alt_item;
+            *item = std::move( alt_item );
         }
-        else if( SCH_ITEM* item = dynamic_cast<SCH_ITEM*>( eda_item ) )
+        else if( schItem )
         {
-            if( item->IsConnectable() )
-                m_highlightedConnChanged = true;
+            SCH_ITEM* itemCopy = dynamic_cast<SCH_ITEM*>( aList->GetPickedItemLink( ii ) );
 
-            // everything else is modified in place
-            SCH_ITEM* alt_item = static_cast<SCH_ITEM*>( aList->GetPickedItemLink( ii ) );
+            wxCHECK2( itemCopy, continue );
+
+            if( schItem->HasConnectivityChanges( itemCopy, &GetCurrentSheet() ) )
+                updateConnectivityFlag();
 
             // The root sheet is a pseudo object that owns the root screen object but is not on
             // the root screen so do not attempt to remove it from the screen it owns.
-            if( item != &Schematic().Root() )
-                RemoveFromScreen( item, screen );
+            if( schItem != &Schematic().Root() )
+                RemoveFromScreen( schItem, screen );
 
             switch( status )
             {
             case UNDO_REDO::CHANGED:
-                item->SwapData( alt_item );
-                bulkChangedItems.emplace_back( item );
+                if( schItem->Type() == SCH_SHEET_T )
+                {
+                    const SCH_SHEET* origSheet = static_cast<const SCH_SHEET*>( schItem );
+                    const SCH_SHEET* copySheet = static_cast<const SCH_SHEET*>( schItem );
+
+                    wxCHECK2( origSheet && copySheet, continue );
+
+                    if( ( origSheet->GetName() != copySheet->GetName() )
+                      || ( origSheet->GetFileName() != copySheet->GetFileName() ) )
+                    {
+                        rebuildHierarchyNavigator = true;
+                    }
+                }
+
+                schItem->SwapData( itemCopy );
+                bulkChangedItems.emplace_back( schItem );
 
                 // Special cases for items which have instance data
-                if( item->GetParent() && item->GetParent()->Type() == SCH_SYMBOL_T
-                        && item->Type() == SCH_FIELD_T )
+                if( schItem->GetParent() && schItem->GetParent()->Type() == SCH_SYMBOL_T
+                  && schItem->Type() == SCH_FIELD_T )
                 {
-                    SCH_FIELD*  field = static_cast<SCH_FIELD*>( item );
-                    SCH_SYMBOL* symbol = static_cast<SCH_SYMBOL*>( item->GetParent() );
+                    SCH_FIELD*  field = static_cast<SCH_FIELD*>( schItem );
+                    SCH_SYMBOL* symbol = static_cast<SCH_SYMBOL*>( schItem->GetParent() );
 
                     if( field->GetId() == REFERENCE_FIELD )
                     {
@@ -370,14 +435,14 @@ void SCH_EDIT_FRAME::PutDataInPreviousState( PICKED_ITEMS_LIST* aList )
                 break;
             }
 
-            if( item->Type() == SCH_SYMBOL_T )
+            if( schItem->Type() == SCH_SYMBOL_T )
             {
-                SCH_SYMBOL* sym = static_cast<SCH_SYMBOL*>( item );
+                SCH_SYMBOL* sym = static_cast<SCH_SYMBOL*>( schItem );
                 sym->UpdatePins();
             }
 
-            if( item != &Schematic().Root() )
-                AddToScreen( item, screen );
+            if( schItem != &Schematic().Root() )
+                AddToScreen( schItem, screen );
         }
     }
 
@@ -392,6 +457,26 @@ void SCH_EDIT_FRAME::PutDataInPreviousState( PICKED_ITEMS_LIST* aList )
 
     if( bulkChangedItems.size() > 0 )
         Schematic().OnItemsChanged( bulkChangedItems );
+
+    if( dirtyConnectivity )
+    {
+        wxLogTrace( wxS( "CONN_PROFILE" ),
+                    wxS( "Undo/redo %s clean up connectivity rebuild." ),
+                    ( connectivityCleanUp == LOCAL_CLEANUP ) ? wxS( "local" ) : wxS( "global" ) );
+
+        SCH_COMMIT localCommit( m_toolManager );
+
+        RecalculateConnections( &localCommit, connectivityCleanUp );
+
+        // Update the hierarchy navigator when there are sheet changes.
+        if( connectivityCleanUp == GLOBAL_CLEANUP )
+        {
+            SetSheetNumberAndCount();
+
+            if( rebuildHierarchyNavigator )
+                UpdateHierarchyNavigator();
+        }
+    }
 }
 
 
@@ -413,12 +498,8 @@ void SCH_EDIT_FRAME::RollbackSchematicFromUndo()
                                        {
                                            delete aItem;
                                        } );
+
         delete undo;
-
-        SetSheetNumberAndCount();
-        UpdateHierarchyNavigator();
-
-        TestDanglingEnds();
 
         m_toolManager->GetTool<EE_SELECTION_TOOL>()->RebuildSelection();
     }
@@ -432,18 +513,29 @@ void SCH_EDIT_FRAME::ClearUndoORRedoList( UNDO_REDO_LIST whichList, int aItemCou
     if( aItemCount == 0 )
         return;
 
-    UNDO_REDO_CONTAINER& list = whichList == UNDO_LIST ? m_undoList : m_redoList;
+    UNDO_REDO_CONTAINER& list = ( whichList == UNDO_LIST ) ? m_undoList : m_redoList;
 
-    for( PICKED_ITEMS_LIST* command : list.m_CommandsList )
+    if( aItemCount < 0 )
     {
-        command->ClearListAndDeleteItems( []( EDA_ITEM* aItem )
-                                          {
-                                              delete aItem;
-                                          } );
-        delete command;
+        list.ClearCommandList();
     }
+    else
+    {
+        for( int ii = 0; ii < aItemCount; ii++ )
+        {
+            if( list.m_CommandsList.size() == 0 )
+                break;
 
-    list.m_CommandsList.clear();
+            PICKED_ITEMS_LIST* curr_cmd = list.m_CommandsList[0];
+            list.m_CommandsList.erase( list.m_CommandsList.begin() );
+
+            curr_cmd->ClearListAndDeleteItems( []( EDA_ITEM* aItem )
+                                               {
+                                                   delete aItem;
+                                               } );
+            delete curr_cmd;    // Delete command
+        }
+    }
 }
 
 

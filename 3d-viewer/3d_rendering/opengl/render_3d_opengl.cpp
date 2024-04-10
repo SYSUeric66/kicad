@@ -3,7 +3,7 @@
  *
  * Copyright (C) 2015-2020 Mario Luzeiro <mrluzeiro@ua.pt>
  * Copyright (C) 2023 CERN
- * Copyright (C) 2015-2023 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2015-2024 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -47,7 +47,8 @@
 
 RENDER_3D_OPENGL::RENDER_3D_OPENGL( EDA_3D_CANVAS* aCanvas, BOARD_ADAPTER& aAdapter,
                                     CAMERA& aCamera ) :
-        RENDER_3D_BASE( aCanvas, aAdapter, aCamera )
+        RENDER_3D_BASE( aAdapter, aCamera ),
+        m_canvas( aCanvas )
 {
     wxLogTrace( m_logTrace, wxT( "RENDER_3D_OPENGL::RENDER_3D_OPENGL" ) );
 
@@ -444,11 +445,17 @@ void RENDER_3D_OPENGL::renderBoardBody( bool aSkipRenderHoles )
 }
 
 
+static inline SFVEC4F premultiplyAlpha( const SFVEC4F& aInput )
+{
+    return SFVEC4F( aInput.r * aInput.a, aInput.g * aInput.a, aInput.b * aInput.a, aInput.a );
+}
+
+
 bool RENDER_3D_OPENGL::Redraw( bool aIsMoving, REPORTER* aStatusReporter,
                                REPORTER* aWarningReporter )
 {
     // Initialize OpenGL
-    if( !m_is_opengl_initialized )
+    if( !m_canvasInitialized )
     {
         if( !initializeOpenGL() )
             return false;
@@ -495,7 +502,7 @@ bool RENDER_3D_OPENGL::Redraw( bool aIsMoving, REPORTER* aStatusReporter,
         glEnable( GL_MULTISAMPLE );
 
     // clear color and depth buffers
-    glClearColor( 0.0f, 0.0f, 0.0f, 1.0f );
+    glClearColor( 0.0f, 0.0f, 0.0f, 0.0f );
     glClearDepth( 1.0f );
     glClearStencil( 0x00 );
     glClear( GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT );
@@ -503,8 +510,8 @@ bool RENDER_3D_OPENGL::Redraw( bool aIsMoving, REPORTER* aStatusReporter,
     OglResetTextureState();
 
     // Draw the background ( rectangle with color gradient)
-    OglDrawBackground( SFVEC3F( m_boardAdapter.m_BgColorTop ),
-                       SFVEC3F( m_boardAdapter.m_BgColorBot ) );
+    OglDrawBackground( premultiplyAlpha( m_boardAdapter.m_BgColorTop ),
+                       premultiplyAlpha( m_boardAdapter.m_BgColorBot ) );
 
     glEnable( GL_DEPTH_TEST );
 
@@ -817,7 +824,7 @@ bool RENDER_3D_OPENGL::initializeOpenGL()
 
     // Use this mode if you want see the triangle lines (debug proposes)
     //glPolygonMode( GL_FRONT_AND_BACK,  GL_LINE );
-    m_is_opengl_initialized = true;
+    m_canvasInitialized = true;
 
     return true;
 }
@@ -1015,7 +1022,7 @@ void RENDER_3D_OPENGL::get3dModelsFromFootprint( std::list<MODELTORENDER> &aDstR
                     const SFVEC3F offset = SFVEC3F( sM.m_Offset.x, sM.m_Offset.y, sM.m_Offset.z );
                     const SFVEC3F rotation = SFVEC3F( sM.m_Rotation.x, sM.m_Rotation.y, sM.m_Rotation.z );
                     const SFVEC3F scale = SFVEC3F( sM.m_Scale.x, sM.m_Scale.y, sM.m_Scale.z );
-                    
+
                     std::vector<float> key = { offset.x, offset.y, offset.z,
                                                rotation.x, rotation.y, rotation.z,
                                                scale.x, scale.y, scale.z };
@@ -1128,7 +1135,7 @@ void RENDER_3D_OPENGL::renderTransparentModels( const glm::mat4 &aCameraViewMatr
         const SFVEC3F bBoxWorld = mtr.m_modelWorldMat * glm::vec4( bBoxCenter, 1.0f );
 
         const float distanceToCamera = glm::length( cameraPos - bBoxWorld );
-        
+
         transparentModelList.emplace_back( &mtr, distanceToCamera );
     }
 
@@ -1218,7 +1225,7 @@ void RENDER_3D_OPENGL::renderModel( const glm::mat4 &aCameraViewMatrix,
         aModelToRender.m_model->DrawBbox();
 
         glEnable( GL_LIGHTING );
-        
+
         if( !wasBlendEnabled )
             glDisable( GL_BLEND );
     }

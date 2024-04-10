@@ -4,7 +4,7 @@
  * Copyright (C) 2013 Jean-Pierre Charras, jp.charras at wanadoo.fr
  * Copyright (C) 2012 SoftPLC Corporation, Dick Hollenbeck <dick@softplc.com>
  * Copyright (C) 2008 Wayne Stambaugh <stambaughw@gmail.com>
- * Copyright (C) 1992-2023 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2024 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -36,6 +36,7 @@
 #include <project.h>
 #include <project_sch.h>
 #include <reporter.h>
+#include <trace_helpers.h>
 #include <sch_edit_frame.h>
 #include <sch_item.h>
 
@@ -1020,7 +1021,8 @@ void SCH_SCREEN::UpdateSymbolLinks( REPORTER* aReporter )
             }
         }
 
-        symbol->SetLibSymbol( libSymbol.release() );
+        if( libSymbol.get() )   // Only change the old link if the new link exists
+            symbol->SetLibSymbol( libSymbol.release() );
     }
 
     // Changing the symbol may adjust the bbox of the symbol.  This re-inserts the
@@ -1063,7 +1065,7 @@ void SCH_SCREEN::SetConnectivityDirty()
 }
 
 
-void SCH_SCREEN::Print( const RENDER_SETTINGS* aSettings )
+void SCH_SCREEN::Print( const SCH_RENDER_SETTINGS* aSettings )
 {
     // Ensure links are up to date, even if a library was reloaded for some reason:
     std::vector<SCH_ITEM*> junctions;
@@ -1094,20 +1096,20 @@ void SCH_SCREEN::Print( const RENDER_SETTINGS* aSettings )
                } );
 
     for( SCH_ITEM* item : bitmaps )
-        item->Print( aSettings, VECTOR2I( 0, 0 ) );
+        item->Print( aSettings, 0, 0, VECTOR2I( 0, 0 ), false, false );
 
     for( SCH_ITEM* item : other )
-        item->PrintBackground( aSettings, VECTOR2I( 0, 0 ) );
+        item->PrintBackground( aSettings, 0, 0, VECTOR2I( 0, 0 ), false );
 
     for( SCH_ITEM* item : other )
-        item->Print( aSettings, VECTOR2I( 0, 0 ) );
+        item->Print( aSettings, 0, 0, VECTOR2I( 0, 0 ), false, false );
 
     for( SCH_ITEM* item : junctions )
-        item->Print( aSettings, VECTOR2I( 0, 0 ) );
+        item->Print( aSettings, 0, 0, VECTOR2I( 0, 0 ), false, false );
 }
 
 
-void SCH_SCREEN::Plot( PLOTTER* aPlotter, const SCH_PLOT_SETTINGS& aPlotSettings ) const
+void SCH_SCREEN::Plot( PLOTTER* aPlotter, const SCH_PLOT_OPTS& aPlotOpts ) const
 {
     // Ensure links are up to date, even if a library was reloaded for some reason:
     std::vector<SCH_ITEM*>   junctions;
@@ -1153,42 +1155,43 @@ void SCH_SCREEN::Plot( PLOTTER* aPlotter, const SCH_PLOT_SETTINGS& aPlotSettings
                     return a->Type() > b->Type();
                 } );
 
-    int defaultPenWidth = aPlotter->RenderSettings()->GetDefaultPenWidth();
+    auto* renderSettings = static_cast<const SCH_RENDER_SETTINGS*>( aPlotter->RenderSettings() );
     constexpr bool background = true;
 
     // Bitmaps are drawn first to ensure they are in the background
     // This is particularly important for the wxPostscriptDC (used in *nix printers) as
     // the bitmap PS command clears the screen
-    for( const SCH_ITEM* item : bitmaps )
+    for( SCH_ITEM* item : bitmaps )
     {
-        aPlotter->SetCurrentLineWidth( std::max( item->GetPenWidth(), defaultPenWidth ) );
-        item->Plot( aPlotter, background, aPlotSettings );
+        aPlotter->SetCurrentLineWidth( item->GetEffectivePenWidth( renderSettings ) );
+        item->Plot( aPlotter, background, aPlotOpts, 0, 0, { 0, 0 }, false );
     }
 
     // Plot the background items
-    for( const SCH_ITEM* item : other )
+    for( SCH_ITEM* item : other )
     {
-        aPlotter->SetCurrentLineWidth( std::max( item->GetPenWidth(), defaultPenWidth ) );
-        item->Plot( aPlotter, background, aPlotSettings );
+        aPlotter->SetCurrentLineWidth( item->GetEffectivePenWidth( renderSettings ) );
+        item->Plot( aPlotter, background, aPlotOpts, 0, 0, { 0, 0 }, false );
     }
 
     // Plot the foreground items
-    for( const SCH_ITEM* item : other )
+    for( SCH_ITEM* item : other )
     {
-        aPlotter->SetCurrentLineWidth( std::max( item->GetPenWidth(), defaultPenWidth ) );
-        item->Plot( aPlotter, !background, aPlotSettings );
+        aPlotter->SetCurrentLineWidth( item->GetEffectivePenWidth( renderSettings ) );
+        item->Plot( aPlotter, !background, aPlotOpts, 0, 0, { 0, 0 }, false );
     }
 
     // After plotting the symbols as a group above (in `other`), we need to overplot the pins
     // and symbols to ensure that they are always visible
     for( const SCH_SYMBOL* sym :symbols )
     {
-        aPlotter->SetCurrentLineWidth( std::max( sym->GetPenWidth(), defaultPenWidth ) );
+        aPlotter->SetCurrentLineWidth( sym->GetEffectivePenWidth( renderSettings ) );
 
         for( SCH_FIELD field : sym->GetFields() )
         {
             field.ClearRenderCache();
-            field.Plot( aPlotter, false, aPlotSettings );
+            field.Plot( aPlotter, false, aPlotOpts, sym->GetUnit(), sym->GetBodyStyle(), { 0, 0 },
+                        sym->GetDNP() );
         }
 
         sym->PlotPins( aPlotter );
@@ -1197,10 +1200,10 @@ void SCH_SCREEN::Plot( PLOTTER* aPlotter, const SCH_PLOT_SETTINGS& aPlotSettings
             sym->PlotDNP( aPlotter );
     }
 
-    for( const SCH_ITEM* item : junctions )
+    for( SCH_ITEM* item : junctions )
     {
-        aPlotter->SetCurrentLineWidth( std::max( item->GetPenWidth(), defaultPenWidth ) );
-        item->Plot( aPlotter, !background, aPlotSettings );
+        aPlotter->SetCurrentLineWidth( item->GetEffectivePenWidth( renderSettings ) );
+        item->Plot( aPlotter, !background, aPlotOpts, 0, 0, { 0, 0 }, false );
     }
 }
 
@@ -1359,36 +1362,46 @@ void SCH_SCREEN::TestDanglingEnds( const SCH_SHEET_PATH* aPath,
 {
     PROF_TIMER timer( __FUNCTION__ );
 
-    std::vector<DANGLING_END_ITEM> endPoints;
+    std::vector<DANGLING_END_ITEM> endPointsByPos;
+    std::vector<DANGLING_END_ITEM> endPointsByType;
 
-    auto getends =
+    auto get_ends =
             [&]( SCH_ITEM* item )
             {
                 if( item->IsConnectable() )
-                    item->GetEndPoints( endPoints );
+                    item->GetEndPoints( endPointsByType );
             };
+
     auto update_state =
             [&]( SCH_ITEM* item )
             {
-                if( item->UpdateDanglingState( endPoints, aPath ) )
+                if( item->UpdateDanglingState( endPointsByType, endPointsByPos, aPath ) )
                 {
                     if( aChangedHandler )
-                        (*aChangedHandler)( item );
+                        ( *aChangedHandler )( item );
                 }
             };
 
     for( SCH_ITEM* item : Items() )
     {
-
-        getends( item );
-        item->RunOnChildren( getends );
+        get_ends( item );
+        item->RunOnChildren( get_ends );
     }
+
+    PROF_TIMER sortTimer( "SCH_SCREEN::TestDanglingEnds pre-sort" );
+    endPointsByPos = endPointsByType;
+    DANGLING_END_ITEM_HELPER::sort_dangling_end_items( endPointsByType, endPointsByPos );
+    sortTimer.Stop();
+
+    if( wxLog::IsAllowedTraceMask( DanglingProfileMask ) )
+        sortTimer.Show();
 
     for( SCH_ITEM* item : Items() )
     {
         update_state( item );
         item->RunOnChildren( update_state );
     }
+
     if( wxLog::IsAllowedTraceMask( DanglingProfileMask ) )
         timer.Show();
 }
@@ -1585,7 +1598,7 @@ void SCH_SCREEN::SetLegacySymbolInstanceData()
         SCH_SYMBOL* symbol = static_cast<SCH_SYMBOL*>( item );
 
         // Add missing value and footprint instance data for legacy schematics.
-        for( const SCH_SYMBOL_INSTANCE& instance : symbol->GetInstanceReferences() )
+        for( const SCH_SYMBOL_INSTANCE& instance : symbol->GetInstances() )
         {
             symbol->AddHierarchicalReference( instance.m_Path, instance.m_Reference,
                                               instance.m_Unit );
@@ -1634,6 +1647,100 @@ size_t SCH_SCREEN::getLibSymbolNameMatches( const SCH_SYMBOL& aSymbol,
     }
 
     return aMatches.size();
+}
+
+
+void SCH_SCREEN::PruneOrphanedSymbolInstances( const wxString& aProjectName,
+                                               const SCH_SHEET_LIST& aValidSheetPaths )
+{
+    // The project name cannot be empty.  Projects older than 7.0 did not save project names
+    // when saving instance data.  Running this algorithm with an empty project name would
+    // clobber all instance data for projects other than the current one when a schematic
+    // file is shared across multiple projects.  Because running the schematic editor in
+    // stand alone mode can result in an empty project name, do not assert here.
+    if( aProjectName.IsEmpty() )
+        return;
+
+    for( SCH_ITEM* item : Items().OfType( SCH_SYMBOL_T ) )
+    {
+        SCH_SYMBOL* symbol = static_cast<SCH_SYMBOL*>( item );
+
+        wxCHECK2( symbol, continue );
+
+        std::set<KIID_PATH> pathsToPrune;
+        const std::vector<SCH_SYMBOL_INSTANCE> instances = symbol->GetInstances();
+
+        for( const SCH_SYMBOL_INSTANCE& instance : instances )
+        {
+            // Ignore instance paths from other projects.
+            if( aProjectName != instance.m_ProjectName )
+                continue;
+
+            std::optional<SCH_SHEET_PATH> pathFound =
+                    aValidSheetPaths.GetSheetPathByKIIDPath( instance.m_Path );
+
+            // Check for paths that do not exist in the current project and paths that do
+            // not contain the current symbol.
+            if( !pathFound )
+                pathsToPrune.emplace( instance.m_Path );
+            else if( pathFound.value().LastScreen() != this )
+                pathsToPrune.emplace( pathFound.value().Path() );
+        }
+
+        for( const KIID_PATH& sheetPath : pathsToPrune )
+        {
+            wxLogTrace( traceSchSheetPaths, wxS( "Pruning project '%s' symbol instance %s." ),
+                        aProjectName, sheetPath.AsString() );
+            symbol->RemoveInstance( sheetPath );
+        }
+    }
+}
+
+
+void SCH_SCREEN::PruneOrphanedSheetInstances( const wxString& aProjectName,
+                                              const SCH_SHEET_LIST& aValidSheetPaths )
+{
+    // The project name cannot be empty.  Projects older than 7.0 did not save project names
+    // when saving instance data.  Running this algorithm with an empty project name would
+    // clobber all instance data for projects other than the current one when a schematic
+    // file is shared across multiple projects.  Because running the schematic editor in
+    // stand alone mode can result in an empty project name, do not assert here.
+    if( aProjectName.IsEmpty() )
+        return;
+
+    for( SCH_ITEM* item : Items().OfType( SCH_SHEET_T ) )
+    {
+        SCH_SHEET* sheet = static_cast<SCH_SHEET*>( item );
+
+        wxCHECK2( sheet, continue );
+
+        std::set<KIID_PATH> pathsToPrune;
+        const std::vector<SCH_SHEET_INSTANCE> instances = sheet->GetInstances();
+
+        for( const SCH_SHEET_INSTANCE& instance : instances )
+        {
+            // Ignore instance paths from other projects.
+            if( aProjectName != instance.m_ProjectName )
+                continue;
+
+            std::optional<SCH_SHEET_PATH> pathFound =
+                    aValidSheetPaths.GetSheetPathByKIIDPath( instance.m_Path );
+
+            // Check for paths that do not exist in the current project and paths that do
+            // not contain the current symbol.
+            if( !pathFound )
+                pathsToPrune.emplace( instance.m_Path );
+            else if( pathFound.value().LastScreen() != this )
+                pathsToPrune.emplace( pathFound.value().Path() );
+        }
+
+        for( const KIID_PATH& sheetPath : pathsToPrune )
+        {
+            wxLogTrace( traceSchSheetPaths, wxS( "Pruning project '%s' sheet instance %s." ),
+                        aProjectName, sheetPath.AsString() );
+            sheet->RemoveInstance( sheetPath );
+        }
+    }
 }
 
 
@@ -1843,7 +1950,7 @@ void SCH_SCREENS::DeleteMarker( SCH_MARKER* aMarker )
 }
 
 
-void SCH_SCREENS::DeleteMarkers( enum MARKER_BASE::TYPEMARKER aMarkerType, int aErrorCode,
+void SCH_SCREENS::DeleteMarkers( enum MARKER_BASE::MARKER_T aMarkerType, int aErrorCode,
                                  bool aIncludeExclusions )
 {
     for( SCH_SCREEN* screen = GetFirst(); screen; screen = GetNext() )
@@ -1869,7 +1976,7 @@ void SCH_SCREENS::DeleteMarkers( enum MARKER_BASE::TYPEMARKER aMarkerType, int a
 }
 
 
-void SCH_SCREENS::DeleteAllMarkers( enum MARKER_BASE::TYPEMARKER aMarkerType,
+void SCH_SCREENS::DeleteAllMarkers( enum MARKER_BASE::MARKER_T aMarkerType,
                                     bool aIncludeExclusions )
 {
     DeleteMarkers( aMarkerType, ERCE_UNSPECIFIED, aIncludeExclusions );
@@ -1949,7 +2056,7 @@ int SCH_SCREENS::ChangeSymbolLibNickname( const wxString& aFrom, const wxString&
         {
             SCH_SYMBOL* symbol = static_cast<SCH_SYMBOL*>( item );
 
-            if( symbol->GetLibId().GetLibNickname() != aFrom )
+            if( symbol->GetLibId().GetLibNickname().wx_str() != aFrom )
                 continue;
 
             LIB_ID id = symbol->GetLibId();
@@ -2059,4 +2166,26 @@ void SCH_SCREEN::MigrateSimModels()
         SCH_SYMBOL* symbol = static_cast<SCH_SYMBOL*>( item );
         SIM_MODEL::MigrateSimModel<SCH_SYMBOL, SCH_FIELD>( *symbol, &Schematic()->Prj() );
     }
+}
+
+
+void SCH_SCREENS::PruneOrphanedSymbolInstances( const wxString& aProjectName,
+                                                const SCH_SHEET_LIST& aValidSheetPaths )
+{
+    if( aProjectName.IsEmpty() )
+        return;
+
+    for( SCH_SCREEN* screen = GetFirst(); screen; screen = GetNext() )
+        screen->PruneOrphanedSymbolInstances( aProjectName, aValidSheetPaths );
+}
+
+
+void SCH_SCREENS::PruneOrphanedSheetInstances( const wxString& aProjectName,
+                                               const SCH_SHEET_LIST& aValidSheetPaths )
+{
+    if( aProjectName.IsEmpty() )
+        return;
+
+    for( SCH_SCREEN* screen = GetFirst(); screen; screen = GetNext() )
+        screen->PruneOrphanedSheetInstances( aProjectName, aValidSheetPaths );
 }

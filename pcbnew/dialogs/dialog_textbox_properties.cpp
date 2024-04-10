@@ -56,18 +56,19 @@ DIALOG_TEXTBOX_PROPERTIES::DIALOG_TEXTBOX_PROPERTIES( PCB_BASE_EDIT_FRAME* aPare
 #endif
 
     m_scintillaTricks = new SCINTILLA_TRICKS( m_MultiLineText, wxT( "{}" ), false,
-            // onAccept handler
+            // onAcceptFn
             [this]( wxKeyEvent& aEvent )
             {
                 wxPostEvent( this, wxCommandEvent( wxEVT_COMMAND_BUTTON_CLICKED, wxID_OK ) );
             },
-            // onCharAdded handler
+            // onCharFn
             [this]( wxStyledTextEvent& aEvent )
             {
                 m_scintillaTricks->DoTextVarAutocomplete(
-                        [this]( const wxString& crossRef, wxArrayString* tokens )
+                        // getTokensFn
+                        [this]( const wxString& xRef, wxArrayString* tokens )
                         {
-                            m_frame->GetContextualTextVars( m_textBox,  crossRef, tokens );
+                            m_frame->GetContextualTextVars( m_textBox,  xRef, tokens );
                         } );
             } );
 
@@ -127,7 +128,7 @@ DIALOG_TEXTBOX_PROPERTIES::DIALOG_TEXTBOX_PROPERTIES( PCB_BASE_EDIT_FRAME* aPare
         m_OrientCtrl->SetString( ii, wxString::Format( "%.1f", rot_list[ii] ) );
 
     for( const auto& [ lineStyle, lineStyleDesc ] : lineTypeNames )
-        m_borderStyleCombo->Append( lineStyleDesc.name, KiBitmap( lineStyleDesc.bitmap ) );
+        m_borderStyleCombo->Append( lineStyleDesc.name, KiBitmapBundle( lineStyleDesc.bitmap ) );
 
     m_borderStyleCombo->Append( DEFAULT_STYLE );
 
@@ -185,9 +186,10 @@ bool DIALOG_TEXTBOX_PROPERTIES::TransferDataToWindow()
 
     switch ( m_textBox->GetHorizJustify() )
     {
-    case GR_TEXT_H_ALIGN_LEFT:   m_alignLeft->Check( true );   break;
-    case GR_TEXT_H_ALIGN_CENTER: m_alignCenter->Check( true ); break;
-    case GR_TEXT_H_ALIGN_RIGHT:  m_alignRight->Check( true );  break;
+    case GR_TEXT_H_ALIGN_LEFT:          m_alignLeft->Check( true );   break;
+    case GR_TEXT_H_ALIGN_CENTER:        m_alignCenter->Check( true ); break;
+    case GR_TEXT_H_ALIGN_RIGHT:         m_alignRight->Check( true );  break;
+    case GR_TEXT_H_ALIGN_INDETERMINATE:                               break;
     }
 
     m_mirrored->Check( m_textBox->IsMirrored() );
@@ -290,8 +292,8 @@ bool DIALOG_TEXTBOX_PROPERTIES::TransferDataFromWindow()
     if( !DIALOG_TEXTBOX_PROPERTIES_BASE::TransferDataFromWindow() )
         return false;
 
-    int minSize = pcbIUScale.MilsToIU( TEXT_MIN_SIZE_MILS );
-    int maxSize = pcbIUScale.MilsToIU( TEXT_MAX_SIZE_MILS );
+    int minSize = pcbIUScale.mmToIU( TEXT_MIN_SIZE_MM );
+    int maxSize = pcbIUScale.mmToIU( TEXT_MAX_SIZE_MM );
 
     if( !m_textWidth.Validate( minSize, maxSize ) || !m_textHeight.Validate( minSize, maxSize ) )
         return false;
@@ -345,7 +347,7 @@ bool DIALOG_TEXTBOX_PROPERTIES::TransferDataFromWindow()
     }
 
     m_textBox->SetTextAngle( m_orientation.GetAngleValue().Normalize() );
-    m_textBox->SetBold( m_bold->IsChecked() );
+    m_textBox->SetBoldFlag( m_bold->IsChecked() );
     m_textBox->SetItalic( m_italic->IsChecked() );
 
     if( m_alignLeft->IsChecked() )
@@ -377,7 +379,7 @@ bool DIALOG_TEXTBOX_PROPERTIES::TransferDataFromWindow()
     m_textBox->ClearRenderCache();
 
     if( pushCommit )
-        commit.Push( _( "Change text box properties" ) );
+        commit.Push( _( "Edit Text Box Properties" ) );
 
     return true;
 }

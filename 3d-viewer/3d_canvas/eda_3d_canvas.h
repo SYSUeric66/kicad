@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2015-2016 Mario Luzeiro <mrluzeiro@ua.pt>
- * Copyright (C) 1992-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2024 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -38,7 +38,7 @@
 class WX_INFOBAR;
 class wxStatusBar;
 class BOARD;
-class RENDER_3D_RAYTRACE;
+class RENDER_3D_RAYTRACE_GL;
 class RENDER_3D_OPENGL;
 
 
@@ -52,12 +52,12 @@ public:
      *  Create a new 3D Canvas with an attribute list.
      *
      *  @param aParent the parent creator of this canvas.
-     *  @param aAttribList a list of openGL options created by GetOpenGL_AttributesList.
+     *  @param aGLAttribs openGL attributes created by #OGL_ATT_LIST::GetAttributesList.
      *  @param aBoard The board.
      *  @param aSettings the settings options to be used by this canvas.
      */
-    EDA_3D_CANVAS( wxWindow* aParent, const int* aAttribList,
-                   BOARD_ADAPTER& aSettings, CAMERA& aCamera, S3D_CACHE* a3DCachePointer );
+    EDA_3D_CANVAS( wxWindow* aParent, const wxGLAttributes& aGLAttribs, BOARD_ADAPTER& aSettings,
+                   CAMERA& aCamera, S3D_CACHE* a3DCachePointer );
 
     ~EDA_3D_CANVAS();
 
@@ -97,7 +97,7 @@ public:
     }
 
     /**
-     * @return the current render ( a RENDER_3D_RAYTRACE* or a RENDER_3D_OPENGL* render )
+     * @return the current render ( a RENDER_3D_RAYTRACE_GL* or a RENDER_3D_OPENGL* render )
      */
     RENDER_3D_BASE* GetCurrentRender() const { return m_3d_render; }
 
@@ -208,12 +208,6 @@ public:
         m_3dmousePivotPos = aPos;
     }
 
-private:
-    /**
-     * Called by a wxPaintEvent event
-     */
-    void OnPaint( wxPaintEvent& aEvent );
-
     /**
      * The actual function to repaint the canvas.
      *
@@ -221,6 +215,10 @@ private:
      * called outside a wxPaintEvent
      */
     void DoRePaint();
+
+private:
+    // The wxPaintEvent event. mainly calls DoRePaint()
+    void OnPaint( wxPaintEvent& aEvent );
 
     void OnEraseBackground( wxEraseEvent& event );
 
@@ -307,13 +305,13 @@ private:
 
     bool                   m_render_pivot;            // Render the pivot while camera moving
     float                  m_camera_moving_speed;     // 1.0f will be 1:1
-    unsigned               m_strtime_camera_movement; // Ticktime of camera movement start
+    int64_t                m_strtime_camera_movement; // Ticktime of camera movement start
     bool                   m_animation_enabled;       // Camera animation enabled
     int                    m_moving_speed_multiplier; // Camera animation speed multiplier option
 
     BOARD_ADAPTER&         m_boardAdapter;            // Pre-computed 3D info and settings
     RENDER_3D_BASE*        m_3d_render;
-    RENDER_3D_RAYTRACE*    m_3d_render_raytracing;
+    RENDER_3D_RAYTRACE_GL* m_3d_render_raytracing;
     RENDER_3D_OPENGL*      m_3d_render_opengl;
 
     bool                   m_opengl_supports_raytracing;

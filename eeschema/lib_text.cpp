@@ -1,7 +1,7 @@
 /*
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
- * Copyright (C) 2004-2023 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2004-2024 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -30,7 +30,6 @@
 #include <widgets/msgpanel.h>
 #include <bitmaps.h>
 #include <eda_draw_frame.h>
-#include <lib_item.h>
 #include <general.h>
 #include <transform.h>
 #include <settings/color_settings.h>
@@ -38,9 +37,9 @@
 #include <default_values.h>    // For some default values
 #include <string_utils.h>
 
-LIB_TEXT::LIB_TEXT( LIB_SYMBOL* aParent ) :
-    LIB_ITEM( LIB_TEXT_T, aParent ),
-    EDA_TEXT( schIUScale, wxEmptyString )
+LIB_TEXT::LIB_TEXT( SCH_ITEM* aParent ) :
+        SCH_ITEM( aParent, LIB_TEXT_T ),
+        EDA_TEXT( schIUScale, wxEmptyString )
 {
     SetTextSize( VECTOR2I( schIUScale.MilsToIU( DEFAULT_TEXT_SIZE ),
                            schIUScale.MilsToIU( DEFAULT_TEXT_SIZE ) ) );
@@ -73,26 +72,15 @@ bool LIB_TEXT::HitTest( const VECTOR2I& aPosition, int aAccuracy ) const
 
 EDA_ITEM* LIB_TEXT::Clone() const
 {
-    LIB_TEXT* newitem = new LIB_TEXT( nullptr );
-
-    newitem->m_parent    = m_parent;
-    newitem->m_unit      = m_unit;
-    newitem->m_convert   = m_convert;
-    newitem->m_private   = m_private;
-    newitem->m_flags     = m_flags;
-
-    newitem->SetText( GetText() );
-    newitem->SetAttributes( *this );
-
-    return newitem;
+    return new LIB_TEXT( *this );
 }
 
 
-int LIB_TEXT::compare( const LIB_ITEM& aOther, int aCompareFlags ) const
+int LIB_TEXT::compare( const SCH_ITEM& aOther, int aCompareFlags ) const
 {
     wxASSERT( aOther.Type() == LIB_TEXT_T );
 
-    int retv = LIB_ITEM::compare( aOther, aCompareFlags );
+    int retv = SCH_ITEM::compare( aOther, aCompareFlags );
 
     if( retv )
         return retv;
@@ -120,15 +108,9 @@ int LIB_TEXT::compare( const LIB_ITEM& aOther, int aCompareFlags ) const
 }
 
 
-void LIB_TEXT::Offset( const VECTOR2I& aOffset )
+void LIB_TEXT::Move( const VECTOR2I& aOffset )
 {
     EDA_TEXT::Offset( aOffset );
-}
-
-
-void LIB_TEXT::MoveTo( const VECTOR2I& newPosition )
-{
-    SetTextPos( newPosition );
 }
 
 
@@ -172,14 +154,14 @@ void LIB_TEXT::NormalizeJustification( bool inverse )
 }
 
 
-void LIB_TEXT::MirrorHorizontal( const VECTOR2I& center )
+void LIB_TEXT::MirrorHorizontally( int aCenter )
 {
     NormalizeJustification( false );
     int x = GetTextPos().x;
 
-    x -= center.x;
+    x -= aCenter;
     x *= -1;
-    x += center.x;
+    x += aCenter;
 
     if( GetTextAngle().IsHorizontal() )
     {
@@ -201,14 +183,14 @@ void LIB_TEXT::MirrorHorizontal( const VECTOR2I& center )
 }
 
 
-void LIB_TEXT::MirrorVertical( const VECTOR2I& center )
+void LIB_TEXT::MirrorVertically( int aCenter )
 {
     NormalizeJustification( false );
     int y = GetTextPos().y;
 
-    y -= center.y;
+    y -= aCenter;
     y *= -1;
-    y += center.y;
+    y += aCenter;
 
     if( GetTextAngle().IsHorizontal() )
     {
@@ -264,8 +246,8 @@ void LIB_TEXT::Rotate( const VECTOR2I& center, bool aRotateCCW )
 }
 
 
-void LIB_TEXT::Plot( PLOTTER* plotter, bool aBackground, const VECTOR2I& offset,
-                     const TRANSFORM& aTransform, bool aDimmed ) const
+void LIB_TEXT::Plot( PLOTTER* plotter, bool aBackground, const SCH_PLOT_OPTS& aPlotOpts,
+                     int aUnit, int aBodyStyle, const VECTOR2I& offset, bool aDimmed )
 {
     wxASSERT( plotter != nullptr );
 
@@ -275,7 +257,7 @@ void LIB_TEXT::Plot( PLOTTER* plotter, bool aBackground, const VECTOR2I& offset,
     if( aBackground )
         return;
 
-    RENDER_SETTINGS* settings = plotter->RenderSettings();
+    SCH_RENDER_SETTINGS* renderSettings = getRenderSettings( plotter );
 
     BOX2I bBox = GetBoundingBox();
     // convert coordinates from draw Y axis to symbol_editor Y axis
@@ -299,16 +281,16 @@ void LIB_TEXT::Plot( PLOTTER* plotter, bool aBackground, const VECTOR2I& offset,
 
     // The text orientation may need to be flipped if the transformation matrix causes xy
     // axes to be flipped.
-    int      t1  = ( aTransform.x1 != 0 ) ^ ( GetTextAngle() != ANGLE_HORIZONTAL );
-    VECTOR2I pos = aTransform.TransformCoordinate( txtpos ) + offset;
+    int      t1  = ( renderSettings->m_Transform.x1 != 0 ) ^ ( GetTextAngle() != ANGLE_HORIZONTAL );
+    VECTOR2I pos = renderSettings->TransformCoordinate( txtpos ) + offset;
     COLOR4D  color = GetTextColor();
-    COLOR4D  bg = settings->GetBackgroundColor();
+    COLOR4D  bg = renderSettings->GetBackgroundColor();
 
     if( !plotter->GetColorMode() || color == COLOR4D::UNSPECIFIED )
-        color = settings->GetLayerColor( LAYER_DEVICE );
+        color = renderSettings->GetLayerColor( LAYER_DEVICE );
 
     if( !IsVisible() )
-        bg = settings->GetLayerColor( LAYER_HIDDEN );
+        bg = renderSettings->GetLayerColor( LAYER_HIDDEN );
     else if( bg == COLOR4D::UNSPECIFIED || !plotter->GetColorMode() )
         bg = COLOR4D::WHITE;
 
@@ -318,12 +300,12 @@ void LIB_TEXT::Plot( PLOTTER* plotter, bool aBackground, const VECTOR2I& offset,
         color = color.Mix( bg, 0.5f );
     }
 
-    int penWidth = std::max( GetEffectiveTextPenWidth(), settings->GetMinPenWidth() );
+    int penWidth = std::max( GetEffectiveTextPenWidth(), renderSettings->GetMinPenWidth() );
 
     KIFONT::FONT* font = GetFont();
 
     if( !font )
-        font = KIFONT::FONT::GetFont( settings->GetDefaultFont(), IsBold(), IsItalic() );
+        font = KIFONT::FONT::GetFont( renderSettings->GetDefaultFont(), IsBold(), IsItalic() );
 
     attrs.m_StrokeWidth = penWidth;
     attrs.m_Angle = t1 ? ANGLE_HORIZONTAL : ANGLE_VERTICAL;
@@ -349,8 +331,8 @@ KIFONT::FONT* LIB_TEXT::getDrawFont() const
 }
 
 
-void LIB_TEXT::print( const RENDER_SETTINGS* aSettings, const VECTOR2I& aOffset, void* aData,
-                      const TRANSFORM& aTransform, bool aDimmed )
+void LIB_TEXT::Print( const SCH_RENDER_SETTINGS* aSettings, int aUnit, int aBodyStyle,
+                      const VECTOR2I& aOffset, bool aForceNoFill, bool aDimmed )
 {
     wxDC*   DC = aSettings->GetPrintDC();
     COLOR4D color = GetTextColor();
@@ -378,7 +360,7 @@ void LIB_TEXT::print( const RENDER_SETTINGS* aSettings, const VECTOR2I& aOffset,
     // draw text in schematic)
     EDA_ANGLE orient = GetTextAngle();
 
-    if( aTransform.y1 )  // Rotate symbol 90 degrees.
+    if( aSettings->m_Transform.y1 )  // Rotate symbol 90 degrees.
     {
         if( orient == ANGLE_HORIZONTAL )
             orient = ANGLE_VERTICAL;
@@ -408,7 +390,7 @@ void LIB_TEXT::print( const RENDER_SETTINGS* aSettings, const VECTOR2I& aOffset,
     VECTOR2I txtpos = bBox.Centre();
 
     // Calculate pos according to mirror/rotation.
-    txtpos = aTransform.TransformCoordinate( txtpos ) + aOffset;
+    txtpos = aSettings->m_Transform.TransformCoordinate( txtpos ) + aOffset;
 
     GRPrintText( DC, txtpos, color, GetShownText( true ), orient, GetTextSize(),
                  GR_TEXT_H_ALIGN_CENTER, GR_TEXT_V_ALIGN_CENTER, penWidth, IsItalic(), IsBold(),
@@ -420,7 +402,7 @@ void LIB_TEXT::GetMsgPanelInfo( EDA_DRAW_FRAME* aFrame, std::vector<MSG_PANEL_IT
 {
     wxString msg;
 
-    LIB_ITEM::GetMsgPanelInfo( aFrame, aList );
+    getSymbolEditorMsgPanelInfo( aFrame, aList );
 
     // Don't use GetShownText() here; we want to show the user the variable references
     aList.emplace_back( _( "Text" ), KIUI::EllipsizeStatusText( aFrame, GetText() ) );
@@ -433,18 +415,20 @@ void LIB_TEXT::GetMsgPanelInfo( EDA_DRAW_FRAME* aFrame, std::vector<MSG_PANEL_IT
 
     switch ( GetHorizJustify() )
     {
-    case GR_TEXT_H_ALIGN_LEFT:   msg = _( "Left" );   break;
-    case GR_TEXT_H_ALIGN_CENTER: msg = _( "Center" ); break;
-    case GR_TEXT_H_ALIGN_RIGHT:  msg = _( "Right" );  break;
+    case GR_TEXT_H_ALIGN_LEFT:          msg = _( "Left" );         break;
+    case GR_TEXT_H_ALIGN_CENTER:        msg = _( "Center" );       break;
+    case GR_TEXT_H_ALIGN_RIGHT:         msg = _( "Right" );        break;
+    case GR_TEXT_H_ALIGN_INDETERMINATE: msg = INDETERMINATE_STATE; break;
     }
 
     aList.emplace_back( _( "H Justification" ), msg );
 
     switch ( GetVertJustify() )
     {
-    case GR_TEXT_V_ALIGN_TOP:    msg = _( "Top" );    break;
-    case GR_TEXT_V_ALIGN_CENTER: msg = _( "Center" ); break;
-    case GR_TEXT_V_ALIGN_BOTTOM: msg = _( "Bottom" ); break;
+    case GR_TEXT_V_ALIGN_TOP:           msg = _( "Top" );          break;
+    case GR_TEXT_V_ALIGN_CENTER:        msg = _( "Center" );       break;
+    case GR_TEXT_V_ALIGN_BOTTOM:        msg = _( "Bottom" );       break;
+    case GR_TEXT_V_ALIGN_INDETERMINATE: msg = INDETERMINATE_STATE; break;
     }
 
     aList.emplace_back( _( "V Justification" ), msg );
@@ -500,18 +484,18 @@ void LIB_TEXT::CalcEdit( const VECTOR2I& aPosition )
 }
 
 
-bool LIB_TEXT::operator==( const LIB_ITEM& aOther ) const
+bool LIB_TEXT::operator==( const SCH_ITEM& aOther ) const
 {
     if( Type() != aOther.Type() )
         return false;
 
     const LIB_TEXT& other = static_cast<const LIB_TEXT&>( aOther );
 
-    return LIB_ITEM::operator==( aOther ) && EDA_TEXT::operator==( other );
+    return SCH_ITEM::operator==( aOther ) && EDA_TEXT::operator==( other );
 }
 
 
-double LIB_TEXT::Similarity( const LIB_ITEM& aOther ) const
+double LIB_TEXT::Similarity( const SCH_ITEM& aOther ) const
 {
     if( m_Uuid == aOther.m_Uuid )
         return 1.0;
@@ -533,9 +517,9 @@ static struct LIB_TEXT_DESC
     {
         PROPERTY_MANAGER& propMgr = PROPERTY_MANAGER::Instance();
         REGISTER_TYPE( LIB_TEXT );
-        propMgr.AddTypeCast( new TYPE_CAST<LIB_TEXT, LIB_ITEM> );
+        propMgr.AddTypeCast( new TYPE_CAST<LIB_TEXT, SCH_ITEM> );
         propMgr.AddTypeCast( new TYPE_CAST<LIB_TEXT, EDA_TEXT> );
-        propMgr.InheritsAfter( TYPE_HASH( LIB_TEXT ), TYPE_HASH( LIB_ITEM ) );
+        propMgr.InheritsAfter( TYPE_HASH( LIB_TEXT ), TYPE_HASH( SCH_ITEM ) );
         propMgr.InheritsAfter( TYPE_HASH( LIB_TEXT ), TYPE_HASH( EDA_TEXT ) );
 
         propMgr.Mask( TYPE_HASH( LIB_TEXT ), TYPE_HASH( EDA_TEXT ), _HKI( "Mirrored" ) );

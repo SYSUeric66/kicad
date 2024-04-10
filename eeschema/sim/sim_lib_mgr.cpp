@@ -202,12 +202,17 @@ SIM_LIBRARY::MODEL SIM_LIB_MGR::CreateModel( const SCH_SHEET_PATH* aSheetPath, S
 
     for( const SCH_FIELD& field : aSymbol.GetFields() )
     {
-        fields.emplace_back( VECTOR2I(), -1, &aSymbol, field.GetName() );
-
         if( field.GetId() == REFERENCE_FIELD )
+        {
+            fields.emplace_back( VECTOR2I(), -1, &aSymbol, field.GetName() );
             fields.back().SetText( aSymbol.GetRef( aSheetPath ) );
-        else
+        }
+        else if( field.GetId() == VALUE_FIELD
+                 || field.GetName().StartsWith( wxS( "Sim." ) ) )
+        {
+            fields.emplace_back( VECTOR2I(), -1, &aSymbol, field.GetName() );
             fields.back().SetText( field.GetShownText( aSheetPath, false ) );
+        }
     }
 
     wxString deviceType;
@@ -220,12 +225,12 @@ SIM_LIBRARY::MODEL SIM_LIB_MGR::CreateModel( const SCH_SHEET_PATH* aSheetPath, S
     if( SIM_MODEL::InferSimModel( aSymbol, &fields, true, SIM_VALUE_GRAMMAR::NOTATION::SI,
                                   &deviceType, &modelType, &modelParams, &pinMap ) )
     {
-        fields.emplace_back( &aSymbol, -1, SIM_DEVICE_TYPE_FIELD );
+        fields.emplace_back( &aSymbol, -1, SIM_DEVICE_FIELD );
         fields.back().SetText( deviceType );
 
         if( !modelType.IsEmpty() )
         {
-            fields.emplace_back( &aSymbol, -1, SIM_TYPE_FIELD );
+            fields.emplace_back( &aSymbol, -1, SIM_DEVICE_SUBTYPE_FIELD );
             fields.back().SetText( modelType );
         }
 

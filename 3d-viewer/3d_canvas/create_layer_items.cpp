@@ -3,7 +3,7 @@
  *
  * Copyright (C) 2015-2016 Mario Luzeiro <mrluzeiro@ua.pt>
  * Copyright (C) 2023 CERN
- * Copyright (C) 1992-2023 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2024 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -40,6 +40,7 @@
 #include <pad.h>
 #include <pcb_text.h>
 #include <pcb_textbox.h>
+#include <pcb_table.h>
 #include <pcb_shape.h>
 #include <zone.h>
 #include <convert_basic_shapes_to_polygon.h>
@@ -117,8 +118,8 @@ void BOARD_ADAPTER::destroyLayers()
 
     DELETE_AND_FREE_MAP( m_layers_poly );
 
-    DELETE_AND_FREE( m_frontPlatedPadPolys )
-    DELETE_AND_FREE( m_backPlatedPadPolys )
+    DELETE_AND_FREE( m_frontPlatedPadAndGraphicPolys )
+    DELETE_AND_FREE( m_backPlatedPadAndGraphicPolys )
     DELETE_AND_FREE( m_frontPlatedCopperPolys )
     DELETE_AND_FREE( m_backPlatedCopperPolys )
 
@@ -154,9 +155,9 @@ void BOARD_ADAPTER::createLayers( REPORTER* aStatusReporter )
     //    https://github.com/KiCad/kicad-source-mirror/blob/master/3d-viewer/3d_draw.cpp#L692
 
 #ifdef PRINT_STATISTICS_3D_VIEWER
-    unsigned stats_startCopperLayersTime = GetRunningMicroSecs();
+    int64_t stats_startCopperLayersTime = GetRunningMicroSecs();
 
-    unsigned start_Time = stats_startCopperLayersTime;
+    int64_t start_Time = stats_startCopperLayersTime;
 #endif
 
     PCB_LAYER_ID cu_seq[MAX_CU_LAYERS];
@@ -241,8 +242,8 @@ void BOARD_ADAPTER::createLayers( REPORTER* aStatusReporter )
 
     if( cfg.differentiate_plated_copper )
     {
-        m_frontPlatedPadPolys = new SHAPE_POLY_SET;
-        m_backPlatedPadPolys = new SHAPE_POLY_SET;
+        m_frontPlatedPadAndGraphicPolys = new SHAPE_POLY_SET;
+        m_backPlatedPadAndGraphicPolys = new SHAPE_POLY_SET;
         m_frontPlatedCopperPolys = new SHAPE_POLY_SET;
         m_backPlatedCopperPolys = new SHAPE_POLY_SET;
 
@@ -586,10 +587,10 @@ void BOARD_ADAPTER::createLayers( REPORTER* aStatusReporter )
             // ADD PLATED PADS contours
             for( FOOTPRINT* footprint : m_board->Footprints() )
             {
-                footprint->TransformPadsToPolySet( *m_frontPlatedPadPolys, F_Cu, 0, maxError,
+                footprint->TransformPadsToPolySet( *m_frontPlatedPadAndGraphicPolys, F_Cu, 0, maxError,
                                                    ERROR_INSIDE, true, false, true );
 
-                footprint->TransformPadsToPolySet( *m_backPlatedPadPolys, B_Cu, 0, maxError,
+                footprint->TransformPadsToPolySet( *m_backPlatedPadAndGraphicPolys, B_Cu, 0, maxError,
                                                    ERROR_INSIDE, true, false, true );
             }
         }
@@ -622,6 +623,10 @@ void BOARD_ADAPTER::createLayers( REPORTER* aStatusReporter )
                 addShape( static_cast<PCB_TEXTBOX*>( item ), layerContainer, item );
                 break;
 
+            case PCB_TABLE_T:
+                addTable( static_cast<PCB_TABLE*>( item ), layerContainer, item );
+                break;
+
             case PCB_DIM_ALIGNED_T:
             case PCB_DIM_CENTER_T:
             case PCB_DIM_RADIAL_T:
@@ -634,6 +639,17 @@ void BOARD_ADAPTER::createLayers( REPORTER* aStatusReporter )
                 wxLogTrace( m_logTrace, wxT( "createLayers: item type: %d not implemented" ),
                             item->Type() );
                 break;
+            }
+
+            // add also this shape to the plated copper polygon list if required
+            if( cfg.differentiate_plated_copper )
+            {
+                if( layer == F_Cu )
+                    item->TransformShapeToPolygon( *m_frontPlatedCopperPolys, F_Cu,
+                                                    0, maxError, ERROR_INSIDE );
+                else if( layer == B_Cu )
+                    item->TransformShapeToPolygon( *m_backPlatedCopperPolys, B_Cu,
+                                                    0, maxError, ERROR_INSIDE );
             }
         }
     }
@@ -674,6 +690,10 @@ void BOARD_ADAPTER::createLayers( REPORTER* aStatusReporter )
                     textbox->TransformTextToPolySet( *layerPoly, 0, maxError, ERROR_INSIDE );
                     break;
                 }
+
+                case PCB_TABLE_T:
+                    // JEY TODO: tables
+                    break;
 
                 default:
                     wxLogTrace( m_logTrace, wxT( "createLayers: item type: %d not implemented" ),
@@ -836,6 +856,10 @@ void BOARD_ADAPTER::createLayers( REPORTER* aStatusReporter )
                     addShape( static_cast<PCB_TEXTBOX*>( item ), layerContainer, item );
                     break;
 
+                case PCB_TABLE_T:
+                    // JEY TODO: tables
+                    break;
+
                 case PCB_DIM_ALIGNED_T:
                 case PCB_DIM_CENTER_T:
                 case PCB_DIM_RADIAL_T:
@@ -930,6 +954,10 @@ void BOARD_ADAPTER::createLayers( REPORTER* aStatusReporter )
                     textbox->TransformTextToPolySet( *layerPoly, 0, maxError, ERROR_INSIDE );
                     break;
                 }
+
+                case PCB_TABLE_T:
+                    // JEY TODO: tables
+                    break;
 
                 default:
                     break;
@@ -1039,21 +1067,33 @@ void BOARD_ADAPTER::createLayers( REPORTER* aStatusReporter )
                                                           SHAPE_POLY_SET::PM_FAST );
         }
 
-        // SUBTRACT PLATED COPPER FROM (UNPLATED) COPPER
+        // Subtract plated copper from unplated copper
+        bool hasF_Cu = false;
+        bool hasB_Cu = false;
+
         if( m_layers_poly.find( F_Cu ) != m_layers_poly.end() )
         {
-            m_layers_poly[F_Cu]->BooleanSubtract( *m_frontPlatedPadPolys, SHAPE_POLY_SET::PM_FAST );
+            m_layers_poly[F_Cu]->BooleanSubtract( *m_frontPlatedPadAndGraphicPolys, SHAPE_POLY_SET::PM_FAST );
             m_layers_poly[F_Cu]->BooleanSubtract( *m_frontPlatedCopperPolys, SHAPE_POLY_SET::PM_FAST );
+            hasF_Cu = true;
         }
 
         if( m_layers_poly.find( B_Cu ) != m_layers_poly.end() )
         {
-            m_layers_poly[B_Cu]->BooleanSubtract( *m_backPlatedPadPolys, SHAPE_POLY_SET::PM_FAST );
+            m_layers_poly[B_Cu]->BooleanSubtract( *m_backPlatedPadAndGraphicPolys, SHAPE_POLY_SET::PM_FAST );
             m_layers_poly[B_Cu]->BooleanSubtract( *m_backPlatedCopperPolys, SHAPE_POLY_SET::PM_FAST );
+            hasB_Cu = true;
         }
 
-        m_frontPlatedPadPolys->Simplify( SHAPE_POLY_SET::PM_FAST );
-        m_backPlatedPadPolys->Simplify( SHAPE_POLY_SET::PM_FAST );
+        // Add plated graphic items to build vertical walls
+        if( hasF_Cu && m_frontPlatedCopperPolys->OutlineCount() )
+            m_frontPlatedPadAndGraphicPolys->Append( *m_frontPlatedCopperPolys );
+
+        if( hasB_Cu && m_backPlatedCopperPolys->OutlineCount() )
+            m_backPlatedPadAndGraphicPolys->Append( *m_backPlatedCopperPolys );
+
+        m_frontPlatedPadAndGraphicPolys->Simplify( SHAPE_POLY_SET::PM_FAST );
+        m_backPlatedPadAndGraphicPolys->Simplify( SHAPE_POLY_SET::PM_FAST );
         m_frontPlatedCopperPolys->Simplify( SHAPE_POLY_SET::PM_FAST );
         m_backPlatedCopperPolys->Simplify( SHAPE_POLY_SET::PM_FAST );
 
@@ -1123,6 +1163,7 @@ void BOARD_ADAPTER::createLayers( REPORTER* aStatusReporter )
                                 if( layerPoly != m_layers_poly.end() )
                                 {
                                     // This will make a union of all added contours
+                                    layerPoly->second->ClearArcs();
                                     layerPoly->second->Simplify( SHAPE_POLY_SET::PM_FAST );
                                 }
                             }

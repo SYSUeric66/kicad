@@ -323,6 +323,8 @@ void DIALOG_GLOBAL_EDIT_TEXT_AND_GRAPHICS::onActionButtonChange( wxCommandEvent&
     m_fontLabel->Enable( enable );
     m_fontCtrl->Enable( enable );
 
+    m_centerOnFP->Enable( enable );
+
     enable = !enable;
     m_grid->Enable( enable );
 }
@@ -369,6 +371,7 @@ void DIALOG_GLOBAL_EDIT_TEXT_AND_GRAPHICS::processItem( BOARD_COMMIT& aCommit, B
             if( !m_thickness.IsIndeterminate() )
                 text->SetTextThickness( m_thickness.GetValue() );
 
+            // Must be after SetTextSize()
             if( m_bold->Get3StateValue() != wxCHK_UNDETERMINED )
                 text->SetBold( m_bold->GetValue() );
 
@@ -511,8 +514,8 @@ void DIALOG_GLOBAL_EDIT_TEXT_AND_GRAPHICS::visitItem( BOARD_COMMIT& aCommit, BOA
 
 bool DIALOG_GLOBAL_EDIT_TEXT_AND_GRAPHICS::TransferDataFromWindow()
 {
-    int minTextSize = pcbIUScale.MilsToIU( TEXT_MIN_SIZE_MILS );
-    int maxTextSize = pcbIUScale.MilsToIU( TEXT_MAX_SIZE_MILS );
+    int minTextSize = pcbIUScale.mmToIU( TEXT_MIN_SIZE_MM );
+    int maxTextSize = pcbIUScale.mmToIU( TEXT_MAX_SIZE_MM );
 
     if( !m_textWidth.Validate( minTextSize, maxTextSize )
         || !m_textHeight.Validate( minTextSize, maxTextSize ) )

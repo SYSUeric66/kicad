@@ -60,12 +60,12 @@ wxSize GRID_CELL_ESCAPED_TEXT_RENDERER::GetBestSize( wxGrid & aGrid, wxGridCellA
 //-------- GRID_CELL_STC_EDITOR -----------------------------------------------------------------
 //
 
-GRID_CELL_STC_EDITOR::GRID_CELL_STC_EDITOR( bool aIgnoreCase,
-                                            std::function<void( wxStyledTextEvent&,
-                                                                SCINTILLA_TRICKS* )> aOnChar ) :
-    m_scintillaTricks( nullptr ),
-    m_ignoreCase( aIgnoreCase ),
-    m_onChar( aOnChar )
+GRID_CELL_STC_EDITOR::GRID_CELL_STC_EDITOR(
+                        bool aIgnoreCase,
+                        std::function<void( wxStyledTextEvent&, SCINTILLA_TRICKS* )> onCharFn ) :
+        m_scintillaTricks( nullptr ),
+        m_ignoreCase( aIgnoreCase ),
+        m_onCharFn( std::move( onCharFn ) )
 { }
 
 
@@ -92,15 +92,15 @@ void GRID_CELL_STC_EDITOR::Create( wxWindow* aParent, wxWindowID aId, wxEvtHandl
 
     m_scintillaTricks = new SCINTILLA_TRICKS(
             stc_ctrl(), wxEmptyString, true,
-            // onAccept handler
+            // onAcceptFn
             [this]( wxKeyEvent& aEvent )
             {
                 HandleReturn( aEvent );
             },
-            // onCharAdded handler
+            // onCharFn
             [this]( wxStyledTextEvent& aEvent )
             {
-                m_onChar( aEvent, m_scintillaTricks );
+                m_onCharFn( aEvent, m_scintillaTricks );
             } );
 
     stc_ctrl()->Bind( wxEVT_KILL_FOCUS, &GRID_CELL_STC_EDITOR::onFocusLoss, this );
@@ -118,6 +118,44 @@ wxStyledTextCtrl* GRID_CELL_STC_EDITOR::stc_ctrl() const
 wxString GRID_CELL_STC_EDITOR::GetValue() const
 {
     return stc_ctrl()->GetText();
+}
+
+
+void GRID_CELL_STC_EDITOR::StartingKey( wxKeyEvent& event )
+{
+    int ch;
+
+    bool isPrintable;
+
+#if wxUSE_UNICODE
+    ch = event.GetUnicodeKey();
+
+    if( ch != WXK_NONE )
+        isPrintable = true;
+    else
+#endif // wxUSE_UNICODE
+    {
+        ch = event.GetKeyCode();
+        isPrintable = ch >= WXK_SPACE && ch < WXK_START;
+    }
+
+    switch( ch )
+    {
+    case WXK_DELETE:
+        // Delete the initial character when starting to edit with DELETE.
+        stc_ctrl()->DeleteRange( 0, 1 );
+        break;
+
+    case WXK_BACK:
+        // Delete the last character when starting to edit with BACKSPACE.
+        stc_ctrl()->DeleteBack();
+        break;
+
+    default:
+        if( isPrintable )
+            stc_ctrl()->WriteText( static_cast<wxChar>( ch ) );
+        break;
+    }
 }
 
 

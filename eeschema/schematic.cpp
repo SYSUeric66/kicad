@@ -18,9 +18,11 @@
  */
 
 #include <bus_alias.h>
+#include <commit.h>
 #include <connection_graph.h>
 #include <core/ignore.h>
 #include <core/kicad_algo.h>
+#include <ee_collectors.h>
 #include <erc_settings.h>
 #include <sch_marker.h>
 #include <project.h>
@@ -44,6 +46,75 @@ SCHEMATIC::SCHEMATIC( PROJECT* aPrj ) :
     m_connectionGraph = new CONNECTION_GRAPH( this );
 
     SetProject( aPrj );
+
+    PROPERTY_MANAGER::Instance().RegisterListener( TYPE_HASH( SCH_FIELD ),
+            [&]( INSPECTABLE* aItem, PROPERTY_BASE* aProperty, COMMIT* aCommit )
+            {
+                // Special case: propagate value, footprint, and datasheet fields to other units
+                // of a given symbol if they aren't in the selection
+
+                SCH_FIELD* field = dynamic_cast<SCH_FIELD*>( aItem );
+
+                if( !field || !IsValid() )
+                    return;
+
+                SCH_SYMBOL* symbol = dynamic_cast<SCH_SYMBOL*>( field->GetParent() );
+
+                if( !symbol || aProperty->Name() != _HKI( "Text" ) )
+                    return;
+
+                // TODO(JE) This will need to get smarter to enable API access
+                SCH_SHEET_PATH sheetPath = CurrentSheet();
+
+                wxString newValue = aItem->Get<wxString>( aProperty );
+
+                wxString ref = symbol->GetRef( &sheetPath );
+                int      unit = symbol->GetUnit();
+                LIB_ID   libId = symbol->GetLibId();
+
+                for( SCH_SHEET_PATH& sheet : GetSheets() )
+                {
+                    std::vector<SCH_SYMBOL*> otherUnits;
+
+                    CollectOtherUnits( ref, unit, libId, sheet, &otherUnits );
+
+                    for( SCH_SYMBOL* otherUnit : otherUnits )
+                    {
+                        switch( field->GetId() )
+                        {
+                        case VALUE_FIELD:
+                        {
+                            if( aCommit )
+                                aCommit->Modify( otherUnit, sheet.LastScreen() );
+
+                            otherUnit->SetValueFieldText( newValue );
+                            break;
+                        }
+
+                        case FOOTPRINT_FIELD:
+                        {
+                            if( aCommit )
+                                aCommit->Modify( otherUnit, sheet.LastScreen() );
+
+                            otherUnit->SetFootprintFieldText( newValue );
+                            break;
+                        }
+
+                        case DATASHEET_FIELD:
+                        {
+                            if( aCommit )
+                                aCommit->Modify( otherUnit, sheet.LastScreen() );
+
+                            otherUnit->GetField( DATASHEET_FIELD )->SetText( newValue );
+                            break;
+                        }
+
+                        default:
+                            break;
+                        }
+                    }
+                }
+            } );
 }
 
 
@@ -143,6 +214,7 @@ void SCHEMATIC::GetContextualTextVars( wxArrayString* aVars ) const
     add( wxT( "SHEETPATH" ) );
     add( wxT( "SHEETNAME" ) );
     add( wxT( "FILENAME" ) );
+    add( wxT( "FILEPATH" ) );
     add( wxT( "PROJECTNAME" ) );
 
     if( !CurrentSheet().empty() )
@@ -182,6 +254,12 @@ bool SCHEMATIC::ResolveTextVar( const SCH_SHEET_PATH* aSheetPath, wxString* toke
     {
         wxFileName fn( GetFileName() );
         *token = fn.GetFullName();
+        return true;
+    }
+    else if( token->IsSameAs( wxT( "FILEPATH" ) ) )
+    {
+        wxFileName fn( GetFileName() );
+        *token = fn.GetFullPath();
         return true;
     }
     else if( token->IsSameAs( wxT( "PROJECTNAME" ) ) )
@@ -234,15 +312,17 @@ std::vector<SCH_MARKER*> SCHEMATIC::ResolveERCExclusions()
 
     for( auto it = settings.m_ErcExclusions.begin(); it != settings.m_ErcExclusions.end(); )
     {
-        SCH_MARKER* testMarker = SCH_MARKER::Deserialize( this, *it );
+        SCH_MARKER* testMarker = SCH_MARKER::DeserializeFromString( this, *it );
+
         if( testMarker->IsLegacyMarker() )
         {
             const wxString settingsKey = testMarker->GetRCItem()->GetSettingsKey();
 
-            if( settingsKey != wxT( "pin_to_pin" ) && settingsKey != wxT( "hier_label_mismatch" )
+            if(    settingsKey != wxT( "pin_to_pin" )
+                && settingsKey != wxT( "hier_label_mismatch" )
                 && settingsKey != wxT( "different_unit_net" ) )
             {
-                migratedExclusions.insert( testMarker->Serialize() );
+                migratedExclusions.insert( testMarker->SerializeToString() );
             }
 
             it = settings.m_ErcExclusions.erase( it );
@@ -251,6 +331,7 @@ std::vector<SCH_MARKER*> SCHEMATIC::ResolveERCExclusions()
         {
             ++it;
         }
+
         delete testMarker;
     }
 
@@ -262,12 +343,13 @@ std::vector<SCH_MARKER*> SCHEMATIC::ResolveERCExclusions()
     {
         for( SCH_ITEM* item : sheet.LastScreen()->Items().OfType( SCH_MARKER_T ) )
         {
-            SCH_MARKER* marker = static_cast<SCH_MARKER*>( item );
-            auto        it = settings.m_ErcExclusions.find( marker->Serialize() );
+            SCH_MARKER*                  marker = static_cast<SCH_MARKER*>( item );
+            wxString                     serialized = marker->SerializeToString();
+            std::set<wxString>::iterator it = settings.m_ErcExclusions.find( serialized );
 
             if( it != settings.m_ErcExclusions.end() )
             {
-                marker->SetExcluded( true );
+                marker->SetExcluded( true, settings.m_ErcExclusionComments[serialized] );
                 settings.m_ErcExclusions.erase( it );
             }
         }
@@ -275,13 +357,13 @@ std::vector<SCH_MARKER*> SCHEMATIC::ResolveERCExclusions()
 
     std::vector<SCH_MARKER*> newMarkers;
 
-    for( const wxString& exclusionData : settings.m_ErcExclusions )
+    for( const wxString& serialized : settings.m_ErcExclusions )
     {
-        SCH_MARKER* marker = SCH_MARKER::Deserialize( this, exclusionData );
+        SCH_MARKER* marker = SCH_MARKER::DeserializeFromString( this, serialized );
 
         if( marker )
         {
-            marker->SetExcluded( true );
+            marker->SetExcluded( true, settings.m_ErcExclusionComments[serialized] );
             newMarkers.push_back( marker );
         }
     }
@@ -577,37 +659,20 @@ void SCHEMATIC::RecomputeIntersheetRefs( const std::function<void( SCH_GLOBALLAB
 
     pageRefsMap.clear();
 
-    SCH_SCREENS      screens( Root() );
-    std::vector<int> virtualPageNumbers;
-
-    /* Iterate over screens */
-    for( SCH_SCREEN* screen = screens.GetFirst(); screen != nullptr; screen = screens.GetNext() )
+    for( const SCH_SHEET_PATH& sheet : GetSheets() )
     {
-        virtualPageNumbers.clear();
-
-        /* Find in which sheets this screen is used */
-        for( const SCH_SHEET_PATH& sheet : GetSheets() )
+        for( SCH_ITEM* item : sheet.LastScreen()->Items().OfType( SCH_GLOBAL_LABEL_T ) )
         {
-            if( sheet.LastScreen() == screen )
-                virtualPageNumbers.push_back( sheet.GetVirtualPageNumber() );
-        }
+            SCH_GLOBALLABEL* global = static_cast<SCH_GLOBALLABEL*>( item );
+            wxString         resolvedLabel = global->GetShownText( &sheet, false );
 
-        for( SCH_ITEM* item : screen->Items() )
-        {
-            if( item->Type() == SCH_GLOBAL_LABEL_T )
-            {
-                SCH_GLOBALLABEL* globalLabel = static_cast<SCH_GLOBALLABEL*>( item );
-                std::set<int>&   virtualpageList = pageRefsMap[globalLabel->GetText()];
-
-                for( const int& pageNo : virtualPageNumbers )
-                    virtualpageList.insert( pageNo );
-            }
+            pageRefsMap[ resolvedLabel ].insert( sheet.GetVirtualPageNumber() );
         }
     }
 
     bool show = Settings().m_IntersheetRefsShow;
 
-    // Refresh all global labels.  Note that we have to collect them first as the
+    // Refresh all visible global labels.  Note that we have to collect them first as the
     // SCH_SCREEN::Update() call is going to invalidate the RTree iterator.
 
     std::vector<SCH_GLOBALLABEL*> currentSheetGlobalLabels;
@@ -736,6 +801,7 @@ void SCHEMATIC::RecordERCExclusions()
     ERC_SETTINGS&  ercSettings = ErcSettings();
 
     ercSettings.m_ErcExclusions.clear();
+    ercSettings.m_ErcExclusionComments.clear();
 
     for( unsigned i = 0; i < sheetList.size(); i++ )
     {
@@ -744,7 +810,11 @@ void SCHEMATIC::RecordERCExclusions()
             SCH_MARKER* marker = static_cast<SCH_MARKER*>( item );
 
             if( marker->IsExcluded() )
-                ercSettings.m_ErcExclusions.insert( marker->Serialize() );
+            {
+                wxString serialized = marker->SerializeToString();
+                ercSettings.m_ErcExclusions.insert( serialized );
+                ercSettings.m_ErcExclusionComments[ serialized ] = marker->GetComment();
+            }
         }
     }
 }

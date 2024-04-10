@@ -25,15 +25,18 @@
 #ifndef SCH_DRAWING_TOOLS_H
 #define SCH_DRAWING_TOOLS_H
 
+#include "sch_sheet_path.h"
 #include <tools/ee_tool_base.h>
 #include <sch_base_frame.h>
 #include <sch_label.h>
 #include <status_popup.h>
+#include <sync_sheet_pin/dialog_sync_sheet_pins.h>
 
 class SCH_SYMBOL;
 class SCH_BUS_WIRE_ENTRY;
 class SCH_EDIT_FRAME;
 class EE_SELECTION_TOOL;
+class DIALOG_SYNC_SHEET_PINS;
 
 
 /**
@@ -53,24 +56,31 @@ public:
     int SingleClickPlace( const TOOL_EVENT& aEvent );
     int TwoClickPlace( const TOOL_EVENT& aEvent );
     int DrawShape( const TOOL_EVENT& aEvent );
+    int DrawTable( const TOOL_EVENT& aEvent );
     int DrawSheet( const TOOL_EVENT& aEvent );
     int PlaceImage( const TOOL_EVENT& aEvent );
-    int SchImportGraphics( const TOOL_EVENT& aEvent );
+    int ImportGraphics( const TOOL_EVENT& aEvent );
+    int SyncSheetsPins( const TOOL_EVENT& aEvent );
+    int SyncAllSheetsPins( const TOOL_EVENT& aEvent );
 
 private:
     SCH_LINE* findWire( const VECTOR2I& aPosition );
 
+    ///< Gets the (global) label name driving this wire, if it is driven by a label
+    wxString findWireLabelDriverName( SCH_LINE* aWire );
+
     SCH_TEXT* createNewText( const VECTOR2I& aPosition, int aType );
 
-    SCH_HIERLABEL* importHierLabel( SCH_SHEET* aSheet );
-
-    SCH_SHEET_PIN* createNewSheetPin( SCH_SHEET* aSheet, SCH_HIERLABEL* aLabel,
-                                      const VECTOR2I& aPosition );
+    SCH_SHEET_PIN* createNewSheetPin( SCH_SHEET* aSheet, const VECTOR2I& aPosition );
 
     void sizeSheet( SCH_SHEET* aSheet, const VECTOR2I& aPos );
 
+    void initSharedInstancePageNumbers( const SCH_SHEET_PATH& aAddedSheet );
+
     ///< Set up handlers for various events.
     void setTransitions() override;
+
+    int doSyncSheetsPins( std::list<SCH_SHEET_PATH> aSheets );
 
     std::vector<PICKED_SYMBOL> m_symbolHistoryList;
     std::vector<PICKED_SYMBOL> m_powerHistoryList;
@@ -96,8 +106,9 @@ private:
     wxString                   m_mruPath;
     bool                       m_lastAutoLabelRotateOnPlacement;
 
-    bool                               m_inDrawingTool;     // Re-entrancy guard
-    std::unique_ptr<STATUS_TEXT_POPUP> m_statusPopup;
+    bool                                    m_inDrawingTool; // Re-entrancy guard
+    std::unique_ptr<STATUS_TEXT_POPUP>      m_statusPopup;
+    std::unique_ptr<DIALOG_SYNC_SHEET_PINS> m_dialogSyncSheetPin;
 };
 
 #endif /* SCH_DRAWING_TOOLS_H */

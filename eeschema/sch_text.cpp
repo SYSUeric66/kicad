@@ -45,8 +45,6 @@
 #include <tools/sch_navigate_tool.h>
 #include <trigo.h>
 
-using KIGFX::SCH_RENDER_SETTINGS;
-
 
 SCH_TEXT::SCH_TEXT( const VECTOR2I& pos, const wxString& text, KICAD_T aType ) :
         SCH_ITEM( nullptr, aType ),
@@ -94,10 +92,10 @@ void SCH_TEXT::MirrorVertically( int aCenter )
 }
 
 
-void SCH_TEXT::Rotate( const VECTOR2I& aCenter )
+void SCH_TEXT::Rotate( const VECTOR2I& aCenter, bool aRotateCCW )
 {
     VECTOR2I pt = GetTextPos();
-    RotatePoint( pt, aCenter, ANGLE_90 );
+    RotatePoint( pt, aCenter, aRotateCCW ? ANGLE_270 : ANGLE_90 );
     VECTOR2I offset = pt - GetTextPos();
 
     Rotate90( false );
@@ -196,7 +194,8 @@ KIFONT::FONT* SCH_TEXT::getDrawFont() const
 }
 
 
-void SCH_TEXT::Print( const RENDER_SETTINGS* aSettings, const VECTOR2I& aOffset )
+void SCH_TEXT::Print( const SCH_RENDER_SETTINGS* aSettings, int aUnit, int aBodyStyle,
+                      const VECTOR2I& aOffset, bool aForceNoFill, bool aDimmed )
 {
     COLOR4D  color = GetTextColor();
     bool     blackAndWhiteMode = GetGRForceBlackPenState();
@@ -289,7 +288,7 @@ wxString SCH_TEXT::GetShownText( const SCH_SHEET_PATH* aPath, bool aAllowExtraTe
 void SCH_TEXT::DoHypertextAction( EDA_DRAW_FRAME* aFrame ) const
 {
     wxCHECK_MSG( IsHypertext(), /* void */,
-                 "Calling a hypertext menu on a SCH_TEXT with no hyperlink?" );
+                 wxT( "Calling a hypertext menu on a SCH_TEXT with no hyperlink?" ) );
 
     SCH_NAVIGATE_TOOL* navTool = aFrame->GetToolManager()->GetTool<SCH_NAVIGATE_TOOL>();
     navTool->HypertextCommand( m_hyperlink );
@@ -336,12 +335,13 @@ void SCH_TEXT::ViewGetLayers( int aLayers[], int& aCount ) const
 }
 
 
-void SCH_TEXT::Plot( PLOTTER* aPlotter, bool aBackground,
-                     const SCH_PLOT_SETTINGS& aPlotSettings ) const
+void SCH_TEXT::Plot( PLOTTER* aPlotter, bool aBackground, const SCH_PLOT_OPTS& aPlotOpts,
+                     int aUnit, int aBodyStyle, const VECTOR2I& aOffset, bool aDimmed )
 {
     if( aBackground )
         return;
 
+    SCH_SHEET_PATH*  sheet = &Schematic()->CurrentSheet();
     RENDER_SETTINGS* settings = aPlotter->RenderSettings();
     SCH_CONNECTION*  connection = Connection();
     int              layer = ( connection && connection->IsBus() ) ? LAYER_BUS : m_layer;
@@ -375,7 +375,7 @@ void SCH_TEXT::Plot( PLOTTER* aPlotter, bool aBackground,
 
     std::vector<VECTOR2I> positions;
     wxArrayString strings_list;
-    wxStringSplit( GetShownText( true ), strings_list, '\n' );
+    wxStringSplit( GetShownText( sheet, true ), strings_list, '\n' );
     positions.reserve( strings_list.Count() );
 
     GetLinePositions( positions, (int) strings_list.Count() );
@@ -416,9 +416,10 @@ void SCH_TEXT::GetMsgPanelInfo( EDA_DRAW_FRAME* aFrame, std::vector<MSG_PANEL_IT
 
     switch( GetHorizJustify() )
     {
-    case GR_TEXT_H_ALIGN_LEFT:   msg = _( "Align left" );   break;
-    case GR_TEXT_H_ALIGN_CENTER: msg = _( "Align center" ); break;
-    case GR_TEXT_H_ALIGN_RIGHT:  msg = _( "Align right" );  break;
+    case GR_TEXT_H_ALIGN_LEFT:          msg = _( "Align left" );   break;
+    case GR_TEXT_H_ALIGN_CENTER:        msg = _( "Align center" ); break;
+    case GR_TEXT_H_ALIGN_RIGHT:         msg = _( "Align right" );  break;
+    case GR_TEXT_H_ALIGN_INDETERMINATE: msg = INDETERMINATE_STATE; break;
     }
 
     aList.emplace_back( _( "Justification" ), msg );
@@ -498,7 +499,7 @@ static struct SCH_TEXT_DESC
 
         propMgr.AddProperty( new PROPERTY<SCH_TEXT, int>( _HKI( "Text Size" ),
                 &SCH_TEXT::SetSchTextSize, &SCH_TEXT::GetSchTextSize, PROPERTY_DISPLAY::PT_SIZE ),
-                _( "Text Properties" ) );
+                _HKI( "Text Properties" ) );
 
         // Orientation is exposed differently in schematic; mask the base for now
         propMgr.Mask( TYPE_HASH( SCH_TEXT ), TYPE_HASH( EDA_TEXT ), _HKI( "Orientation" ) );

@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2013-2017 CERN
- * Copyright (C) 2017-2022 KiCad Developers, see AUTHORS.TXT for contributors.
+ * Copyright (C) 2017-2023 KiCad Developers, see AUTHORS.TXT for contributors.
  *
  * @author Tomasz Wlostowski <tomasz.wlostowski@cern.ch>
  * @author Maciej Suminski <maciej.suminski@cern.ch>
@@ -42,6 +42,7 @@
 class PCB_BASE_FRAME;
 class BOARD_ITEM;
 class GENERAL_COLLECTOR;
+class PCB_TABLE;
 
 namespace KIGFX
 {
@@ -105,6 +106,10 @@ public:
     ///< Select a single item under cursor event handler.
     int CursorSelection( const TOOL_EVENT& aEvent );
 
+    int SelectColumns( const TOOL_EVENT& aEvent );
+    int SelectRows( const TOOL_EVENT& aEvent );
+    int SelectTable( const TOOL_EVENT& aEvent );
+
     ///< Clear current selection event handler.
     int ClearSelection( const TOOL_EVENT& aEvent );
     void ClearSelection( bool aQuietMode = false );
@@ -159,7 +164,7 @@ public:
      */
     void RebuildSelection();
 
-    SELECTION_FILTER_OPTIONS& GetFilter()
+    PCB_SELECTION_FILTER_OPTIONS& GetFilter()
     {
         return m_filter;
     }
@@ -206,6 +211,11 @@ public:
                                      bool aForcePromotion = false ) const;
 
     /**
+     * Promote any table cell selections to the whole table.
+     */
+    void FilterCollectorForTableCells( GENERAL_COLLECTOR& aCollector ) const;
+
+    /**
      * Drop any PCB_MARKERs from the collector.
      */
     void FilterCollectorForMarkers( GENERAL_COLLECTOR& aCollector ) const;
@@ -218,7 +228,8 @@ public:
     /**
      * Drop footprints that are not directly selected
     */
-    void FilterCollectorForFootprints( GENERAL_COLLECTOR& aCollector, const VECTOR2I& aWhere ) const;
+    void FilterCollectorForFootprints( GENERAL_COLLECTOR& aCollector,
+                                       const VECTOR2I& aWhere ) const;
 
 protected:
     KIGFX::PCB_VIEW* view() const
@@ -231,7 +242,12 @@ protected:
         return getViewControls();
     }
 
-    PCB_BASE_EDIT_FRAME* frame() const
+    PCB_BASE_FRAME* frame() const
+    {
+        return getEditFrame<PCB_BASE_FRAME>();
+    }
+
+    PCB_BASE_EDIT_FRAME* editFrame() const
     {
         return getEditFrame<PCB_BASE_EDIT_FRAME>();
     }
@@ -287,6 +303,8 @@ private:
      */
     bool selectMultiple();
 
+    bool selectTableCells( PCB_TABLE* aTable );
+
     /**
      * Handle disambiguation actions including displaying the menu.
      */
@@ -341,7 +359,8 @@ private:
                                    STOP_CONDITION aStopCondition );
 
     /**
-     * Selects all non-closed shapes that are graphically connected to the given start items.
+     * Select all non-closed shapes that are graphically connected to the given start items.
+     *
      * @param aStartItems is a list of one or more non-closed shapes
      */
     void selectAllConnectedShapes( const std::vector<PCB_SHAPE*>& aStartItems );
@@ -413,7 +432,7 @@ private:
     bool selectionContains( const VECTOR2I& aPoint ) const;
 
     /**
-     * @return the distance from \a wWhere to \a aItem, up to and including \a aMaxDistance.
+     * @return the distance from \a aWhere to \a aItem, up to and including \a aMaxDistance.
      */
     int hitTestDistance( const VECTOR2I& aWhere, BOARD_ITEM* aItem, int aMaxDistance ) const;
 
@@ -421,6 +440,8 @@ private:
      * Event handler to update the selection VIEW_ITEM.
      */
     int updateSelection( const TOOL_EVENT& aEvent );
+
+    void pruneObscuredSelectionCandidates( GENERAL_COLLECTOR& aCollector ) const;
 
     const GENERAL_COLLECTORS_GUIDE getCollectorsGuide() const;
 
@@ -435,7 +456,7 @@ private:
 
     PCB_SELECTION            m_selection;            // Current state of selection
 
-    SELECTION_FILTER_OPTIONS m_filter;
+    PCB_SELECTION_FILTER_OPTIONS m_filter;
 
     KICURSOR                 m_nonModifiedCursor;    // Cursor in the absence of shift/ctrl/alt
 

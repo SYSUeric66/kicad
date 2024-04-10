@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2013-2016 CERN
- * Copyright (C) 2016-2023 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2016-2024 KiCad Developers, see AUTHORS.txt for contributors.
  * @author Maciej Suminski <maciej.suminski@cern.ch>
  *
  * This program is free software; you can redistribute it and/or
@@ -61,6 +61,7 @@ public:
 
     // Generic edit actions
     static TOOL_ACTION cancelInteractive;
+    static TOOL_ACTION finishInteractive;
     static TOOL_ACTION showContextMenu;
     static TOOL_ACTION undo;
     static TOOL_ACTION redo;
@@ -73,6 +74,25 @@ public:
     static TOOL_ACTION duplicate;
     static TOOL_ACTION doDelete;        // sadly 'delete' is a reserved word
     static TOOL_ACTION deleteTool;
+    static TOOL_ACTION leftJustify;
+    static TOOL_ACTION centerJustify;
+    static TOOL_ACTION rightJustify;
+    static TOOL_ACTION expandAll;
+    static TOOL_ACTION collapseAll;
+
+    // Tables
+    static TOOL_ACTION selectRows;
+    static TOOL_ACTION selectColumns;
+    static TOOL_ACTION selectTable;
+    static TOOL_ACTION addRowAbove;
+    static TOOL_ACTION addRowBelow;
+    static TOOL_ACTION addColBefore;
+    static TOOL_ACTION addColAfter;
+    static TOOL_ACTION deleteRows;
+    static TOOL_ACTION deleteColumns;
+    static TOOL_ACTION mergeCells;
+    static TOOL_ACTION unmergeCells;
+    static TOOL_ACTION editTable;
 
     // Find and Replace
     static TOOL_ACTION showSearch;
@@ -96,6 +116,10 @@ public:
     static TOOL_ACTION zoomOut;
     static TOOL_ACTION zoomInCenter;
     static TOOL_ACTION zoomOutCenter;
+    static TOOL_ACTION zoomInHorizontally;
+    static TOOL_ACTION zoomOutHorizontally;
+    static TOOL_ACTION zoomInVertically;
+    static TOOL_ACTION zoomOutVertically;
     static TOOL_ACTION zoomCenter;
     static TOOL_ACTION zoomFitScreen;
     static TOOL_ACTION zoomFitObjects; // Zooms to bbox of items on screen (except page border)
@@ -181,7 +205,7 @@ public:
     static TOOL_ACTION activatePointEditor;
     static TOOL_ACTION cycleArcEditMode;
     static TOOL_ACTION updatePreferences;
-    static TOOL_ACTION selectColumns;
+    static TOOL_ACTION selectLibTreeColumns;
 
     // Suite
     static TOOL_ACTION openPreferences;
@@ -195,6 +219,9 @@ public:
     static TOOL_ACTION donate;
     static TOOL_ACTION getInvolved;
     static TOOL_ACTION reportBug;
+
+    // API
+    static TOOL_ACTION pluginsReload;
 
     ///< Cursor control event types
     enum CURSOR_EVENT_TYPE

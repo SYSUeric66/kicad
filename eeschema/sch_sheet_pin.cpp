@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2006 Jean-Pierre Charras, jaen-pierre.charras@gipsa-lab.inpg.com
- * Copyright (C) 1992-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2024 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -65,10 +65,11 @@ EDA_ITEM* SCH_SHEET_PIN::Clone() const
 }
 
 
-void SCH_SHEET_PIN::Print( const RENDER_SETTINGS* aSettings, const VECTOR2I& aOffset )
+void SCH_SHEET_PIN::Print( const SCH_RENDER_SETTINGS* aSettings, int aUnit, int aBodyStyle,
+                           const VECTOR2I& aOffset, bool aForceNoFill, bool aDimmed )
 {
     // The icon selection is handle by the virtual method CreateGraphicShape called by ::Print
-    SCH_HIERLABEL::Print( aSettings, aOffset );
+    SCH_HIERLABEL::Print( aSettings, aUnit, aBodyStyle, aOffset, aForceNoFill, aDimmed );
 }
 
 
@@ -252,12 +253,12 @@ void SCH_SHEET_PIN::MirrorHorizontally( int aCenter )
 }
 
 
-void SCH_SHEET_PIN::Rotate( const VECTOR2I& aCenter )
+void SCH_SHEET_PIN::Rotate( const VECTOR2I& aCenter, bool aRotateCCW )
 {
     VECTOR2I pt = GetTextPos();
     VECTOR2I delta = pt - aCenter;
 
-    RotatePoint( pt, aCenter, ANGLE_90 );
+    RotatePoint( pt, aCenter, aRotateCCW ? ANGLE_270 : ANGLE_90 );
 
     SHEET_SIDE oldSide = GetSide();
     ConstrainOnEdge( pt, true );
@@ -386,6 +387,25 @@ double SCH_SHEET_PIN::Similarity( const SCH_ITEM& aOther ) const
     similarity *= SCH_HIERLABEL::Similarity( aOther );
 
     return similarity;
+}
+
+
+bool SCH_SHEET_PIN::HasConnectivityChanges( const SCH_ITEM* aItem,
+                                            const SCH_SHEET_PATH* aInstance ) const
+{
+    // Do not compare to ourself.
+    if( aItem == this )
+        return false;
+
+    const SCH_SHEET_PIN* pin = dynamic_cast<const SCH_SHEET_PIN*>( aItem );
+
+    // Don't compare against a different SCH_ITEM.
+    wxCHECK( pin, false );
+
+    if( GetPosition() != pin->GetPosition() )
+        return true;
+
+    return GetText() != pin->GetText();
 }
 
 

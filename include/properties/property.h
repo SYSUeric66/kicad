@@ -37,11 +37,16 @@
 #include <wx/validate.h>    // required for propgrid
 #include <wx/propgrid/property.h>
 
+#ifdef DEBUG
+#include <wx/wxcrt.h>
+#endif
+
 #include <functional>
 #include <unordered_map>
 #include <memory>
 #include <typeindex>
 #include <type_traits>
+#include "std_optional_variants.h"
 
 class wxPGProperty;
 class INSPECTABLE;
@@ -55,9 +60,11 @@ enum PROPERTY_DISPLAY
 {
     PT_DEFAULT,    ///< Default property for a given type
     PT_SIZE,       ///< Size expressed in distance units (mm/inch)
+    PT_AREA,       ///< Area expressed in distance units-squared (mm/inch)
     PT_COORD,      ///< Coordinate expressed in distance units (mm/inch)
     PT_DEGREE,     ///< Angle expressed in degrees
-    PT_DECIDEGREE  ///< Angle expressed in decidegrees
+    PT_DECIDEGREE, ///< Angle expressed in decidegrees
+    PT_RATIO
 };
 
 ///< Macro to generate unique identifier for a type
@@ -194,8 +201,9 @@ PROPERTY_BASE( const wxString& aName, PROPERTY_DISPLAY aDisplay = PT_DEFAULT,
         m_display( aDisplay ),
         m_coordType( aCoordType ),
         m_hideFromPropertiesManager( false ),
-        m_hideFromRulesEditor( false ),
         m_hideFromLibraryEditors( false ),
+        m_hideFromDesignEditors( false ),
+        m_hideFromRulesEditor( false ),
         m_availFunc( [](INSPECTABLE*)->bool { return true; } ),
         m_writeableFunc( [](INSPECTABLE*)->bool { return true; } ),
         m_validator( NullValidator )
@@ -248,7 +256,7 @@ PROPERTY_BASE( const wxString& aName, PROPERTY_DISPLAY aDisplay = PT_DEFAULT,
      */
     PROPERTY_BASE& SetAvailableFunc( std::function<bool(INSPECTABLE*)> aFunc )
     {
-        m_availFunc = aFunc;
+        m_availFunc = std::move( aFunc );
         return *this;
     }
 
@@ -259,7 +267,7 @@ PROPERTY_BASE( const wxString& aName, PROPERTY_DISPLAY aDisplay = PT_DEFAULT,
 
     PROPERTY_BASE& SetWriteableFunc( std::function<bool(INSPECTABLE*)> aFunc )
     {
-        m_writeableFunc = aFunc;
+        m_writeableFunc = std::move( aFunc );
         return *this;
     }
 
@@ -309,6 +317,13 @@ PROPERTY_BASE( const wxString& aName, PROPERTY_DISPLAY aDisplay = PT_DEFAULT,
         return *this;
     }
 
+    bool IsHiddenFromDesignEditors() const { return m_hideFromDesignEditors; }
+    PROPERTY_BASE& SetIsHiddenFromDesignEditors( bool aIsHidden = true )
+    {
+        m_hideFromDesignEditors = aIsHidden;
+        return *this;
+    }
+
     wxString Group() const { return m_group; }
     PROPERTY_BASE& SetGroup( const wxString& aGroup ) { m_group = aGroup; return *this; }
 
@@ -345,6 +360,16 @@ protected:
             if( pv.CheckType<unsigned>() )
             {
                 a = static_cast<unsigned>( var.GetLong() );
+            }
+            else if( pv.CheckType<std::optional<int>>() )
+            {
+                auto* data = static_cast<STD_OPTIONAL_INT_VARIANT_DATA*>( var.GetData() );
+                a = data->Value();
+            }
+            else if( pv.CheckType<std::optional<double>>() )
+            {
+                auto* data = static_cast<STD_OPTIONAL_DOUBLE_VARIANT_DATA*>( var.GetData() );
+                a = data->Value();
             }
             else if( pv.CheckType<EDA_ANGLE>() )
             {
@@ -394,14 +419,12 @@ private:
     /// The coordinate type controls how distances are mapped to the user coordinate system
     ORIGIN_TRANSFORMS::COORD_TYPES_T m_coordType;
 
-    /// Some properties should not be shown in the Properties Manager GUI
-    bool m_hideFromPropertiesManager;
-
-    /// Some properties should not be shown in the Custom Rules editor autocomplete
-    bool m_hideFromRulesEditor;
-
-    /// This property should only be shown in the design editor, not the library editor
-    bool m_hideFromLibraryEditors;
+    bool m_hideFromPropertiesManager;   // Do not show in Properties Manager
+    bool m_hideFromLibraryEditors;      // Do not show in Properties Manager of symbol or
+                                        //   footprint editors
+    bool m_hideFromDesignEditors;       // Do not show in Properties Manager of schematic or
+                                        //   board editors
+    bool m_hideFromRulesEditor;         // Do not show in Custom Rules editor autocomplete
 
     /// Optional group identifier
     wxString m_group;

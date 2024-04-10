@@ -2,7 +2,7 @@
  * KiRouter - a push-and-(sometimes-)shove PCB router
  *
  * Copyright (C) 2013-2017 CERN
- * Copyright (C) 2017-2023 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2017-2024 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * @author Tomasz Wlostowski <tomasz.wlostowski@cern.ch>
  *
@@ -21,6 +21,7 @@
  */
 
 #include "tool/tool_action.h"
+#include <wx/filedlg.h>
 #include <wx/hyperlink.h>
 #include <advanced_config.h>
 
@@ -42,6 +43,7 @@ using namespace std::placeholders;
 #include <dialogs/dialog_pns_diff_pair_dimensions.h>
 #include <dialogs/dialog_track_via_size.h>
 #include <math/vector2wx.h>
+#include <paths.h>
 #include <widgets/wx_infobar.h>
 #include <widgets/appearance_controls.h>
 #include <connectivity/connectivity_data.h>
@@ -66,19 +68,18 @@ using namespace std::placeholders;
 #include <project/project_local_settings.h>
 
 #include "router_tool.h"
-#include "pns_segment.h"
+#include "router_status_view_item.h"
 #include "pns_router.h"
 #include "pns_itemset.h"
 #include "pns_logger.h"
 #include "pns_placement_algo.h"
-#include "pns_line_placer.h"
-#include "pns_topology.h"
+#include "pns_drag_algo.h"
 
 #include "pns_kicad_iface.h"
 
 #include <ratsnest/ratsnest_data.h>
 
-#include <plugins/kicad/pcb_plugin.h>
+#include <pcb_io/kicad_sexpr/pcb_io_kicad_sexpr.h>
 
 using namespace KIGFX;
 
@@ -104,14 +105,6 @@ enum VIA_ACTION_FLAGS
 
 #undef _
 #define _(s) s
-
-static const TOOL_ACTION ACT_EndTrack( TOOL_ACTION_ARGS()
-        .Name( "pcbnew.InteractiveRouter.EndTrack" )
-        .Scope( AS_CONTEXT )
-        .DefaultHotkey( WXK_END )
-        .FriendlyName( _( "Finish Track" ) )
-        .Tooltip( _( "Stops laying the current track." ) )
-        .Icon( BITMAPS::checked_ok ) );
 
 // Pass all the parameters as int to allow combining flags
 static const TOOL_ACTION ACT_PlaceThroughVia( TOOL_ACTION_ARGS()
@@ -527,7 +520,7 @@ bool ROUTER_TOOL::Init()
 
     menu.AddItem( PCB_ACTIONS::routeSingleTrack,      notRoutingCond );
     menu.AddItem( PCB_ACTIONS::routeDiffPair,         notRoutingCond );
-    menu.AddItem( ACT_EndTrack,                       SELECTION_CONDITIONS::ShowAlways );
+    menu.AddItem( ACTIONS::finishInteractive,         SELECTION_CONDITIONS::ShowAlways );
     menu.AddItem( PCB_ACTIONS::routerUndoLastSegment, SELECTION_CONDITIONS::ShowAlways );
     menu.AddItem( PCB_ACTIONS::routerContinueFromEnd, hasOtherEnd );
     menu.AddItem( PCB_ACTIONS::routerAttemptFinish,   hasOtherEnd );
@@ -579,39 +572,38 @@ void ROUTER_TOOL::Reset( RESET_REASON aReason )
 
 void ROUTER_TOOL::saveRouterDebugLog()
 {
+    static wxString mruPath = PATHS::GetDefaultUserProjectsPath();
+    static size_t   lastLoggerSize = 0;
+
     auto logger = m_router->Logger();
 
-    if( !logger || logger->GetEvents().size() == 0 )
+    if( !logger || logger->GetEvents().size() == 0
+        || logger->GetEvents().size() == lastLoggerSize )
+    {
         return;
+    }
 
-    wxString cwd = wxGetCwd();
+    wxFileDialog dlg( frame(), _( "Save router log" ), mruPath, "pns.log",
+                      "PNS log files" + AddFileExtListToFilter( { "log" } ),
+                      wxFD_OVERWRITE_PROMPT | wxFD_SAVE );
 
-    wxFileName fname_log;
-    fname_log.SetPath( cwd );
-    fname_log.SetName( "pns.log" );
-
-    wxFileName fname_dump( cwd );
-    fname_dump.SetPath( cwd );
-    fname_dump.SetName( "pns.dump" );
-
-    wxFileName fname_settings( cwd );
-    fname_settings.SetPath( cwd );
-    fname_settings.SetName( "pns.settings" );
-
-    wxString msg = wxString::Format( wxT( "Path: %s\nEvent file: %s\nBoard dump: %s\nSettings dump: %s" ),
-                                     fname_log.GetPath(),
-                                     fname_log.GetFullName(),
-                                     fname_dump.GetFullName(),
-                                     fname_settings.GetFullName() );
-
-    int rv = OKOrCancelDialog( nullptr, _( "Save router log" ),
-            _( "Would you like to save the router\nevent log for debugging purposes?" ), msg,
-            _( "OK" ), _( "Cancel" ) );
-
-    if( !rv )
+    if( dlg.ShowModal() != wxID_OK )
+    {
+        lastLoggerSize = logger->GetEvents().size(); // prevent re-entry
         return;
+    }
 
-    FILE* settings_f = wxFopen( fname_settings.GetFullPath(), "wb" );
+    wxFileName fname_log( dlg.GetPath() );
+    mruPath = fname_log.GetPath();
+
+    wxFileName fname_dump( fname_log );
+    fname_dump.SetExt( "dump" );
+
+    wxFileName fname_settings( fname_log );
+    fname_settings.SetExt( "settings" );
+
+
+    FILE* settings_f = wxFopen( fname_settings.GetAbsolutePath(), "wb" );
     std::string settingsStr = m_router->Settings().FormatAsString();
     fprintf( settings_f, "%s\n", settingsStr.c_str() );
     fclose( settings_f );
@@ -619,13 +611,13 @@ void ROUTER_TOOL::saveRouterDebugLog()
     // Export as *.kicad_pcb format, using a strategy which is specifically chosen
     // as an example on how it could also be used to send it to the system clipboard.
 
-    PCB_PLUGIN  pcb_io;
+    PCB_IO_KICAD_SEXPR  pcb_io;
 
-    pcb_io.SaveBoard( fname_dump.GetFullPath(), m_iface->GetBoard(), nullptr );
+    pcb_io.SaveBoard( fname_dump.GetAbsolutePath(), m_iface->GetBoard(), nullptr );
 
     PROJECT* prj = m_iface->GetBoard()->GetProject();
-    prj->GetProjectFile().SaveAs( cwd, "pns" );
-    prj->GetLocalSettings().SaveAs( cwd, "pns" );
+    prj->GetProjectFile().SaveAs( fname_dump.GetPath(), fname_dump.GetName() );
+    prj->GetLocalSettings().SaveAs( fname_dump.GetPath(), fname_dump.GetName() );
 
     // Build log file:
     std::vector<PNS::ITEM*> added, removed, heads;
@@ -641,14 +633,23 @@ void ROUTER_TOOL::saveRouterDebugLog()
             removedKIIDs.insert( item->Parent()->m_Uuid );
     }
 
-    FILE*    log_f = wxFopen( fname_log.GetFullPath(), "wb" );
+    FILE*    log_f = wxFopen( fname_log.GetAbsolutePath(), "wb" );
     wxString logString = PNS::LOGGER::FormatLogFileAsString( m_router->Mode(),
                                                              added, removedKIIDs, heads,
                                                              logger->GetEvents() );
+
+    if( !log_f )
+    {
+        DisplayError( frame(), wxString::Format( _( "Unable to write '%s'." ),
+                                                 fname_log.GetAbsolutePath() ) );
+        return;
+    }
+
     fprintf( log_f, "%s\n", logString.c_str().AsChar() );
     fclose( log_f );
 
     logger->Clear(); // prevent re-entry
+    lastLoggerSize = 0;
 }
 
 
@@ -821,7 +822,10 @@ static VIATYPE getViaTypeFromFlags( int aFlags )
 
 int ROUTER_TOOL::onLayerCommand( const TOOL_EVENT& aEvent )
 {
-    return handleLayerSwitch( aEvent, false );
+    handleLayerSwitch( aEvent, false );
+    UpdateMessagePanel();
+
+    return 0;
 }
 
 
@@ -839,6 +843,7 @@ int ROUTER_TOOL::onViaCommand( const TOOL_EVENT& aEvent )
         m_router->Move( m_endSnapPoint, m_endItem );
     }
 
+    UpdateMessagePanel();
     return 0;
 }
 
@@ -1395,13 +1400,16 @@ void ROUTER_TOOL::performRouting()
                 frame()->ShowInfoBarError( m_router->FailureReason(), true );
             }
         }
-        else if( evt->IsClick( BUT_LEFT ) || evt->IsDrag( BUT_LEFT ) || evt->IsAction( &PCB_ACTIONS::routeSingleTrack ) )
+        else if( evt->IsClick( BUT_LEFT )
+                     || evt->IsDrag( BUT_LEFT )
+                     || evt->IsAction( &PCB_ACTIONS::routeSingleTrack ) )
         {
             updateEndItem( *evt );
             bool needLayerSwitch = m_router->IsPlacingVia();
             bool forceFinish = evt->Modifier( MD_SHIFT );
+            bool forceCommit = false;
 
-            if( m_router->FixRoute( m_endSnapPoint, m_endItem, forceFinish ) )
+            if( m_router->FixRoute( m_endSnapPoint, m_endItem, forceFinish, forceCommit ) )
                 break;
 
             if( needLayerSwitch )
@@ -1438,10 +1446,13 @@ void ROUTER_TOOL::performRouting()
             setCursor();
             UpdateMessagePanel();
         }
-        else if( evt->IsAction( &ACT_EndTrack ) || evt->IsDblClick( BUT_LEFT )  )
+        else if( evt->IsAction( &ACTIONS::finishInteractive ) || evt->IsDblClick( BUT_LEFT )  )
         {
             // Stop current routing:
-            m_router->FixRoute( m_endSnapPoint, m_endItem, true );
+            bool forceFinish = true;
+            bool forceCommit = false;
+
+            m_router->FixRoute( m_endSnapPoint, m_endItem, forceFinish, forceCommit );
             break;
         }
         else if( evt->IsCancelInteractive() || evt->IsActivate()
@@ -1523,6 +1534,7 @@ int ROUTER_TOOL::ChangeRouterMode( const TOOL_EVENT& aEvent )
     PNS::ROUTING_SETTINGS& settings = m_router->Settings();
 
     settings.SetMode( mode );
+    UpdateMessagePanel();
 
     return 0;
 }
@@ -1541,6 +1553,7 @@ int ROUTER_TOOL::CycleRouterMode( const TOOL_EVENT& aEvent )
     }
 
     settings.SetMode( mode );
+    UpdateMessagePanel();
 
     return 0;
 }
@@ -1560,8 +1573,11 @@ bool ROUTER_TOOL::RoutingInProgress()
 
 void ROUTER_TOOL::breakTrack()
 {
-    if( m_startItem && m_startItem->OfKind( PNS::ITEM::SEGMENT_T ) )
-        m_router->BreakSegment( m_startItem, m_startSnapPoint );
+    if( !m_startItem )
+        return;
+
+    if( m_startItem->OfKind( PNS::ITEM::SEGMENT_T | PNS::ITEM::ARC_T ) )
+        m_router->BreakSegmentOrArc( m_startItem, m_startSnapPoint );
 }
 
 
@@ -1850,6 +1866,9 @@ void ROUTER_TOOL::performDragging( int aMode )
 {
     m_router->ClearViewDecorations();
 
+    view()->ClearPreview();
+    view()->InitPreview();
+
     VIEW_CONTROLS* ctls = getViewControls();
 
     if( m_startItem && m_startItem->IsLocked() )
@@ -1902,10 +1921,36 @@ void ROUTER_TOOL::performDragging( int aMode )
         {
             updateEndItem( *evt );
             m_router->Move( m_endSnapPoint, m_endItem );
+
+            if( PNS::DRAG_ALGO* dragger = m_router->GetDragger() )
+            {
+                bool dragStatus;
+
+                if( dragger->GetForceMarkObstaclesMode( &dragStatus ) )
+                {
+                    view()->ClearPreview();
+
+                    if( !dragStatus )
+                    {
+                        wxString hint;
+                        hint.Printf( _( "(%s to commit anyway.)" ),
+                                    KeyNameFromKeyCode( MD_CTRL + PSEUDO_WXK_CLICK ) );
+
+                        ROUTER_STATUS_VIEW_ITEM* statusItem = new ROUTER_STATUS_VIEW_ITEM();
+                        statusItem->SetMessage( _( "Track violates DRC." ) );
+                        statusItem->SetHint( hint );
+                        statusItem->SetPosition( frame()->GetToolManager()->GetMousePosition() );
+                        view()->AddToPreview( statusItem );
+                    }
+                }
+            }
         }
         else if( evt->IsClick( BUT_LEFT ) )
         {
-            if( m_router->FixRoute( m_endSnapPoint, m_endItem ) )
+            bool forceFinish = false;
+            bool forceCommit = evt->Modifier( MD_CTRL );
+
+            if( m_router->FixRoute( m_endSnapPoint, m_endItem, forceFinish, forceCommit ) )
                 break;
         }
         else if( evt->IsClick( BUT_RIGHT ) )
@@ -1960,6 +2005,9 @@ void ROUTER_TOOL::performDragging( int aMode )
 
         handleCommonEvents( *evt );
     }
+
+    view()->ClearPreview();
+    view()->ShowPreview( false );
 
     if( m_router->RoutingInProgress() )
         m_router->StopRouting();
@@ -2239,6 +2287,15 @@ int ROUTER_TOOL::InlineDrag( const TOOL_EVENT& aEvent )
         if( wasLocked )
             item->SetLocked( true );
 
+        if( !footprints.empty() )
+            connectivityData->ClearLocalRatsnest();
+
+        // Clear temporary COURTYARD_CONFLICT flag and ensure the conflict shadow is cleared
+        courtyardClearanceDRC.ClearConflicts( getView() );
+
+        controls()->ForceCursorPosition( false );
+        frame()->PopTool( aEvent );
+        highlightNets( false );
         return 0;
     }
 
@@ -2285,12 +2342,12 @@ int ROUTER_TOOL::InlineDrag( const TOOL_EVENT& aEvent )
             updateEndItem( *evt );
             m_router->Move( m_endSnapPoint, m_endItem );
 
+            view()->ClearPreview();
+
             if( !footprints.empty() )
             {
                 VECTOR2I offset = m_endSnapPoint - p;
                 BOARD_ITEM* previewItem;
-
-                view()->ClearPreview();
 
                 for( FOOTPRINT* footprint : footprints )
                 {
@@ -2349,11 +2406,35 @@ int ROUTER_TOOL::InlineDrag( const TOOL_EVENT& aEvent )
                 lastOffset = offset;
                 connectivityData->ComputeLocalRatsnest( dynamicItems, dynamicData.get(), offset );
             }
+
+            if( PNS::DRAG_ALGO* dragger = m_router->GetDragger() )
+            {
+                bool dragStatus;
+
+                if( dragger->GetForceMarkObstaclesMode( &dragStatus ) )
+                {
+                    if( !dragStatus )
+                    {
+                        wxString hint;
+                        hint.Printf( _( "(%s to commit anyway.)" ),
+                                    KeyNameFromKeyCode( MD_CTRL + PSEUDO_WXK_CLICK ) );
+
+                        ROUTER_STATUS_VIEW_ITEM* statusItem = new ROUTER_STATUS_VIEW_ITEM();
+                        statusItem->SetMessage( _( "Track violates DRC." ) );
+                        statusItem->SetHint( hint );
+                        statusItem->SetPosition( frame()->GetToolManager()->GetMousePosition() );
+                        view()->AddToPreview( statusItem );
+                    }
+                }
+            }
         }
         else if( hasMouseMoved && ( evt->IsMouseUp( BUT_LEFT ) || evt->IsClick( BUT_LEFT ) ) )
         {
+            bool forceFinish = false;
+            bool forceCommit = evt->Modifier( MD_CTRL );
+
             updateEndItem( *evt );
-            m_router->FixRoute( m_endSnapPoint, m_endItem );
+            m_router->FixRoute( m_endSnapPoint, m_endItem, forceFinish, forceCommit );
             break;
         }
         else if( evt->IsUndoRedo() )
@@ -2409,11 +2490,11 @@ int ROUTER_TOOL::InlineDrag( const TOOL_EVENT& aEvent )
                 view()->Hide( pad, false );
         }
 
-        view()->ClearPreview();
-        view()->ShowPreview( false );
-
         connectivityData->ClearLocalRatsnest();
     }
+
+    view()->ClearPreview();
+    view()->ShowPreview( false );
 
     // Clear temporary COURTYARD_CONFLICT flag and ensure the conflict shadow is cleared
     courtyardClearanceDRC.ClearConflicts( getView() );
@@ -2442,7 +2523,7 @@ int ROUTER_TOOL::InlineBreakTrack( const TOOL_EVENT& aEvent )
     const BOARD_CONNECTED_ITEM* item =
             static_cast<const BOARD_CONNECTED_ITEM*>( selection.Front() );
 
-    if( item->Type() != PCB_TRACE_T )
+    if( item->Type() != PCB_TRACE_T && item->Type() != PCB_ARC_T )
         return 0;
 
     m_toolMgr->RunAction( PCB_ACTIONS::selectionClear );
@@ -2456,6 +2537,8 @@ int ROUTER_TOOL::InlineBreakTrack( const TOOL_EVENT& aEvent )
 
     m_gridHelper->SetUseGrid( gal->GetGridSnapping() && !aEvent.DisableGridSnapping()  );
     m_gridHelper->SetSnap( !aEvent.Modifier( MD_SHIFT ) );
+
+    controls()->ForceCursorPosition( false );
 
     if( toolManager->IsContextMenuActive() )
     {
@@ -2545,6 +2628,7 @@ void ROUTER_TOOL::UpdateMessagePanel()
         std::vector<PNS::NET_HANDLE> nets = m_router->GetCurrentNets();
         wxString                     description;
         wxString                     secondary;
+        wxString                     mode;
 
         if( m_router->Mode() == PNS::ROUTER_MODE::PNS_MODE_ROUTE_DIFF_PAIR )
         {
@@ -2607,6 +2691,16 @@ void ROUTER_TOOL::UpdateMessagePanel()
         }
 
         items.emplace_back( _( "Corner Style" ), cornerMode );
+
+        switch( m_router->Settings().Mode() )
+        {
+        case PNS::PNS_MODE::RM_MarkObstacles: mode = _( "Highlight collisions" ); break;
+        case PNS::PNS_MODE::RM_Walkaround:    mode = _( "Walk around" );          break;
+        case PNS::PNS_MODE::RM_Shove:         mode = _( "Shove" );                break;
+        default: break;
+        }
+
+        items.emplace_back( _( "Mode" ), mode );
 
 #define FORMAT_VALUE( x ) frame()->MessageTextFromValue( x )
 

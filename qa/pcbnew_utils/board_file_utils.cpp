@@ -24,11 +24,12 @@
 #include <pcbnew_utils/board_file_utils.h>
 
 // For PCB parsing
-#include <plugins/kicad/pcb_plugin.h>
-#include <plugins/kicad/pcb_parser.h>
+#include <pcb_io/kicad_sexpr/pcb_io_kicad_sexpr.h>
+#include <pcb_io/kicad_sexpr/pcb_io_kicad_sexpr_parser.h>
 #include <richio.h>
 
 #include <board.h>
+#include <footprint.h>
 
 #include <qa_utils/stdstream_line_reader.h>
 
@@ -64,7 +65,7 @@ std::string GetPcbnewTestDataDir()
 
 void DumpBoardToFile( BOARD& board, const std::string& aFilename )
 {
-    PCB_PLUGIN io;
+    PCB_IO_KICAD_SEXPR io;
     io.SaveBoard( aFilename, &board );
 }
 
@@ -75,15 +76,16 @@ std::unique_ptr<BOARD_ITEM> ReadBoardItemFromStream( std::istream& aStream )
     STDISTREAM_LINE_READER reader;
     reader.SetStream( aStream );
 
-    PCB_PARSER                  parser( &reader, nullptr, nullptr );
+    PCB_IO_KICAD_SEXPR_PARSER                  parser( &reader, nullptr, nullptr );
     std::unique_ptr<BOARD_ITEM> board;
 
     try
     {
         board.reset( parser.Parse() );
     }
-    catch( const IO_ERROR& )
+    catch( const IO_ERROR& e )
     {
+        throw e;
     }
 
     return board;
@@ -91,7 +93,7 @@ std::unique_ptr<BOARD_ITEM> ReadBoardItemFromStream( std::istream& aStream )
 
 
 std::unique_ptr<BOARD> ReadBoardFromFileOrStream( const std::string& aFilename,
-                                                  std::istream& aFallback )
+                                                  std::istream&      aFallback )
 {
     std::istream* in_stream = nullptr;
     std::ifstream file_stream;
@@ -104,10 +106,43 @@ std::unique_ptr<BOARD> ReadBoardFromFileOrStream( const std::string& aFilename,
     else
     {
         file_stream.open( aFilename );
+
+        if( !file_stream.is_open() )
+        {
+            return nullptr;
+        }
+
         in_stream = &file_stream;
     }
 
     return ReadItemFromStream<BOARD>( *in_stream );
+}
+
+
+std::unique_ptr<FOOTPRINT> ReadFootprintFromFileOrStream( const std::string& aFilename,
+                                                          std::istream& aFallback )
+{
+    std::istream* in_stream = nullptr;
+    std::ifstream file_stream;
+
+    if( aFilename.empty() )
+    {
+        // no file, read stdin
+        in_stream = &aFallback;
+    }
+    else
+    {
+        file_stream.open( aFilename );
+
+        if( !file_stream.is_open() )
+        {
+            return nullptr;
+        }
+
+        in_stream = &file_stream;
+    }
+
+    return ReadItemFromStream<FOOTPRINT>( *in_stream );
 }
 
 

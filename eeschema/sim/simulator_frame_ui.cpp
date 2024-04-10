@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2016-2023 CERN
- * Copyright (C) 2016-2023 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2016-2024 KiCad Developers, see AUTHORS.txt for contributors.
  * @author Tomasz Wlostowski <tomasz.wlostowski@cern.ch>
  * @author Maciej Suminski <maciej.suminski@cern.ch>
  *
@@ -50,6 +50,7 @@
 #include <dialogs/dialog_sim_format_value.h>
 #include <eeschema_settings.h>
 #include "kiplatform/app.h"
+#include "wx/clipbrd.h"
 
 
 SIM_TRACE_TYPE operator|( SIM_TRACE_TYPE aFirst, SIM_TRACE_TYPE aSecond )
@@ -168,11 +169,12 @@ void SIGNALS_GRID_TRICKS::showPopupMenu( wxMenu& menu, wxGridEvent& aEvent )
                 }
 
                 menu.AppendSeparator();
+                menu.Append( GRIDTRICKS_ID_COPY, _( "Copy Signal Name" ) + "\tCtrl+C" );
+
+                m_grid->PopupMenu( &menu );
             }
         }
     }
-
-    GRID_TRICKS::showPopupMenu( menu, aEvent );
 }
 
 
@@ -283,9 +285,25 @@ void SIGNALS_GRID_TRICKS::doPopupSelection( wxCommandEvent& event )
         for( const wxString& signal : signals )
             m_parent->DoFourier( signal, fundamental );
     }
-    else
+    else if( event.GetId() == GRIDTRICKS_ID_COPY )
     {
-        GRID_TRICKS::doPopupSelection( event );
+        wxLogNull doNotLog; // disable logging of failed clipboard actions
+        wxString  txt;
+
+        for( const wxString& signal : signals )
+        {
+            if( !txt.IsEmpty() )
+                txt += '\r';
+
+            txt += signal;
+        }
+
+        if( wxTheClipboard->Open() )
+        {
+            wxTheClipboard->SetData( new wxTextDataObject( txt ) );
+            wxTheClipboard->Flush(); // Allow data to be available after closing KiCad
+            wxTheClipboard->Close();
+        }
     }
 }
 
@@ -605,24 +623,45 @@ void SIMULATOR_FRAME_UI::ShowChangedLanguage()
 
 void SIMULATOR_FRAME_UI::LoadSettings( EESCHEMA_SETTINGS* aCfg )
 {
+    const EESCHEMA_SETTINGS::SIMULATOR& settings = aCfg->m_Simulator;
+
     // Read subwindows sizes (should be > 0 )
-    m_splitterLeftRightSashPosition      = aCfg->m_Simulator.plot_panel_width;
-    m_splitterPlotAndConsoleSashPosition = aCfg->m_Simulator.plot_panel_height;
-    m_splitterSignalsSashPosition        = aCfg->m_Simulator.signal_panel_height;
-    m_splitterCursorsSashPosition        = aCfg->m_Simulator.cursors_panel_height;
-    m_splitterTuneValuesSashPosition     = aCfg->m_Simulator.measurements_panel_height;
-    m_darkMode                           = !aCfg->m_Simulator.white_background;
+    m_splitterLeftRightSashPosition      = settings.view.plot_panel_width;
+    m_splitterPlotAndConsoleSashPosition = settings.view.plot_panel_height;
+    m_splitterSignalsSashPosition        = settings.view.signal_panel_height;
+    m_splitterCursorsSashPosition        = settings.view.cursors_panel_height;
+    m_splitterTuneValuesSashPosition     = settings.view.measurements_panel_height;
+    m_darkMode                           = !settings.view.white_background;
+
+    m_preferences = settings.preferences;
 }
 
 
 void SIMULATOR_FRAME_UI::SaveSettings( EESCHEMA_SETTINGS* aCfg )
 {
-    aCfg->m_Simulator.plot_panel_width          = m_splitterLeftRight->GetSashPosition();
-    aCfg->m_Simulator.plot_panel_height         = m_splitterPlotAndConsole->GetSashPosition();
-    aCfg->m_Simulator.signal_panel_height       = m_splitterSignals->GetSashPosition();
-    aCfg->m_Simulator.cursors_panel_height      = m_splitterCursors->GetSashPosition();
-    aCfg->m_Simulator.measurements_panel_height = m_splitterMeasurements->GetSashPosition();
-    aCfg->m_Simulator.white_background          = !m_darkMode;
+    EESCHEMA_SETTINGS::SIMULATOR& settings = aCfg->m_Simulator;
+    
+    settings.view.plot_panel_width          = m_splitterLeftRight->GetSashPosition();
+    settings.view.plot_panel_height         = m_splitterPlotAndConsole->GetSashPosition();
+    settings.view.signal_panel_height       = m_splitterSignals->GetSashPosition();
+    settings.view.cursors_panel_height      = m_splitterCursors->GetSashPosition();
+    settings.view.measurements_panel_height = m_splitterMeasurements->GetSashPosition();
+    settings.view.white_background          = !m_darkMode;
+}
+
+
+void SIMULATOR_FRAME_UI::ApplyPreferences( const SIM_PREFERENCES& aPrefs )
+{
+    m_preferences = aPrefs;
+
+    const std::size_t pageCount = m_plotNotebook->GetPageCount();
+    for( std::size_t i = 0; i < pageCount; ++i )
+    {
+        wxWindow* page = m_plotNotebook->GetPage( i );
+        auto      simTab = dynamic_cast<SIM_TAB*>( page );
+        wxASSERT( simTab != nullptr );
+        simTab->ApplyPreferences( aPrefs );
+    }
 }
 
 
@@ -752,32 +791,20 @@ void SIMULATOR_FRAME_UI::rebuildSignalsGrid( wxString aFilter )
         {
             int      traceType = SPT_UNKNOWN;
             wxString vectorName = vectorNameFromSignalName( plotPanel, signal, &traceType );
-            TRACE*   trace = plotPanel ? plotPanel->GetTrace( vectorName, traceType ) : nullptr;
+            TRACE*   trace = plotPanel->GetTrace( vectorName, traceType );
 
             m_signalsGrid->AppendRows( 1 );
             m_signalsGrid->SetCellValue( row, COL_SIGNAL_NAME, signal );
 
-            if( !plotPanel )
-            {
-                wxGridCellAttr* attr = new wxGridCellAttr;
-                attr->SetReadOnly();
-                m_signalsGrid->SetAttr( row, COL_SIGNAL_SHOW, attr );
-            }
-            else
-            {
-                wxGridCellAttr* attr = new wxGridCellAttr;
-                attr->SetRenderer( new wxGridCellBoolRenderer() );
-                attr->SetReadOnly();    // not really; we delegate interactivity to GRID_TRICKS
-                attr->SetAlignment( wxALIGN_CENTER, wxALIGN_CENTER );
-                m_signalsGrid->SetAttr( row, COL_SIGNAL_SHOW, attr );
-            }
+            wxGridCellAttr* attr = new wxGridCellAttr;
+            attr->SetRenderer( new wxGridCellBoolRenderer() );
+            attr->SetReadOnly();    // not really; we delegate interactivity to GRID_TRICKS
+            attr->SetAlignment( wxALIGN_CENTER, wxALIGN_CENTER );
+            m_signalsGrid->SetAttr( row, COL_SIGNAL_SHOW, attr );
 
-            if( trace )
-                m_signalsGrid->SetCellValue( row, COL_SIGNAL_SHOW, wxS( "1" ) );
-
-            if( !plotPanel || !trace )
+            if( !trace )
             {
-                wxGridCellAttr* attr = new wxGridCellAttr;
+                attr = new wxGridCellAttr;
                 attr->SetReadOnly();
                 m_signalsGrid->SetAttr( row, COL_SIGNAL_COLOR, attr );
                 m_signalsGrid->SetCellValue( row, COL_SIGNAL_COLOR, wxEmptyString );
@@ -792,7 +819,8 @@ void SIMULATOR_FRAME_UI::rebuildSignalsGrid( wxString aFilter )
             }
             else
             {
-                wxGridCellAttr* attr = new wxGridCellAttr;
+                m_signalsGrid->SetCellValue( row, COL_SIGNAL_SHOW, wxS( "1" ) );
+
                 attr = new wxGridCellAttr;
                 attr->SetRenderer( new GRID_CELL_COLOR_RENDERER( this ) );
                 attr->SetEditor( new GRID_CELL_COLOR_SELECTOR( this, m_signalsGrid ) );
@@ -910,10 +938,13 @@ void SIMULATOR_FRAME_UI::rebuildSignalsList()
             if( !name.StartsWith( "V" ) )
                 continue;
 
-            const SIM_MODEL::PARAM* portNum = item.model->FindParam( "portnum" );
+            std::string portnum = "";
 
-            if( portNum )
-                portnums.push_back( SIM_VALUE::ToSpice( portNum->value ) );
+            if( const SIM_MODEL::PARAM* portnum_param = item.model->FindParam( "portnum" ) )
+                portnum = SIM_VALUE::ToSpice( portnum_param->value );
+
+            if( portnum != "" )
+                portnums.push_back( portnum );
         }
 
         for( const std::string& portnum1 : portnums )
@@ -951,9 +982,7 @@ SIM_TAB* SIMULATOR_FRAME_UI::NewSimTab( const wxString& aSimCommand )
     {
         SIM_PLOT_TAB* panel = new SIM_PLOT_TAB( aSimCommand, m_plotNotebook );
         simTab = panel;
-
-        COMMON_SETTINGS::INPUT cfg = Pgm().GetCommonSettings()->m_Input;
-        panel->GetPlotWin()->EnableMouseWheelPan( cfg.scroll_modifier_zoom != 0 );
+        panel->ApplyPreferences( m_preferences );
     }
     else
     {
@@ -1241,7 +1270,10 @@ void SIMULATOR_FRAME_UI::OnUpdateUI( wxUpdateUIEvent& event )
     if( SIM_PLOT_TAB* plotTab = dynamic_cast<SIM_PLOT_TAB*>( GetCurrentSimTab() ) )
     {
         if( plotTab->GetLegendPosition() != plotTab->m_LastLegendPosition )
+        {
+            plotTab->m_LastLegendPosition = plotTab->GetLegendPosition();
             OnModify();
+        }
     }
 }
 
@@ -1987,6 +2019,7 @@ bool SIMULATOR_FRAME_UI::loadJsonWorkbook( const wxString& aPath )
 
                 if( tab_js.contains( "fixedY3scale" ) )
                 {
+                    plotTab->EnsureThirdYAxisExists();
                     const nlohmann::json& scale_js = tab_js[ "fixedY3scale" ];
                     plotTab->SetY3Scale( true, scale_js[ "min" ], scale_js[ "max" ] );
                     plotTab->GetPlotWin()->LockY( true );
@@ -2097,7 +2130,7 @@ bool SIMULATOR_FRAME_UI::SaveWorkbook( const wxString& aPath )
     updateMeasurementsFromGrid();
 
     wxFileName filename = aPath;
-    filename.SetExt( WorkbookFileExtension );
+    filename.SetExt( FILEEXT::WorkbookFileExtension );
 
     wxFile file;
 
@@ -2776,6 +2809,10 @@ void SIMULATOR_FRAME_UI::OnSimRefresh( bool aFinal )
         for( const std::string& vec : simulator()->AllVectors() )
         {
             std::vector<double> val_list = simulator()->GetRealVector( vec, 1 );
+
+            if( val_list.empty() )
+                continue;
+
             wxString            value = SPICE_VALUE( val_list[ 0 ] ).ToSpiceString();
             wxString            signal;
             SIM_TRACE_TYPE      type = circuitModel()->VectorToSignal( vec, signal );
@@ -2798,8 +2835,11 @@ void SIMULATOR_FRAME_UI::OnSimRefresh( bool aFinal )
             m_simConsole->AppendText( msg );
             m_simConsole->SetInsertionPointEnd();
 
-            if( signal.StartsWith( wxS( "V(" ) ) || signal.StartsWith( wxS( "I(" ) ) )
+            if( type == SPT_VOLTAGE || type == SPT_CURRENT || type == SPT_POWER )
                 signal = signal.SubString( 2, signal.Length() - 2 );
+
+            if( type == SPT_POWER )
+                signal += wxS( ":power" );
 
             m_schematicFrame->Schematic().SetOperatingPoint( signal, val_list.at( 0 ) );
         }

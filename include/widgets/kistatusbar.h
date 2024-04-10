@@ -25,17 +25,35 @@
 #ifndef KISTATUSBAR_H
 #define KISTATUSBAR_H
 
+#include <kicommon.h>
+
 class wxGauge;
 class wxButton;
 class wxStaticText;
 class BITMAP_BUTTON;
 
-class KISTATUSBAR : public wxStatusBar
+/**
+ * KISTATUSBAR is a wxStatusBar suitable for Kicad manager.
+ * It displays the fields needed by the caller, and room for 4 other fields (see kistatusbar.cpp)
+ * Background text (FIELD_OFFSET_BGJOB_TEXT offset id)
+ * Background gauge widget (FIELD_OFFSET_BGJOB_GAUGE offset id)
+ * Background background stop button (FIELD_OFFSET_BGJOB_CANCEL offset id)
+ * Background notifications button (FIELD_OFFSET_NOTIFICATION_BUTTON  offset id)
+ */
+
+class KICOMMON_API KISTATUSBAR : public wxStatusBar
 {
 public:
     KISTATUSBAR( int aNumberFields, wxWindow* parent, wxWindowID id );
 
 public:
+    /**
+     * Set the text in a field using wxELLIPSIZE_MIDDLE option to adjust the text size
+     * to the field size (unfortunately, setting the wxStatusBar style to wxELLIPSIZE_MIDDLE
+     * does not work fine
+     */
+    void SetEllipsedTextField( const wxString& aText, int aFieldId );
+
     /**
      * Shows the background progress bar
      */

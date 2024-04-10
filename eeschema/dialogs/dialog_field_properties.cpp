@@ -3,7 +3,7 @@
  *
  * Copyright (C) 2012 Jean-Pierre Charras, jean-pierre.charras@gipsa-lab.inpg.com
  * Copyright (C) 2016 Wayne Stambaugh, stambaughw@gmail.com
- * Copyright (C) 2004-2023 KiCad Developers, see AITHORS.txt for contributors.
+ * Copyright (C) 2004-2024 KiCad Developers, see AITHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -71,6 +71,7 @@ DIALOG_FIELD_PROPERTIES::DIALOG_FIELD_PROPERTIES( SCH_BASE_FRAME* aParent, const
     m_fieldId = VALUE_FIELD;
 
     m_scintillaTricks = new SCINTILLA_TRICKS( m_StyledTextCtrl, wxT( "{}" ), true,
+            // onAcceptFn
             [this]( wxKeyEvent& aEvent )
             {
                 wxPostEvent( this, wxCommandEvent( wxEVT_COMMAND_BUTTON_CLICKED, wxID_OK ) );
@@ -159,8 +160,8 @@ DIALOG_FIELD_PROPERTIES::~DIALOG_FIELD_PROPERTIES()
 void DIALOG_FIELD_PROPERTIES::init()
 {
     // Disable options for graphic text editing which are not needed for fields.
-    m_CommonConvert->Show( false );
-    m_CommonUnit->Show( false );
+    m_commonToAllBodyStyles->Show( false );
+    m_commonToAllUnits->Show( false );
 
     // Predefined fields cannot contain some chars and cannot be empty, so they need a
     // SCH_FIELD_VALIDATOR (m_StyledTextCtrl cannot use a SCH_FIELD_VALIDATOR).
@@ -185,10 +186,6 @@ void DIALOG_FIELD_PROPERTIES::init()
     // Show the footprint selection dialog if this is the footprint field.
     m_TextValueSelectButton->SetBitmap( KiBitmapBundle( BITMAPS::small_library ) );
     m_TextValueSelectButton->Show( m_fieldId == FOOTPRINT_FIELD );
-
-    if( m_fieldId == FOOTPRINT_FIELD )
-    {
-    }
 
     m_TextCtrl->Enable( true );
 
@@ -326,16 +323,18 @@ bool DIALOG_FIELD_PROPERTIES::TransferDataToWindow()
 
     switch ( m_horizontalJustification )
     {
-    case GR_TEXT_H_ALIGN_LEFT:   m_hAlignLeft->Check( true );   break;
-    case GR_TEXT_H_ALIGN_CENTER: m_hAlignCenter->Check( true ); break;
-    case GR_TEXT_H_ALIGN_RIGHT:  m_hAlignRight->Check( true );  break;
+    case GR_TEXT_H_ALIGN_LEFT:          m_hAlignLeft->Check( true );   break;
+    case GR_TEXT_H_ALIGN_CENTER:        m_hAlignCenter->Check( true ); break;
+    case GR_TEXT_H_ALIGN_RIGHT:         m_hAlignRight->Check( true );  break;
+    case GR_TEXT_H_ALIGN_INDETERMINATE:                                break;
     }
 
     switch ( m_verticalJustification )
     {
-    case GR_TEXT_V_ALIGN_TOP:    m_vAlignTop->Check( true );    break;
-    case GR_TEXT_V_ALIGN_CENTER: m_vAlignCenter->Check( true ); break;
-    case GR_TEXT_V_ALIGN_BOTTOM: m_vAlignBottom->Check( true ); break;
+    case GR_TEXT_V_ALIGN_TOP:           m_vAlignTop->Check( true );    break;
+    case GR_TEXT_V_ALIGN_CENTER:        m_vAlignCenter->Check( true ); break;
+    case GR_TEXT_V_ALIGN_BOTTOM:        m_vAlignBottom->Check( true ); break;
+    case GR_TEXT_V_ALIGN_INDETERMINATE:                                break;
     }
 
     m_visible->SetValue( m_isVisible );
@@ -364,11 +363,11 @@ bool DIALOG_FIELD_PROPERTIES::TransferDataFromWindow()
     }
     else if( m_fieldId == SHEETFILENAME_V )
     {
-        m_text = EnsureFileExtension( m_text, KiCadSchematicFileExtension );
+        m_text = EnsureFileExtension( m_text, FILEEXT::KiCadSchematicFileExtension );
     }
 
-    m_position = VECTOR2I( m_posX.GetValue(), m_posY.GetValue() );
-    m_size = m_textSize.GetValue();
+    m_position = VECTOR2I( m_posX.GetIntValue(), m_posY.GetIntValue() );
+    m_size = m_textSize.GetIntValue();
 
     if( m_fontCtrl->HaveFontSelection() )
         m_font = m_fontCtrl->GetFontSelection( m_bold->IsChecked(), m_italic->IsChecked() );
@@ -429,17 +428,30 @@ DIALOG_LIB_FIELD_PROPERTIES::DIALOG_LIB_FIELD_PROPERTIES( SCH_BASE_FRAME* aParen
 
     if( m_fieldId == FOOTPRINT_FIELD )
     {
-        LIB_SYMBOL* symbol = aField->GetParent();
-        wxString    netlist;
+        const LIB_SYMBOL* parentSymbol = static_cast<const LIB_SYMBOL*>( aField->GetParentSymbol() );
 
         /*
          * Symbol netlist format:
-         *   pinCount
-         *   fpFilters
+         *   pinNumber pinName <tab> pinNumber pinName...
+         *   fpFilter fpFilter...
          */
-        netlist << wxString::Format( wxS( "%d\r" ), symbol->GetPinCount() );
+        wxString netlist;
 
-        wxArrayString fpFilters = symbol->GetFPFilters();
+        std::vector<LIB_PIN*> pinList;
+
+        parentSymbol->GetPins( pinList, 0, 1 );   // All units, but a single convert
+
+        wxArrayString pins;
+
+        for( LIB_PIN* pin : pinList )
+            pins.push_back( pin->GetNumber() + ' ' + pin->GetShownName() );
+
+        if( !pins.IsEmpty() )
+            netlist << EscapeString( wxJoin( pins, '\t' ), CTX_LINE );
+
+        netlist << wxS( "\r" );
+
+        wxArrayString fpFilters = parentSymbol->GetFPFilters();
 
         if( !fpFilters.IsEmpty() )
             netlist << EscapeString( wxJoin( fpFilters, ' ' ), CTX_LINE );
@@ -473,7 +485,7 @@ void DIALOG_LIB_FIELD_PROPERTIES::UpdateField( LIB_FIELD* aField )
 }
 
 
-DIALOG_SCH_FIELD_PROPERTIES::DIALOG_SCH_FIELD_PROPERTIES( SCH_BASE_FRAME* aParent,
+DIALOG_SCH_FIELD_PROPERTIES::DIALOG_SCH_FIELD_PROPERTIES( SCH_EDIT_FRAME* aParent,
                                                           const wxString& aTitle,
                                                           const SCH_FIELD* aField ) :
         DIALOG_FIELD_PROPERTIES( aParent, aTitle, aField ),
@@ -483,17 +495,27 @@ DIALOG_SCH_FIELD_PROPERTIES::DIALOG_SCH_FIELD_PROPERTIES( SCH_BASE_FRAME* aParen
 
     if( aField->GetParent() && aField->GetParent()->Type() == SCH_SYMBOL_T )
     {
-        SCH_SYMBOL* symbol = static_cast<SCH_SYMBOL*>( aField->GetParent() );
-        wxString    netlist;
+        SCH_SYMBOL*    symbol = static_cast<SCH_SYMBOL*>( aField->GetParent() );
+        SCH_SHEET_PATH sheetPath = aParent->GetCurrentSheet();
 
         m_fieldId = aField->GetId();
 
         /*
          * Symbol netlist format:
-         *   pinCount
-         *   fpFilters
+         *   pinNumber pinName <tab> pinNumber pinName...
+         *   fpFilter fpFilter...
          */
-        netlist << wxString::Format( wxS( "%zu\r" ), symbol->GetFullPinCount() );
+        wxString netlist;
+
+        wxArrayString pins;
+
+        for( SCH_PIN* pin : symbol->GetPins( &sheetPath ) )
+            pins.push_back( pin->GetNumber() + ' ' + pin->GetShownName() );
+
+        if( !pins.IsEmpty() )
+            netlist << EscapeString( wxJoin( pins, '\t' ), CTX_LINE );
+
+        netlist << wxS( "\r" );
 
         wxArrayString fpFilters = symbol->GetLibSymbolRef()->GetFPFilters();
 
@@ -617,6 +639,12 @@ void DIALOG_SCH_FIELD_PROPERTIES::UpdateField( SCH_COMMIT* aCommit, SCH_FIELD* a
     // convert any text variable cross-references to their UUIDs
     m_text = aField->Schematic()->ConvertRefsToKIIDs( m_text );
 
+    // Changing a sheetname need to update the hierarchy navigator
+    bool needUpdateHierNav = false;
+
+    if( parent && parent->Type() == SCH_SHEET_T && fieldType == SHEETNAME )
+        needUpdateHierNav = m_text != aField->GetText();
+
     aField->SetText( m_text );
     updateText( aField );
     aField->SetPosition( m_position );
@@ -676,4 +704,8 @@ void DIALOG_SCH_FIELD_PROPERTIES::UpdateField( SCH_COMMIT* aCommit, SCH_FIELD* a
 
     if( positioningModified && parent )
         parent->ClearFieldsAutoplaced();
+
+    //Update the hierarchy navigator labels if needed
+    if( needUpdateHierNav )
+        editFrame->UpdateLabelsHierarchyNavigator();
 }

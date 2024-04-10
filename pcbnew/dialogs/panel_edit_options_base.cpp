@@ -1,5 +1,5 @@
 ///////////////////////////////////////////////////////////////////////////
-// C++ code generated with wxFormBuilder (version 3.10.1-0-g8feb16b)
+// C++ code generated with wxFormBuilder (version 4.0.0-0-g0efcecf)
 // http://www.wxformbuilder.org/
 //
 // PLEASE DO *NOT* EDIT THIS FILE!
@@ -80,7 +80,7 @@ PANEL_EDIT_OPTIONS_BASE::PANEL_EDIT_OPTIONS_BASE( wxWindow* parent, wxWindowID i
 	m_trackMouseDragCtrl->SetSelection( 0 );
 	m_sizerBoardEdit->Add( m_trackMouseDragCtrl, 0, wxBOTTOM|wxRIGHT|wxLEFT|wxEXPAND, 5 );
 
-	m_flipLeftRight = new wxCheckBox( bOptionsSizer->GetStaticBox(), wxID_ANY, _("Flip board items L/R (default is T/B)"), wxDefaultPosition, wxDefaultSize, 0 );
+	m_flipLeftRight = new wxCheckBox( bOptionsSizer->GetStaticBox(), wxID_ANY, _("Flip board items left/right (default is top/bottom)"), wxDefaultPosition, wxDefaultSize, 0 );
 	m_sizerBoardEdit->Add( m_flipLeftRight, 0, wxTOP|wxBOTTOM|wxLEFT, 5 );
 
 	m_allowFreePads = new wxCheckBox( bOptionsSizer->GetStaticBox(), wxID_ANY, _("Allow free pads"), wxDefaultPosition, wxDefaultSize, 0 );
@@ -96,7 +96,7 @@ PANEL_EDIT_OPTIONS_BASE::PANEL_EDIT_OPTIONS_BASE( wxWindow* parent, wxWindowID i
 
 	m_mouseCmdsWinLin = new wxStaticBoxSizer( new wxStaticBox( this, wxID_ANY, _("Left Click Mouse Commands") ), wxVERTICAL );
 
-	m_staticText181 = new wxStaticText( m_mouseCmdsWinLin->GetStaticBox(), wxID_ANY, _("Left click (and drag) actions depend on 2 modifier keys:\nShift and Ctrl."), wxDefaultPosition, wxDefaultSize, 0 );
+	m_staticText181 = new wxStaticText( m_mouseCmdsWinLin->GetStaticBox(), wxID_ANY, _("Left click (and drag) actions depend on 2 modifier keys:\nShift and Ctrl"), wxDefaultPosition, wxDefaultSize, 0 );
 	m_staticText181->Wrap( -1 );
 	m_mouseCmdsWinLin->Add( m_staticText181, 0, wxALL, 5 );
 
@@ -115,7 +115,7 @@ PANEL_EDIT_OPTIONS_BASE::PANEL_EDIT_OPTIONS_BASE( wxWindow* parent, wxWindowID i
 	fgSizerCmdsWinLin->Add( staticText61, 0, wxRIGHT|wxLEFT, 5 );
 
 	wxStaticText* staticText71;
-	staticText71 = new wxStaticText( m_mouseCmdsWinLin->GetStaticBox(), wxID_ANY, _("Select item(s)."), wxDefaultPosition, wxDefaultSize, 0 );
+	staticText71 = new wxStaticText( m_mouseCmdsWinLin->GetStaticBox(), wxID_ANY, _("Select item(s)"), wxDefaultPosition, wxDefaultSize, 0 );
 	staticText71->Wrap( -1 );
 	fgSizerCmdsWinLin->Add( staticText71, 0, wxRIGHT|wxLEFT, 5 );
 
@@ -125,7 +125,7 @@ PANEL_EDIT_OPTIONS_BASE::PANEL_EDIT_OPTIONS_BASE( wxWindow* parent, wxWindowID i
 	fgSizerCmdsWinLin->Add( staticText611, 0, wxRIGHT|wxLEFT, 5 );
 
 	wxStaticText* staticText711;
-	staticText711 = new wxStaticText( m_mouseCmdsWinLin->GetStaticBox(), wxID_ANY, _("Clarify selection from menu."), wxDefaultPosition, wxDefaultSize, 0 );
+	staticText711 = new wxStaticText( m_mouseCmdsWinLin->GetStaticBox(), wxID_ANY, _("Clarify selection from menu"), wxDefaultPosition, wxDefaultSize, 0 );
 	staticText711->Wrap( -1 );
 	fgSizerCmdsWinLin->Add( staticText711, 0, wxRIGHT|wxLEFT, 5 );
 
@@ -135,7 +135,7 @@ PANEL_EDIT_OPTIONS_BASE::PANEL_EDIT_OPTIONS_BASE( wxWindow* parent, wxWindowID i
 	fgSizerCmdsWinLin->Add( staticText81, 0, wxRIGHT|wxLEFT, 5 );
 
 	wxStaticText* staticText91;
-	staticText91 = new wxStaticText( m_mouseCmdsWinLin->GetStaticBox(), wxID_ANY, _("Add item(s) to selection."), wxDefaultPosition, wxDefaultSize, 0 );
+	staticText91 = new wxStaticText( m_mouseCmdsWinLin->GetStaticBox(), wxID_ANY, _("Add item(s) to selection"), wxDefaultPosition, wxDefaultSize, 0 );
 	staticText91->Wrap( -1 );
 	fgSizerCmdsWinLin->Add( staticText91, 0, wxRIGHT|wxLEFT, 5 );
 
@@ -145,7 +145,7 @@ PANEL_EDIT_OPTIONS_BASE::PANEL_EDIT_OPTIONS_BASE( wxWindow* parent, wxWindowID i
 	fgSizerCmdsWinLin->Add( staticText121, 0, wxRIGHT|wxLEFT, 5 );
 
 	wxStaticText* staticText131;
-	staticText131 = new wxStaticText( m_mouseCmdsWinLin->GetStaticBox(), wxID_ANY, _("Remove item(s) from selection."), wxDefaultPosition, wxDefaultSize, 0 );
+	staticText131 = new wxStaticText( m_mouseCmdsWinLin->GetStaticBox(), wxID_ANY, _("Remove item(s) from selection"), wxDefaultPosition, wxDefaultSize, 0 );
 	staticText131->Wrap( -1 );
 	fgSizerCmdsWinLin->Add( staticText131, 0, wxRIGHT|wxLEFT, 5 );
 
@@ -154,7 +154,7 @@ PANEL_EDIT_OPTIONS_BASE::PANEL_EDIT_OPTIONS_BASE( wxWindow* parent, wxWindowID i
 	staticText161->Wrap( -1 );
 	fgSizerCmdsWinLin->Add( staticText161, 0, wxTOP|wxRIGHT|wxLEFT, 5 );
 
-	wxString m_rbCtrlClickActionChoices[] = { _("Toggle selection."), _("Highlight net (for pads or tracks).") };
+	wxString m_rbCtrlClickActionChoices[] = { _("Toggle selection"), _("Highlight net (for pads or tracks)") };
 	int m_rbCtrlClickActionNChoices = sizeof( m_rbCtrlClickActionChoices ) / sizeof( wxString );
 	m_rbCtrlClickAction = new wxRadioBox( m_mouseCmdsWinLin->GetStaticBox(), wxID_ANY, wxEmptyString, wxDefaultPosition, wxDefaultSize, m_rbCtrlClickActionNChoices, m_rbCtrlClickActionChoices, 1, wxRA_SPECIFY_COLS );
 	m_rbCtrlClickAction->SetSelection( 1 );
@@ -168,7 +168,7 @@ PANEL_EDIT_OPTIONS_BASE::PANEL_EDIT_OPTIONS_BASE( wxWindow* parent, wxWindowID i
 
 	m_mouseCmdsOSX = new wxStaticBoxSizer( new wxStaticBox( this, wxID_ANY, _("Left Click Mouse Commands") ), wxVERTICAL );
 
-	m_staticText1811 = new wxStaticText( m_mouseCmdsOSX->GetStaticBox(), wxID_ANY, _("Left click (and drag) actions depend on 3 modifier keys:\nOption, Shift and Cmd."), wxDefaultPosition, wxDefaultSize, 0 );
+	m_staticText1811 = new wxStaticText( m_mouseCmdsOSX->GetStaticBox(), wxID_ANY, _("Left click (and drag) actions depend on 3 modifier keys:\nOption, Shift and Cmd"), wxDefaultPosition, wxDefaultSize, 0 );
 	m_staticText1811->Wrap( -1 );
 	m_mouseCmdsOSX->Add( m_staticText1811, 0, wxBOTTOM|wxRIGHT|wxLEFT, 5 );
 
@@ -187,7 +187,7 @@ PANEL_EDIT_OPTIONS_BASE::PANEL_EDIT_OPTIONS_BASE( wxWindow* parent, wxWindowID i
 	fgSizerCmdsOSX->Add( staticText62, 0, wxRIGHT|wxLEFT, 5 );
 
 	wxStaticText* staticText72;
-	staticText72 = new wxStaticText( m_mouseCmdsOSX->GetStaticBox(), wxID_ANY, _("Select item(s)."), wxDefaultPosition, wxDefaultSize, 0 );
+	staticText72 = new wxStaticText( m_mouseCmdsOSX->GetStaticBox(), wxID_ANY, _("Select item(s)"), wxDefaultPosition, wxDefaultSize, 0 );
 	staticText72->Wrap( -1 );
 	fgSizerCmdsOSX->Add( staticText72, 0, wxRIGHT|wxLEFT, 5 );
 
@@ -197,7 +197,7 @@ PANEL_EDIT_OPTIONS_BASE::PANEL_EDIT_OPTIONS_BASE( wxWindow* parent, wxWindowID i
 	fgSizerCmdsOSX->Add( staticText162, 0, wxRIGHT|wxLEFT, 5 );
 
 	wxStaticText* staticText172;
-	staticText172 = new wxStaticText( m_mouseCmdsOSX->GetStaticBox(), wxID_ANY, _("Clarify selection from menu."), wxDefaultPosition, wxDefaultSize, 0 );
+	staticText172 = new wxStaticText( m_mouseCmdsOSX->GetStaticBox(), wxID_ANY, _("Clarify selection from menu"), wxDefaultPosition, wxDefaultSize, 0 );
 	staticText172->Wrap( -1 );
 	fgSizerCmdsOSX->Add( staticText172, 0, wxRIGHT|wxLEFT, 5 );
 
@@ -207,7 +207,7 @@ PANEL_EDIT_OPTIONS_BASE::PANEL_EDIT_OPTIONS_BASE( wxWindow* parent, wxWindowID i
 	fgSizerCmdsOSX->Add( staticText82, 0, wxRIGHT|wxLEFT, 5 );
 
 	wxStaticText* staticText92;
-	staticText92 = new wxStaticText( m_mouseCmdsOSX->GetStaticBox(), wxID_ANY, _("Add item(s) to selection."), wxDefaultPosition, wxDefaultSize, 0 );
+	staticText92 = new wxStaticText( m_mouseCmdsOSX->GetStaticBox(), wxID_ANY, _("Add item(s) to selection"), wxDefaultPosition, wxDefaultSize, 0 );
 	staticText92->Wrap( -1 );
 	fgSizerCmdsOSX->Add( staticText92, 0, wxRIGHT|wxLEFT, 5 );
 
@@ -217,7 +217,7 @@ PANEL_EDIT_OPTIONS_BASE::PANEL_EDIT_OPTIONS_BASE( wxWindow* parent, wxWindowID i
 	fgSizerCmdsOSX->Add( staticText122, 0, wxRIGHT|wxLEFT, 5 );
 
 	wxStaticText* staticText132;
-	staticText132 = new wxStaticText( m_mouseCmdsOSX->GetStaticBox(), wxID_ANY, _("Remove item(s) from selection."), wxDefaultPosition, wxDefaultSize, 0 );
+	staticText132 = new wxStaticText( m_mouseCmdsOSX->GetStaticBox(), wxID_ANY, _("Remove item(s) from selection"), wxDefaultPosition, wxDefaultSize, 0 );
 	staticText132->Wrap( -1 );
 	fgSizerCmdsOSX->Add( staticText132, 0, wxRIGHT|wxLEFT, 5 );
 
@@ -226,7 +226,7 @@ PANEL_EDIT_OPTIONS_BASE::PANEL_EDIT_OPTIONS_BASE( wxWindow* parent, wxWindowID i
 	staticText142->Wrap( -1 );
 	fgSizerCmdsOSX->Add( staticText142, 0, wxTOP|wxRIGHT|wxLEFT, 5 );
 
-	wxString m_rbCtrlClickActionMacChoices[] = { _("Toggle selection."), _("Highlight net (for pads or tracks).") };
+	wxString m_rbCtrlClickActionMacChoices[] = { _("Toggle selection"), _("Highlight net (for pads or tracks)") };
 	int m_rbCtrlClickActionMacNChoices = sizeof( m_rbCtrlClickActionMacChoices ) / sizeof( wxString );
 	m_rbCtrlClickActionMac = new wxRadioBox( m_mouseCmdsOSX->GetStaticBox(), wxID_ANY, wxEmptyString, wxDefaultPosition, wxDefaultSize, m_rbCtrlClickActionMacNChoices, m_rbCtrlClickActionMacChoices, 1, wxRA_SPECIFY_COLS );
 	m_rbCtrlClickActionMac->SetSelection( 0 );
@@ -238,7 +238,7 @@ PANEL_EDIT_OPTIONS_BASE::PANEL_EDIT_OPTIONS_BASE( wxWindow* parent, wxWindowID i
 	fgSizerCmdsOSX->Add( staticText102, 0, wxRIGHT|wxLEFT, 5 );
 
 	wxStaticText* staticText112;
-	staticText112 = new wxStaticText( m_mouseCmdsOSX->GetStaticBox(), wxID_ANY, _("Clarify selection from menu."), wxDefaultPosition, wxDefaultSize, 0 );
+	staticText112 = new wxStaticText( m_mouseCmdsOSX->GetStaticBox(), wxID_ANY, _("Clarify selection from menu"), wxDefaultPosition, wxDefaultSize, 0 );
 	staticText112->Wrap( -1 );
 	fgSizerCmdsOSX->Add( staticText112, 0, wxRIGHT|wxLEFT, 5 );
 
@@ -379,7 +379,7 @@ PANEL_EDIT_OPTIONS_BASE::PANEL_EDIT_OPTIONS_BASE( wxWindow* parent, wxWindowID i
 	m_cbCourtyardCollisions->SetValue(true);
 	sbSizerMisc->Add( m_cbCourtyardCollisions, 0, wxBOTTOM|wxRIGHT|wxLEFT, 5 );
 
-	m_autoRefillZones = new wxCheckBox( sbSizerMisc->GetStaticBox(), wxID_ANY, _("Auto-refill zones"), wxDefaultPosition, wxDefaultSize, 0 );
+	m_autoRefillZones = new wxCheckBox( sbSizerMisc->GetStaticBox(), wxID_ANY, _("Automatically refill zones"), wxDefaultPosition, wxDefaultSize, 0 );
 	m_autoRefillZones->SetValue(true);
 	m_autoRefillZones->SetToolTip( _("If checked, zones will be re-filled after each edit operation") );
 

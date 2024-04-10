@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2015-2016 Mario Luzeiro <mrluzeiro@ua.pt>
- * Copyright (C) 2015-2020 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2015-2024 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -37,6 +37,7 @@ class TRACK_BALL : public CAMERA
 {
 public:
     explicit TRACK_BALL( float aInitialDistance );
+    explicit TRACK_BALL( SFVEC3F aInitPos, SFVEC3F aLookat, PROJECTION_TYPE aProjectionType );
 
     virtual ~TRACK_BALL()
     {
@@ -57,6 +58,8 @@ public:
     void Interpolate( float t ) override;
 
 private:
+    void initQuat();
+
     /**
      *  interpolate quaternions of the trackball
      */

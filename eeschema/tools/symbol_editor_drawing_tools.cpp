@@ -55,7 +55,7 @@ SYMBOL_EDITOR_DRAWING_TOOLS::SYMBOL_EDITOR_DRAWING_TOOLS() :
         m_lastFillStyle( FILL_T::NO_FILL ),
         m_lastFillColor( COLOR4D::UNSPECIFIED ),
         m_lastStroke( 0, LINE_STYLE::DEFAULT, COLOR4D::UNSPECIFIED ),
-        m_drawSpecificConvert( true ),
+        m_drawSpecificBodyStyle( true ),
         m_drawSpecificUnit( false ),
         m_inDrawShape( false ),
         m_inTwoClickPlace( false )
@@ -70,11 +70,11 @@ bool SYMBOL_EDITOR_DRAWING_TOOLS::Init()
     auto isDrawingCondition =
             [] ( const SELECTION& aSel )
             {
-                LIB_ITEM* item = (LIB_ITEM*) aSel.Front();
+                SCH_ITEM* item = dynamic_cast<SCH_ITEM*>( aSel.Front() );
                 return item && item->IsNew();
             };
 
-    m_menu.GetMenu().AddItem( EE_ACTIONS::finishDrawing, isDrawingCondition, 2 );
+    m_menu.GetMenu().AddItem( ACTIONS::finishInteractive, isDrawingCondition, 2 );
 
     return true;
 }
@@ -95,7 +95,7 @@ int SYMBOL_EDITOR_DRAWING_TOOLS::TwoClickPlace( const TOOL_EVENT& aEvent )
     EE_GRID_HELPER        grid( m_toolMgr );
     VECTOR2I              cursorPos;
     bool                  ignorePrimePosition = false;
-    LIB_ITEM*             item   = nullptr;
+    SCH_ITEM*             item   = nullptr;
     bool                  isText = aEvent.IsAction( &EE_ACTIONS::placeSymbolText );
     COMMON_SETTINGS*      common_settings = Pgm().GetCommonSettings();
 
@@ -224,8 +224,8 @@ int SYMBOL_EDITOR_DRAWING_TOOLS::TwoClickPlace( const TOOL_EVENT& aEvent )
                     if( m_drawSpecificUnit )
                         text->SetUnit( m_frame->GetUnit() );
 
-                    if( m_drawSpecificConvert )
-                        text->SetConvert( m_frame->GetConvert() );
+                    if( m_drawSpecificBodyStyle )
+                        text->SetBodyStyle( m_frame->GetBodyStyle() );
 
                     text->SetPosition( VECTOR2I( cursorPos.x, -cursorPos.y ) );
                     text->SetTextSize( VECTOR2I( schIUScale.MilsToIU( settings->m_Defaults.text_size ),
@@ -463,10 +463,13 @@ int SYMBOL_EDITOR_DRAWING_TOOLS::doDrawShape( const TOOL_EVENT& aEvent, std::opt
             {
                 LIB_TEXTBOX* textbox = new LIB_TEXTBOX( symbol, lineWidth, m_lastFillStyle );
 
-                textbox->SetBold( m_lastTextBold );
-                textbox->SetItalic( m_lastTextItalic );
                 textbox->SetTextSize( VECTOR2I( schIUScale.MilsToIU( settings->m_Defaults.text_size ),
                                                 schIUScale.MilsToIU( settings->m_Defaults.text_size ) ) );
+
+                // Must be after SetTextSize()
+                textbox->SetBold( m_lastTextBold );
+                textbox->SetItalic( m_lastTextItalic );
+
                 textbox->SetTextAngle( m_lastTextAngle );
                 textbox->SetHorizJustify( m_lastTextJust );
 
@@ -488,15 +491,15 @@ int SYMBOL_EDITOR_DRAWING_TOOLS::doDrawShape( const TOOL_EVENT& aEvent, std::opt
             if( m_drawSpecificUnit )
                 item->SetUnit( m_frame->GetUnit() );
 
-            if( m_drawSpecificConvert )
-                item->SetConvert( m_frame->GetConvert() );
+            if( m_drawSpecificBodyStyle )
+                item->SetBodyStyle( m_frame->GetBodyStyle() );
 
             m_selectionTool->AddItemToSel( item );
         }
         else if( item && ( evt->IsClick( BUT_LEFT )
                         || evt->IsDblClick( BUT_LEFT )
                         || isSyntheticClick
-                        || evt->IsAction( &EE_ACTIONS::finishDrawing ) ) )
+                        || evt->IsAction( &ACTIONS::finishInteractive ) ) )
         {
             if( symbol != m_frame->GetCurSymbol() )
             {
@@ -504,7 +507,7 @@ int SYMBOL_EDITOR_DRAWING_TOOLS::doDrawShape( const TOOL_EVENT& aEvent, std::opt
                 item->SetParent( symbol );
             }
 
-            if( evt->IsDblClick( BUT_LEFT ) || evt->IsAction( &EE_ACTIONS::finishDrawing )
+            if( evt->IsDblClick( BUT_LEFT ) || evt->IsAction( &ACTIONS::finishInteractive )
                     || !item->ContinueEdit( VECTOR2I( cursorPos.x, -cursorPos.y ) ) )
             {
                 if( toolType == SHAPE_T::POLY )
@@ -524,6 +527,7 @@ int SYMBOL_EDITOR_DRAWING_TOOLS::doDrawShape( const TOOL_EVENT& aEvent, std::opt
                     LIB_TEXTBOX*                  textbox = static_cast<LIB_TEXTBOX*>( item );
                     DIALOG_LIB_TEXTBOX_PROPERTIES dlg( m_frame, static_cast<LIB_TEXTBOX*>( item ) );
 
+                    // QuasiModal required for syntax help and Scintilla auto-complete
                     if( dlg.ShowQuasiModal() != wxID_OK )
                     {
                         cleanup();
@@ -629,7 +633,7 @@ int SYMBOL_EDITOR_DRAWING_TOOLS::PlaceAnchor( const TOOL_EVENT& aEvent )
             VECTOR2I cursorPos = getViewControls()->GetCursorPosition( !evt->DisableGridSnapping() );
             VECTOR2I offset( -cursorPos.x, cursorPos.y );
 
-            symbol->SetOffset( offset );
+            symbol->Move( offset );
 
             // Refresh the view without changing the viewport
             auto center = m_view->GetCenter();
@@ -654,7 +658,7 @@ int SYMBOL_EDITOR_DRAWING_TOOLS::PlaceAnchor( const TOOL_EVENT& aEvent )
 }
 
 
-int SYMBOL_EDITOR_DRAWING_TOOLS::SymbolImportGraphics( const TOOL_EVENT& aEvent )
+int SYMBOL_EDITOR_DRAWING_TOOLS::ImportGraphics( const TOOL_EVENT& aEvent )
 {
     LIB_SYMBOL* symbol = m_frame->GetCurSymbol();
 
@@ -681,14 +685,14 @@ int SYMBOL_EDITOR_DRAWING_TOOLS::SymbolImportGraphics( const TOOL_EVENT& aEvent 
     m_toolMgr->RunAction( ACTIONS::cancelInteractive );
 
     KIGFX::VIEW_CONTROLS*  controls = getViewControls();
-    std::vector<LIB_ITEM*> newItems;      // all new items, including group
-    std::vector<LIB_ITEM*> selectedItems; // the group, or newItems if no group
+    std::vector<SCH_ITEM*> newItems;      // all new items, including group
+    std::vector<SCH_ITEM*> selectedItems; // the group, or newItems if no group
     EE_SELECTION           preview;
     SCH_COMMIT             commit( m_toolMgr );
 
     for( std::unique_ptr<EDA_ITEM>& ptr : list )
     {
-        LIB_ITEM* item = dynamic_cast<LIB_ITEM*>( ptr.get() );
+        SCH_ITEM* item = dynamic_cast<SCH_ITEM*>( ptr.get() );
         wxCHECK2( item, continue );
 
         newItems.push_back( item );
@@ -703,7 +707,7 @@ int SYMBOL_EDITOR_DRAWING_TOOLS::SymbolImportGraphics( const TOOL_EVENT& aEvent 
         commit.Modify( symbol, m_frame->GetScreen() );
 
         // Place the imported drawings
-        for( LIB_ITEM* item : newItems )
+        for( SCH_ITEM* item : newItems )
         {
             symbol->AddDrawItem( item );
             item->ClearEditFlags();
@@ -745,8 +749,8 @@ int SYMBOL_EDITOR_DRAWING_TOOLS::SymbolImportGraphics( const TOOL_EVENT& aEvent 
     VECTOR2I delta = cursorPos;
     VECTOR2I currentOffset;
 
-    for( LIB_ITEM* item : selectedItems )
-        item->Offset( delta );
+    for( SCH_ITEM* item : selectedItems )
+        item->Move( delta );
 
     currentOffset += delta;
 
@@ -767,7 +771,7 @@ int SYMBOL_EDITOR_DRAWING_TOOLS::SymbolImportGraphics( const TOOL_EVENT& aEvent 
         {
             m_toolMgr->RunAction( EE_ACTIONS::clearSelection );
 
-            for( LIB_ITEM* item : newItems )
+            for( SCH_ITEM* item : newItems )
                 delete item;
 
             break;
@@ -776,8 +780,8 @@ int SYMBOL_EDITOR_DRAWING_TOOLS::SymbolImportGraphics( const TOOL_EVENT& aEvent 
         {
             delta = VECTOR2I( cursorPos.x, -cursorPos.y ) - currentOffset;
 
-            for( LIB_ITEM* item : selectedItems )
-                item->Offset( delta );
+            for( SCH_ITEM* item : selectedItems )
+                item->Move( delta );
 
             currentOffset += delta;
 
@@ -792,7 +796,7 @@ int SYMBOL_EDITOR_DRAWING_TOOLS::SymbolImportGraphics( const TOOL_EVENT& aEvent 
             commit.Modify( symbol, m_frame->GetScreen() );
 
             // Place the imported drawings
-            for( LIB_ITEM* item : newItems )
+            for( SCH_ITEM* item : newItems )
             {
                 symbol->AddDrawItem( item );
                 item->ClearEditFlags();
@@ -868,6 +872,6 @@ void SYMBOL_EDITOR_DRAWING_TOOLS::setTransitions()
     Go( &SYMBOL_EDITOR_DRAWING_TOOLS::DrawShape,         EE_ACTIONS::drawSymbolPolygon.MakeEvent() );
     Go( &SYMBOL_EDITOR_DRAWING_TOOLS::DrawSymbolTextBox, EE_ACTIONS::drawSymbolTextBox.MakeEvent() );
     Go( &SYMBOL_EDITOR_DRAWING_TOOLS::PlaceAnchor,       EE_ACTIONS::placeSymbolAnchor.MakeEvent() );
-    Go( &SYMBOL_EDITOR_DRAWING_TOOLS::SymbolImportGraphics, EE_ACTIONS::symbolImportGraphics.MakeEvent() );
+    Go( &SYMBOL_EDITOR_DRAWING_TOOLS::ImportGraphics,    EE_ACTIONS::importGraphics.MakeEvent() );
     Go( &SYMBOL_EDITOR_DRAWING_TOOLS::RepeatDrawItem,    EE_ACTIONS::repeatDrawItem.MakeEvent() );
 }

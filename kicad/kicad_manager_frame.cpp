@@ -34,6 +34,7 @@
 #include <bitmaps.h>
 #include <build_version.h>
 #include <dialogs/panel_kicad_launcher.h>
+#include <dialogs/dialog_update_check_prompt.h>
 #include <eda_base_frame.h>
 #include <executable_names.h>
 #include <file_history.h>
@@ -62,13 +63,13 @@
 #include <widgets/kistatusbar.h>
 #include <wx/ffile.h>
 #include <wx/filedlg.h>
-#include <wx/dcclient.h>
 #include <wx/dnd.h>
 #include <wx/process.h>
 #include <atomic>
+#include <update_manager.h>
 
 
-#include <../pcbnew/plugins/kicad/pcb_plugin.h>   // for SEXPR_BOARD_FILE_VERSION def
+#include <../pcbnew/pcb_io/kicad_sexpr/pcb_io_kicad_sexpr.h>   // for SEXPR_BOARD_FILE_VERSION def
 
 
 #ifdef __WXMAC__
@@ -128,8 +129,10 @@ KICAD_MANAGER_FRAME::KICAD_MANAGER_FRAME( wxWindow* parent, const wxString& titl
         m_mainToolBar( nullptr ),
         m_lastToolbarIconSize( 0 )
 {
+    const int defaultLeftWinWidth = FromDIP( 250 );
+
     m_active_project = false;
-    m_leftWinWidth = 250;       // Default value
+    m_leftWinWidth = defaultLeftWinWidth; // Default value
     m_aboutTitle = "KiCad";
 
     // JPC: A very ugly hack to fix an issue on Linux: if the wxbase315u_xml_gcc_custom.so is
@@ -140,7 +143,12 @@ KICAD_MANAGER_FRAME::KICAD_MANAGER_FRAME( wxWindow* parent, const wxString& titl
 
     // Create the status line (bottom of the frame).  Left half is for project name; right half
     // is for Reporter (currently used by archiver/unarchiver and PCM).
-    CreateStatusBar( 3 );
+    // Note: this is a KISTATUSBAR status bar. Therefore the specified number of fields
+    // is the extra number of fields, not the full field count.
+    // We need here 2 fields: the extra fiels to display the project name, and another field
+    // to display a info (specific to Windows) using the FIELD_OFFSET_BGJOB_TEXT id offset (=1)
+    // So the extra field count is 1
+    CreateStatusBar( 1 );
     Pgm().GetBackgroundJobMonitor().RegisterStatusBar( (KISTATUSBAR*) GetStatusBar() );
     Pgm().GetNotificationsManager().RegisterStatusBar( (KISTATUSBAR*) GetStatusBar() );
     GetStatusBar()->SetFont( KIUI::GetStatusFont( this ) );
@@ -151,7 +159,11 @@ KICAD_MANAGER_FRAME::KICAD_MANAGER_FRAME( wxWindow* parent, const wxString& titl
 
     if( IsNightlyVersion())
     {
-        icon.CopyFromBitmap( KiBitmap( BITMAPS::icon_kicad_nightly ) );
+        icon.CopyFromBitmap( KiBitmap( BITMAPS::icon_kicad_nightly, 48 ) );
+        icon_bundle.AddIcon( icon );
+        icon.CopyFromBitmap( KiBitmap( BITMAPS::icon_kicad_nightly, 128 ) );
+        icon_bundle.AddIcon( icon );
+        icon.CopyFromBitmap( KiBitmap( BITMAPS::icon_kicad_nightly, 256 ) );
         icon_bundle.AddIcon( icon );
         icon.CopyFromBitmap( KiBitmap( BITMAPS::icon_kicad_nightly_32 ) );
         icon_bundle.AddIcon( icon );
@@ -160,7 +172,11 @@ KICAD_MANAGER_FRAME::KICAD_MANAGER_FRAME( wxWindow* parent, const wxString& titl
     }
     else
     {
-        icon.CopyFromBitmap( KiBitmap( BITMAPS::icon_kicad ) );
+        icon.CopyFromBitmap( KiBitmap( BITMAPS::icon_kicad, 48 ) );
+        icon_bundle.AddIcon( icon );
+        icon.CopyFromBitmap( KiBitmap( BITMAPS::icon_kicad, 128 ) );
+        icon_bundle.AddIcon( icon );
+        icon.CopyFromBitmap( KiBitmap( BITMAPS::icon_kicad, 256 ) );
         icon_bundle.AddIcon( icon );
         icon.CopyFromBitmap( KiBitmap( BITMAPS::icon_kicad_32 ) );
         icon_bundle.AddIcon( icon );
@@ -209,7 +225,7 @@ KICAD_MANAGER_FRAME::KICAD_MANAGER_FRAME( wxWindow* parent, const wxString& titl
     m_auimgr.Update();
 
     // Now the actual m_leftWin size is set, give it a reasonable min width
-    m_auimgr.GetPane( m_leftWin ).MinSize( 250, -1 );
+    m_auimgr.GetPane( m_leftWin ).MinSize( defaultLeftWinWidth, -1 );
 
     wxSizer* mainSizer = GetSizer();
 
@@ -226,14 +242,14 @@ KICAD_MANAGER_FRAME::KICAD_MANAGER_FRAME( wxWindow* parent, const wxString& titl
     m_leftWin->SetFocus();
 
     // Init for dropping files
-    m_acceptedExts.emplace( ProjectFileExtension, &KICAD_MANAGER_ACTIONS::loadProject );
-    m_acceptedExts.emplace( LegacyProjectFileExtension, &KICAD_MANAGER_ACTIONS::loadProject );
+    m_acceptedExts.emplace( FILEEXT::ProjectFileExtension, &KICAD_MANAGER_ACTIONS::loadProject );
+    m_acceptedExts.emplace( FILEEXT::LegacyProjectFileExtension, &KICAD_MANAGER_ACTIONS::loadProject );
 
     // Gerber files
     // Note that all gerber files are aliased as GerberFileExtension
-    m_acceptedExts.emplace( GerberFileExtension, &KICAD_MANAGER_ACTIONS::viewDroppedGerbers );
-    m_acceptedExts.emplace( GerberJobFileExtension, &KICAD_MANAGER_ACTIONS::viewDroppedGerbers );
-    m_acceptedExts.emplace( DrillFileExtension, &KICAD_MANAGER_ACTIONS::viewDroppedGerbers );
+    m_acceptedExts.emplace( FILEEXT::GerberFileExtension, &KICAD_MANAGER_ACTIONS::viewDroppedGerbers );
+    m_acceptedExts.emplace( FILEEXT::GerberJobFileExtension, &KICAD_MANAGER_ACTIONS::viewDroppedGerbers );
+    m_acceptedExts.emplace( FILEEXT::DrillFileExtension, &KICAD_MANAGER_ACTIONS::viewDroppedGerbers );
 
     DragAcceptFiles( true );
 
@@ -392,7 +408,7 @@ const wxString KICAD_MANAGER_FRAME::SchFileName()
 {
    wxFileName   fn( GetProjectFileName() );
 
-   fn.SetExt( KiCadSchematicFileExtension );
+   fn.SetExt( FILEEXT::KiCadSchematicFileExtension );
    return fn.GetFullPath();
 }
 
@@ -401,7 +417,7 @@ const wxString KICAD_MANAGER_FRAME::SchLegacyFileName()
 {
    wxFileName   fn( GetProjectFileName() );
 
-   fn.SetExt( LegacySchematicFileExtension );
+   fn.SetExt( FILEEXT::LegacySchematicFileExtension );
    return fn.GetFullPath();
 }
 
@@ -410,7 +426,7 @@ const wxString KICAD_MANAGER_FRAME::PcbFileName()
 {
    wxFileName   fn( GetProjectFileName() );
 
-   fn.SetExt( PcbFileExtension );
+   fn.SetExt( FILEEXT::PcbFileExtension );
    return fn.GetFullPath();
 }
 
@@ -419,7 +435,7 @@ const wxString KICAD_MANAGER_FRAME::PcbLegacyFileName()
 {
    wxFileName   fn( GetProjectFileName() );
 
-   fn.SetExt( LegacyPcbFileExtension );
+   fn.SetExt( FILEEXT::LegacyPcbFileExtension );
    return fn.GetFullPath();
 }
 
@@ -449,6 +465,11 @@ void KICAD_MANAGER_FRAME::OnSize( wxSizeEvent& event )
 
     PrintPrjInfo();
 
+#if defined( _WIN32 )
+    KISTATUSBAR* statusBar = static_cast<KISTATUSBAR*>( GetStatusBar() );
+    statusBar->SetEllipsedTextField( m_FileWatcherInfo, 1 );
+#endif
+
     event.Skip();
 }
 
@@ -462,7 +483,7 @@ void KICAD_MANAGER_FRAME::DoWithAcceptedFiles()
     {
         wxString ext = fileName.GetExt();
 
-        if( ext == ProjectFileExtension || ext == LegacyProjectFileExtension )
+        if( ext == FILEEXT::ProjectFileExtension || ext == FILEEXT::LegacyProjectFileExtension )
         {
             wxString fn = fileName.GetFullPath();
             m_toolManager->RunAction<wxString*>( *m_acceptedExts.at( fileName.GetExt() ), &fn );
@@ -479,8 +500,8 @@ void KICAD_MANAGER_FRAME::DoWithAcceptedFiles()
     {
         wxString ext = fileName.GetExt();
 
-        if( ext == GerberJobFileExtension || ext == DrillFileExtension
-            || IsGerberFileExtension( ext ) )
+        if( ext == FILEEXT::GerberJobFileExtension || ext == FILEEXT::DrillFileExtension
+            || FILEEXT::IsGerberFileExtension( ext ) )
         {
             gerberFiles += wxT( '\"' );
             gerberFiles += fileName.GetFullPath() + wxT( '\"' );
@@ -501,7 +522,7 @@ void KICAD_MANAGER_FRAME::DoWithAcceptedFiles()
         if( wxFileExists( fullEditorName ) )
         {
             wxString command = fullEditorName + " " + gerberFiles;
-            m_toolManager->RunAction<wxString*>( *m_acceptedExts.at( GerberFileExtension ),
+            m_toolManager->RunAction<wxString*>( *m_acceptedExts.at( FILEEXT::GerberFileExtension ),
                                                  &command );
         }
     }
@@ -646,7 +667,7 @@ void KICAD_MANAGER_FRAME::CreateNewProject( const wxFileName& aProjectFileName,
     if( !aProjectFileName.FileExists() )
     {
         wxFileName legacyPro( aProjectFileName );
-        legacyPro.SetExt( LegacyProjectFileExtension );
+        legacyPro.SetExt( FILEEXT::LegacyProjectFileExtension );
 
         if( legacyPro.FileExists() )
         {
@@ -661,7 +682,7 @@ void KICAD_MANAGER_FRAME::CreateNewProject( const wxFileName& aProjectFileName,
             wxString srcFileName = sys_search().FindValidPath( "kicad.kicad_pro" );
 
             wxFileName destFileName( aProjectFileName );
-            destFileName.SetExt( ProjectFileExtension );
+            destFileName.SetExt( FILEEXT::ProjectFileExtension );
 
             // Create a minimal project file if the template project file could not be copied
             if( !wxFileName::FileExists( srcFileName )
@@ -683,7 +704,7 @@ void KICAD_MANAGER_FRAME::CreateNewProject( const wxFileName& aProjectFileName,
     if( aCreateStubFiles )
     {
         wxFileName fn( aProjectFileName.GetFullPath() );
-        fn.SetExt( KiCadSchematicFileExtension );
+        fn.SetExt( FILEEXT::KiCadSchematicFileExtension );
 
         // If a <project>.kicad_sch file does not exist, create a "stub" file ( minimal schematic
         // file ).
@@ -692,19 +713,19 @@ void KICAD_MANAGER_FRAME::CreateNewProject( const wxFileName& aProjectFileName,
             wxFFile file( fn.GetFullPath(), "wb" );
 
             if( file.IsOpened() )
-                file.Write( wxString::Format( "(kicad_sch (version %d) (generator eeschema)\n"
+                file.Write( wxString::Format( "(kicad_sch (version %d) (generator \"eeschema\") (generator_version \"%s\")\n"
                                               "  (paper \"A4\")\n  (lib_symbols)\n"
                                               "  (symbol_instances)\n)\n",
-                                              SEXPR_SCHEMATIC_FILE_VERSION ) );
+                                              SEXPR_SCHEMATIC_FILE_VERSION, GetMajorMinorVersion() ) );
 
             // wxFFile dtor will close the file
         }
 
         // If a <project>.kicad_pcb or <project>.brd file does not exist,
         // create a .kicad_pcb "stub" file
-        fn.SetExt( KiCadPcbFileExtension );
+        fn.SetExt( FILEEXT::KiCadPcbFileExtension );
         wxFileName leg_fn( fn );
-        leg_fn.SetExt( LegacyPcbFileExtension );
+        leg_fn.SetExt( FILEEXT::LegacyPcbFileExtension );
 
         if( !fn.FileExists() && !leg_fn.FileExists() )
         {
@@ -712,8 +733,8 @@ void KICAD_MANAGER_FRAME::CreateNewProject( const wxFileName& aProjectFileName,
 
             if( file.IsOpened() )
                 // Create a small dummy file as a stub for pcbnew:
-                file.Write( wxString::Format( "(kicad_pcb (version %d) (generator pcbnew)\n)",
-                                              SEXPR_BOARD_FILE_VERSION ) );
+                file.Write( wxString::Format( "(kicad_pcb (version %d) (generator \"pcbnew\") (generator_version \"%s\")\n)",
+                                              SEXPR_BOARD_FILE_VERSION, GetMajorMinorVersion() ) );
 
             // wxFFile dtor will close the file
         }
@@ -731,7 +752,7 @@ void KICAD_MANAGER_FRAME::CreateNewProject( const wxFileName& aProjectFileName,
 void KICAD_MANAGER_FRAME::OnOpenFileInTextEditor( wxCommandEvent& event )
 {
     // show all files in file dialog (in Kicad all files are editable texts):
-    wxString wildcard = AllFilesWildcard();
+    wxString wildcard = FILEEXT::AllFilesWildcard();
 
     wxString default_dir = Prj().GetProjectPath();
 
@@ -861,16 +882,8 @@ void KICAD_MANAGER_FRAME::PrintPrjInfo()
     // wxStatusBar's wxELLIPSIZE_MIDDLE flag doesn't work (at least on Mac).
 
     wxString     status = wxString::Format( _( "Project: %s" ), Prj().GetProjectFullName() );
-    wxStatusBar* statusBar = GetStatusBar();
-    int          width = statusBar->GetSize().GetWidth() / 2;
-
-    if( width > 20 )
-    {
-        wxClientDC dc( this );
-        status = wxControl::Ellipsize( status, dc, wxELLIPSIZE_MIDDLE, width );
-    }
-
-    SetStatusText( status );
+    KISTATUSBAR* statusBar = static_cast<KISTATUSBAR*>( GetStatusBar() );
+    statusBar->SetEllipsedTextField( status, 0 );
 }
 
 
@@ -899,7 +912,7 @@ void KICAD_MANAGER_FRAME::OnIdle( wxIdleEvent& aEvent )
                                Prj().GetLocalSettings().m_files.end(),
                                [&]( const PROJECT_FILE_STATE& f )
                                {
-                                   return !f.fileName.EndsWith( ProjectFileExtension ) && f.open;
+                                   return !f.fileName.EndsWith( FILEEXT::ProjectFileExtension ) && f.open;
                                } );
 
         if( previousOpenCount > 0 )
@@ -922,13 +935,13 @@ void KICAD_MANAGER_FRAME::OnIdle( wxIdleEvent& aEvent )
                     openedFiles.insert( file.fileName );
                     wxFileName fn( file.fileName );
 
-                    if( fn.GetExt() == LegacySchematicFileExtension
-                            || fn.GetExt() == KiCadSchematicFileExtension )
+                    if( fn.GetExt() == FILEEXT::LegacySchematicFileExtension
+                        || fn.GetExt() == FILEEXT::KiCadSchematicFileExtension )
                     {
                         GetToolManager()->RunAction( KICAD_MANAGER_ACTIONS::editSchematic );
                     }
-                    else if( fn.GetExt() == LegacyPcbFileExtension
-                             || fn.GetExt() == KiCadPcbFileExtension )
+                    else if( fn.GetExt() == FILEEXT::LegacyPcbFileExtension
+                             || fn.GetExt() == FILEEXT::KiCadPcbFileExtension )
                     {
                         GetToolManager()->RunAction( KICAD_MANAGER_ACTIONS::editPCB );
                     }
@@ -944,20 +957,12 @@ void KICAD_MANAGER_FRAME::OnIdle( wxIdleEvent& aEvent )
 
     KICAD_SETTINGS* settings = kicadSettings();
 
-    if( settings->m_updateCheck == KICAD_SETTINGS::UPDATE_CHECK::UNINITIALIZED )
+    if( !Pgm().GetCommonSettings()->m_DoNotShowAgain.update_check_prompt )
     {
-        if( wxMessageBox( _( "Would you like to automatically check for plugin updates on startup?" ),
-                          _( "Check for updates" ), wxICON_QUESTION | wxYES_NO, this )
-            == wxYES )
-        {
-            settings->m_updateCheck = KICAD_SETTINGS::UPDATE_CHECK::ALLOWED;
-            settings->m_PcmUpdateCheck = true;
-        }
-        else
-        {
-            settings->m_updateCheck = KICAD_SETTINGS::UPDATE_CHECK::NOT_ALLOWED;
-            settings->m_PcmUpdateCheck = false;
-        }
+        auto prompt = new DIALOG_UPDATE_CHECK_PROMPT( this );
+        prompt->ShowModal();
+
+        Pgm().GetCommonSettings()->m_DoNotShowAgain.update_check_prompt = true;
     }
 
     if( KIPLATFORM::POLICY::GetPolicyBool( POLICY_KEY_PCM ) != KIPLATFORM::POLICY::PBOOL::DISABLED
@@ -968,6 +973,14 @@ void KICAD_MANAGER_FRAME::OnIdle( wxIdleEvent& aEvent )
 
         m_pcm->RunBackgroundUpdate();
     }
+
+#ifdef KICAD_UPDATE_CHECK
+    if( !m_updateManager && settings->m_KiCadUpdateCheck )
+    {
+        m_updateManager = std::make_unique<UPDATE_MANAGER>();
+        m_updateManager->CheckForUpdate( this );
+    }
+#endif
 }
 
 

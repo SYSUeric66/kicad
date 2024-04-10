@@ -5,7 +5,6 @@
 // PLEASE DO *NOT* EDIT THIS FILE!
 ///////////////////////////////////////////////////////////////////////////
 
-#include "widgets/bitmap_button.h"
 #include "widgets/std_bitmap_button.h"
 #include "widgets/wx_grid.h"
 
@@ -33,7 +32,7 @@ DIALOG_SYMBOL_FIELDS_TABLE_BASE::DIALOG_SYMBOL_FIELDS_TABLE_BASE( wxWindow* pare
 	bLeftSizer = new wxBoxSizer( wxVERTICAL );
 
 	m_fieldsCtrl = new wxDataViewListCtrl( m_leftPanel, wxID_ANY, wxDefaultPosition, wxDefaultSize, 0 );
-	m_fieldsCtrl->SetMinSize( wxSize( -1,320 ) );
+	m_fieldsCtrl->SetMinSize( wxSize( -1,250 ) );
 
 	bLeftSizer->Add( m_fieldsCtrl, 1, wxBOTTOM|wxEXPAND|wxLEFT|wxRIGHT|wxTOP, 5 );
 
@@ -90,22 +89,19 @@ DIALOG_SYMBOL_FIELDS_TABLE_BASE::DIALOG_SYMBOL_FIELDS_TABLE_BASE( wxWindow* pare
 	m_filter->ShowSearchButton( true );
 	#endif
 	m_filter->ShowCancelButton( true );
+	m_filter->SetFont( wxFont( wxNORMAL_FONT->GetPointSize(), wxFONTFAMILY_DEFAULT, wxFONTSTYLE_NORMAL, wxFONTWEIGHT_NORMAL, false, wxEmptyString ) );
 	m_filter->SetMinSize( wxSize( 140,-1 ) );
 
-	bControls->Add( m_filter, 1, wxEXPAND|wxRIGHT, 5 );
+	bControls->Add( m_filter, 1, wxALIGN_CENTER_VERTICAL|wxRIGHT, 5 );
 
-	m_separator1 = new BITMAP_BUTTON( m_rightPanel, wxID_ANY, wxNullBitmap, wxDefaultPosition, wxSize( 21,21 ), wxBU_AUTODRAW|wxBORDER_NONE );
-	m_separator1->Enable( false );
-
-	bControls->Add( m_separator1, 0, wxALL|wxALIGN_CENTER_VERTICAL, 5 );
+	m_staticline31 = new wxStaticLine( m_rightPanel, wxID_ANY, wxDefaultPosition, wxDefaultSize, wxLI_VERTICAL );
+	bControls->Add( m_staticline31, 0, wxEXPAND | wxALL, 3 );
 
 	m_checkExcludeDNP = new wxCheckBox( m_rightPanel, wxID_ANY, _("Exclude DNP"), wxDefaultPosition, wxDefaultSize, 0 );
-	bControls->Add( m_checkExcludeDNP, 0, wxALL|wxALIGN_CENTER_VERTICAL, 5 );
+	bControls->Add( m_checkExcludeDNP, 0, wxALIGN_CENTER_VERTICAL|wxALL, 5 );
 
-	m_separator2 = new BITMAP_BUTTON( m_rightPanel, wxID_ANY, wxNullBitmap, wxDefaultPosition, wxSize( 21,21 ), wxBU_AUTODRAW|wxBORDER_NONE );
-	m_separator2->Enable( false );
-
-	bControls->Add( m_separator2, 0, wxALL|wxALIGN_CENTER_VERTICAL, 5 );
+	m_staticline32 = new wxStaticLine( m_rightPanel, wxID_ANY, wxDefaultPosition, wxDefaultSize, wxLI_VERTICAL );
+	bControls->Add( m_staticline32, 0, wxEXPAND | wxALL, 3 );
 
 	m_groupSymbolsBox = new wxCheckBox( m_rightPanel, OPT_GROUP_COMPONENTS, _("Group symbols"), wxDefaultPosition, wxDefaultSize, 0 );
 	m_groupSymbolsBox->SetValue(true);
@@ -113,15 +109,13 @@ DIALOG_SYMBOL_FIELDS_TABLE_BASE::DIALOG_SYMBOL_FIELDS_TABLE_BASE( wxWindow* pare
 
 	bControls->Add( m_groupSymbolsBox, 0, wxALIGN_CENTER_VERTICAL|wxLEFT, 5 );
 
-	m_separator3 = new BITMAP_BUTTON( m_rightPanel, wxID_ANY, wxNullBitmap, wxDefaultPosition, wxSize( 21,21 ), wxBU_AUTODRAW|wxBORDER_NONE );
-	m_separator3->Enable( false );
-
-	bControls->Add( m_separator3, 0, wxALL|wxALIGN_CENTER_VERTICAL, 5 );
+	m_staticline3 = new wxStaticLine( m_rightPanel, wxID_ANY, wxDefaultPosition, wxDefaultSize, wxLI_VERTICAL );
+	bControls->Add( m_staticline3, 0, wxEXPAND | wxALL, 3 );
 
 	m_bRefresh = new STD_BITMAP_BUTTON( m_rightPanel, wxID_ANY, wxNullBitmap, wxDefaultPosition, wxDefaultSize, wxBU_AUTODRAW|0 );
 	m_bRefresh->SetMinSize( wxSize( 30,30 ) );
 
-	bControls->Add( m_bRefresh, 0, wxALIGN_CENTER_VERTICAL|wxRIGHT, 5 );
+	bControls->Add( m_bRefresh, 0, wxALIGN_CENTER_VERTICAL|wxLEFT|wxRIGHT, 5 );
 
 
 	bRightSizer->Add( bControls, 0, wxEXPAND|wxLEFT|wxTOP, 5 );
@@ -150,49 +144,46 @@ DIALOG_SYMBOL_FIELDS_TABLE_BASE::DIALOG_SYMBOL_FIELDS_TABLE_BASE( wxWindow* pare
 
 	// Cell Defaults
 	m_grid->SetDefaultCellAlignment( wxALIGN_LEFT, wxALIGN_CENTER );
-	m_grid->SetMinSize( wxSize( 600,240 ) );
+	m_grid->SetMinSize( wxSize( 400,200 ) );
 
 	bRightSizer->Add( m_grid, 1, wxEXPAND|wxLEFT|wxRIGHT|wxTOP, 5 );
 
+	m_staticline7 = new wxStaticLine( m_rightPanel, wxID_ANY, wxDefaultPosition, wxDefaultSize, wxLI_HORIZONTAL );
+	bRightSizer->Add( m_staticline7, 0, wxEXPAND|wxRIGHT|wxLEFT, 5 );
 
-	bRightSizer->Add( 0, 4, 0, wxEXPAND, 5 );
-
-	wxBoxSizer* bSizer12;
-	bSizer12 = new wxBoxSizer( wxHORIZONTAL );
+	wxFlexGridSizer* fgSizer1;
+	fgSizer1 = new wxFlexGridSizer( 0, 4, 0, 0 );
+	fgSizer1->SetFlexibleDirection( wxBOTH );
+	fgSizer1->SetNonFlexibleGrowMode( wxFLEX_GROWMODE_SPECIFIED );
 
 	m_scopeLabel = new wxStaticText( m_rightPanel, wxID_ANY, _("Scope:"), wxDefaultPosition, wxDefaultSize, 0 );
 	m_scopeLabel->Wrap( -1 );
-	bSizer12->Add( m_scopeLabel, 0, wxALIGN_CENTER_VERTICAL|wxLEFT|wxRIGHT, 10 );
+	fgSizer1->Add( m_scopeLabel, 1, wxALIGN_CENTER_VERTICAL|wxALL, 5 );
 
 	m_radioProject = new wxRadioButton( m_rightPanel, wxID_ANY, _("Entire project"), wxDefaultPosition, wxDefaultSize, wxRB_GROUP );
-	bSizer12->Add( m_radioProject, 0, wxALIGN_CENTER_VERTICAL, 6 );
+	fgSizer1->Add( m_radioProject, 0, wxALIGN_CENTER_VERTICAL|wxTOP|wxBOTTOM|wxLEFT, 5 );
 
 	m_radioCurrentSheet = new wxRadioButton( m_rightPanel, wxID_ANY, _("Current sheet only"), wxDefaultPosition, wxDefaultSize, 0 );
-	bSizer12->Add( m_radioCurrentSheet, 0, wxALIGN_CENTER_VERTICAL|wxRIGHT|wxLEFT, 12 );
+	fgSizer1->Add( m_radioCurrentSheet, 0, wxALIGN_CENTER_VERTICAL|wxTOP|wxBOTTOM|wxLEFT, 5 );
 
 	m_radioRecursive = new wxRadioButton( m_rightPanel, wxID_ANY, _("Recursive"), wxDefaultPosition, wxDefaultSize, 0 );
-	bSizer12->Add( m_radioRecursive, 0, wxALIGN_CENTER_VERTICAL|wxRIGHT, 5 );
-
-	m_separator11 = new BITMAP_BUTTON( m_rightPanel, wxID_ANY, wxNullBitmap, wxDefaultPosition, wxSize( 21,21 ), wxBU_AUTODRAW|wxBORDER_NONE );
-	m_separator11->Enable( false );
-
-	bSizer12->Add( m_separator11, 0, wxLEFT, 5 );
+	fgSizer1->Add( m_radioRecursive, 0, wxALIGN_CENTER_VERTICAL|wxALL, 5 );
 
 	m_crossProbeLabel = new wxStaticText( m_rightPanel, wxID_ANY, _("Cross-probe action:"), wxDefaultPosition, wxDefaultSize, 0 );
 	m_crossProbeLabel->Wrap( -1 );
-	bSizer12->Add( m_crossProbeLabel, 0, wxALIGN_CENTER_VERTICAL|wxRIGHT|wxLEFT, 10 );
+	fgSizer1->Add( m_crossProbeLabel, 1, wxALIGN_CENTER_VERTICAL|wxALL, 5 );
 
 	m_radioHighlight = new wxRadioButton( m_rightPanel, wxID_ANY, _("Highlight"), wxDefaultPosition, wxDefaultSize, wxRB_GROUP );
-	bSizer12->Add( m_radioHighlight, 0, wxALIGN_CENTER_VERTICAL, 8 );
+	fgSizer1->Add( m_radioHighlight, 0, wxALIGN_CENTER_VERTICAL|wxTOP|wxBOTTOM|wxLEFT, 5 );
 
 	m_radioSelect = new wxRadioButton( m_rightPanel, wxID_ANY, _("Select"), wxDefaultPosition, wxDefaultSize, 0 );
-	bSizer12->Add( m_radioSelect, 0, wxRIGHT|wxLEFT|wxALIGN_CENTER_VERTICAL, 12 );
+	fgSizer1->Add( m_radioSelect, 0, wxALIGN_CENTER_VERTICAL|wxTOP|wxBOTTOM|wxLEFT, 5 );
 
 	m_radioOff = new wxRadioButton( m_rightPanel, wxID_ANY, _("None"), wxDefaultPosition, wxDefaultSize, 0 );
-	bSizer12->Add( m_radioOff, 0, wxALIGN_CENTER_VERTICAL, 8 );
+	fgSizer1->Add( m_radioOff, 0, wxALIGN_CENTER_VERTICAL|wxALL, 5 );
 
 
-	bRightSizer->Add( bSizer12, 0, wxEXPAND|wxRIGHT, 5 );
+	bRightSizer->Add( fgSizer1, 0, 0, 5 );
 
 
 	m_rightPanel->SetSizer( bRightSizer );
@@ -217,16 +208,16 @@ DIALOG_SYMBOL_FIELDS_TABLE_BASE::DIALOG_SYMBOL_FIELDS_TABLE_BASE( wxWindow* pare
 	gbExportOptions->SetFlexibleDirection( wxBOTH );
 	gbExportOptions->SetNonFlexibleGrowMode( wxFLEX_GROWMODE_SPECIFIED );
 
-	m_labelFieldDelimiter = new wxStaticText( m_panelExport, wxID_ANY, _("Field delimeter:"), wxDefaultPosition, wxDefaultSize, 0 );
+	m_labelFieldDelimiter = new wxStaticText( m_panelExport, wxID_ANY, _("Field delimiter:"), wxDefaultPosition, wxDefaultSize, 0 );
 	m_labelFieldDelimiter->Wrap( -1 );
-	gbExportOptions->Add( m_labelFieldDelimiter, wxGBPosition( 0, 0 ), wxGBSpan( 1, 1 ), wxALIGN_CENTER_VERTICAL|wxRIGHT, 5 );
+	gbExportOptions->Add( m_labelFieldDelimiter, wxGBPosition( 0, 0 ), wxGBSpan( 1, 1 ), wxALIGN_CENTER_VERTICAL, 5 );
 
 	m_textFieldDelimiter = new wxTextCtrl( m_panelExport, wxID_ANY, _(","), wxDefaultPosition, wxDefaultSize, wxTE_PROCESS_TAB );
 	m_textFieldDelimiter->SetMinSize( wxSize( 60,-1 ) );
 
 	gbExportOptions->Add( m_textFieldDelimiter, wxGBPosition( 0, 1 ), wxGBSpan( 1, 1 ), wxALIGN_CENTER_VERTICAL, 5 );
 
-	m_labelStringDelimiter = new wxStaticText( m_panelExport, wxID_ANY, _("String delimeter:"), wxDefaultPosition, wxDefaultSize, 0 );
+	m_labelStringDelimiter = new wxStaticText( m_panelExport, wxID_ANY, _("String delimiter:"), wxDefaultPosition, wxDefaultSize, 0 );
 	m_labelStringDelimiter->Wrap( -1 );
 	gbExportOptions->Add( m_labelStringDelimiter, wxGBPosition( 1, 0 ), wxGBSpan( 1, 1 ), wxALIGN_CENTER_VERTICAL, 5 );
 
@@ -274,22 +265,22 @@ DIALOG_SYMBOL_FIELDS_TABLE_BASE::DIALOG_SYMBOL_FIELDS_TABLE_BASE( wxWindow* pare
 	gbExportOptions->Add( m_cbBomFmtPresets, wxGBPosition( 9, 0 ), wxGBSpan( 1, 2 ), wxEXPAND, 5 );
 
 
-	gbExport->Add( gbExportOptions, wxGBPosition( 0, 0 ), wxGBSpan( 3, 1 ), wxEXPAND|wxBOTTOM|wxRIGHT|wxLEFT, 5 );
+	gbExport->Add( gbExportOptions, wxGBPosition( 0, 0 ), wxGBSpan( 3, 1 ), wxEXPAND|wxALL, 5 );
 
 	wxBoxSizer* bOutputDirectory;
 	bOutputDirectory = new wxBoxSizer( wxHORIZONTAL );
 
 	m_labelOutputDirectory = new wxStaticText( m_panelExport, wxID_ANY, _("Output file:"), wxDefaultPosition, wxDefaultSize, 0 );
 	m_labelOutputDirectory->Wrap( -1 );
-	bOutputDirectory->Add( m_labelOutputDirectory, 0, wxALIGN_CENTER_VERTICAL|wxALL, 5 );
+	bOutputDirectory->Add( m_labelOutputDirectory, 0, wxALIGN_CENTER_VERTICAL|wxTOP|wxBOTTOM|wxLEFT, 5 );
 
 	m_outputFileName = new wxTextCtrl( m_panelExport, wxID_ANY, wxEmptyString, wxDefaultPosition, wxDefaultSize, 0 );
-	bOutputDirectory->Add( m_outputFileName, 1, wxALIGN_CENTER_VERTICAL, 5 );
+	bOutputDirectory->Add( m_outputFileName, 1, wxALIGN_CENTER_VERTICAL|wxALL, 5 );
 
 	m_browseButton = new STD_BITMAP_BUTTON( m_panelExport, wxID_ANY, wxNullBitmap, wxDefaultPosition, wxDefaultSize, wxBU_AUTODRAW|0 );
 	m_browseButton->SetMinSize( wxSize( 30,30 ) );
 
-	bOutputDirectory->Add( m_browseButton, 0, wxALIGN_CENTER_VERTICAL|wxRIGHT, 5 );
+	bOutputDirectory->Add( m_browseButton, 0, wxALIGN_CENTER_VERTICAL|wxTOP|wxBOTTOM|wxRIGHT, 5 );
 
 
 	gbExport->Add( bOutputDirectory, wxGBPosition( 0, 1 ), wxGBSpan( 1, 1 ), wxEXPAND|wxBOTTOM, 10 );
@@ -335,10 +326,10 @@ DIALOG_SYMBOL_FIELDS_TABLE_BASE::DIALOG_SYMBOL_FIELDS_TABLE_BASE( wxWindow* pare
 	bButtonsSizer->Add( 0, 0, 9, wxEXPAND, 5 );
 
 	m_buttonExport = new wxButton( this, wxID_ANY, _("Export"), wxDefaultPosition, wxDefaultSize, 0 );
-	bButtonsSizer->Add( m_buttonExport, 0, wxALIGN_CENTER_VERTICAL|wxALL, 5 );
+	bButtonsSizer->Add( m_buttonExport, 0, wxALIGN_CENTER_VERTICAL|wxRIGHT, 10 );
 
 	m_buttonApply = new wxButton( this, wxID_ANY, _("Apply, Save Schematic && Continue"), wxDefaultPosition, wxDefaultSize, 0 );
-	bButtonsSizer->Add( m_buttonApply, 0, wxALIGN_CENTER_VERTICAL|wxALL, 5 );
+	bButtonsSizer->Add( m_buttonApply, 0, wxALIGN_CENTER_VERTICAL|wxRIGHT, 10 );
 
 	m_sdbSizer = new wxStdDialogButtonSizer();
 	m_sdbSizerOK = new wxButton( this, wxID_OK );

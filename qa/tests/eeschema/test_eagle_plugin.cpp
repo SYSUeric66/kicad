@@ -26,7 +26,7 @@
 
 #include <core/ignore.h>
 #include <kiway.h>
-#include <sch_io_mgr.h>
+#include <sch_io/sch_io_mgr.h>
 
 #include "eeschema_test_utils.h"
 
@@ -35,9 +35,8 @@
  */
 BOOST_AUTO_TEST_CASE( FindPlugin )
 {
-    SCH_PLUGIN* pi = SCH_IO_MGR::FindPlugin( SCH_IO_MGR::SCH_EAGLE );
-    BOOST_CHECK_NE( pi, nullptr );
-    SCH_IO_MGR::ReleasePlugin( pi );
+    IO_RELEASER<SCH_IO> pi( SCH_IO_MGR::FindPlugin( SCH_IO_MGR::SCH_EAGLE ) );
+    BOOST_CHECK_NE( pi.get(), nullptr );
 }
 
 
@@ -47,7 +46,7 @@ BOOST_AUTO_TEST_CASE( FindPlugin )
 static wxFileName getEagleTestSchematic( const wxString& sch_file )
 {
     wxFileName fn( KI_TEST::GetEeschemaTestDataDir() );
-    fn.AppendDir( "plugins" );
+    fn.AppendDir( "io" );
     fn.AppendDir( "eagle" );
     fn.SetFullName( sch_file );
 
@@ -60,7 +59,7 @@ static wxFileName getEagleTestSchematic( const wxString& sch_file )
  */
 BOOST_AUTO_TEST_CASE( Load )
 {
-    SCH_PLUGIN* pi = SCH_IO_MGR::FindPlugin( SCH_IO_MGR::SCH_EAGLE );
+    IO_RELEASER<SCH_IO> pi( SCH_IO_MGR::FindPlugin( SCH_IO_MGR::SCH_EAGLE ) );
 
     const auto fn = getEagleTestSchematic( "eagle-import-testfile.sch" );
 
@@ -70,6 +69,4 @@ BOOST_AUTO_TEST_CASE( Load )
     // This doesn't work with a null KiWay.
     // const SCH_SHEET* sheet = pi->Load( fn.GetFullPath(), nullptr );
     // BOOST_CHECK_NE( nullptr, sheet );
-
-    SCH_IO_MGR::ReleasePlugin( pi );
 }

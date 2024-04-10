@@ -21,6 +21,7 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA
  */
 
+#include <wx/colour.h>
 #include <wx/tokenzr.h>
 #include <wx/dc.h>
 #include <wx/settings.h>
@@ -30,8 +31,12 @@
 #include <algorithm>
 #include <core/kicad_algo.h>
 #include <gal/color4d.h>
+#include <kiplatform/ui.h>
 
-#define MIN_GRIDCELL_MARGIN 3
+#include <pgm_base.h>
+#include <settings/common_settings.h>
+
+#define MIN_GRIDCELL_MARGIN FromDIP( 3 )
 
 
 wxColour getBorderColour()
@@ -94,6 +99,59 @@ public:
 };
 
 
+/**
+ * Attribute provider that provides attributes (or modifies the existing attribute) to alternate a row color
+ * between the odd and even rows.
+ */
+class WX_GRID_ALT_ROW_COLOR_PROVIDER : public wxGridCellAttrProvider
+{
+public:
+    WX_GRID_ALT_ROW_COLOR_PROVIDER( const wxColor& aBaseColor ) : wxGridCellAttrProvider(),
+        m_attrOdd( new wxGridCellAttr() )
+    {
+        UpdateColors( aBaseColor );
+    }
+
+
+    void UpdateColors( const wxColor& aBaseColor )
+    {
+        // Choose the default color, taking into account if the dark mode theme is enabled
+        wxColor rowColor = aBaseColor.ChangeLightness( KIPLATFORM::UI::IsDarkTheme() ? 105 : 95 );
+
+        m_attrOdd->SetBackgroundColour( rowColor );
+    }
+
+
+    wxGridCellAttr* GetAttr( int row, int col,
+                             wxGridCellAttr::wxAttrKind  kind ) const override
+    {
+        wxGridCellAttrPtr cellAttr( wxGridCellAttrProvider::GetAttr( row, col, kind ) );
+
+        // Just pass through the cell attribute on even rows
+        if( row % 2 )
+            return cellAttr.release();
+
+        if( !cellAttr )
+        {
+            cellAttr = m_attrOdd;
+        }
+        else
+        {
+            if( !cellAttr->HasBackgroundColour() )
+            {
+                cellAttr = cellAttr->Clone();
+                cellAttr->SetBackgroundColour( m_attrOdd->GetBackgroundColour() );
+            }
+        }
+
+        return cellAttr.release();
+    }
+
+private:
+    wxGridCellAttrPtr m_attrOdd;
+};
+
+
 WX_GRID::WX_GRID( wxWindow *parent, wxWindowID id, const wxPoint& pos, const wxSize& size,
                   long style, const wxString& name ) :
         wxGrid( parent, id, pos, size, style, name ),
@@ -106,7 +164,7 @@ WX_GRID::WX_GRID( wxWindow *parent, wxWindowID id, const wxPoint& pos, const wxS
     SetLabelFont( KIUI::GetControlFont( this ) );
 
     if( GetColLabelSize() > 0 )
-        SetColLabelSize( GetColLabelSize() + 4 );
+        SetColLabelSize( GetColLabelSize() + FromDIP( 4 ) );
 
     Connect( wxEVT_DPI_CHANGED, wxDPIChangedEventHandler( WX_GRID::onDPIChanged ), nullptr, this );
     Connect( wxEVT_GRID_EDITOR_SHOWN, wxGridEventHandler( WX_GRID::onCellEditorShown ), nullptr, this );
@@ -179,10 +237,31 @@ void WX_GRID::SetTable( wxGridTableBase* aTable, bool aTakeOwnership )
 
     delete[] formBuilderColWidths;
 
+    EnableAlternateRowColors( Pgm().GetCommonSettings()->m_Appearance.grid_striping );
+
     Connect( wxEVT_GRID_COL_MOVE, wxGridEventHandler( WX_GRID::onGridColMove ), nullptr, this );
     Connect( wxEVT_GRID_SELECT_CELL, wxGridEventHandler( WX_GRID::onGridCellSelect ), nullptr, this );
 
     m_weOwnTable = aTakeOwnership;
+}
+
+
+void WX_GRID::EnableAlternateRowColors( bool aEnable )
+{
+    wxGridTableBase* table = wxGrid::GetTable();
+
+    wxCHECK_MSG( table, /* void */,
+                 "Tried to enable alternate row colors without a table assigned to the grid" );
+
+    if( aEnable )
+    {
+        wxColor color = wxGrid::GetDefaultCellBackgroundColour();
+        table->SetAttrProvider( new WX_GRID_ALT_ROW_COLOR_PROVIDER( color ) );
+    }
+    else
+    {
+        table->SetAttrProvider( nullptr );
+    }
 }
 
 
@@ -194,8 +273,22 @@ void WX_GRID::onGridCellSelect( wxGridEvent& aEvent )
     int row = aEvent.GetRow();
     int col = aEvent.GetCol();
 
-    if( row >= 0 && col >= 0 )
-        SelectBlock( row, col, row, col, false );
+    if( row >= 0 && row < GetNumberRows() && col >= 0 && col < GetNumberCols() )
+    {
+        if( GetSelectionMode() == wxGrid::wxGridSelectCells )
+        {
+            SelectBlock( row, col, row, col, false );
+        }
+        else if( GetSelectionMode() == wxGrid::wxGridSelectRows
+                 || GetSelectionMode() == wxGrid::wxGridSelectRowsOrColumns )
+        {
+            SelectBlock( row, 0, row, GetNumberCols() - 1, false );
+        }
+        else if( GetSelectionMode() == wxGrid::wxGridSelectColumns )
+        {
+            SelectBlock( 0, col, GetNumberRows() - 1, col, false );
+        }
+    }
 }
 
 

@@ -19,6 +19,7 @@
  * with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+#include <inspectable.h>
 #include <properties/property_mgr.h>
 #include <properties/property.h>
 
@@ -201,7 +202,7 @@ void PROPERTY_MANAGER::OverrideAvailability( TYPE_ID aDerived, TYPE_ID aBase,
     wxASSERT_MSG( aDerived != aBase, "Class cannot override from itself" );
 
     CLASS_DESC& derived = getClass( aDerived );
-    derived.m_availabilityOverrides[std::make_pair( aBase, aName )] = aFunc;
+    derived.m_availabilityOverrides[std::make_pair( aBase, aName )] = std::move( aFunc );
     m_dirty = true;
 }
 
@@ -213,7 +214,7 @@ void PROPERTY_MANAGER::OverrideWriteability( TYPE_ID aDerived, TYPE_ID aBase,
     wxASSERT_MSG( aDerived != aBase, "Class cannot override from itself" );
 
     CLASS_DESC& derived = getClass( aDerived );
-    derived.m_writeabilityOverrides[std::make_pair( aBase, aName )] = aFunc;
+    derived.m_writeabilityOverrides[std::make_pair( aBase, aName )] = std::move( aFunc );
     m_dirty = true;
 }
 
@@ -426,4 +427,45 @@ PROPERTY_MANAGER::CLASSES_INFO PROPERTY_MANAGER::GetAllClasses()
     }
 
     return rv;
+}
+
+
+void PROPERTY_MANAGER::PropertyChanged( INSPECTABLE* aObject, PROPERTY_BASE* aProperty )
+{
+    auto callListeners =
+            [&]( TYPE_ID typeId )
+            {
+                auto listeners = m_listeners.find( typeId );
+
+                if( listeners != m_listeners.end() )
+                {
+                    for( const PROPERTY_LISTENER& listener : listeners->second )
+                        listener( aObject, aProperty, m_managedCommit );
+                }
+            };
+
+    CLASS_DESC& objectClass = getClass( TYPE_HASH( *aObject ) );
+
+    callListeners( objectClass.m_id );
+
+    for( CLASS_DESC& superClass : objectClass.m_bases )
+        callListeners( superClass.m_id );
+}
+
+
+PROPERTY_COMMIT_HANDLER::PROPERTY_COMMIT_HANDLER( COMMIT* aCommit )
+{
+    wxCHECK2_MSG( PROPERTY_MANAGER::Instance().m_managedCommit == nullptr,
+                  return, "Can't have more than one managed commit at a time!" );
+
+    PROPERTY_MANAGER::Instance().m_managedCommit = aCommit;
+}
+
+
+PROPERTY_COMMIT_HANDLER::~PROPERTY_COMMIT_HANDLER()
+{
+    wxASSERT_MSG( PROPERTY_MANAGER::Instance().m_managedCommit != nullptr,
+                  "Something went wrong: m_managedCommit already null!" );
+
+    PROPERTY_MANAGER::Instance().m_managedCommit = nullptr;
 }

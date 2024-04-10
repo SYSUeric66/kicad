@@ -102,7 +102,11 @@ PL_EDITOR_FRAME::PL_EDITOR_FRAME( KIWAY* aKiway, wxWindow* aParent ) :
     wxIcon icon;
     wxIconBundle icon_bundle;
 
-    icon.CopyFromBitmap( KiBitmap( BITMAPS::icon_pagelayout_editor ) );
+    icon.CopyFromBitmap( KiBitmap( BITMAPS::icon_pagelayout_editor, 48 ) );
+    icon_bundle.AddIcon( icon );
+    icon.CopyFromBitmap( KiBitmap( BITMAPS::icon_pagelayout_editor, 128 ) );
+    icon_bundle.AddIcon( icon );
+    icon.CopyFromBitmap( KiBitmap( BITMAPS::icon_pagelayout_editor, 256 ) );
     icon_bundle.AddIcon( icon );
     icon.CopyFromBitmap( KiBitmap( BITMAPS::icon_pagelayout_editor_32 ) );
     icon_bundle.AddIcon( icon );
@@ -119,7 +123,7 @@ PL_EDITOR_FRAME::PL_EDITOR_FRAME( KIWAY* aKiway, wxWindow* aParent ) :
 
     LoadSettings( config() );
 
-    m_acceptedExts.emplace( DrawingSheetFileExtension, nullptr );
+    m_acceptedExts.emplace( FILEEXT::DrawingSheetFileExtension, nullptr );
     DragAcceptFiles( true );
 
     VECTOR2I pageSizeIU = GetPageLayout().GetPageSettings().GetSizeIU( drawSheetIUScale.IU_PER_MILS );
@@ -219,7 +223,7 @@ PL_EDITOR_FRAME::PL_EDITOR_FRAME( KIWAY* aKiway, wxWindow* aParent ) :
 
     // Register a call to update the toolbar sizes. It can't be done immediately because
     // it seems to require some sizes calculated that aren't yet (at least on GTK).
-    CallAfter( [&]()
+    CallAfter( [this]()
                {
                    // Ensure the controls on the toolbars all are correctly sized
                     UpdateToolbarControlSizes();
@@ -930,25 +934,28 @@ void PL_EDITOR_FRAME::ClearUndoORRedoList( UNDO_REDO_LIST whichList, int aItemCo
     if( aItemCount == 0 )
         return;
 
-    UNDO_REDO_CONTAINER& list = whichList == UNDO_LIST ? m_undoList : m_redoList;
-    unsigned             icnt = list.m_CommandsList.size();
+    UNDO_REDO_CONTAINER& list = ( whichList == UNDO_LIST ) ? m_undoList : m_redoList;
 
-    if( aItemCount > 0 )
-        icnt = aItemCount;
-
-    for( unsigned ii = 0; ii < icnt; ii++ )
+    if( aItemCount < 0 )
     {
-        if( list.m_CommandsList.size() == 0 )
-            break;
+        list.ClearCommandList();
+    }
+    else
+    {
+        for( int ii = 0; ii < aItemCount; ii++ )
+        {
+            if( list.m_CommandsList.size() == 0 )
+                break;
 
-        PICKED_ITEMS_LIST* curr_cmd = list.m_CommandsList[0];
-        list.m_CommandsList.erase( list.m_CommandsList.begin() );
+            PICKED_ITEMS_LIST* curr_cmd = list.m_CommandsList[0];
+            list.m_CommandsList.erase( list.m_CommandsList.begin() );
 
-        curr_cmd->ClearListAndDeleteItems( []( EDA_ITEM* aItem )
-                                           {
-                                               delete aItem;
-                                           } );
-        delete curr_cmd;    // Delete command
+            curr_cmd->ClearListAndDeleteItems( []( EDA_ITEM* aItem )
+                                               {
+                                                   delete aItem;
+                                               } );
+            delete curr_cmd;    // Delete command
+        }
     }
 }
 

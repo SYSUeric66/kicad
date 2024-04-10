@@ -1,5 +1,5 @@
 ///////////////////////////////////////////////////////////////////////////
-// C++ code generated with wxFormBuilder (version 3.10.0-39-g3487c3cb)
+// C++ code generated with wxFormBuilder (version 4.0.0-0-g0efcecf)
 // http://www.wxformbuilder.org/
 //
 // PLEASE DO *NOT* EDIT THIS FILE!
@@ -65,7 +65,6 @@ class DIALOG_IMPORT_GRAPHICS_BASE : public DIALOG_SHIM
 		wxStaticText* m_yUnits;
 		wxCheckBox* m_setLayerCheckbox;
 		PCB_LAYER_BOX_SELECTOR* m_SelLayerBox;
-		wxStaticLine* m_staticline1;
 		wxCheckBox* m_cbGroupItems;
 		wxStaticLine* m_staticline3;
 		wxCheckBox* m_rbFixDiscontinuities;

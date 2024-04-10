@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2009 Jean-Pierre Charras, jp.charras at wanadoo.fr
- * Copyright (C) 1992-2022 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2024 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -113,7 +113,8 @@ const BOX2I SCH_JUNCTION::GetBoundingBox() const
 }
 
 
-void SCH_JUNCTION::Print( const RENDER_SETTINGS* aSettings, const VECTOR2I& aOffset )
+void SCH_JUNCTION::Print( const SCH_RENDER_SETTINGS* aSettings, int aUnit, int aBodyStyle,
+                          const VECTOR2I& aOffset, bool aForceNoFill, bool aDimmed )
 {
     wxDC*   DC    = aSettings->GetPrintDC();
     COLOR4D color = GetJunctionColor();
@@ -139,9 +140,9 @@ void SCH_JUNCTION::MirrorHorizontally( int aCenter )
 }
 
 
-void SCH_JUNCTION::Rotate( const VECTOR2I& aCenter )
+void SCH_JUNCTION::Rotate( const VECTOR2I& aCenter, bool aRotateCCW )
 {
-    RotatePoint( m_pos, aCenter, ANGLE_90 );
+    RotatePoint( m_pos, aCenter, aRotateCCW ? ANGLE_270 : ANGLE_90 );
 }
 
 
@@ -231,14 +232,30 @@ bool SCH_JUNCTION::HitTest( const BOX2I& aRect, bool aContained, int aAccuracy )
 }
 
 
+bool SCH_JUNCTION::HasConnectivityChanges( const SCH_ITEM* aItem,
+                                           const SCH_SHEET_PATH* aInstance ) const
+{
+    // Do not compare to ourself.
+    if( aItem == this )
+        return false;
+
+    const SCH_JUNCTION* junction = dynamic_cast<const SCH_JUNCTION*>( aItem );
+
+    // Don't compare against a different SCH_ITEM.
+    wxCHECK( junction, false );
+
+    return GetPosition() != junction->GetPosition();
+}
+
+
 bool SCH_JUNCTION::doIsConnected( const VECTOR2I& aPosition ) const
 {
     return m_pos == aPosition;
 }
 
 
-void SCH_JUNCTION::Plot( PLOTTER* aPlotter, bool aBackground,
-                         const SCH_PLOT_SETTINGS& aPlotSettings ) const
+void SCH_JUNCTION::Plot( PLOTTER* aPlotter, bool aBackground, const SCH_PLOT_OPTS& aPlotOpts,
+                         int aUnit, int aBodyStyle, const VECTOR2I& aOffset, bool aDimmed )
 {
     if( aBackground )
         return;
@@ -364,5 +381,9 @@ static struct SCH_JUNCTION_DESC
         propMgr.AddProperty( new PROPERTY<SCH_JUNCTION, int>( _HKI( "Diameter" ),
                 &SCH_JUNCTION::SetDiameter, &SCH_JUNCTION::GetDiameter,
                 PROPERTY_DISPLAY::PT_SIZE ) );
+
+        propMgr.AddProperty( new PROPERTY<SCH_JUNCTION, COLOR4D>( _HKI( "Color" ),
+                &SCH_JUNCTION::SetColor, &SCH_JUNCTION::GetColor ) );
+
     }
 } _SCH_JUNCTION_DESC;

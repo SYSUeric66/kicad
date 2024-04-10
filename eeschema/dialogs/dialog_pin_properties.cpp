@@ -137,7 +137,7 @@ DIALOG_PIN_PROPERTIES::DIALOG_PIN_PROPERTIES( SYMBOL_EDIT_FRAME* parent, LIB_PIN
     m_initialized( false )
 {
     // Creates a dummy pin to show on a panel, inside this dialog:
-    m_dummyParent = new LIB_SYMBOL( *m_pin->GetParent() );
+    m_dummyParent = new LIB_SYMBOL( *static_cast<LIB_SYMBOL*>( m_pin->GetParentSymbol() ) );
     m_dummyPin = new LIB_PIN( *m_pin );
     m_dummyPin->SetParent( m_dummyParent );
     m_dummyParent->SetShowPinNames( true );
@@ -150,7 +150,8 @@ DIALOG_PIN_PROPERTIES::DIALOG_PIN_PROPERTIES( SYMBOL_EDIT_FRAME* parent, LIB_PIN
     const std::vector<BITMAPS>& orientationIcons = PinOrientationIcons();
 
     for ( unsigned ii = 0; ii < orientationNames.GetCount(); ii++ )
-        m_choiceOrientation->Insert( orientationNames[ii], KiBitmap( orientationIcons[ii] ), ii );
+        m_choiceOrientation->Insert( orientationNames[ii], KiBitmapBundle( orientationIcons[ii] ),
+                                     ii );
 
     // We can't set the tab order through wxWidgets due to shortcomings in their mnemonics
     // implementation on MSW
@@ -166,7 +167,7 @@ DIALOG_PIN_PROPERTIES::DIALOG_PIN_PROPERTIES( SYMBOL_EDIT_FRAME* parent, LIB_PIN
         m_nameSizeCtrl,
         m_numberSizeCtrl,
         m_checkApplyToAllParts,
-      	m_checkApplyToAllConversions,
+      	m_checkApplyToAllBodyStyles,
       	m_checkShow,
       	m_sdbSizerButtonsOK,
         m_sdbSizerButtonsCancel
@@ -196,7 +197,7 @@ DIALOG_PIN_PROPERTIES::DIALOG_PIN_PROPERTIES( SYMBOL_EDIT_FRAME* parent, LIB_PIN
                                                              OnAddAlternate( aEvent );
                                                          } ) );
 
-    if( aPin->GetParent()->HasConversion() )
+    if( aPin->GetParentSymbol()->HasAlternateBodyStyle() )
     {
         m_alternatesTurndown->Collapse();
         m_alternatesTurndown->Disable();
@@ -265,9 +266,9 @@ bool DIALOG_PIN_PROPERTIES::TransferDataToWindow()
     m_textPinNumber->SetValue( m_pin->GetNumber() );
     m_numberSize.SetValue( m_pin->GetNumberTextSize() );
     m_pinLength.SetValue( m_pin->GetLength() );
-    m_checkApplyToAllParts->Enable( m_pin->GetParent()->IsMulti() );
-    m_checkApplyToAllParts->SetValue( m_pin->GetParent()->IsMulti() && m_pin->GetUnit() == 0 );
-    m_checkApplyToAllConversions->SetValue( m_pin->GetConvert() == 0 );
+    m_checkApplyToAllParts->Enable( m_pin->GetParentSymbol()->IsMulti() );
+    m_checkApplyToAllParts->SetValue( m_pin->GetParentSymbol()->IsMulti() && m_pin->GetUnit() == 0 );
+    m_checkApplyToAllBodyStyles->SetValue( m_pin->GetBodyStyle() == 0 );
     m_checkShow->SetValue( m_pin->IsVisible() );
 
     m_dummyPin->SetVisible( m_pin->IsVisible() );
@@ -300,7 +301,7 @@ bool DIALOG_PIN_PROPERTIES::TransferDataToWindow()
         commonUnitsToolTip = _( "If checked, this pin will exist in all units." );
     }
 
-    if( !m_pin->GetParent()->IsMulti() )
+    if( !m_pin->GetParentSymbol()->IsMulti() )
         commonUnitsToolTip = _( "This symbol only has one unit. This control has no effect." );
 
     m_checkApplyToAllParts->SetToolTip( commonUnitsToolTip );
@@ -334,7 +335,7 @@ bool DIALOG_PIN_PROPERTIES::TransferDataFromWindow()
     if( !DIALOG_SHIM::TransferDataFromWindow() )
         return false;
 
-    VECTOR2I newPos( m_posX.GetValue(), -m_posY.GetValue() );
+    VECTOR2I newPos( m_posX.GetIntValue(), -m_posY.GetIntValue() );
 
     const int standard_grid = 50;
 
@@ -352,14 +353,14 @@ bool DIALOG_PIN_PROPERTIES::TransferDataFromWindow()
 
     m_pin->SetName( m_textPinName->GetValue() );
     m_pin->SetNumber( m_textPinNumber->GetValue() );
-    m_pin->SetNameTextSize( m_nameSize.GetValue() );
-    m_pin->SetNumberTextSize( m_numberSize.GetValue() );
+    m_pin->SetNameTextSize( m_nameSize.GetIntValue() );
+    m_pin->SetNumberTextSize( m_numberSize.GetIntValue() );
     m_pin->SetOrientation( PinOrientationCode( m_choiceOrientation->GetSelection() ) );
     m_pin->SetPosition( newPos );
-    m_pin->ChangeLength( m_pinLength.GetValue() );
+    m_pin->ChangeLength( m_pinLength.GetIntValue() );
     m_pin->SetType( m_choiceElectricalType->GetPinTypeSelection() );
     m_pin->SetShape( m_choiceStyle->GetPinShapeSelection() );
-    m_pin->SetConvert( m_checkApplyToAllConversions->GetValue() ? 0 : m_frame->GetConvert() );
+    m_pin->SetBodyStyle( m_checkApplyToAllBodyStyles->GetValue() ? 0 : m_frame->GetBodyStyle() );
     m_pin->SetUnit( m_checkApplyToAllParts->GetValue() ? 0 : m_frame->GetUnit() );
     m_pin->SetVisible( m_checkShow->GetValue() );
 
@@ -398,15 +399,15 @@ void DIALOG_PIN_PROPERTIES::OnPaintShowPanel( wxPaintEvent& event )
     dc.SetUserScale( scale, scale );
     GRResetPenAndBrush( &dc );
 
-    LIB_SYMBOL_OPTIONS opts;
-    opts.force_draw_pin_text = true;
-    opts.draw_hidden_fields = true;
-    opts.show_connect_point = true;
+    SCH_RENDER_SETTINGS renderSettings( *symbolEditor->GetRenderSettings() );
+    renderSettings.m_ShowPinNumbers = true;
+    renderSettings.m_ShowPinNames = true;
+    renderSettings.m_ShowHiddenFields = true;
+    renderSettings.m_ShowConnectionPoints = true;
+    renderSettings.m_Transform = DefaultTransform;
+    renderSettings.SetPrintDC( &dc );
 
-    RENDER_SETTINGS* renderSettings = symbolEditor->GetRenderSettings();
-    renderSettings->SetPrintDC( &dc );
-
-    m_dummyPin->Print( renderSettings, -bBox.Centre(), (void*) &opts, DefaultTransform, false );
+    m_dummyPin->Print( &renderSettings, 0, 0, -bBox.Centre(), false, false );
 
     event.Skip();
 }
@@ -419,10 +420,10 @@ void DIALOG_PIN_PROPERTIES::OnPropertiesChange( wxCommandEvent& event )
 
     m_dummyPin->SetName( m_textPinName->GetValue() );
     m_dummyPin->SetNumber( m_textPinNumber->GetValue() );
-    m_dummyPin->SetNameTextSize( m_nameSize.GetValue() );
-    m_dummyPin->SetNumberTextSize( m_numberSize.GetValue() );
+    m_dummyPin->SetNameTextSize( m_nameSize.GetIntValue() );
+    m_dummyPin->SetNumberTextSize( m_numberSize.GetIntValue() );
     m_dummyPin->SetOrientation( PinOrientationCode( m_choiceOrientation->GetSelection() ) );
-    m_dummyPin->SetLength( m_pinLength.GetValue() );
+    m_dummyPin->SetLength( m_pinLength.GetIntValue() );
     m_dummyPin->SetType( m_choiceElectricalType->GetPinTypeSelection() );
     m_dummyPin->SetShape( m_choiceStyle->GetPinShapeSelection() );
     m_dummyPin->SetVisible( m_checkShow->GetValue() );

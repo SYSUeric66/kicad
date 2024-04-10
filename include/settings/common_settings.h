@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2020 Jon Evans <jon@craftyjon.com>
- * Copyright (C) 2020 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2020, 2023 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software: you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -44,7 +44,7 @@ enum class ICON_THEME
 };
 
 
-class COMMON_SETTINGS : public JSON_SETTINGS
+class KICOMMON_API COMMON_SETTINGS : public JSON_SETTINGS
 {
 public:
     struct APPEARANCE
@@ -57,6 +57,7 @@ public:
         double     hicontrast_dimming_factor;
         int        text_editor_zoom;
         int        toolbar_icon_size;
+        bool       grid_striping;
     };
 
     struct AUTO_BACKUP
@@ -133,6 +134,7 @@ public:
         bool env_var_overwrite_warning;
         bool scaled_3d_models_warning;
         bool data_collection_prompt;
+        bool update_check_prompt;
     };
 
     struct NETCLASS_PANEL
@@ -164,6 +166,12 @@ public:
         wxString                    authorEmail;
     };
 
+    struct API
+    {
+        wxString python_interpreter;
+        bool enable_server;
+    };
+
     COMMON_SETTINGS();
 
     virtual ~COMMON_SETTINGS() {}
@@ -190,7 +198,8 @@ private:
 
     static bool getLegacy3DHollerith( const std::string& aString, size_t& aIndex,
                                       wxString& aResult );
-    bool readLegacy3DResolverCfg( const wxString& aPath, std::vector<LEGACY_3D_SEARCH_PATH>& aSearchPaths );
+    bool readLegacy3DResolverCfg( const wxString& aPath,
+                                  std::vector<LEGACY_3D_SEARCH_PATH>& aSearchPaths );
 
 public:
     APPEARANCE m_Appearance;
@@ -214,6 +223,8 @@ public:
     PACKAGE_MANAGER m_PackageManager;
 
     GIT m_Git;
+
+    API m_Api;
 };
 
 #endif

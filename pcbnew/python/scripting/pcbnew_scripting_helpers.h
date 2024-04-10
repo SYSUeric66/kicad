@@ -26,7 +26,7 @@
 #define __PCBNEW_SCRIPTING_HELPERS_H
 
 #include <deque>
-#include <io_mgr.h>
+#include <pcb_io/pcb_io_mgr.h>
 #include <layer_ids.h>
 
 class PCB_EDIT_FRAME;
@@ -49,10 +49,43 @@ void ScriptingOnDestructPcbEditFrame( PCB_EDIT_FRAME* aPCBEdaFrame );
 // For Python scripts: return the current board.
 BOARD*  GetBoard();
 
-BOARD*  LoadBoard( wxString& aFileName, IO_MGR::PCB_FILE_T aFormat );
+/**
+ * Loads a board from file using the specified file io handler
+ *
+ * This function does not set the board project as the active one
+ * @return a pointer to the board if it was created, or None if not
+ */
+BOARD*  LoadBoard( wxString& aFileName, PCB_IO_MGR::PCB_FILE_T aFormat );
+
+#ifndef SWIG
+/**
+ * Loads a board from file using the specified file io handler
+ *
+ * Hidden from SWIG as aSetActive should not be used by python, but cli also leverages this function
+ */
+BOARD* LoadBoard( wxString& aFileName, PCB_IO_MGR::PCB_FILE_T aFormat, bool aSetActive );
+#endif
 
 // Default LoadBoard() to load .kicad_pcb files:.
-BOARD*  LoadBoard( wxString& aFileName );
+#ifndef SWIG
+
+/**
+ * Loads a board from file
+ * This function identifies the file type by extension and determines the correct file io to use
+ *
+ * Hidden from SWIG as aSetActive should not be used by python, but cli also leverages this function
+ */
+BOARD* LoadBoard( wxString& aFileName, bool aSetActive );
+#endif
+
+/**
+ * Loads a board from file
+ * This function identifies the file type by extension and determines the correct file io to use
+ *
+ * This function does not set the board project as the active one
+ * @return a pointer to the board if it was created, or None if not
+ */
+BOARD* LoadBoard( wxString& aFileName );
 
 /**
  * Creates a new board and project with the given filename (will overwrite existing files!)
@@ -124,7 +157,8 @@ bool ExportSpecctraDSN( BOARD* aBoard, wxString& aFullFilename );
  * See ExportVRML_File in pcb_edit_frame.h for detailed documentation.
  * @return true if OK.
  */
-bool ExportVRML( const wxString& aFullFileName, double aMMtoWRMLunit, bool aExport3DFiles,
+bool ExportVRML( const wxString& aFullFileName, double aMMtoWRMLunit, bool aIncludeUnspecified,
+                 bool aIncludeDNP, bool aExport3DFiles,
                  bool aUseRelativePaths, const wxString& a3D_Subdir, double aXRef, double aYRef );
 
 /**

@@ -193,7 +193,7 @@ private:
 
         for( int i = 0; i < aCount; ++i )
         {
-            // this fires on some eagle board after EAGLE_PLUGIN::Load()
+            // this fires on some eagle board after PCB_IO_EAGLE::Load()
             wxASSERT( unsigned( aLayers[i] ) <= unsigned( VIEW::VIEW_MAX_LAYERS ) );
 
             m_layers.push_back( aLayers[i] );
@@ -234,6 +234,8 @@ private:
     int                  m_groupsSize;
 
     std::vector<int>     m_layers;           /// Stores layer numbers used by the item.
+
+    BOX2I                m_bbox;             /// Cached inserted Bbox for faster removals.
 };
 
 
@@ -326,6 +328,8 @@ void VIEW::Add( VIEW_ITEM* aItem, int aDrawPriority )
 
     aItem->m_viewPrivData->m_view = this;
     aItem->m_viewPrivData->m_drawPriority = aDrawPriority;
+    const BOX2I bbox = aItem->ViewBBox();
+    aItem->m_viewPrivData->m_bbox = bbox;
 
     aItem->ViewGetLayers( layers, layers_count );
     aItem->viewPrivData()->saveLayers( layers, layers_count );
@@ -338,7 +342,7 @@ void VIEW::Add( VIEW_ITEM* aItem, int aDrawPriority )
                       continue, wxS( "Invalid layer" ) );
 
         VIEW_LAYER& l = m_layers[layers[i]];
-        l.items->Insert( aItem );
+        l.items->Insert( aItem, bbox );
         MarkTargetDirty( l.target );
     }
 
@@ -362,11 +366,12 @@ void VIEW::Remove( VIEW_ITEM* aItem )
 
         int layers[VIEW::VIEW_MAX_LAYERS], layers_count;
         aItem->m_viewPrivData->getLayers( layers, layers_count );
+        const BOX2I* bbox = &aItem->m_viewPrivData->m_bbox;
 
         for( int i = 0; i < layers_count; ++i )
         {
             VIEW_LAYER& l = m_layers[layers[i]];
-            l.items->Remove( aItem );
+            l.items->Remove( aItem, bbox );
             MarkTargetDirty( l.target );
 
             // Clear the GAL cache
@@ -617,6 +622,9 @@ void VIEW::SetCenter( const VECTOR2D& aCenter, const std::vector<BOX2D>& obscuri
     BOX2I bbox = unobscuredPoly.BBox();
     int   step = std::min( bbox.GetWidth(), bbox.GetHeight() ) / 10;
 
+    if( step < 20 )
+        step = 20;
+
     while( !unobscuredPoly.IsEmpty() )
     {
         unobscuredCenter = unobscuredPoly.BBox().Centre();
@@ -683,6 +691,7 @@ void VIEW::ReorderLayerData( std::unordered_map<int, int> aReorderMap )
         new_map[pair.second].id = pair.second;
     }
 
+    // Transfer reordered data (using the copy assignment operator ):
     m_layers = new_map;
 
     for( VIEW_ITEM* item : *m_allItems )
@@ -1326,12 +1335,17 @@ void VIEW::updateBbox( VIEW_ITEM* aItem )
     int layers[VIEW_MAX_LAYERS], layers_count;
 
     aItem->ViewGetLayers( layers, layers_count );
+    wxASSERT( aItem->m_viewPrivData ); //must have a viewPrivData
+
+    const BOX2I  new_bbox = aItem->ViewBBox();
+    const BOX2I* old_bbox = &aItem->m_viewPrivData->m_bbox;
+    aItem->m_viewPrivData->m_bbox = new_bbox;
 
     for( int i = 0; i < layers_count; ++i )
     {
         VIEW_LAYER& l = m_layers[layers[i]];
-        l.items->Remove( aItem );
-        l.items->Insert( aItem );
+        l.items->Remove( aItem, old_bbox );
+        l.items->Insert( aItem, new_bbox );
         MarkTargetDirty( l.target );
     }
 }
@@ -1347,11 +1361,12 @@ void VIEW::updateLayers( VIEW_ITEM* aItem )
 
     // Remove the item from previous layer set
     viewData->getLayers( layers, layers_count );
+    const BOX2I* old_bbox = &aItem->m_viewPrivData->m_bbox;
 
     for( int i = 0; i < layers_count; ++i )
     {
         VIEW_LAYER& l = m_layers[layers[i]];
-        l.items->Remove( aItem );
+        l.items->Remove( aItem, old_bbox );
         MarkTargetDirty( l.target );
 
         if( IsCached( l.id ) )
@@ -1367,6 +1382,9 @@ void VIEW::updateLayers( VIEW_ITEM* aItem )
         }
     }
 
+    const BOX2I new_bbox = aItem->ViewBBox();
+    aItem->m_viewPrivData->m_bbox = new_bbox;
+
     // Add the item to new layer set
     aItem->ViewGetLayers( layers, layers_count );
     viewData->saveLayers( layers, layers_count );
@@ -1374,7 +1392,7 @@ void VIEW::updateLayers( VIEW_ITEM* aItem )
     for( int i = 0; i < layers_count; i++ )
     {
         VIEW_LAYER& l = m_layers[layers[i]];
-        l.items->Insert( aItem );
+        l.items->Insert( aItem, new_bbox );
         MarkTargetDirty( l.target );
     }
 }
@@ -1462,6 +1480,9 @@ void VIEW::UpdateItems()
         // and re-insert items from scratch
         for( VIEW_ITEM* item : allItems )
         {
+            const BOX2I bbox = item->ViewBBox();
+            item->m_viewPrivData->m_bbox = bbox;
+
             item->ViewGetLayers( layers, layers_count );
             item->viewPrivData()->saveLayers( layers, layers_count );
 
@@ -1470,7 +1491,7 @@ void VIEW::UpdateItems()
                 wxCHECK2_MSG( layers[i] >= 0 && static_cast<unsigned>( layers[i] ) < m_layers.size(),
                         continue, wxS( "Invalid layer" ) );
                 VIEW_LAYER& l = m_layers[layers[i]];
-                l.items->Insert( item );
+                l.items->Insert( item, bbox );
                 MarkTargetDirty( l.target );
             }
 

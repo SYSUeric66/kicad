@@ -63,6 +63,8 @@ NGSPICE::NGSPICE() :
         m_ngSpice_AllPlots( nullptr ),
         m_ngSpice_AllVecs( nullptr ),
         m_ngSpice_Running( nullptr ),
+        m_ngSpice_LockRealloc( nullptr ),
+        m_ngSpice_UnlockRealloc( nullptr ),
         m_error( false )
 {
     init_dll();
@@ -72,15 +74,20 @@ NGSPICE::NGSPICE() :
 NGSPICE::~NGSPICE() = default;
 
 
-void NGSPICE::Init( const SPICE_SETTINGS* aSettings )
+void NGSPICE::updateNgspiceSettings()
 {
-    Command( "reset" );
-
     for( const std::string& command : GetSettingCommands() )
     {
         wxLogTrace( traceNgspice, "Sending Ngspice configuration command '%s'.", command );
         Command( command );
     }
+}
+
+
+void NGSPICE::Init( const SPICE_SETTINGS* aSettings )
+{
+    Command( "reset" );
+    updateNgspiceSettings();
 }
 
 
@@ -122,6 +129,7 @@ std::vector<COMPLEX> NGSPICE::GetComplexVector( const std::string& aName, int aM
 {
     LOCALE_IO            c_locale;       // ngspice works correctly only with C locale
     std::vector<COMPLEX> data;
+    NGSPICE_LOCK_REALLOC lock( this );
 
     if( aMaxLen == 0 )
         return data;
@@ -149,8 +157,9 @@ std::vector<COMPLEX> NGSPICE::GetComplexVector( const std::string& aName, int aM
 
 std::vector<double> NGSPICE::GetRealVector( const std::string& aName, int aMaxLen )
 {
-    LOCALE_IO           c_locale;       // ngspice works correctly only with C locale
-    std::vector<double> data;
+    LOCALE_IO            c_locale;       // ngspice works correctly only with C locale
+    std::vector<double>  data;
+    NGSPICE_LOCK_REALLOC lock( this );
 
     if( aMaxLen == 0 )
         return data;
@@ -181,8 +190,9 @@ std::vector<double> NGSPICE::GetRealVector( const std::string& aName, int aMaxLe
 
 std::vector<double> NGSPICE::GetImaginaryVector( const std::string& aName, int aMaxLen )
 {
-    LOCALE_IO           c_locale;       // ngspice works correctly only with C locale
-    std::vector<double> data;
+    LOCALE_IO            c_locale;       // ngspice works correctly only with C locale
+    std::vector<double>  data;
+    NGSPICE_LOCK_REALLOC lock( this );
 
     if( aMaxLen == 0 )
         return data;
@@ -205,8 +215,9 @@ std::vector<double> NGSPICE::GetImaginaryVector( const std::string& aName, int a
 
 std::vector<double> NGSPICE::GetGainVector( const std::string& aName, int aMaxLen )
 {
-    LOCALE_IO           c_locale;       // ngspice works correctly only with C locale
-    std::vector<double> data;
+    LOCALE_IO            c_locale;       // ngspice works correctly only with C locale
+    std::vector<double>  data;
+    NGSPICE_LOCK_REALLOC lock( this );
 
     if( aMaxLen == 0 )
         return data;
@@ -234,8 +245,9 @@ std::vector<double> NGSPICE::GetGainVector( const std::string& aName, int aMaxLe
 
 std::vector<double> NGSPICE::GetPhaseVector( const std::string& aName, int aMaxLen )
 {
-    LOCALE_IO c_locale;       // ngspice works correctly only with C locale
-    std::vector<double> data;
+    LOCALE_IO            c_locale;       // ngspice works correctly only with C locale
+    std::vector<double>  data;
+    NGSPICE_LOCK_REALLOC lock( this );
 
     if( aMaxLen == 0 )
         return data;
@@ -270,6 +282,7 @@ bool NGSPICE::Attach( const std::shared_ptr<SIMULATION_MODEL>& aModel, const wxS
     if( model && model->GetNetlist( aSimCommand, aSimOptions, &formatter, aReporter ) )
     {
         SIMULATOR::Attach( aModel, aSimCommand, aSimOptions, aReporter );
+        updateNgspiceSettings();
         LoadNetlist( formatter.GetString() );
         return true;
     }
@@ -485,6 +498,12 @@ void NGSPICE::init_dll()
     m_ngSpice_AllPlots = (ngSpice_AllPlots) m_dll.GetSymbol( "ngSpice_AllPlots" );
     m_ngSpice_AllVecs = (ngSpice_AllVecs) m_dll.GetSymbol( "ngSpice_AllVecs" );
     m_ngSpice_Running = (ngSpice_Running) m_dll.GetSymbol( "ngSpice_running" ); // it is not a typo
+
+    if( m_dll.HasSymbol( "ngSpice_LockRealloc" ) )
+    {
+        m_ngSpice_LockRealloc = (ngSpice_LockRealloc) m_dll.GetSymbol( "ngSpice_LockRealloc" );
+        m_ngSpice_UnlockRealloc = (ngSpice_UnlockRealloc) m_dll.GetSymbol( "ngSpice_UnlockRealloc" );
+    }
 
     m_ngSpice_Init( &cbSendChar, &cbSendStat, &cbControlledExit, nullptr, nullptr,
                     &cbBGThreadRunning, this );

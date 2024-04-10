@@ -230,7 +230,6 @@ UTF8& UTF8::operator+=( unsigned w_ch )
     }
     else
     {
-        //TODO: Remove wchar use.  Replace with std::byte*
         wchar_t wide_chr[2];    // buffer to store wide chars (UTF16) read from aText
         wide_chr[1] = 0;
         wide_chr[0] = w_ch;
@@ -239,4 +238,11 @@ UTF8& UTF8::operator+=( unsigned w_ch )
     }
 
     return *this;
+}
+
+
+std::ostream& operator<<( std::ostream& aStream, const UTF8& aRhs )
+{
+    aStream << static_cast<const std::string&>( aRhs );
+    return aStream;
 }

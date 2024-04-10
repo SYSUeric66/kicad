@@ -164,6 +164,7 @@ public:
      */
     void Clear();
 
+    void SetParent( BOARD* aParent ) { m_parent = aParent; }
     BOARD* GetParent() const      // Replace EDA_ITEM::GetParent() with a more useful return-type
     {
         return m_parent;
@@ -180,6 +181,10 @@ public:
     {
         return 0.0;
     }
+
+protected:
+    // Hide base SetParent method to make the BOARD* method the prefered method for this class
+    using EDA_ITEM::SetParent;
 
 private:
     friend class NETINFO_LIST;

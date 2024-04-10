@@ -46,6 +46,8 @@ using namespace std::placeholders;
 #include <pcb_generator.h>
 #include <pcb_dimension.h>
 #include <pcb_textbox.h>
+#include <pcb_tablecell.h>
+#include <pcb_table.h>
 #include <pad.h>
 #include <zone.h>
 #include <footprint.h>
@@ -74,9 +76,15 @@ enum RECT_LINES
 };
 
 
+enum TABLECELL_POINTS
+{
+    COL_WIDTH, ROW_HEIGHT
+};
+
+
 enum ARC_POINTS
 {
-    ARC_CENTER, ARC_START, ARC_MID, ARC_END
+    ARC_START, ARC_MID, ARC_END, ARC_CENTER
 };
 
 
@@ -124,8 +132,6 @@ void PCB_POINT_EDITOR::Reset( RESET_REASON aReason )
     m_editPoints.reset();
     m_altConstraint.reset();
     getViewControls()->SetAutoPan( false );
-
-    m_statusPopup = std::make_unique<STATUS_MIN_MAX_POPUP>( getEditFrame<PCB_BASE_EDIT_FRAME>() );
 }
 
 
@@ -225,10 +231,23 @@ std::shared_ptr<EDIT_POINTS> PCB_POINT_EDITOR::makePoints( EDA_ITEM* aItem )
             break;
 
         case SHAPE_T::RECTANGLE:
-            points->AddPoint( shape->GetTopLeft() );
-            points->AddPoint( VECTOR2I( shape->GetBotRight().x, shape->GetTopLeft().y ) );
-            points->AddPoint( shape->GetBotRight() );
-            points->AddPoint( VECTOR2I( shape->GetTopLeft().x, shape->GetBotRight().y ) );
+        {
+            VECTOR2I topLeft = shape->GetTopLeft();
+            VECTOR2I botRight = shape->GetBotRight();
+
+            points->SetSwapX( topLeft.x > botRight.x );
+            points->SetSwapY( topLeft.y > botRight.y );
+
+            if( points->SwapX() )
+                std::swap( topLeft.x, botRight.x );
+
+            if( points->SwapY() )
+                std::swap( topLeft.y, botRight.y );
+
+            points->AddPoint( topLeft );
+            points->AddPoint( VECTOR2I( botRight.x, topLeft.y ) );
+            points->AddPoint( botRight );
+            points->AddPoint( VECTOR2I( topLeft.x, botRight.y ) );
 
             points->AddLine( points->Point( RECT_TOP_LEFT ), points->Point( RECT_TOP_RIGHT ) );
             points->Line( RECT_TOP ).SetConstraint( new EC_PERPLINE( points->Line( RECT_TOP ) ) );
@@ -240,12 +259,13 @@ std::shared_ptr<EDIT_POINTS> PCB_POINT_EDITOR::makePoints( EDA_ITEM* aItem )
             points->Line( RECT_LEFT ).SetConstraint( new EC_PERPLINE( points->Line( RECT_LEFT ) ) );
 
             break;
+        }
 
         case SHAPE_T::ARC:
-            points->AddPoint( shape->GetCenter() );
             points->AddPoint( shape->GetStart() );
             points->AddPoint( shape->GetArcMid() );
             points->AddPoint( shape->GetEnd() );
+            points->AddPoint( shape->GetCenter() );
             break;
 
         case SHAPE_T::CIRCLE:
@@ -268,6 +288,14 @@ std::shared_ptr<EDIT_POINTS> PCB_POINT_EDITOR::makePoints( EDA_ITEM* aItem )
             break;
         }
 
+        break;
+    }
+
+    case PCB_TABLECELL_T:
+    {
+        PCB_TABLECELL* cell = static_cast<PCB_TABLECELL*>( aItem );
+        points->AddPoint( cell->GetEnd() - VECTOR2I( 0, cell->GetRectangleHeight() / 2 ) );
+        points->AddPoint( cell->GetEnd() - VECTOR2I( cell->GetRectangleWidth() / 2, 0 ) );
         break;
     }
 
@@ -492,6 +520,9 @@ int PCB_POINT_EDITOR::OnSelectionChange( const TOOL_EVENT& aEvent )
     if( !m_editPoints )
         return 0;
 
+    m_preview.FreeItems();
+    getView()->Add( &m_preview );
+
     getView()->Add( m_editPoints.get() );
     setEditedPoint( nullptr );
     updateEditedPoint( aEvent );
@@ -542,9 +573,16 @@ int PCB_POINT_EDITOR::OnSelectionChange( const TOOL_EVENT& aEvent )
                     m_toolMgr->RunSynchronousAction( PCB_ACTIONS::genStartEdit, &commit,
                                                      static_cast<PCB_GENERATOR*>( item ) );
                 }
+                else if( item->Type() == PCB_TABLECELL_T )
+                {
+                    PCB_TABLECELL* cell = static_cast<PCB_TABLECELL*>( item );
+                    PCB_TABLE*     table = static_cast<PCB_TABLE*>( cell->GetParent() );
+
+                    commit.Modify( table );
+                }
                 else
                 {
-                    commit.StageItems( selection, CHT_MODIFY );
+                    commit.Modify( item );
                 }
 
                 getViewControls()->ForceCursorPosition( false );
@@ -582,11 +620,14 @@ int PCB_POINT_EDITOR::OnSelectionChange( const TOOL_EVENT& aEvent )
             {
                 if( grid.GetUseGrid() )
                 {
-                    VECTOR2I gridPt = grid.BestSnapAnchor( pos, {}, grid.GetItemGrid( item ), { item } );
+                    VECTOR2I gridPt = grid.BestSnapAnchor( pos, {}, grid.GetItemGrid( item ),
+                                                           { item } );
 
                     VECTOR2I last = m_editedPoint->GetPosition();
                     VECTOR2I delta = pos - last;
-                    VECTOR2I deltaGrid = gridPt - grid.BestSnapAnchor( last, {}, grid.GetItemGrid( item ), { item } );
+                    VECTOR2I deltaGrid = gridPt - grid.BestSnapAnchor( last, {},
+                                                                       grid.GetItemGrid( item ),
+                                                                       { item } );
 
                     if( abs( delta.x ) > grid.GetGrid().x / 2 )
                         pos.x = last.x + deltaGrid.x;
@@ -613,9 +654,10 @@ int PCB_POINT_EDITOR::OnSelectionChange( const TOOL_EVENT& aEvent )
             }
             else if( m_editedPoint->GetGridConstraint() == SNAP_TO_GRID )
             {
-                m_editedPoint->SetPosition(
-                        grid.BestSnapAnchor( m_editedPoint->GetPosition(), snapLayers,
-                                             grid.GetItemGrid( item ), { item } ) );
+                m_editedPoint->SetPosition( grid.BestSnapAnchor( m_editedPoint->GetPosition(),
+                                                                 snapLayers,
+                                                                 grid.GetItemGrid( item ),
+                                                                 { item } ) );
             }
 
             updateItem( &commit );
@@ -649,14 +691,17 @@ int PCB_POINT_EDITOR::OnSelectionChange( const TOOL_EVENT& aEvent )
 
             if( item->Type() == PCB_GENERATOR_T )
             {
-                m_statusPopup->Hide();
-
+                m_preview.FreeItems();
                 m_toolMgr->RunSynchronousAction( PCB_ACTIONS::genPushEdit, &commit,
                                                  static_cast<PCB_GENERATOR*>( item ) );
             }
+            else if( item->Type() == PCB_TABLECELL_T )
+            {
+                commit.Push( _( "Resize Table Cells" ) );
+            }
             else
             {
-                commit.Push( _( "Drag Corner" ) );
+                commit.Push( _( "Move Point" ) );
             }
 
             inDrag = false;
@@ -675,7 +720,7 @@ int PCB_POINT_EDITOR::OnSelectionChange( const TOOL_EVENT& aEvent )
                                                      static_cast<PCB_GENERATOR*>( item ) );
                 }
                 commit.Revert();
-                
+
                 inDrag = false;
                 frame()->UndoRedoBlock( false );
             }
@@ -695,6 +740,9 @@ int PCB_POINT_EDITOR::OnSelectionChange( const TOOL_EVENT& aEvent )
             evt->SetPassEvent();
         }
     }
+
+    m_preview.FreeItems();
+    getView()->Remove( &m_preview );
 
     if( m_editPoints )
     {
@@ -1204,6 +1252,27 @@ void PCB_POINT_EDITOR::updateItem( BOARD_COMMIT* aCommit )
 
         case SHAPE_T::RECTANGLE:
         {
+            auto setLeft =
+                    [&]( int left )
+                    {
+                        m_editPoints->SwapX() ? shape->SetRight( left ) : shape->SetLeft( left );
+                    };
+            auto setRight =
+                    [&]( int right )
+                    {
+                        m_editPoints->SwapX() ? shape->SetLeft( right ) : shape->SetRight( right );
+                    };
+            auto setTop =
+                    [&]( int top )
+                    {
+                        m_editPoints->SwapY() ? shape->SetBottom( top ) : shape->SetTop( top );
+                    };
+            auto setBottom =
+                    [&]( int bottom )
+                    {
+                        m_editPoints->SwapY() ? shape->SetTop( bottom ) : shape->SetBottom( bottom );
+                    };
+
             VECTOR2I topLeft = m_editPoints->Point( RECT_TOP_LEFT ).GetPosition();
             VECTOR2I topRight = m_editPoints->Point( RECT_TOP_RIGHT ).GetPosition();
             VECTOR2I botLeft = m_editPoints->Point( RECT_BOT_LEFT ).GetPosition();
@@ -1216,26 +1285,26 @@ void PCB_POINT_EDITOR::updateItem( BOARD_COMMIT* aCommit )
                     || isModified( m_editPoints->Point( RECT_BOT_RIGHT ) )
                     || isModified( m_editPoints->Point( RECT_BOT_LEFT ) ) )
             {
-                shape->SetLeft( topLeft.x );
-                shape->SetTop( topLeft.y );
-                shape->SetRight( botRight.x );
-                shape->SetBottom( botRight.y );
+                setLeft( topLeft.x );
+                setTop( topLeft.y );
+                setRight( botRight.x );
+                setBottom( botRight.y );
             }
             else if( isModified( m_editPoints->Line( RECT_TOP ) ) )
             {
-                shape->SetTop( topLeft.y );
+                setTop( topLeft.y );
             }
             else if( isModified( m_editPoints->Line( RECT_LEFT ) ) )
             {
-                shape->SetLeft( topLeft.x );
+                setLeft( topLeft.x );
             }
             else if( isModified( m_editPoints->Line( RECT_BOT ) ) )
             {
-                shape->SetBottom( botRight.y );
+                setBottom( botRight.y );
             }
             else if( isModified( m_editPoints->Line( RECT_RIGHT ) ) )
             {
-                shape->SetRight( botRight.x );
+                setRight( botRight.x );
             }
 
             for( unsigned i = 0; i < m_editPoints->LinesSize(); ++i )
@@ -1358,6 +1427,40 @@ void PCB_POINT_EDITOR::updateItem( BOARD_COMMIT* aCommit )
         if( PCB_TEXTBOX* textBox = dynamic_cast<PCB_TEXTBOX*>( item ) )
             textBox->ClearRenderCache();
 
+        break;
+    }
+
+    case PCB_TABLECELL_T:
+    {
+        PCB_TABLECELL* cell = static_cast<PCB_TABLECELL*>( item );
+        PCB_TABLE*     table = static_cast<PCB_TABLE*>( cell->GetParent() );
+
+        if( isModified( m_editPoints->Point( COL_WIDTH ) ) )
+        {
+            cell->SetEnd( VECTOR2I( m_editPoints->Point( 0 ).GetX(), cell->GetEndY() ) );
+
+            int colWidth = cell->GetRectangleWidth();
+
+            for( int ii = 0; ii < cell->GetColSpan() - 1; ++ii )
+                colWidth -= table->GetColWidth( cell->GetColumn() + ii );
+
+            table->SetColWidth( cell->GetColumn() + cell->GetColSpan() - 1, colWidth );
+            table->Normalize();
+        }
+        else if( isModified( m_editPoints->Point( ROW_HEIGHT ) ) )
+        {
+            cell->SetEnd( VECTOR2I( cell->GetEndX(), m_editPoints->Point( 1 ).GetY() ) );
+
+            int rowHeight = cell->GetRectangleHeight();
+
+            for( int ii = 0; ii < cell->GetRowSpan() - 1; ++ii )
+                rowHeight -= table->GetRowHeight( cell->GetRow() + ii );
+
+            table->SetRowHeight( cell->GetRow() + cell->GetRowSpan() - 1, rowHeight );
+            table->Normalize();
+        }
+
+        getView()->Update( table );
         break;
     }
 
@@ -1499,9 +1602,18 @@ void PCB_POINT_EDITOR::updateItem( BOARD_COMMIT* aCommit )
         generatorItem->UpdateFromEditPoints( m_editPoints, aCommit );
         m_toolMgr->RunSynchronousAction( PCB_ACTIONS::genUpdateEdit, aCommit, generatorItem );
 
-        m_statusPopup->Popup();
-        generatorItem->UpdateStatus( generatorTool, frame(), m_statusPopup.get() );
-        m_statusPopup->Move( KIPLATFORM::UI::GetMousePosition() + wxPoint( 20, 20 ) );
+        // Note: POINT_EDITOR::m_preview holds only the canvas-draw status "popup"; the meanders
+        // themselves (ROUTER_PREVIEW_ITEMs) are owned by the router.
+
+        m_preview.FreeItems();
+
+        for( EDA_ITEM* previewItem : generatorItem->GetPreviewItems( generatorTool, frame(),
+                                                                     STATUS_ITEMS_ONLY ) )
+        {
+            m_preview.Add( previewItem );
+        }
+
+        getView()->Update( &m_preview );
         break;
     }
 
@@ -1812,13 +1924,25 @@ void PCB_POINT_EDITOR::updatePoints()
             break;
 
         case SHAPE_T::RECTANGLE:
-            m_editPoints->Point( RECT_TOP_LEFT ).SetPosition( shape->GetTopLeft() );
-            m_editPoints->Point( RECT_TOP_RIGHT ).SetPosition( shape->GetBotRight().x,
-                                                               shape->GetTopLeft().y );
-            m_editPoints->Point( RECT_BOT_RIGHT ).SetPosition( shape->GetBotRight() );
-            m_editPoints->Point( RECT_BOT_LEFT ).SetPosition( shape->GetTopLeft().x,
-                                                              shape->GetBotRight().y );
+        {
+            VECTOR2I topLeft = shape->GetTopLeft();
+            VECTOR2I botRight = shape->GetBotRight();
+
+            m_editPoints->SetSwapX( topLeft.x > botRight.x );
+            m_editPoints->SetSwapY( topLeft.y > botRight.y );
+
+            if( m_editPoints->SwapX() )
+                std::swap( topLeft.x, botRight.x );
+
+            if( m_editPoints->SwapY() )
+                std::swap( topLeft.y, botRight.y );
+
+            m_editPoints->Point( RECT_TOP_LEFT ).SetPosition( topLeft );
+            m_editPoints->Point( RECT_TOP_RIGHT ).SetPosition( botRight.x, topLeft.y );
+            m_editPoints->Point( RECT_BOT_RIGHT ).SetPosition( botRight );
+            m_editPoints->Point( RECT_BOT_LEFT ).SetPosition( topLeft.x, botRight.y );
             break;
+        }
 
         case SHAPE_T::ARC:
             m_editPoints->Point( ARC_CENTER ).SetPosition( shape->GetCenter() );
@@ -1867,6 +1991,17 @@ void PCB_POINT_EDITOR::updatePoints()
             break;
         }
 
+        break;
+    }
+
+    case PCB_TABLECELL_T:
+    {
+        PCB_TABLECELL* cell = static_cast<PCB_TABLECELL*>( item );
+
+        m_editPoints->Point( 0 ).SetPosition( cell->GetEndX(),
+                                              cell->GetEndY() - cell->GetRectangleHeight() / 2 );
+        m_editPoints->Point( 1 ).SetPosition( cell->GetEndX() - cell->GetRectangleWidth() / 2,
+                                              cell->GetEndY() );
         break;
     }
 

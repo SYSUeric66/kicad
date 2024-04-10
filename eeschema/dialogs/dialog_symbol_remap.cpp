@@ -36,7 +36,7 @@
 #include <core/kicad_algo.h>
 #include <symbol_viewer_frame.h>
 #include <project_rescue.h>
-#include <sch_io_mgr.h>
+#include <sch_io/sch_io_mgr.h>
 #include <sch_symbol.h>
 #include <sch_screen.h>
 #include <sch_edit_frame.h>
@@ -453,7 +453,7 @@ bool DIALOG_SYMBOL_REMAP::backupProject( REPORTER& aReporter )
         // Back up the cache library.
         srcFileName.SetPath( Prj().GetProjectPath() );
         srcFileName.SetName( Prj().GetProjectName() + wxS( "-cache" ) );
-        srcFileName.SetExt( LegacySymbolLibFileExtension );
+        srcFileName.SetExt( FILEEXT::LegacySymbolLibFileExtension );
 
         destFileName = srcFileName;
         destFileName.SetName( destFileName.GetName() + timeStamp );
@@ -488,7 +488,7 @@ bool DIALOG_SYMBOL_REMAP::backupProject( REPORTER& aReporter )
         }
 
         // Back up the rescue symbol library document file if it exists.
-        srcFileName.SetExt( LegacySymbolDocumentFileExtension );
+        srcFileName.SetExt( FILEEXT::LegacySymbolDocumentFileExtension );
         destFileName.SetExt( srcFileName.GetExt() );
 
         tmp.Printf( _( "Backing up file '%s' to '%s'." ),

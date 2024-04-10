@@ -30,8 +30,6 @@ using namespace std::placeholders;
 #include <pcb_view.h>
 #include <pcb_display_options.h>
 #include <pcb_painter.h>
-
-#include <pcb_group.h>
 #include <footprint.h>
 
 namespace KIGFX {
@@ -78,11 +76,18 @@ void PCB_VIEW::Update( const KIGFX::VIEW_ITEM* aItem, int aUpdateFlags ) const
 {
     if( const BOARD_ITEM* boardItem = dynamic_cast<const BOARD_ITEM*>( aItem ) )
     {
-        boardItem->RunOnChildren(
-                [this, aUpdateFlags]( BOARD_ITEM* child )
-                {
-                    VIEW::Update( child, aUpdateFlags );
-                } );
+        if( boardItem->Type() == PCB_TABLECELL_T )
+        {
+            VIEW::Update( boardItem->GetParent() );
+        }
+        else
+        {
+            boardItem->RunOnChildren(
+                    [this, aUpdateFlags]( BOARD_ITEM* child )
+                    {
+                        VIEW::Update( child, aUpdateFlags );
+                    } );
+        }
     }
 
     VIEW::Update( aItem, aUpdateFlags );

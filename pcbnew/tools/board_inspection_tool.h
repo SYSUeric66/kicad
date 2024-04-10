@@ -24,7 +24,6 @@
 #ifndef BOARD_INSPECTION_TOOL_H
 #define BOARD_INSPECTION_TOOL_H
 
-#include <dialogs/dialog_net_inspector.h>
 #include <dialogs/dialog_book_reporter.h>
 #include <drc/drc_rule.h>
 #include <drc/drc_engine.h>
@@ -74,14 +73,13 @@ public:
     ///< Show local ratsnest of a component.
     int LocalRatsnestTool( const TOOL_EVENT& aEvent );
 
-    int ListNets( const TOOL_EVENT& aEvent );
-
     ///< Hide the ratsnest for a given net.
     int HideNetInRatsnest( const TOOL_EVENT& aEvent );
 
     ///< Show the ratsnest for a given net.
     int ShowNetInRatsnest( const TOOL_EVENT& aEvent );
 
+    wxString InspectDRCErrorMenuText( const std::shared_ptr<RC_ITEM>& aDRCItem );
     void InspectDRCError( const std::shared_ptr<RC_ITEM>& aDRCItem );
 
     ///< Show the clearance resolution for two selected items.
@@ -120,7 +118,7 @@ private:
     ///< Bind handlers to corresponding TOOL_ACTIONs.
     void setTransitions() override;
 
-    DRC_ENGINE makeDRCEngine( bool* aCompileError, bool* aCourtyardError = nullptr );
+    std::unique_ptr<DRC_ENGINE> makeDRCEngine( bool* aCompileError, bool* aCourtyardError );
 
     wxString getItemDescription( BOARD_ITEM* aItem );
 

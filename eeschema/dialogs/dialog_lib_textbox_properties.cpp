@@ -55,7 +55,7 @@ DIALOG_LIB_TEXTBOX_PROPERTIES::DIALOG_LIB_TEXTBOX_PROPERTIES( SYMBOL_EDIT_FRAME*
     m_borderColorSwatch->SetSwatchBackground( schematicBackground );
 
     for( const auto& [ lineStyle, lineStyleDesc ] : lineTypeNames )
-        m_borderStyleCombo->Append( lineStyleDesc.name, KiBitmap( lineStyleDesc.bitmap ) );
+        m_borderStyleCombo->Append( lineStyleDesc.name, KiBitmapBundle( lineStyleDesc.bitmap ) );
 
     m_borderStyleCombo->Append( DEFAULT_STYLE );
 
@@ -72,6 +72,7 @@ DIALOG_LIB_TEXTBOX_PROPERTIES::DIALOG_LIB_TEXTBOX_PROPERTIES( SYMBOL_EDIT_FRAME*
 #endif
 
     m_scintillaTricks = new SCINTILLA_TRICKS( m_textCtrl, wxT( "{}" ), false,
+            // onAcceptFn
             [this]( wxKeyEvent& aEvent )
             {
                 wxPostEvent( this, wxCommandEvent( wxEVT_COMMAND_BUTTON_CLICKED, wxID_OK ) );
@@ -148,7 +149,7 @@ bool DIALOG_LIB_TEXTBOX_PROPERTIES::TransferDataToWindow()
     if( !wxDialog::TransferDataToWindow() )
         return false;
 
-    LIB_SYMBOL* symbol = m_currentText->GetParent();
+    const SYMBOL* symbol = m_currentText->GetParentSymbol();
 
     m_textCtrl->SetValue( m_currentText->GetText() );
     m_textCtrl->EmptyUndoBuffer();
@@ -162,16 +163,18 @@ bool DIALOG_LIB_TEXTBOX_PROPERTIES::TransferDataToWindow()
 
     switch( m_currentText->GetHorizJustify() )
     {
-    case GR_TEXT_H_ALIGN_LEFT:   m_hAlignLeft->Check();   break;
-    case GR_TEXT_H_ALIGN_CENTER: m_hAlignCenter->Check(); break;
-    case GR_TEXT_H_ALIGN_RIGHT:  m_hAlignRight->Check();  break;
+    case GR_TEXT_H_ALIGN_LEFT:          m_hAlignLeft->Check();   break;
+    case GR_TEXT_H_ALIGN_CENTER:        m_hAlignCenter->Check(); break;
+    case GR_TEXT_H_ALIGN_RIGHT:         m_hAlignRight->Check();  break;
+    case GR_TEXT_H_ALIGN_INDETERMINATE:                          break;
     }
 
     switch( m_currentText->GetVertJustify() )
     {
-    case GR_TEXT_V_ALIGN_TOP:    m_vAlignTop->Check();    break;
-    case GR_TEXT_V_ALIGN_CENTER: m_vAlignCenter->Check(); break;
-    case GR_TEXT_V_ALIGN_BOTTOM: m_vAlignBottom->Check(); break;
+    case GR_TEXT_V_ALIGN_TOP:           m_vAlignTop->Check();    break;
+    case GR_TEXT_V_ALIGN_CENTER:        m_vAlignCenter->Check(); break;
+    case GR_TEXT_V_ALIGN_BOTTOM:        m_vAlignBottom->Check(); break;
+    case GR_TEXT_V_ALIGN_INDETERMINATE:                          break;
     }
 
     if( m_currentText->GetTextAngle() == ANGLE_VERTICAL )
@@ -213,10 +216,10 @@ bool DIALOG_LIB_TEXTBOX_PROPERTIES::TransferDataToWindow()
     m_fillColorSwatch->Enable( m_currentText->IsFilled() );
 
     m_privateCheckbox->SetValue( m_currentText->IsPrivate() );
-    m_CommonUnit->SetValue(
+    m_commonToAllUnits->SetValue(
             symbol && symbol->GetUnitCount() > 1 && m_currentText->GetUnit() == 0 );
-    m_CommonUnit->Enable( symbol && symbol->GetUnitCount() > 1 );
-    m_CommonConvert->SetValue( m_currentText->GetConvert() == 0 );
+    m_commonToAllUnits->Enable( symbol && symbol->GetUnitCount() > 1 );
+    m_commonToAllBodyStyles->SetValue( m_currentText->GetBodyStyle() == 0 );
 
     return true;
 }
@@ -279,21 +282,10 @@ bool DIALOG_LIB_TEXTBOX_PROPERTIES::TransferDataFromWindow()
                                                               m_italic->IsChecked() ) );
     }
 
-    if( m_bold->IsChecked() != m_currentText->IsBold() )
-    {
-        if( m_bold->IsChecked() )
-        {
-            m_currentText->SetBold( true );
-            m_currentText->SetTextThickness( GetPenSizeForBold( m_currentText->GetTextWidth() ) );
-        }
-        else
-        {
-            m_currentText->SetBold( false );
-            m_currentText->SetTextThickness( 0 ); // Use default pen width
-        }
-    }
-
+    // Must come after SetTextSize()
+    m_currentText->SetBold( m_italic->IsChecked() );
     m_currentText->SetItalic( m_italic->IsChecked() );
+
     m_currentText->SetTextColor( m_textColorSwatch->GetSwatchColor() );
 
     if( m_hAlignRight->IsChecked() )
@@ -340,21 +332,21 @@ bool DIALOG_LIB_TEXTBOX_PROPERTIES::TransferDataFromWindow()
 
     m_currentText->SetPrivate( m_privateCheckbox->GetValue() );
 
-    if( !m_CommonUnit->GetValue() )
+    if( !m_commonToAllUnits->GetValue() )
         m_currentText->SetUnit( m_frame->GetUnit() );
     else
         m_currentText->SetUnit( 0 );
 
-    if( !m_CommonConvert->GetValue() )
-        m_currentText->SetConvert( m_frame->GetConvert() );
+    if( !m_commonToAllBodyStyles->GetValue() )
+        m_currentText->SetBodyStyle( m_frame->GetBodyStyle() );
     else
-        m_currentText->SetConvert( 0 );
+        m_currentText->SetBodyStyle( 0 );
 
     // Record settings used for next time:
     auto* tools = m_frame->GetToolManager()->GetTool<SYMBOL_EDITOR_DRAWING_TOOLS>();
     tools->SetLastTextAngle( m_currentText->GetTextAngle() );
-    tools->SetDrawSpecificConvert( !m_CommonConvert->GetValue() );
-    tools->SetDrawSpecificUnit( !m_CommonUnit->GetValue() );
+    tools->SetDrawSpecificBodyStyle( !m_commonToAllBodyStyles->GetValue() );
+    tools->SetDrawSpecificUnit( !m_commonToAllUnits->GetValue() );
 
     m_frame->SetMsgPanel( m_currentText );
 

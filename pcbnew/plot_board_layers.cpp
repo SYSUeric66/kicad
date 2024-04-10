@@ -1,14 +1,7 @@
-/**
- * @file plot_board_layers.cpp
- * @brief Functions to plot one board layer (silkscreen layers or other layers).
- * Silkscreen layers have specific requirement for pads (not filled) and texts
- * (with option to remove them from some copper areas (pads...)
- */
-
 /*
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
- * Copyright (C) 1992-2023 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2024 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -26,6 +19,12 @@
  * or you may search the http://www.gnu.org website for the version 2 license,
  * or you may write to the Free Software Foundation, Inc.,
  * 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA
+ */
+
+/**
+ * @brief Functions to plot one board layer (silkscreen layers or other layers).
+ * Silkscreen layers have specific requirement for pads (not filled) and texts
+ * (with option to remove them from some copper areas (pads...)
  */
 
 
@@ -119,9 +118,22 @@ void PlotInteractiveLayer( BOARD* aBoard, PLOTTER* aPlotter, const PCB_PLOT_PARA
                                                    _( "Keywords" ),
                                                    fp->GetKeywords() ) );
 #endif
-        aPlotter->HyperlinkMenu( fp->GetBoundingBox(), properties );
+        // Draw items are plotted with a position offset. So we need to move
+        // our boxes (which are not plotted) by the same offset.
+        VECTOR2I offset = -aPlotter->GetPlotOffsetUserUnits();
 
-        aPlotter->Bookmark( fp->GetBoundingBox(), fp->GetReference(), _( "Footprints" ) );
+        // Use a footprint bbox without texts to create the hyperlink area
+        BOX2I bbox = fp->GetBoundingBox( false, false );
+        bbox.Move( offset );
+        aPlotter->HyperlinkMenu( bbox, properties );
+
+        // Use a footprint bbox with visible texts only to create the bookmark area
+        // which is the area to zoom on ft selection
+        // However the bbox need to be inflated for a better look.
+        bbox = fp->GetBoundingBox( true, false );
+        bbox.Move( offset );
+        bbox.Inflate( bbox.GetWidth() /2, bbox.GetHeight() /2 );
+        aPlotter->Bookmark( bbox, fp->GetReference(), _( "Footprints" ) );
     }
 }
 
@@ -382,7 +394,9 @@ void PlotStandardLayer( BOARD* aBoard, PLOTTER* aPlotter, LSET aLayerMask,
             PAD_SHAPE padShape = pad->GetShape();
             VECTOR2I  padSize = pad->GetSize();
             VECTOR2I  padDelta = pad->GetDelta(); // has meaning only for trapezoidal pads
-            double    padCornerRadius = pad->GetRoundRectCornerRadius();
+            // CornerRadius and CornerRadiusRatio can be modified
+            // the radius is built from the ratio, so saving/restoring the ratio is enough
+            double    padCornerRadiusRatio = pad->GetRoundRectRadiusRatio();
 
             // Don't draw a 0 sized pad.
             // Note: a custom pad can have its pad anchor with size = 0
@@ -468,11 +482,12 @@ void PlotStandardLayer( BOARD* aBoard, PLOTTER* aPlotter, LSET aLayerMask,
 
             case PAD_SHAPE::ROUNDRECT:
             {
-                // rounding is stored as a percent, but we have to change the new radius
-                // to initial_radius + clearance to have a inflated/deflated similar shape
-                int initial_radius = pad->GetRoundRectCornerRadius();
+                // rounding is stored as a percent, but we have to update this ratio
+                // to force recalculation of other values after size changing (we do not
+                // really change the rounding percent value)
+                double radius_ratio = pad->GetRoundRectRadiusRatio();
                 pad->SetSize( padPlotsSize );
-                pad->SetRoundRectCornerRadius( std::max( initial_radius + mask_clearance, 0 ) );
+                pad->SetRoundRectRadiusRatio( radius_ratio );
 
                 itemplotter.PlotPad( pad, color, padPlotMode );
                 break;
@@ -526,6 +541,8 @@ void PlotStandardLayer( BOARD* aBoard, PLOTTER* aPlotter, LSET aLayerMask,
                 // inflate/deflate a custom shape is a bit complex.
                 // so build a similar pad shape, and inflate/deflate the polygonal shape
                 PAD dummy( *pad );
+                dummy.SetParentGroup( nullptr );
+
                 SHAPE_POLY_SET shape;
                 pad->MergePrimitivesAsPolygon( &shape );
 
@@ -552,7 +569,7 @@ void PlotStandardLayer( BOARD* aBoard, PLOTTER* aPlotter, LSET aLayerMask,
             pad->SetSize( padSize );
             pad->SetDelta( padDelta );
             pad->SetShape( padShape );
-            pad->SetRoundRectCornerRadius( padCornerRadius );
+            pad->SetRoundRectRadiusRatio( padCornerRadiusRatio );
         }
 
         aPlotter->EndBlock( nullptr );
@@ -722,7 +739,7 @@ void PlotLayerOutlines( BOARD* aBoard, PLOTTER* aPlotter, LSET aLayerMask,
 
     SHAPE_POLY_SET outlines;
 
-    for( LSEQ seq = aLayerMask.Seq( aLayerMask.SeqStackupBottom2Top() );  seq;  ++seq )
+    for( LSEQ seq = aLayerMask.Seq( aLayerMask.SeqStackupForPlotting() );  seq;  ++seq )
     {
         PCB_LAYER_ID layer = *seq;
 
@@ -874,14 +891,14 @@ void PlotSolderMaskLayer( BOARD *aBoard, PLOTTER* aPlotter, LSET aLayerMask,
             // add shapes inflated by aMinThickness/2 in areas
             footprint->TransformPadsToPolySet( areas, layer, inflate, maxError, ERROR_OUTSIDE );
 
-            if( itemplotter.GetPlotReference() && footprint->Reference().IsOnLayer( layer ) )
-                plotFPTextItem( footprint->Reference() );
-
-            if( itemplotter.GetPlotValue() && footprint->Value().IsOnLayer( layer ) )
-                plotFPTextItem( footprint->Value() );
-
             for( const PCB_FIELD* field : footprint->Fields() )
             {
+                if( field->IsReference() && !itemplotter.GetPlotReference() )
+                    continue;
+
+                if( field->IsValue() && !itemplotter.GetPlotValue() )
+                    continue;
+
                 if( field->IsOnLayer( layer ) )
                     plotFPTextItem( static_cast<const PCB_TEXT&>( *field ) );
             }

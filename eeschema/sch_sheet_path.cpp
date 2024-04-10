@@ -74,11 +74,10 @@ public:
 
     // pure virtuals:
     void SetPosition( const VECTOR2I& ) override {}
-    void Print( const RENDER_SETTINGS* aSettings, const VECTOR2I& aOffset ) override {}
     void Move( const VECTOR2I& aMoveVector ) override {}
     void MirrorHorizontally( int aCenter ) override {}
     void MirrorVertically( int aCenter ) override {}
-    void Rotate( const VECTOR2I& aCenter ) override {}
+    void Rotate( const VECTOR2I& aCenter, bool aRotateCCW ) override {}
 
     double Similarity( const SCH_ITEM& aOther ) const override
     {
@@ -348,7 +347,7 @@ void SCH_SHEET_PATH::UpdateAllScreenReferences() const
             SCH_SYMBOL* symbol = static_cast<SCH_SYMBOL*>( item );
 
             symbol->GetField( REFERENCE_FIELD )->SetText( symbol->GetRef( this ) );
-            symbol->UpdateUnit( symbol->GetUnitSelection( this ) );
+            symbol->SetUnit( symbol->GetUnitSelection( this ) );
             LastScreen()->Update( item, false );
         }
         else if( item->Type() == SCH_GLOBAL_LABEL_T )
@@ -474,7 +473,6 @@ bool SCH_SHEET_PATH::TestForRecursion( const wxString& aSrcFileName, const wxStr
     if( destFn.IsRelative() )
         destFn.MakeAbsolute( rootFn.GetPath() );
 
-
     // The source and destination sheet file names cannot be the same.
     if( srcFn == destFn )
     {
@@ -585,10 +583,10 @@ void SCH_SHEET_PATH::AddNewSymbolInstances( const SCH_SHEET_PATH& aPrefixSheetPa
             newSymbolInstance.m_Path = newSheetPath.Path();
             symbol->AddHierarchicalReference( newSymbolInstance );
         }
-        else if( !symbol->GetInstanceReferences().empty() )
+        else if( !symbol->GetInstances().empty() )
         {
             // Use the first symbol instance if any symbol instance data exists.
-            newSymbolInstance = symbol->GetInstanceReferences()[0];
+            newSymbolInstance = symbol->GetInstances()[0];
             newSymbolInstance.m_Path = newSheetPath.Path();
             symbol->AddHierarchicalReference( newSymbolInstance );
         }
@@ -1342,6 +1340,21 @@ bool SCH_SHEET_LIST::HasPath( const KIID_PATH& aPath ) const
     {
         if( path.Path() == aPath )
             return true;
+    }
+
+    return false;
+}
+
+
+bool SCH_SHEET_LIST::ContainsSheet( const SCH_SHEET* aSheet ) const
+{
+    for( const SCH_SHEET_PATH& path : *this )
+    {
+        for( size_t i = 0; i < path.size(); i++ )
+        {
+            if( path.at( i ) == aSheet )
+                return true;
+        }
     }
 
     return false;

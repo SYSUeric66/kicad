@@ -59,6 +59,7 @@ bottom
 bottom_left
 bottom_right
 castellated_pads
+cells
 center
 chamfer
 chamfer_ratio
@@ -66,6 +67,9 @@ circle
 clearance
 clearance_min
 color
+cols
+column_count
+column_widths
 comment
 company
 connect
@@ -108,9 +112,11 @@ exclude_from_pos_files
 exclude_from_bom
 extension_height
 extension_offset
+external
 fab_layers_line_width
 fab_layers_text_dims
 face
+false
 feature1
 feature2
 fill
@@ -135,6 +141,7 @@ free
 full
 general
 generator
+generator_version
 generated
 grid_origin
 group
@@ -156,6 +163,7 @@ hatch_smoothing_level
 hatch_smoothing_value
 hatch_border_algorithm
 hatch_min_hole_area
+header
 height
 hide
 hole_to_hole_min
@@ -186,6 +194,7 @@ line_spacing
 links
 locked
 loss_tangent
+margins
 max_error
 max_length
 max_width
@@ -267,9 +276,12 @@ right
 rotate
 roundrect
 roundrect_rratio
+rows
+row_heights
 scale
 segment
 segment_width
+separators
 setup
 sheetfile
 sheetname
@@ -284,6 +296,7 @@ solder_paste_margin
 solder_paste_margin_ratio
 solder_paste_ratio
 solid
+span
 stackup
 start
 status
@@ -291,6 +304,8 @@ stroke
 style
 suffix
 suppress_zeroes
+table
+table_cell
 tags
 target
 title
@@ -319,6 +334,7 @@ trapezoid
 thru
 thru_hole
 thru_hole_only
+true
 tstamp
 type
 units
@@ -328,6 +344,7 @@ user
 user_diff_pair
 user_trace_width
 user_via
+uuid
 uvia_dia
 uvia_drill
 uvia_min_drill

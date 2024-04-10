@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2004 Jean-Pierre Charras, jaen-pierre.charras@gipsa-lab.inpg.com
- * Copyright (C) 1992-2023 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2024 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -189,14 +189,6 @@ public:
         return wxT( "PCB_TRACK" );
     }
 
-    /**
-     * Return any local clearance overrides set in the "classic" (ie: pre-rule) system.
-     *
-     * @param aSource [out] optionally reports the source as a user-readable string
-     * @return int - the clearance in internal units.
-     */
-    int GetLocalClearance( wxString* aSource ) const override;
-
     virtual MINOPTMAX<int> GetWidthConstraint( wxString* aSource = nullptr ) const;
 
     wxString GetItemDescription( UNITS_PROVIDER* aUnitsProvider ) const override;
@@ -268,6 +260,9 @@ public:
         bool operator()( const PCB_TRACK* aFirst, const PCB_TRACK* aSecond ) const;
     };
 
+    void Serialize( google::protobuf::Any &aContainer ) const override;
+    bool Deserialize( const google::protobuf::Any &aContainer ) override;
+
 #if defined (DEBUG)
     virtual void Show( int nestLevel, std::ostream& os ) const override { ShowDummy( os ); }
 #endif
@@ -321,6 +316,7 @@ public:
     void SetPosition( const VECTOR2I& aPos ) override { m_Start = aPos; }
 
     virtual VECTOR2I GetPosition() const override;
+    const VECTOR2I GetFocusPosition() const override  { return m_Mid; }
 
     virtual VECTOR2I GetCenter() const override { return GetPosition(); }
 
@@ -367,6 +363,9 @@ public:
     double Similarity( const BOARD_ITEM& aOther ) const override;
 
     bool operator==( const BOARD_ITEM& aOther ) const override;
+
+    void Serialize( google::protobuf::Any &aContainer ) const override;
+    bool Deserialize( const google::protobuf::Any &aContainer ) override;
 
 protected:
     virtual void swapData( BOARD_ITEM* aImage ) override;
@@ -601,6 +600,9 @@ public:
     double Similarity( const BOARD_ITEM& aOther ) const override;
 
     bool operator==( const BOARD_ITEM& aOther ) const override;
+
+    void Serialize( google::protobuf::Any &aContainer ) const override;
+    bool Deserialize( const google::protobuf::Any &aContainer ) override;
 
 protected:
     void swapData( BOARD_ITEM* aImage ) override;

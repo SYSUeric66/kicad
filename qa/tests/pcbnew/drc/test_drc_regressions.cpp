@@ -123,22 +123,23 @@ BOOST_FIXTURE_TEST_CASE( DRCFalseNegativeRegressions, DRC_REGRESSION_TEST_FIXTUR
 
     std::vector< std::pair<wxString, int> > tests =
     {
-        { "issue1358",  3 },
+        { "issue1358",  2 },
         { "issue2512",  5 },
         { "issue2528",  1 },
-        { "issue5750",  6 },   // Shorting zone fills pass DRC in some cases
+        { "issue5750",  4 },   // Shorting zone fills pass DRC in some cases
         { "issue5854",  3 },
         { "issue6879",  6 },
         { "issue6945",  2 },
         { "issue7241",  1 },
-        { "issue7267",  4 },
+        { "issue7267",  5 },
         { "issue7325",  4 },
         { "issue8003",  2 },
         { "issue9081",  2 },
         { "issue12109", 8 },        // Pads fail annular width test
         { "issue14334", 2 },        // Thermal spoke to otherwise unconnected island
+        { "issue16566", 6 },        // Pad_Shape vs Shape property
         { "reverse_via", 3 },       // Via/track ordering
-        { "intersectingzones", 2 }, // zones are too close to each other
+        { "intersectingzones", 1 }, // zones are too close to each other
         { "fill_bad",   1 }         // zone max BBox was too small
     };
 
@@ -160,7 +161,7 @@ BOOST_FIXTURE_TEST_CASE( DRCFalseNegativeRegressions, DRC_REGRESSION_TEST_FIXTUR
                 {
                     PCB_MARKER temp( aItem, aPos );
 
-                    if( bds.m_DrcExclusions.find( temp.Serialize() ) == bds.m_DrcExclusions.end() )
+                    if( bds.m_DrcExclusions.find( temp.SerializeToString() ) == bds.m_DrcExclusions.end() )
                         violations.push_back( *aItem );
                 } );
 

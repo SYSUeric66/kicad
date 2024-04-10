@@ -3,7 +3,7 @@
  *
  * Copyright (C) 2015-2023 Mario Luzeiro <mrluzeiro@ua.pt>
  * Copyright (C) 2023 CERN
- * Copyright (C) 1992-2023 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2024 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -142,8 +142,8 @@ BOARD_ADAPTER::BOARD_ADAPTER() :
     m_offboardPadsFront = nullptr;
     m_offboardPadsBack = nullptr;
 
-    m_frontPlatedPadPolys = nullptr;
-    m_backPlatedPadPolys = nullptr;
+    m_frontPlatedPadAndGraphicPolys = nullptr;
+    m_backPlatedPadAndGraphicPolys = nullptr;
     m_frontPlatedCopperPolys = nullptr;
     m_backPlatedCopperPolys = nullptr;
 
@@ -397,13 +397,18 @@ void BOARD_ADAPTER::InitSettings( REPORTER* aStatusReporter, REPORTER* aWarningR
                     break;
 
                 case BS_ITEM_TYPE_COPPER:
-                    if( item->GetBrdLayerId() == F_Cu )
-                        m_frontCopperThickness3DU = item->GetThickness() * m_biuTo3Dunits;
-                    else if( item->GetBrdLayerId() == B_Cu )
-                        m_backCopperThickness3DU = item->GetThickness() * m_biuTo3Dunits;
-                    else if( item->IsEnabled() )
-                        thickness += item->GetThickness();
+                {
+                    // The copper thickness must be > 0 to avoid draw issues (divide by 0 for instance)
+                    // We use a minimal arbitrary value = 1 micrometer here:
+                    int copper_thickness = std::max( item->GetThickness(), pcbIUScale.mmToIU( 0.001 ) );
 
+                    if( item->GetBrdLayerId() == F_Cu )
+                        m_frontCopperThickness3DU = copper_thickness * m_biuTo3Dunits;
+                    else if( item->GetBrdLayerId() == B_Cu )
+                        m_backCopperThickness3DU = copper_thickness * m_biuTo3Dunits;
+                    else if( item->IsEnabled() )
+                        thickness += copper_thickness;
+                }
                     break;
 
                 default:
@@ -449,7 +454,7 @@ void BOARD_ADAPTER::InitSettings( REPORTER* aStatusReporter, REPORTER* aWarningR
     for( ; layer < MAX_CU_LAYERS; layer++ )
     {
         m_layerZcoordBottom[layer] = -( m_boardBodyThickness3DU / 2.0f );
-        m_layerZcoordTop[layer]    = -( m_boardBodyThickness3DU / 2.0f ) - m_backCopperThickness3DU;
+        m_layerZcoordTop[layer]    = m_layerZcoordBottom[layer] - m_backCopperThickness3DU;
     }
 
     // This is the top of the copper layer thickness.
@@ -505,7 +510,6 @@ void BOARD_ADAPTER::InitSettings( REPORTER* aStatusReporter, REPORTER* aWarningR
             zposTop    = zposBottom + m_nonCopperLayerThickness3DU;
             break;
 
-        // !TODO: review
         default:
             zposTop = zpos_copperTop_front + (layer_id - MAX_CU_LAYERS + 3.0f) * zpos_offset;
             zposBottom = zposTop - m_nonCopperLayerThickness3DU;
@@ -531,7 +535,7 @@ void BOARD_ADAPTER::InitSettings( REPORTER* aStatusReporter, REPORTER* aWarningR
     m_boardBoundingBox = BBOX_3D( boardMin, boardMax );
 
 #ifdef PRINT_STATISTICS_3D_VIEWER
-    unsigned stats_startCreateBoardPolyTime = GetRunningMicroSecs();
+    int64_t stats_startCreateBoardPolyTime = GetRunningMicroSecs();
 #endif
 
     if( aStatusReporter )
@@ -590,13 +594,20 @@ std::map<int, COLOR4D> BOARD_ADAPTER::GetLayerColors() const
 {
     std::map<int, COLOR4D> colors;
 
-    if( m_Cfg->m_CurrentPreset == FOLLOW_PCB || m_Cfg->m_CurrentPreset == FOLLOW_PLOT_SETTINGS )
+    if( LAYER_PRESET_3D* preset = m_Cfg->FindPreset( m_Cfg->m_CurrentPreset ) )
     {
-        colors = GetDefaultColors();
+        colors = preset->colors;
+    }
+    else
+    {
+        COLOR_SETTINGS* settings = Pgm().GetSettingsManager().GetColorSettings();
 
-        if( !m_board )
-            return colors;
+        for( const auto& [ layer, defaultColor /* unused */ ] : GetDefaultColors() )
+            colors[ layer ] = settings->GetColor( layer );
+    }
 
+    if( m_Cfg->m_UseStackupColors && m_board )
+    {
         const BOARD_STACKUP& stackup = m_board->GetDesignSettings().GetStackupDescriptor();
         KIGFX::COLOR4D       bodyColor( 0, 0, 0, 0 );
 
@@ -684,26 +695,6 @@ std::map<int, COLOR4D> BOARD_ADAPTER::GetLayerColors() const
         {
             colors[ LAYER_3D_COPPER_TOP ] = findColor( wxT( "Silver" ), g_FinishColors );
         }
-
-        SETTINGS_MANAGER& mgr = Pgm().GetSettingsManager();
-        PCBNEW_SETTINGS*  pcbnewSettings = mgr.GetAppSettings<PCBNEW_SETTINGS>();
-        COLOR_SETTINGS*   pcbnewColors = mgr.GetColorSettings( pcbnewSettings->m_ColorTheme );
-
-        colors[ LAYER_3D_USER_DRAWINGS ] = pcbnewColors->GetColor( Dwgs_User );
-        colors[ LAYER_3D_USER_COMMENTS ] = pcbnewColors->GetColor( Cmts_User );
-        colors[ LAYER_3D_USER_ECO1 ]     = pcbnewColors->GetColor( Eco1_User );
-        colors[ LAYER_3D_USER_ECO2 ]     = pcbnewColors->GetColor( Eco2_User );
-    }
-    else if( LAYER_PRESET_3D* preset = m_Cfg->FindPreset( m_Cfg->m_CurrentPreset ) )
-    {
-        return preset->colors;
-    }
-    else
-    {
-        COLOR_SETTINGS* settings = Pgm().GetSettingsManager().GetColorSettings();
-
-        for( const auto& [ layer, color ] : GetDefaultColors() )
-            colors[ layer ] = settings->GetColor( layer );
     }
 
     colors[ LAYER_3D_COPPER_BOTTOM ] = colors[ LAYER_3D_COPPER_TOP ];
@@ -861,6 +852,42 @@ std::bitset<LAYER_3D_END> BOARD_ADAPTER::GetVisibleLayers() const
 }
 
 
+std::bitset<LAYER_3D_END> BOARD_ADAPTER::GetDefaultVisibleLayers() const
+{
+    std::bitset<LAYER_3D_END> ret;
+
+    ret.set( LAYER_3D_BOARD,             true );
+    ret.set( LAYER_3D_COPPER_TOP,        true );
+    ret.set( LAYER_3D_COPPER_BOTTOM,     true );
+    ret.set( LAYER_3D_SILKSCREEN_TOP,    true );
+    ret.set( LAYER_3D_SILKSCREEN_BOTTOM, true );
+    ret.set( LAYER_3D_SOLDERMASK_TOP,    true );
+    ret.set( LAYER_3D_SOLDERMASK_BOTTOM, true );
+    ret.set( LAYER_3D_SOLDERPASTE,       true );
+    ret.set( LAYER_3D_ADHESIVE,          true );
+    ret.set( LAYER_3D_USER_COMMENTS,     false );
+    ret.set( LAYER_3D_USER_DRAWINGS,     false );
+    ret.set( LAYER_3D_USER_ECO1,         false );
+    ret.set( LAYER_3D_USER_ECO2,         false );
+
+    ret.set( LAYER_FP_REFERENCES,        true );
+    ret.set( LAYER_FP_VALUES,            true );
+    ret.set( LAYER_FP_TEXT,              true );
+
+    ret.set( LAYER_3D_TH_MODELS,         true );
+    ret.set( LAYER_3D_SMD_MODELS,        true );
+    ret.set( LAYER_3D_VIRTUAL_MODELS,    true );
+    ret.set( LAYER_3D_MODELS_NOT_IN_POS, false );
+    ret.set( LAYER_3D_MODELS_MARKED_DNP, false );
+
+    ret.set( LAYER_3D_BOUNDING_BOXES,    false );
+    ret.set( LAYER_3D_OFF_BOARD_SILK,    false );
+    ret.set( LAYER_3D_AXES,              true );
+
+    return ret;
+}
+
+
 bool BOARD_ADAPTER::createBoardPolygon( wxString* aErrorMsg )
 {
     m_board_poly.RemoveAllContours();
@@ -898,7 +925,7 @@ bool BOARD_ADAPTER::createBoardPolygon( wxString* aErrorMsg )
     }
     else
     {
-        success = m_board->GetBoardPolygonOutlines( m_board_poly );
+        success = m_board->GetBoardPolygonOutlines( m_board_poly, nullptr, false, true );
 
         if( !success && aErrorMsg )
             *aErrorMsg = _( "Board outline is missing or malformed. Run DRC for a full analysis." );

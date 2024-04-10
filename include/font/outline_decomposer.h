@@ -2,7 +2,7 @@
  * This program source code file is part of KICAD, a free EDA CAD application.
  *
  * Copyright (C) 2021 Ola Rinta-Koski
- * Copyright (C) 2021 Kicad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2021-2024 Kicad Developers, see AUTHORS.txt for contributors.
  *
  * Outline font class
  *
@@ -41,19 +41,21 @@
 
 namespace KIFONT
 {
-typedef std::vector<VECTOR2D>     GLYPH_POINTS;
-typedef std::vector<GLYPH_POINTS> GLYPH_POINTS_LIST;
-typedef std::vector<BOX2D>        GLYPH_BOUNDING_BOX_LIST;
-
 struct CONTOUR
 {
-    GLYPH_POINTS   m_Points;
-    int            m_Winding = 0;
-    FT_Orientation m_Orientation;
+    std::vector<VECTOR2D> m_Points;
+    int                   m_Winding = 0;
+    FT_Orientation        m_Orientation;
 };
 
+struct GLYPH_DATA
+{
+    std::vector<CONTOUR> m_Contours;
 
-typedef std::vector<CONTOUR> CONTOURS;
+    // Cache of the triangulation data.  We'll use this as a hint for triangulating the actual
+    // OUTLINE_GLYPHs.
+    std::vector<std::unique_ptr<SHAPE_POLY_SET::TRIANGULATED_POLYGON>> m_TriangulationData;
+};
 
 
 class OUTLINE_DECOMPOSER
@@ -61,28 +63,25 @@ class OUTLINE_DECOMPOSER
 public:
     OUTLINE_DECOMPOSER( FT_Outline& aOutline );
 
-    void OutlineToSegments( CONTOURS* aContours );
+    bool OutlineToSegments( std::vector<CONTOUR>* aContours );
 
 private:
-    void contourToSegmentsAndArcs( CONTOUR& aResult, unsigned int aContourIndex ) const;
-
     void newContour();
 
     void addContourPoint( const VECTOR2D& p );
 
-    int approximateContour( const GLYPH_POINTS& aPoints, const std::vector<bool>& aPointOnCurve,
-                            GLYPH_POINTS& aResult ) const;
-
-    bool approximateBezierCurve( GLYPH_POINTS& result, const GLYPH_POINTS& bezier ) const;
-    bool approximateQuadraticBezierCurve( GLYPH_POINTS& result, const GLYPH_POINTS& bezier ) const;
-    bool approximateCubicBezierCurve( GLYPH_POINTS& result, const GLYPH_POINTS& bezier ) const;
+    bool approximateBezierCurve( std::vector<VECTOR2D>& result,
+                                 const std::vector<VECTOR2D>& bezier ) const;
+    bool approximateQuadraticBezierCurve( std::vector<VECTOR2D>& result,
+                                          const std::vector<VECTOR2D>& bezier ) const;
+    bool approximateCubicBezierCurve( std::vector<VECTOR2D>& result,
+                                      const std::vector<VECTOR2D>& bezier ) const;
 
     /**
-     * @return 1 if aContour is in clockwise order, -1 if it is in
-     *     counterclockwise order, or 0 if the winding can't be
-     *     determined.
+     * @return 1 if aContour is in clockwise order, -1 if it is in counterclockwise order,
+     *         or 0 if the winding can't be determined.
      */
-    int winding( const GLYPH_POINTS& aContour ) const;
+    int winding( const std::vector<VECTOR2D>& aContour ) const;
 
     inline static unsigned int onCurve( char aTags )
     {
@@ -121,10 +120,10 @@ private:
                         const FT_Vector* aEndPoint, void* aCallbackData );
 
 private:
-    FT_Outline& m_outline;
-    CONTOURS*   m_contours;
+    FT_Outline&           m_outline;
+    std::vector<CONTOUR>* m_contours;
 
-    VECTOR2D    m_lastEndPoint;
+    VECTOR2D              m_lastEndPoint;
 };
 
 } //namespace KIFONT

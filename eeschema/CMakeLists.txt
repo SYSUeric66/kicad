@@ -41,33 +41,53 @@ include_directories(
     ./widgets
     )
 
-set( EESCHEMA_SCH_PLUGINS_ALTIUM
-    sch_plugins/altium/altium_parser_sch.cpp
-    sch_plugins/altium/sch_altium_plugin.cpp
-    )
+set( EESCHEMA_SCH_IO
+    sch_io/sch_io_lib_cache.cpp
 
+    sch_io/sch_io.cpp
+    sch_io/sch_io_mgr.cpp
 
-set( EESCHEMA_SCH_PLUGINS_CADSTAR
-    sch_plugins/cadstar/cadstar_sch_archive_loader.cpp
-    sch_plugins/cadstar/cadstar_sch_archive_parser.cpp
-    sch_plugins/cadstar/cadstar_sch_archive_plugin.cpp
-    )
+    # KiCad IO plugin
+    sch_io/kicad_sexpr/sch_io_kicad_sexpr.cpp
+    sch_io/kicad_sexpr/sch_io_kicad_sexpr_lib_cache.cpp
+    sch_io/kicad_sexpr/sch_io_kicad_sexpr_common.cpp
+    sch_io/kicad_sexpr/sch_io_kicad_sexpr_parser.cpp
 
+    # Legacy IO plugin
+    sch_io/kicad_legacy/sch_io_kicad_legacy_lib_cache.cpp
+    sch_io/kicad_legacy/sch_io_kicad_legacy.cpp
+    sch_io/kicad_legacy/sch_io_kicad_legacy_helpers.cpp
 
-set( EESCHEMA_SCH_PLUGINS_LTSPICE
-    sch_plugins/ltspice/ltspice_schematic.cpp
-    sch_plugins/ltspice/ltspice_sch_parser.cpp
-    sch_plugins/ltspice/ltspice_sch_plugin.cpp
-    )
+    # HTTP IO plugin
+    sch_io/http_lib/sch_io_http_lib.cpp
 
-set( EESCHEMA_SCH_PLUGINS_EASYEDA
-    sch_plugins/easyeda/sch_easyeda_parser.cpp
-    sch_plugins/easyeda/sch_easyeda_plugin.cpp
-    )
+    # Database IO plugin
+    sch_io/database/sch_io_database.cpp
 
-set( EESCHEMA_SCH_PLUGINS_EASYEDAPRO
-    sch_plugins/easyedapro/sch_easyedapro_parser.cpp
-    sch_plugins/easyedapro/sch_easyedapro_plugin.cpp
+    # Eagle IO plugin
+    sch_io/eagle/sch_io_eagle.cpp
+
+    # Altium IO plugin
+    sch_io/altium/altium_parser_sch.cpp
+    sch_io/altium/sch_io_altium.cpp
+
+    # Cadstar IO plugin
+    sch_io/cadstar/cadstar_sch_archive_loader.cpp
+    sch_io/cadstar/cadstar_sch_archive_parser.cpp
+    sch_io/cadstar/sch_io_cadstar_archive.cpp
+
+    # LTSpice IO plugin
+    sch_io/ltspice/ltspice_schematic.cpp
+    sch_io/ltspice/sch_io_ltspice.cpp
+    sch_io/ltspice/sch_io_ltspice_parser.cpp
+
+    # EasyEDA IO plugin
+    sch_io/easyeda/sch_easyeda_parser.cpp
+    sch_io/easyeda/sch_io_easyeda.cpp
+
+    # EasyEDA Pro IO plugin
+    sch_io/easyedapro/sch_easyedapro_parser.cpp
+    sch_io/easyedapro/sch_io_easyedapro.cpp
     )
 
 set( EESCHEMA_DLGS
@@ -139,6 +159,10 @@ set( EESCHEMA_DLGS
     dialogs/dialog_symbol_properties_base.cpp
     dialogs/dialog_symbol_remap.cpp
     dialogs/dialog_symbol_remap_base.cpp
+    dialogs/dialog_table_properties.cpp
+    dialogs/dialog_table_properties_base.cpp
+    dialogs/dialog_tablecell_properties.cpp
+    dialogs/dialog_tablecell_properties_base.cpp
     dialogs/dialog_text_properties.cpp
     dialogs/dialog_text_properties_base.cpp
     dialogs/dialog_update_from_pcb.cpp
@@ -162,6 +186,8 @@ set( EESCHEMA_DLGS
     dialogs/panel_setup_formatting_base.cpp
     dialogs/panel_setup_pinmap.cpp
     dialogs/panel_setup_pinmap_base.cpp
+    dialogs/panel_simulator_preferences.cpp
+    dialogs/panel_simulator_preferences_base.cpp
     dialogs/panel_sym_color_settings.cpp
     dialogs/panel_sym_color_settings_base.cpp
     dialogs/panel_sym_display_options.cpp
@@ -254,6 +280,8 @@ set( EESCHEMA_SIM_SRCS
 
 set( EESCHEMA_WIDGETS
     widgets/hierarchy_pane.cpp
+    widgets/panel_sch_selection_filter_base.cpp
+    widgets/panel_sch_selection_filter.cpp
     widgets/panel_symbol_chooser.cpp
     widgets/pin_shape_combobox.cpp
     widgets/pin_type_combobox.cpp
@@ -292,17 +320,25 @@ set( EESCHEMA_PRINTING
     printing/sch_printout.cpp
     )
 
+set( SYNC_SHEET_PIN_SRCS
+    sync_sheet_pin/dialog_sync_sheet_pins.cpp
+    sync_sheet_pin/dialog_sync_sheet_pins_base.cpp
+    sync_sheet_pin/panel_sync_sheet_pins.cpp
+    sync_sheet_pin/panel_sync_sheet_pins_base.cpp
+    sync_sheet_pin/sheet_synchronization_agent.cpp
+    sync_sheet_pin/sheet_synchronization_item.cpp
+    sync_sheet_pin/sheet_synchronization_notifier.cpp
+    sync_sheet_pin/sheet_synchronization_model.cpp
+    )
+
 set( EESCHEMA_SRCS
     ${EESCHEMA_DLGS}
     ${EESCHEMA_LIBEDIT_SRCS}
-    ${EESCHEMA_SCH_PLUGINS_ALTIUM}
-    ${EESCHEMA_SCH_PLUGINS_CADSTAR}
-    ${EESCHEMA_SCH_PLUGINS_LTSPICE}
-    ${EESCHEMA_SCH_PLUGINS_EASYEDA}
-    ${EESCHEMA_SCH_PLUGINS_EASYEDAPRO}
+    ${EESCHEMA_SCH_IO}
     ${EESCHEMA_SIM_SRCS}
     ${EESCHEMA_WIDGETS}
     ${EESCHEMA_IMPORT_GFX}
+    ${SYNC_SHEET_PIN_SRCS}
     annotate.cpp
     autoplace_fields.cpp
     bom_plugins.cpp
@@ -326,8 +362,7 @@ set( EESCHEMA_SRCS
     gfx_import_utils.cpp
     picksymbol.cpp
     lib_field.cpp
-    lib_item.cpp
-    lib_pin.cpp
+        lib_pin.cpp
     lib_shape.cpp
     lib_symbol.cpp
     lib_text.cpp
@@ -347,7 +382,6 @@ set( EESCHEMA_SRCS
     sch_draw_panel.cpp
     sch_edit_frame.cpp
     sch_field.cpp
-    sch_io_mgr.cpp
     sch_item.cpp
     sch_junction.cpp
     sch_label.cpp
@@ -357,15 +391,17 @@ set( EESCHEMA_SRCS
     sch_painter.cpp
     sch_pin.cpp
     sch_plotter.cpp
-    sch_plugin.cpp
     sch_preview_panel.cpp
     sch_reference_list.cpp
+    sch_render_settings.cpp
     sch_screen.cpp
     sch_shape.cpp
     sch_sheet.cpp
     sch_sheet_path.cpp
     sch_sheet_pin.cpp
     sch_symbol.cpp
+    sch_table.cpp
+    sch_tablecell.cpp
     sch_text.cpp
     sch_textbox.cpp
     sch_validators.cpp
@@ -374,6 +410,7 @@ set( EESCHEMA_SRCS
     schematic_settings.cpp
     schematic_undo_redo.cpp
     sheet.cpp
+    symbol.cpp
     symbol_async_loader.cpp
     symbol_checker.cpp
     symbol_chooser_frame.cpp
@@ -386,27 +423,18 @@ set( EESCHEMA_SRCS
     toolbars_sch_editor.cpp
     toolbars_symbol_viewer.cpp
 
+    api/api_sch_utils.cpp
+
     netlist_exporters/netlist_exporter_allegro.cpp
     netlist_exporters/netlist_exporter_base.cpp
     netlist_exporters/netlist_exporter_cadstar.cpp
     netlist_exporters/netlist_exporter_kicad.cpp
+    netlist_exporters/netlist_exporter_pads.cpp
     netlist_exporters/netlist_exporter_orcadpcb2.cpp
     netlist_exporters/netlist_exporter_spice.cpp
     netlist_exporters/netlist_exporter_spice_model.cpp
     netlist_exporters/netlist_exporter_xml.cpp
     netlist_exporters/netlist_generator.cpp
-
-    sch_plugins/sch_lib_plugin_cache.cpp
-    sch_plugins/eagle/sch_eagle_plugin.cpp
-    sch_plugins/kicad/sch_sexpr_lib_plugin_cache.cpp
-    sch_plugins/kicad/sch_sexpr_plugin_common.cpp
-    sch_plugins/kicad/sch_sexpr_parser.cpp
-    sch_plugins/kicad/sch_sexpr_plugin.cpp
-    sch_plugins/legacy/sch_legacy_lib_plugin_cache.cpp
-    sch_plugins/legacy/sch_legacy_plugin.cpp
-    sch_plugins/legacy/sch_legacy_plugin_helpers.cpp
-    sch_plugins/database/sch_database_plugin.cpp
-    sch_plugins/http_lib/sch_http_lib_plugin.cpp
 
     tools/assign_footprints.cpp
     tools/backannotate.cpp
@@ -417,6 +445,7 @@ set( EESCHEMA_SRCS
     tools/ee_selection.cpp
     tools/ee_selection_tool.cpp
     tools/sch_drawing_tools.cpp
+    tools/sch_edit_table_tool.cpp
     tools/sch_edit_tool.cpp
     tools/sch_editor_control.cpp
     tools/sch_editor_conditions.cpp
@@ -430,6 +459,13 @@ set( EESCHEMA_SRCS
     tools/symbol_editor_move_tool.cpp
     tools/symbol_editor_pin_tool.cpp
     )
+
+if( KICAD_IPC_API )
+    set( EESCHEMA_SRCS
+        ${EESCHEMA_SRCS}
+        api/api_handler_sch.cpp
+    )
+endif()
 
 if( WIN32 )
     if( MINGW )
@@ -509,13 +545,8 @@ endif()
 
 add_executable( eeschema WIN32 MACOSX_BUNDLE
     ${CMAKE_SOURCE_DIR}/common/single_top.cpp
-    ${CMAKE_SOURCE_DIR}/common/pgm_base.cpp
     ${EESCHEMA_RESOURCES}
     )
-
-if( KICAD_USE_SENTRY )
-    set_property(SOURCE ${CMAKE_SOURCE_DIR}/common/pgm_base.cpp APPEND PROPERTY COMPILE_DEFINITIONS KICAD_SENTRY_DSN="${KICAD_SENTRY_DSN}")
-endif()
 
 set_source_files_properties( ${CMAKE_SOURCE_DIR}/common/single_top.cpp PROPERTIES
     COMPILE_DEFINITIONS "TOP_FRAME=FRAME_SCH;PGM_DATA_FILE_EXT=\"kicad_sch\";BUILD_KIWAY_DLL"
@@ -525,7 +556,9 @@ target_link_libraries( eeschema
     # There's way too much crap coming in from common yet.
     gal
     common
+    pcbcommon
     argparse::argparse
+    kicommon
     ${wxWidgets_LIBRARIES}
     )
 

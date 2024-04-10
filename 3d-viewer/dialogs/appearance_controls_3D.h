@@ -114,8 +114,6 @@ public:
     ~APPEARANCE_CONTROLS_3D();
 
     wxSize GetBestSize() const;
-
-    void OnLanguageChanged();
     void OnDarkModeToggle();
     void OnLayerVisibilityChanged( int aLayer, bool isVisible );
 
@@ -140,8 +138,11 @@ public:
 protected:
     void OnSetFocus( wxFocusEvent& aEvent ) override;
     void OnSize( wxSizeEvent& aEvent ) override;
+    void OnLanguageChanged( wxCommandEvent& aEvent );
 
 private:
+    void rebuildControls();
+
     void rebuildLayers();
 
     void rebuildLayerPresetsWidget();
@@ -166,26 +167,26 @@ private:
     void passOnFocus();
 
 private:
-    EDA_3D_VIEWER_FRAME* m_frame;
-    wxWindow*            m_focusOwner;
-
     static const APPEARANCE_SETTING_3D s_layerSettings[];
 
-    GRID_BITMAP_TOGGLE_RENDERER* m_toggleGridRenderer;
+    EDA_3D_VIEWER_FRAME*           m_frame;
+    wxWindow*                      m_focusOwner;
 
     std::vector<std::unique_ptr<APPEARANCE_SETTING_3D>> m_layerSettings;
     std::map<int, APPEARANCE_SETTING_3D*>               m_layerSettingsMap;
 
-    wxArrayString                       m_presetMRU;
+    wxArrayString                  m_presetMRU;
 
-    std::map<wxString, VIEWPORT3D>      m_viewports;
-    VIEWPORT3D*                         m_lastSelectedViewport;
-    wxArrayString                       m_viewportMRU;
+    std::map<wxString, VIEWPORT3D> m_viewports;
+    VIEWPORT3D*                    m_lastSelectedViewport;
+    wxArrayString                  m_viewportMRU;
 
-    wxBoxSizer* m_layersOuterSizer;
-    wxBoxSizer* m_envOuterSizer;
-    int         m_pointSize;
-    wxColour    m_layerPanelColour;
+    wxBoxSizer*                    m_layersOuterSizer;
+    wxBoxSizer*                    m_envOuterSizer;
+    int                            m_pointSize;
+    wxColour                       m_layerPanelColour;
+    GRID_BITMAP_TOGGLE_RENDERER*   m_toggleGridRenderer;
+    wxCheckBox*                    m_cbUseBoardStackupColors;
 };
 
 #endif

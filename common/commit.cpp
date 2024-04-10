@@ -55,14 +55,10 @@ COMMIT& COMMIT::Stage( EDA_ITEM* aItem, CHANGE_TYPE aChangeType, BASE_SCREEN* aS
     switch( aChangeType & CHT_TYPE )
     {
     case CHT_ADD:
-        wxASSERT_MSG( m_changedItems.find( aItem ) == m_changedItems.end(),
-                      wxT( "Item already staged for commit" ) );
         makeEntry( aItem, CHT_ADD | flag, nullptr, aScreen );
         return *this;
 
     case CHT_REMOVE:
-        wxASSERT_MSG( m_deletedItems.find( aItem ) == m_deletedItems.end(),
-                      wxT( "Item already staged for deletion" ) );
         m_deletedItems.insert( aItem );
         makeEntry( aItem, CHT_REMOVE | flag, nullptr, aScreen );
         return *this;
@@ -79,6 +75,11 @@ COMMIT& COMMIT::Stage( EDA_ITEM* aItem, CHANGE_TYPE aChangeType, BASE_SCREEN* aS
 
         break;
     }
+
+    case CHT_GROUP:
+    case CHT_UNGROUP:
+        makeEntry( aItem, aChangeType, nullptr, aScreen );
+        return *this;
 
     default:
         wxFAIL;
@@ -182,18 +183,12 @@ CHANGE_TYPE COMMIT::convert( UNDO_REDO aType ) const
 {
     switch( aType )
     {
-    case UNDO_REDO::NEWITEM:
-        return CHT_ADD;
-
-    case UNDO_REDO::DELETED:
-        return CHT_REMOVE;
-
-    default:
-        wxASSERT( false );
-        KI_FALLTHROUGH;
-
-    case UNDO_REDO::CHANGED:
-        return CHT_MODIFY;
+    case UNDO_REDO::NEWITEM:        return CHT_ADD;
+    case UNDO_REDO::DELETED:        return CHT_REMOVE;
+    case UNDO_REDO::REGROUP:        return CHT_GROUP;
+    case UNDO_REDO::UNGROUP:        return CHT_UNGROUP;
+    case UNDO_REDO::CHANGED:        return CHT_MODIFY;
+    default:   wxASSERT( false );   return CHT_MODIFY;
     }
 }
 
@@ -202,18 +197,12 @@ UNDO_REDO COMMIT::convert( CHANGE_TYPE aType ) const
 {
     switch( aType )
     {
-    case CHT_ADD:
-        return UNDO_REDO::NEWITEM;
-
-    case CHT_REMOVE:
-        return UNDO_REDO::DELETED;
-
-    default:
-        wxASSERT( false );
-        KI_FALLTHROUGH;
-
-    case CHT_MODIFY:
-        return UNDO_REDO::CHANGED;
+    case CHT_ADD:                   return UNDO_REDO::NEWITEM;
+    case CHT_REMOVE:                return UNDO_REDO::DELETED;
+    case CHT_GROUP:                 return UNDO_REDO::REGROUP;
+    case CHT_UNGROUP:               return UNDO_REDO::UNGROUP;
+    case CHT_MODIFY:                return UNDO_REDO::CHANGED;
+    default:   wxASSERT( false );   return UNDO_REDO::CHANGED;
     }
 }
 

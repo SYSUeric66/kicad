@@ -37,12 +37,18 @@
 #include <wx/stdpaths.h>
 
 
-DIALOG_GIT_REPOSITORY::DIALOG_GIT_REPOSITORY( wxWindow* aParent, git_repository* aRepository, wxString aURL ) :
-        DIALOG_GIT_REPOSITORY_BASE( aParent ), m_repository( aRepository ), m_prevFile( wxEmptyString ),
-        m_tested( 0 ), m_failedTest( false ), m_testError( wxEmptyString ), m_tempRepo( false ),
+DIALOG_GIT_REPOSITORY::DIALOG_GIT_REPOSITORY( wxWindow* aParent, git_repository* aRepository,
+                                              wxString aURL ) :
+        DIALOG_GIT_REPOSITORY_BASE( aParent ),
+        m_repository( aRepository ),
+        m_prevFile( wxEmptyString ),
+        m_tested( 0 ),
+        m_failedTest( false ),
+        m_testError( wxEmptyString ),
+        m_tempRepo( false ),
         m_repoType( KIGIT_COMMON::GIT_CONN_TYPE::GIT_CONN_LOCAL )
 {
-    m_txtName->SetFocus();
+    m_txtURL->SetFocus();
 
     if( !m_repository )
     {
@@ -65,6 +71,8 @@ DIALOG_GIT_REPOSITORY::DIALOG_GIT_REPOSITORY( wxWindow* aParent, git_repository*
 
     SetupStandardButtons();
     updateAuthControls();
+
+    Layout();
 }
 
 DIALOG_GIT_REPOSITORY::~DIALOG_GIT_REPOSITORY()
@@ -88,7 +96,9 @@ bool DIALOG_GIT_REPOSITORY::extractClipboardData()
         {
             if( std::get<0>( isValidHTTPS( clipboardText ) )
                 || std::get<0>( isValidSSH( clipboardText ) ) )
+            {
                 m_txtURL->SetValue( clipboardText );
+            }
         }
 
         wxTheClipboard->Close();
@@ -201,6 +211,7 @@ void DIALOG_GIT_REPOSITORY::OnLocationExit( wxFocusEvent& event )
 {
     updateURLData();
     updateAuthControls();
+    event.Skip();
 }
 
 
@@ -359,7 +370,8 @@ void DIALOG_GIT_REPOSITORY::OnFileUpdated( wxFileDirPickerEvent& aEvent )
 
     if( !isValid )
     {
-        DisplayErrorMessage( this, _( "Invalid SSH Key" ), _( "The selected file is not a valid SSH private key" ) );
+        DisplayErrorMessage( this, _( "Invalid SSH Key" ),
+                             _( "The selected file is not a valid SSH private key" ) );
         CallAfter( [this] { SetRepoSSHPath( m_prevFile ); } );
         return;
     }
@@ -383,7 +395,8 @@ void DIALOG_GIT_REPOSITORY::OnFileUpdated( wxFileDirPickerEvent& aEvent )
 
     if( !pubIfs.good() || !pubIfs.is_open() )
     {
-        DisplayErrorMessage( this, wxString::Format( _( "Could not open public key '%s'" ), file + ".pub" ),
+        DisplayErrorMessage( this, wxString::Format( _( "Could not open public key '%s'" ),
+                                                     file + ".pub" ),
                              wxString::Format( "%s: %d", std::strerror( errno ), errno ) );
         aEvent.SetPath( wxEmptyString );
         CallAfter( [this] { SetRepoSSHPath( m_prevFile ); } );
@@ -401,18 +414,21 @@ void DIALOG_GIT_REPOSITORY::OnOKClick( wxCommandEvent& event )
 
     if( m_txtName->GetValue().IsEmpty() )
     {
-        DisplayErrorMessage( this, _( "Missing information" ), _( "Please enter a name for the repository" ) );
+        DisplayErrorMessage( this, _( "Missing information" ),
+                             _( "Please enter a name for the repository" ) );
         return;
     }
 
     if( m_txtURL->GetValue().IsEmpty() )
     {
-        DisplayErrorMessage( this, _( "Missing information" ), _( "Please enter a URL for the repository" ) );
+        DisplayErrorMessage( this, _( "Missing information" ),
+                             _( "Please enter a URL for the repository" ) );
         return;
     }
 
     EndModal( wxID_OK );
 }
+
 
 void DIALOG_GIT_REPOSITORY::updateAuthControls()
 {
@@ -438,6 +454,8 @@ void DIALOG_GIT_REPOSITORY::updateAuthControls()
             setDefaultSSHKey();
         }
     }
+
+    Layout();
 }
 
 

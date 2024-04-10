@@ -23,7 +23,6 @@
 
 #include <project/net_settings.h>
 #include <settings/parameters.h>
-#include <settings/json_settings_internals.h>
 #include <settings/settings_manager.h>
 #include <string_utils.h>
 #include <base_units.h>
@@ -205,7 +204,7 @@ NET_SETTINGS::NET_SETTINGS( JSON_SETTINGS* aParent, const std::string& aPath ) :
                 for( const auto& [ netname, color ] : m_NetColorAssignments )
                 {
                     std::string key( netname.ToUTF8() );
-                    ret[key] = color;
+                    ret[ std::move( key ) ] = color;
                 }
 
                 return ret;
@@ -220,7 +219,7 @@ NET_SETTINGS::NET_SETTINGS( JSON_SETTINGS* aParent, const std::string& aPath ) :
                 for( const auto& pair : aJson.items() )
                 {
                     wxString key( pair.key().c_str(), wxConvUTF8 );
-                    m_NetColorAssignments[key] = pair.value().get<KIGFX::COLOR4D>();
+                    m_NetColorAssignments[ std::move( key ) ] = pair.value().get<KIGFX::COLOR4D>();
                 }
             },
             {} ) );
@@ -233,7 +232,7 @@ NET_SETTINGS::NET_SETTINGS( JSON_SETTINGS* aParent, const std::string& aPath ) :
                 for( const auto& [ netname, netclassName ] : m_NetClassLabelAssignments )
                 {
                     std::string key( netname.ToUTF8() );
-                    ret[key] = netclassName;
+                    ret[ std::move( key ) ] = netclassName;
                 }
 
                 return ret;
@@ -248,7 +247,7 @@ NET_SETTINGS::NET_SETTINGS( JSON_SETTINGS* aParent, const std::string& aPath ) :
                 for( const auto& pair : aJson.items() )
                 {
                     wxString key( pair.key().c_str(), wxConvUTF8 );
-                    m_NetClassLabelAssignments[key] = pair.value().get<wxString>();
+                    m_NetClassLabelAssignments[ std::move( key ) ] = pair.value().get<wxString>();
                 }
             },
             {} ) );
@@ -265,7 +264,7 @@ NET_SETTINGS::NET_SETTINGS( JSON_SETTINGS* aParent, const std::string& aPath ) :
                         { "netclass", netclassName.ToUTF8() }
                     };
 
-                    ret.push_back( pattern_json );
+                    ret.push_back( std::move( pattern_json ) );
                 }
 
                 return ret;
@@ -311,6 +310,31 @@ NET_SETTINGS::~NET_SETTINGS()
         m_parent->ReleaseNestedSettings( this );
         m_parent = nullptr;
     }
+}
+
+
+bool NET_SETTINGS::operator==( const NET_SETTINGS& aOther ) const
+{
+    if( !std::equal( std::begin( m_NetClasses ), std::end( m_NetClasses ),
+                     std::begin( aOther.m_NetClasses ) ) )
+        return false;
+
+    if( !std::equal( std::begin( m_NetClassPatternAssignments ),
+                     std::end( m_NetClassPatternAssignments ),
+                     std::begin( aOther.m_NetClassPatternAssignments ) ) )
+        return false;
+
+    if( !std::equal( std::begin( m_NetClassLabelAssignments ),
+                     std::end( m_NetClassLabelAssignments ),
+                     std::begin( aOther.m_NetClassLabelAssignments ) ) )
+        return false;
+
+
+    if( !std::equal( std::begin( m_NetColorAssignments ), std::end( m_NetColorAssignments ),
+                     std::begin( aOther.m_NetColorAssignments ) ) )
+        return false;
+
+    return true;
 }
 
 
@@ -407,6 +431,17 @@ std::shared_ptr<NETCLASS> NET_SETTINGS::GetEffectiveNetClass( const wxString& aN
 
     m_NetClassPatternAssignmentCache[ aNetName ] = wxEmptyString;
     return m_DefaultNetClass;
+}
+
+
+std::shared_ptr<NETCLASS> NET_SETTINGS::GetNetClassByName( const wxString& aNetClassName ) const
+{
+    auto ii = m_NetClasses.find( aNetClassName );
+
+    if( ii == m_NetClasses.end() )
+        return m_DefaultNetClass;
+    else
+        return ii->second;
 }
 
 

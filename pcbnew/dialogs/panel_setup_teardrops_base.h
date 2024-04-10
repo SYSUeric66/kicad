@@ -1,5 +1,5 @@
 ///////////////////////////////////////////////////////////////////////////
-// C++ code generated with wxFormBuilder (version 3.10.1-0-g8feb16b)
+// C++ code generated with wxFormBuilder (version 4.0.0-0-g0efcecf)
 // http://www.wxformbuilder.org/
 //
 // PLEASE DO *NOT* EDIT THIS FILE!
@@ -46,25 +46,21 @@ class PANEL_SETUP_TEARDROPS_BASE : public wxPanel
 		wxStaticText* m_edgesLabel;
 		wxRadioButton* m_rbStraightLines;
 		wxRadioButton* m_rbCurved;
-		wxStaticText* m_stHsetting;
-		wxSpinCtrlDouble* m_spTeardropLenPercent;
-		wxStaticText* m_stTeardropLenUnits;
+		wxStaticText* m_stLenPercentLabel;
+		wxSpinCtrlDouble* m_spLenPercent;
 		wxStaticText* m_stMaxLen;
 		wxTextCtrl* m_tcTdMaxLen;
 		wxStaticText* m_stMaxLenUnits;
-		wxStaticText* m_stVsetting;
-		wxSpinCtrlDouble* m_spTeardropSizePercent;
-		wxStaticText* m_stLenPercent;
-		wxStaticText* m_stTdMaxSize;
-		wxTextCtrl* m_tcMaxHeight;
-		wxStaticText* m_stMaxHeightUnits;
+		wxStaticText* m_stWidthLabel;
+		wxSpinCtrlDouble* m_spWidthPercent;
+		wxStaticText* m_stMaxWidthLabel;
+		wxTextCtrl* m_tcMaxWidth;
+		wxStaticText* m_stMaxWidthUnits;
 		wxStaticText* m_curvePointsLabel;
 		wxSpinCtrl* m_curvePointsCtrl;
 		wxCheckBox* m_cbPreferZoneConnection;
 		wxStaticText* m_stHDRatio;
 		wxSpinCtrlDouble* m_spTeardropHDPercent;
-		wxStaticText* m_minTrackWidthUnits;
-		wxStaticText* m_minTrackWidthHint;
 		wxCheckBox* m_cbTeardropsUseNextTrack;
 		wxStaticText* m_rectShapesLabel;
 		wxStaticLine* m_staticline2;
@@ -72,25 +68,21 @@ class PANEL_SETUP_TEARDROPS_BASE : public wxPanel
 		wxStaticText* m_edgesLabel1;
 		wxRadioButton* m_rbStraightLines1;
 		wxRadioButton* m_rbCurved1;
-		wxStaticText* m_stHsetting1;
-		wxSpinCtrlDouble* m_spTeardropLenPercent1;
-		wxStaticText* m_stTeardropLenUnits1;
+		wxStaticText* m_stLenPercent1Label;
+		wxSpinCtrlDouble* m_spLenPercent1;
 		wxStaticText* m_stMaxLen1;
 		wxTextCtrl* m_tcTdMaxLen1;
-		wxStaticText* m_stMaxLenUnits1;
-		wxStaticText* m_stVsetting1;
-		wxSpinCtrlDouble* m_spTeardropSizePercent1;
-		wxStaticText* m_stLenPercent1;
-		wxStaticText* m_stTdMaxSize1;
-		wxTextCtrl* m_tcMaxHeight1;
-		wxStaticText* m_stMaxHeightUnits1;
-		wxStaticText* m_curvePointsLabel1;
+		wxStaticText* m_stMaxLen1Units;
+		wxStaticText* m_stWidth1Label;
+		wxSpinCtrlDouble* m_spWidthPercent1;
+		wxStaticText* m_stMaxWidth1Label;
+		wxTextCtrl* m_tcMaxWidth1;
+		wxStaticText* m_stMaxWidth1Units;
+		wxStaticText* m_curvePoints1Label;
 		wxSpinCtrl* m_curvePointsCtrl1;
 		wxCheckBox* m_cbPreferZoneConnection1;
 		wxStaticText* m_stHDRatio1;
 		wxSpinCtrlDouble* m_spTeardropHDPercent1;
-		wxStaticText* m_minTrackWidthUnits1;
-		wxStaticText* m_minTrackWidthHint1;
 		wxCheckBox* m_cbTeardropsUseNextTrack1;
 		wxStaticText* m_tracksLabel;
 		wxStaticLine* m_staticline3;
@@ -98,24 +90,20 @@ class PANEL_SETUP_TEARDROPS_BASE : public wxPanel
 		wxStaticText* m_edgesLabel2;
 		wxRadioButton* m_rbStraightLines2;
 		wxRadioButton* m_rbCurved2;
-		wxStaticText* m_stHsetting2;
-		wxSpinCtrlDouble* m_spTeardropLenPercent2;
-		wxStaticText* m_stTeardropLenUnits2;
+		wxStaticText* m_stLenPercent2Label;
+		wxSpinCtrlDouble* m_spLenPercent2;
 		wxStaticText* m_stMaxLen2;
 		wxTextCtrl* m_tcTdMaxLen2;
-		wxStaticText* m_stMaxLenUnits2;
-		wxStaticText* m_stVsetting2;
-		wxSpinCtrlDouble* m_spTeardropSizePercent2;
-		wxStaticText* m_stLenPercent2;
-		wxStaticText* m_stTdMaxSize2;
-		wxTextCtrl* m_tcMaxHeight2;
-		wxStaticText* m_stMaxHeightUnits2;
-		wxStaticText* m_curvePointsLabel2;
+		wxStaticText* m_stMaxLen2Units;
+		wxStaticText* m_stWidth2Label;
+		wxSpinCtrlDouble* m_spWidthPercent2;
+		wxStaticText* m_stMaxWidth2Label;
+		wxTextCtrl* m_tcMaxWidth2;
+		wxStaticText* m_stMaxWidth2Units;
+		wxStaticText* m_curvePoints2Label;
 		wxSpinCtrl* m_curvePointsCtrl2;
 		wxStaticText* m_stHDRatio2;
 		wxSpinCtrlDouble* m_spTeardropHDPercent2;
-		wxStaticText* m_minTrackWidthUnits2;
-		wxStaticText* m_minTrackWidthHint2;
 		wxCheckBox* m_cbTeardropsUseNextTrack2;
 
 	public:

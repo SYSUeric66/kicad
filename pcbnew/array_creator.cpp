@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Created on: 11 Mar 2016, author John Beard
- * Copyright (C) 2016-2023 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2016-2024 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -123,6 +123,11 @@ void ARRAY_CREATOR::Invoke()
             {
                 if( m_isFootprintEditor )
                 {
+                    // Fields cannot be duplicated, especially mandatory fields.
+                    // A given field is unique for the footprint
+                    if( item->Type() == PCB_FIELD_T )
+                        continue;
+
                     // Don't bother incrementing pads: the footprint won't update until commit,
                     // so we can only do this once
                     this_item = fp->DuplicateItem( item );
@@ -137,6 +142,7 @@ void ARRAY_CREATOR::Invoke()
                     case PCB_GENERATOR_T:
                     case PCB_TEXT_T:
                     case PCB_TEXTBOX_T:
+                    case PCB_TABLE_T:
                     case PCB_TRACE_T:
                     case PCB_ARC_T:
                     case PCB_VIA_T:
@@ -158,9 +164,6 @@ void ARRAY_CREATOR::Invoke()
                         // Silently drop other items (such as footprint texts) from duplication
                         break;
                     }
-
-                    // @TODO: we should merge zones. This is a bit tricky, because
-                    // the undo command needs saving old area, if it is merged.
                 }
 
                 // Add new items to selection (footprints in the selection will be reannotated)
@@ -173,12 +176,23 @@ void ARRAY_CREATOR::Invoke()
                     this_item->ClearSelected();
 
                     this_item->RunOnDescendants(
-                            [&]( BOARD_ITEM* aItem )
+                            []( BOARD_ITEM* aItem )
                             {
                                 aItem->ClearSelected();
-                            });
+                            } );
 
                     TransformItem( *array_opts, ptN, *this_item );
+
+                    // If a group is duplicated, add also created members to the board
+                    if( this_item->Type() == PCB_GROUP_T )
+                    {
+                        this_item->RunOnDescendants(
+                                [&]( BOARD_ITEM* aItem )
+                                {
+                                    commit.Add( aItem );
+                                } );
+                    }
+
                     commit.Add( this_item );
                 }
             }
@@ -215,5 +229,5 @@ void ARRAY_CREATOR::Invoke()
     m_toolMgr->RunAction( PCB_ACTIONS::selectionClear );
     m_toolMgr->RunAction<EDA_ITEMS*>( PCB_ACTIONS::selectItems, &all_added_items );
 
-    commit.Push( _( "Create an array" ) );
+    commit.Push( _( "Create Array" ) );
 }

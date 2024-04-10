@@ -23,6 +23,7 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA
  */
 
+#include <api/api_plugin_manager.h>
 #include <base_screen.h>
 #include <bitmaps.h>
 #include <confirm.h>
@@ -35,6 +36,7 @@
 #include <gal/graphics_abstraction_layer.h>
 #include <id.h>
 #include <kiface_base.h>
+#include <kiplatform/ui.h>
 #include <lockfile.h>
 #include <macros.h>
 #include <math/vector2wx.h>
@@ -61,6 +63,7 @@
 #include <drawing_sheet/ds_draw_item.h>
 #include <widgets/msgpanel.h>
 #include <widgets/properties_panel.h>
+#include <widgets/net_inspector_panel.h>
 #include <wx/event.h>
 #include <wx/snglinst.h>
 #include <widgets/ui_common.h>
@@ -119,6 +122,7 @@ EDA_DRAW_FRAME::EDA_DRAW_FRAME( KIWAY* aKiway, wxWindow* aParent, FRAME_T aFrame
     m_findReplaceData     = std::make_unique<EDA_SEARCH_DATA>();
     m_hotkeyPopup         = nullptr;
     m_propertiesPanel     = nullptr;
+    m_netInspectorPanel   = nullptr;
 
     SetUserUnits( EDA_UNITS::MILLIMETRES );
 
@@ -1188,11 +1192,21 @@ void EDA_DRAW_FRAME::ShowChangedLanguage()
 
     if( m_searchPane )
     {
-        m_searchPane->OnLanguageChange();
+        wxAuiPaneInfo& search_pane_info = m_auimgr.GetPane( m_searchPane );
+        search_pane_info.Caption( _( "Search" ) );
     }
 
     if( m_propertiesPanel )
-        m_propertiesPanel->OnLanguageChanged();
+    {
+        wxAuiPaneInfo& properties_pane_info = m_auimgr.GetPane( m_propertiesPanel );
+        properties_pane_info.Caption( _( "Properties" ) );
+    }
+
+    if( m_netInspectorPanel )
+    {
+        wxAuiPaneInfo& net_inspector_panel_info = m_auimgr.GetPane( m_netInspectorPanel );
+        net_inspector_panel_info.Caption( _( "Net Inspector" ) );
+    }
 }
 
 
@@ -1330,4 +1344,46 @@ bool EDA_DRAW_FRAME::SaveCanvasImageToFile( const wxString& aFileName,
 
     image.Destroy();
     return retv;
+}
+
+
+void EDA_DRAW_FRAME::addApiPluginTools()
+{
+#ifdef KICAD_IPC_API
+    // TODO: Add user control over visibility and order
+    API_PLUGIN_MANAGER& mgr = Pgm().GetPluginManager();
+
+    mgr.ButtonBindings().clear();
+
+    std::vector<const PLUGIN_ACTION*> actions = mgr.GetActionsForScope( PluginActionScope() );
+
+    for( auto& action : actions )
+    {
+        if( !action->show_button )
+            continue;
+
+        const wxBitmapBundle& icon = KIPLATFORM::UI::IsDarkTheme() && action->icon_dark.IsOk()
+                                             ? action->icon_dark
+                                             : action->icon_light;
+
+        wxAuiToolBarItem* button = m_mainToolBar->AddTool( wxID_ANY, wxEmptyString, icon,
+                                                           action->name );
+
+        Connect( button->GetId(), wxEVT_COMMAND_MENU_SELECTED,
+                 wxCommandEventHandler( EDA_DRAW_FRAME::OnApiPluginInvoke ) );
+
+        mgr.ButtonBindings().insert( { button->GetId(), action->identifier } );
+    }
+#endif
+}
+
+
+void EDA_DRAW_FRAME::OnApiPluginInvoke( wxCommandEvent& aEvent )
+{
+#ifdef KICAD_IPC_API
+    API_PLUGIN_MANAGER& mgr = Pgm().GetPluginManager();
+
+    if( mgr.ButtonBindings().count( aEvent.GetId() ) )
+        mgr.InvokeAction( mgr.ButtonBindings().at( aEvent.GetId() ) );
+#endif
 }

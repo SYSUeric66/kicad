@@ -41,7 +41,7 @@ PROJECT_LOCAL_SETTINGS::PROJECT_LOCAL_SETTINGS( PROJECT* aProject, const wxStrin
         m_PadOpacity( 1.0 ),
         m_ZoneOpacity( 0.6 ),
         m_ImageOpacity( 0.6 ),
-        m_SelectionFilter(),
+        m_PcbSelectionFilter(),
         m_project( aProject )
 {
     // Keep old files around
@@ -99,17 +99,17 @@ PROJECT_LOCAL_SETTINGS::PROJECT_LOCAL_SETTINGS( PROJECT* aProject, const wxStrin
             {
                 nlohmann::json ret;
 
-                ret["lockedItems"] = m_SelectionFilter.lockedItems;
-                ret["footprints"]  = m_SelectionFilter.footprints;
-                ret["text"]        = m_SelectionFilter.text;
-                ret["tracks"]      = m_SelectionFilter.tracks;
-                ret["vias"]        = m_SelectionFilter.vias;
-                ret["pads"]        = m_SelectionFilter.pads;
-                ret["graphics"]    = m_SelectionFilter.graphics;
-                ret["zones"]       = m_SelectionFilter.zones;
-                ret["keepouts"]    = m_SelectionFilter.keepouts;
-                ret["dimensions"]  = m_SelectionFilter.dimensions;
-                ret["otherItems"]  = m_SelectionFilter.otherItems;
+                ret["lockedItems"] = m_PcbSelectionFilter.lockedItems;
+                ret["footprints"]  = m_PcbSelectionFilter.footprints;
+                ret["text"]        = m_PcbSelectionFilter.text;
+                ret["tracks"]      = m_PcbSelectionFilter.tracks;
+                ret["vias"]        = m_PcbSelectionFilter.vias;
+                ret["pads"]        = m_PcbSelectionFilter.pads;
+                ret["graphics"]    = m_PcbSelectionFilter.graphics;
+                ret["zones"]       = m_PcbSelectionFilter.zones;
+                ret["keepouts"]    = m_PcbSelectionFilter.keepouts;
+                ret["dimensions"]  = m_PcbSelectionFilter.dimensions;
+                ret["otherItems"]  = m_PcbSelectionFilter.otherItems;
 
                 return ret;
             },
@@ -118,17 +118,17 @@ PROJECT_LOCAL_SETTINGS::PROJECT_LOCAL_SETTINGS( PROJECT* aProject, const wxStrin
                 if( aVal.empty() || !aVal.is_object() )
                     return;
 
-                SetIfPresent( aVal, "lockedItems", m_SelectionFilter.lockedItems );
-                SetIfPresent( aVal, "footprints", m_SelectionFilter.footprints );
-                SetIfPresent( aVal, "text", m_SelectionFilter.text );
-                SetIfPresent( aVal, "tracks", m_SelectionFilter.tracks );
-                SetIfPresent( aVal, "vias", m_SelectionFilter.vias );
-                SetIfPresent( aVal, "pads", m_SelectionFilter.pads );
-                SetIfPresent( aVal, "graphics", m_SelectionFilter.graphics );
-                SetIfPresent( aVal, "zones", m_SelectionFilter.zones );
-                SetIfPresent( aVal, "keepouts", m_SelectionFilter.keepouts );
-                SetIfPresent( aVal, "dimensions", m_SelectionFilter.dimensions );
-                SetIfPresent( aVal, "otherItems", m_SelectionFilter.otherItems );
+                SetIfPresent( aVal, "lockedItems", m_PcbSelectionFilter.lockedItems );
+                SetIfPresent( aVal, "footprints", m_PcbSelectionFilter.footprints );
+                SetIfPresent( aVal, "text", m_PcbSelectionFilter.text );
+                SetIfPresent( aVal, "tracks", m_PcbSelectionFilter.tracks );
+                SetIfPresent( aVal, "vias", m_PcbSelectionFilter.vias );
+                SetIfPresent( aVal, "pads", m_PcbSelectionFilter.pads );
+                SetIfPresent( aVal, "graphics", m_PcbSelectionFilter.graphics );
+                SetIfPresent( aVal, "zones", m_PcbSelectionFilter.zones );
+                SetIfPresent( aVal, "keepouts", m_PcbSelectionFilter.keepouts );
+                SetIfPresent( aVal, "dimensions", m_PcbSelectionFilter.dimensions );
+                SetIfPresent( aVal, "otherItems", m_PcbSelectionFilter.otherItems );
             },
             {
                 { "lockedItems", false },
@@ -188,6 +188,36 @@ PROJECT_LOCAL_SETTINGS::PROJECT_LOCAL_SETTINGS( PROJECT* aProject, const wxStrin
 
     m_params.emplace_back( new PARAM<wxString>( "git.ssh_key",
             &m_GitSSHKey, "" ) );
+
+    m_params.emplace_back( new PARAM<wxString>( "net_inspector_panel.filter_text",
+                                                &m_NetInspectorPanel.filter_text, "" ) );
+    m_params.emplace_back( new PARAM<bool>( "net_inspector_panel.filter_by_net_name",
+                                            &m_NetInspectorPanel.filter_by_net_name, true ) );
+    m_params.emplace_back( new PARAM<bool>( "net_inspector_panel.filter_by_netclass",
+                                            &m_NetInspectorPanel.filter_by_netclass, true ) );
+    m_params.emplace_back( new PARAM<bool>( "net_inspector_panel.group_by_netclass",
+                                            &m_NetInspectorPanel.group_by_netclass, false ) );
+    m_params.emplace_back( new PARAM<bool>( "net_inspector_panel.group_by_constraint",
+                                            &m_NetInspectorPanel.group_by_constraint, false ) );
+    m_params.emplace_back( new PARAM_LIST<wxString>( "net_inspector_panel.custom_group_rules",
+                                                     &m_NetInspectorPanel.custom_group_rules,
+                                                     {} ) );
+    m_params.emplace_back( new PARAM<bool>( "net_inspector_panel.show_zero_pad_nets",
+                                            &m_NetInspectorPanel.show_zero_pad_nets, false ) );
+    m_params.emplace_back( new PARAM<bool>( "net_inspector_panel.show_unconnected_nets",
+                                            &m_NetInspectorPanel.show_unconnected_nets, false ) );
+    m_params.emplace_back( new PARAM<int>( "net_inspector_panel.sorting_column",
+                                           &m_NetInspectorPanel.sorting_column, -1 ) );
+    m_params.emplace_back( new PARAM<bool>( "net_inspector_panel.sort_ascending",
+                                            &m_NetInspectorPanel.sort_order_asc, true ) );
+    m_params.emplace_back( new PARAM_LIST<int>( "net_inspector_panel.col_order",
+                                                &m_NetInspectorPanel.col_order, {} ) );
+    m_params.emplace_back( new PARAM_LIST<int>( "net_inspector_panel.col_widths",
+                                                &m_NetInspectorPanel.col_widths, {} ) );
+    m_params.emplace_back( new PARAM_LIST<bool>( "net_inspector_panel.col_hidden",
+                                                 &m_NetInspectorPanel.col_hidden, {} ) );
+    m_params.emplace_back( new PARAM_LIST<wxString>( "net_inspector_panel.expanded_rows",
+                                                     &m_NetInspectorPanel.expanded_rows, {} ) );
 
     m_params.emplace_back( new PARAM_LAMBDA<nlohmann::json>( "project.files",
             [&]() -> nlohmann::json
@@ -249,6 +279,50 @@ PROJECT_LOCAL_SETTINGS::PROJECT_LOCAL_SETTINGS( PROJECT* aProject, const wxStrin
 
             },
             {
+            } ) );
+
+    m_params.emplace_back( new PARAM_LAMBDA<nlohmann::json>( "schematic.selection_filter",
+            [&]() -> nlohmann::json
+            {
+                nlohmann::json ret;
+
+                ret["lockedItems"] = m_SchSelectionFilter.lockedItems;
+                ret["symbols"]     = m_SchSelectionFilter.symbols;
+                ret["text"]        = m_SchSelectionFilter.text;
+                ret["wires"]       = m_SchSelectionFilter.wires;
+                ret["labels"]      = m_SchSelectionFilter.labels;
+                ret["pins"]        = m_SchSelectionFilter.pins;
+                ret["graphics"]    = m_SchSelectionFilter.graphics;
+                ret["images"]      = m_SchSelectionFilter.images;
+                ret["otherItems"]  = m_SchSelectionFilter.otherItems;
+
+                return ret;
+            },
+            [&]( const nlohmann::json& aVal )
+            {
+                if( aVal.empty() || !aVal.is_object() )
+                    return;
+
+                SetIfPresent( aVal, "lockedItems", m_SchSelectionFilter.lockedItems );
+                SetIfPresent( aVal, "symbols", m_SchSelectionFilter.symbols );
+                SetIfPresent( aVal, "text", m_SchSelectionFilter.text );
+                SetIfPresent( aVal, "wires", m_SchSelectionFilter.wires );
+                SetIfPresent( aVal, "labels", m_SchSelectionFilter.labels );
+                SetIfPresent( aVal, "pins", m_SchSelectionFilter.pins );
+                SetIfPresent( aVal, "graphics", m_SchSelectionFilter.graphics );
+                SetIfPresent( aVal, "images", m_SchSelectionFilter.images );
+                SetIfPresent( aVal, "otherItems", m_SchSelectionFilter.otherItems );
+            },
+            {
+                { "lockedItems", false },
+                { "symbols", true },
+                { "text", true },
+                { "wires", true },
+                { "labels", true },
+                { "pins", true },
+                { "graphics", true },
+                { "images", true },
+                { "otherItems", true }
             } ) );
 
     registerMigration( 1, 2,
@@ -352,7 +426,7 @@ bool PROJECT_LOCAL_SETTINGS::SaveToFile( const wxString& aDirectory, bool aForce
 {
     wxASSERT( m_project );
 
-    Set( "meta.filename", m_project->GetProjectName() + "." + ProjectLocalSettingsFileExtension );
+    Set( "meta.filename", m_project->GetProjectName() + "." + FILEEXT::ProjectLocalSettingsFileExtension );
 
     return JSON_SETTINGS::SaveToFile( aDirectory, aForce );
 }
@@ -360,7 +434,7 @@ bool PROJECT_LOCAL_SETTINGS::SaveToFile( const wxString& aDirectory, bool aForce
 
 bool PROJECT_LOCAL_SETTINGS::SaveAs( const wxString& aDirectory, const wxString& aFile )
 {
-    Set( "meta.filename", aFile + "." + ProjectLocalSettingsFileExtension );
+    Set( "meta.filename", aFile + "." + FILEEXT::ProjectLocalSettingsFileExtension );
     SetFilename( aFile );
 
     return JSON_SETTINGS::SaveToFile( aDirectory, true );

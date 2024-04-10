@@ -27,10 +27,11 @@
 #define FP_LIB_TABLE_H_
 
 #include <lib_table_base.h>
-#include <io_mgr.h>
+#include <pcb_io/pcb_io_mgr.h>
 
 class FOOTPRINT;
 class FP_LIB_TABLE_GRID;
+class PCB_IO;
 
 
 /**
@@ -48,7 +49,7 @@ public:
     }
 
     FP_LIB_TABLE_ROW() :
-        type( IO_MGR::KICAD_SEXP )
+        type( PCB_IO_MGR::KICAD_SEXP )
     {
     }
 
@@ -59,14 +60,14 @@ public:
     /**
      * return the type of footprint library table represented by this row.
      */
-    const wxString GetType() const override         { return IO_MGR::ShowType( type ); }
+    const wxString GetType() const override         { return PCB_IO_MGR::ShowType( type ); }
 
     /**
      * Change the type represented by this row.
      */
     void SetType( const wxString& aType ) override;
 
-    IO_MGR::PCB_FILE_T GetFileType() { return type; }
+    PCB_IO_MGR::PCB_FILE_T GetFileType() { return type; }
 
 protected:
     FP_LIB_TABLE_ROW( const FP_LIB_TABLE_ROW& aRow ) :
@@ -81,16 +82,16 @@ private:
         return new FP_LIB_TABLE_ROW( *this );
     }
 
-    void setPlugin( PLUGIN* aPlugin )
+    void setPlugin( PCB_IO* aPlugin )
     {
-        plugin.set( aPlugin );
+        plugin.reset( aPlugin );
     }
 
     friend class FP_LIB_TABLE;
 
 private:
-    PLUGIN::RELEASER   plugin;
-    IO_MGR::PCB_FILE_T type;
+    IO_RELEASER<PCB_IO>    plugin;
+    PCB_IO_MGR::PCB_FILE_T type;
 };
 
 

@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2019-2023 CERN
- * Copyright (C) 2021-2023 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2021-2024 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -120,14 +120,12 @@ TOOL_ACTION ACTIONS::print( TOOL_ACTION_ARGS()
         .DefaultHotkey( MD_CTRL + 'P' )
         .LegacyHotkeyName( "Print" )
         .FriendlyName( _( "Print..." ) )
-        .Tooltip( _( "Print" ) )
         .Icon( BITMAPS::print_button ) );
 
 TOOL_ACTION ACTIONS::plot( TOOL_ACTION_ARGS()
         .Name( "common.Control.plot" )
         .Scope( AS_GLOBAL )
         .FriendlyName( _( "Plot..." ) )
-        .Tooltip( _( "Plot" ) )
         .Icon( BITMAPS::plot ) );
 
 TOOL_ACTION ACTIONS::quit( TOOL_ACTION_ARGS()
@@ -145,6 +143,15 @@ TOOL_ACTION ACTIONS::cancelInteractive( TOOL_ACTION_ARGS()
         .FriendlyName( _( "Cancel" ) )
         .Tooltip( _( "Cancel current tool" ) )
         .Icon( BITMAPS::cancel )
+        .Flags( AF_NONE ) );
+
+TOOL_ACTION ACTIONS::finishInteractive( TOOL_ACTION_ARGS()
+        .Name( "common.Interactive.finish" )
+        .Scope( AS_GLOBAL )
+        .DefaultHotkey( WXK_END )
+        .FriendlyName( _( "Finish" ) )
+        .Tooltip( _( "Finish current tool" ) )
+        .Icon( BITMAPS::checked_ok )
         .Flags( AF_NONE ) );
 
 TOOL_ACTION ACTIONS::showContextMenu( TOOL_ACTION_ARGS()
@@ -270,6 +277,123 @@ TOOL_ACTION ACTIONS::deleteTool( TOOL_ACTION_ARGS()
         .Icon( BITMAPS::delete_cursor )
         .Flags( AF_ACTIVATE ) );
 
+TOOL_ACTION ACTIONS::leftJustify( TOOL_ACTION_ARGS()
+        .Name( "common.Control.leftJustify" )
+        .Scope( AS_GLOBAL )
+        .FriendlyName( _( "Left Justify" ) )
+        .Tooltip( _( "Left-justify fields and text items" ) )
+        .Icon( BITMAPS::text_align_left ) );
+
+TOOL_ACTION ACTIONS::centerJustify( TOOL_ACTION_ARGS()
+        .Name( "common.Control.centerJustify" )
+        .Scope( AS_GLOBAL )
+        .FriendlyName( _( "Center Justify" ) )
+        .Tooltip( _( "Center-justify fields and text items" ) )
+        .Icon( BITMAPS::text_align_center ) );
+
+TOOL_ACTION ACTIONS::rightJustify( TOOL_ACTION_ARGS()
+        .Name( "common.Control.rightJustify" )
+        .Scope( AS_GLOBAL )
+        .FriendlyName( _( "Right Justify" ) )
+        .Tooltip( _( "Right-justify fields and text items" ) )
+        .Icon( BITMAPS::text_align_right ) );
+
+TOOL_ACTION ACTIONS::expandAll( TOOL_ACTION_ARGS()
+        .Name( "common.Control.expandAll" )
+        .Scope( AS_GLOBAL )
+        .FriendlyName( _( "Expand All" ) )
+        .Icon( BITMAPS::up ) );     // JEY TODO: need icon
+
+TOOL_ACTION ACTIONS::collapseAll( TOOL_ACTION_ARGS()
+        .Name( "common.Control.collapseAll" )
+        .Scope( AS_GLOBAL )
+        .FriendlyName( _( "Collapse All" ) )
+        .Icon( BITMAPS::down ) );   // JEY TODO: need icon
+
+TOOL_ACTION ACTIONS::selectColumns( TOOL_ACTION_ARGS()
+        .Name( "common.InteractiveSelection.SelectColumns" )
+        .Scope( AS_GLOBAL )
+        .FriendlyName( _( "Select Column(s)" ) )
+        .Tooltip( _( "Select complete column(s) containing the current selected cell(s)" ) )
+        .Icon( BITMAPS::spreadsheet ) );    // JEY TODO: need icon
+
+TOOL_ACTION ACTIONS::selectRows( TOOL_ACTION_ARGS()
+        .Name( "common.InteractiveSelection.Rows" )
+        .Scope( AS_GLOBAL )
+        .FriendlyName( _( "Select Row(s)" ) )
+        .Tooltip( _( "Select complete row(s) containing the current selected cell(s)" ) )
+        .Icon( BITMAPS::spreadsheet ) );    // JEY TODO: need icon
+
+TOOL_ACTION ACTIONS::selectTable( TOOL_ACTION_ARGS()
+        .Name( "common.InteractiveSelection.SelectTable" )
+        .Scope( AS_GLOBAL )
+        .FriendlyName( _( "Select Table" ) )
+        .Tooltip( _( "Select parent table of selected cell(s)" ) )
+        .Icon( BITMAPS::spreadsheet ) );    // JEY TODO: need icon
+
+TOOL_ACTION ACTIONS::addRowAbove( TOOL_ACTION_ARGS()
+        .Name( "common.TableEditor.addRowAbove" )
+        .Scope( AS_GLOBAL )
+        .FriendlyName( _( "Add Row Above" ) )
+        .Tooltip( _( "Insert a new table row above the selected cell(s)" ) )
+        .Icon( BITMAPS::spreadsheet ) );    // JEY TODO: need icon
+
+TOOL_ACTION ACTIONS::addRowBelow( TOOL_ACTION_ARGS()
+        .Name( "common.TableEditor.addRowBelow" )
+        .Scope( AS_GLOBAL )
+        .FriendlyName( _( "Add Row Below" ) )
+        .Tooltip( _( "Insert a new table row below the selected cell(s)" ) )
+        .Icon( BITMAPS::spreadsheet ) );    // JEY TODO: need icon
+
+TOOL_ACTION ACTIONS::addColBefore( TOOL_ACTION_ARGS()
+        .Name( "common.TableEditor.addColBefore" )
+        .Scope( AS_GLOBAL )
+        .FriendlyName( _( "Add Column Before" ) )
+        .Tooltip( _( "Insert a new table column before the selected cell(s)" ) )
+        .Icon( BITMAPS::spreadsheet ) );    // JEY TODO: need icon
+
+TOOL_ACTION ACTIONS::addColAfter( TOOL_ACTION_ARGS()
+        .Name( "common.TableEditor.addColAfter" )
+        .Scope( AS_GLOBAL )
+        .FriendlyName( _( "Add Column After" ) )
+        .Tooltip( _( "Insert a new table column after the selected cell(s)" ) )
+        .Icon( BITMAPS::spreadsheet ) );    // JEY TODO: need icon
+
+TOOL_ACTION ACTIONS::deleteRows( TOOL_ACTION_ARGS()
+        .Name( "common.TableEditor.deleteRows" )
+        .Scope( AS_GLOBAL )
+        .FriendlyName( _( "Delete Row(s)" ) )
+        .Tooltip( _( "Delete rows containing the currently selected cell(s)" ) )
+        .Icon( BITMAPS::spreadsheet ) );    // JEY TODO: need icon
+
+TOOL_ACTION ACTIONS::deleteColumns( TOOL_ACTION_ARGS()
+        .Name( "common.TableEditor.deleteColumns" )
+        .Scope( AS_GLOBAL )
+        .FriendlyName( _( "Delete Column(s)" ) )
+        .Tooltip( _( "Delete columns containing the currently selected cell(s)" ) )
+        .Icon( BITMAPS::spreadsheet ) );    // JEY TODO: need icon
+
+TOOL_ACTION ACTIONS::mergeCells( TOOL_ACTION_ARGS()
+        .Name( "common.TableEditor.mergeCells" )
+        .Scope( AS_GLOBAL )
+        .FriendlyName( _( "Merge Cells" ) )
+        .Tooltip( _( "Turn selected table cells into a single cell" ) )
+        .Icon( BITMAPS::spreadsheet ) );   // JEY TODO: need icon
+
+TOOL_ACTION ACTIONS::unmergeCells( TOOL_ACTION_ARGS()
+        .Name( "common.TableEditor.unmergeCell" )
+        .Scope( AS_GLOBAL )
+        .FriendlyName( _( "Unmerge Cells" ) )
+        .Tooltip( _( "Turn merged table cells back into separate cells." ) )
+        .Icon( BITMAPS::spreadsheet ) );   // JEY TODO: need icon
+
+TOOL_ACTION ACTIONS::editTable( TOOL_ACTION_ARGS()
+        .Name( "pcbnew.TableEditor.editTable" )
+        .Scope( AS_GLOBAL )
+        .DefaultHotkey( MD_CTRL + 'E' )
+        .FriendlyName( _( "Edit Table" ) )
+        .Icon( BITMAPS::spreadsheet ) );   // JEY TODO: need icon
+
 TOOL_ACTION ACTIONS::activatePointEditor( TOOL_ACTION_ARGS()
         .Name( "common.Control.activatePointEditor" )
         .Scope( AS_GLOBAL ) );
@@ -278,7 +402,7 @@ TOOL_ACTION ACTIONS::cycleArcEditMode( TOOL_ACTION_ARGS()
         .Name( "common.Interactive.cycleArcEditMode" )
         .Scope( AS_GLOBAL )
         .DefaultHotkey( MD_CTRL + ' ' )
-        .FriendlyName( _( "Cycle arc editing mode" ) )
+        .FriendlyName( _( "Cycle Arc Editing Mode" ) )
         .Tooltip( _( "Switch to a different method of editing arcs" ) ) );
 
 TOOL_ACTION ACTIONS::showSearch( TOOL_ACTION_ARGS()
@@ -399,7 +523,6 @@ TOOL_ACTION ACTIONS::zoomFitScreen( TOOL_ACTION_ARGS()
 #endif
         .LegacyHotkeyName( "Zoom Auto" )
         .FriendlyName( _( "Zoom to Fit" ) )
-        .Tooltip( _( "Zoom to Fit" ) )
         .Icon( BITMAPS::zoom_fit_in_page ) );
 
 TOOL_ACTION ACTIONS::zoomFitObjects( TOOL_ACTION_ARGS()
@@ -407,7 +530,6 @@ TOOL_ACTION ACTIONS::zoomFitObjects( TOOL_ACTION_ARGS()
         .Scope( AS_GLOBAL )
         .DefaultHotkey( MD_CTRL + WXK_HOME )
         .FriendlyName( _( "Zoom to Objects" ) )
-        .Tooltip( _( "Zoom to Objects" ) )
         .Icon( BITMAPS::zoom_fit_to_objects ) );
 
 TOOL_ACTION ACTIONS::zoomIn( TOOL_ACTION_ARGS()
@@ -420,7 +542,6 @@ TOOL_ACTION ACTIONS::zoomIn( TOOL_ACTION_ARGS()
 #endif
         .LegacyHotkeyName( "Zoom In" )
         .FriendlyName( _( "Zoom In at Cursor" ) )
-        .Tooltip( _( "Zoom In at Cursor" ) )
         .Icon( BITMAPS::zoom_in ) );
 
 TOOL_ACTION ACTIONS::zoomOut( TOOL_ACTION_ARGS()
@@ -433,22 +554,47 @@ TOOL_ACTION ACTIONS::zoomOut( TOOL_ACTION_ARGS()
 #endif
         .LegacyHotkeyName( "Zoom Out" )
         .FriendlyName( _( "Zoom Out at Cursor" ) )
-        .Tooltip( _( "Zoom Out at Cursor" ) )
         .Icon( BITMAPS::zoom_out ) );
 
 TOOL_ACTION ACTIONS::zoomInCenter( TOOL_ACTION_ARGS()
         .Name( "common.Control.zoomInCenter" )
         .Scope( AS_GLOBAL )
         .FriendlyName( _( "Zoom In" ) )
-        .Tooltip( _( "Zoom In" ) )
         .Icon( BITMAPS::zoom_in ) );
 
 TOOL_ACTION ACTIONS::zoomOutCenter( TOOL_ACTION_ARGS()
         .Name( "common.Control.zoomOutCenter" )
         .Scope( AS_GLOBAL )
         .FriendlyName( _( "Zoom Out" ) )
-        .Tooltip( _( "Zoom Out" ) )
         .Icon( BITMAPS::zoom_out ) );
+
+TOOL_ACTION ACTIONS::zoomInHorizontally( TOOL_ACTION_ARGS()
+        .Name( "common.Control.zoomInHorizontally" )
+        .Scope( AS_GLOBAL )
+        .FriendlyName( _( "Zoom In Horizontally" ) )
+        .Tooltip( _( "Zoom In Horizontally" ) )
+        .Icon( BITMAPS::zoom_in_horizontally ) );
+
+TOOL_ACTION ACTIONS::zoomOutHorizontally( TOOL_ACTION_ARGS()
+        .Name( "common.Control.zoomOutHorizontally" )
+        .Scope( AS_GLOBAL )
+        .FriendlyName( _( "Zoom Out Horizontally" ) )
+        .Tooltip( _( "Zoom Out Horizontally" ) )
+        .Icon( BITMAPS::zoom_out_horizontally ) );
+
+TOOL_ACTION ACTIONS::zoomInVertically( TOOL_ACTION_ARGS()
+        .Name( "common.Control.zoomInVertically" )
+        .Scope( AS_GLOBAL )
+        .FriendlyName( _( "Zoom In Vertically" ) )
+        .Tooltip( _( "Zoom In Vertically" ) )
+        .Icon( BITMAPS::zoom_in_vertically ) );
+
+TOOL_ACTION ACTIONS::zoomOutVertically( TOOL_ACTION_ARGS()
+        .Name( "common.Control.zoomOutVertically" )
+        .Scope( AS_GLOBAL )
+        .FriendlyName( _( "Zoom Out Vertically" ) )
+        .Tooltip( _( "Zoom Out Vertically" ) )
+        .Icon( BITMAPS::zoom_out_vertically ) );
 
 TOOL_ACTION ACTIONS::zoomCenter( TOOL_ACTION_ARGS()
         .Name( "common.Control.zoomCenter" )
@@ -456,7 +602,6 @@ TOOL_ACTION ACTIONS::zoomCenter( TOOL_ACTION_ARGS()
         .DefaultHotkey( WXK_F4 )
         .LegacyHotkeyName( "Zoom Center" )
         .FriendlyName( _( "Center on Cursor" ) )
-        .Tooltip( _( "Center on Cursor" ) )
         .Icon( BITMAPS::zoom_center_on_screen ) );
 
 TOOL_ACTION ACTIONS::zoomTool( TOOL_ACTION_ARGS()
@@ -465,7 +610,6 @@ TOOL_ACTION ACTIONS::zoomTool( TOOL_ACTION_ARGS()
         .DefaultHotkey( MD_CTRL + WXK_F5 )
         .LegacyHotkeyName( "Zoom to Selection" )
         .FriendlyName( _( "Zoom to Selection" ) )
-        .Tooltip( _( "Zoom to Selection" ) )
         .Icon( BITMAPS::zoom_area )
         .Flags( AF_ACTIVATE ) );
 
@@ -745,7 +889,7 @@ TOOL_ACTION ACTIONS::updatePreferences( TOOL_ACTION_ARGS()
         .Name( "common.Control.updatePreferences" )
         .Scope( AS_GLOBAL ) );
 
-TOOL_ACTION ACTIONS::selectColumns( TOOL_ACTION_ARGS()
+TOOL_ACTION ACTIONS::selectLibTreeColumns( TOOL_ACTION_ARGS()
         .Name( "common.Control.selectColumns" )
         .Scope( AS_GLOBAL )
         .FriendlyName( _( "Select Columns..." ) ) );
@@ -810,19 +954,17 @@ TOOL_ACTION ACTIONS::toggleBoundingBoxes( TOOL_ACTION_ARGS()
         .Name( "common.Control.toggleBoundingBoxes" )
         .Scope( AS_GLOBAL )
         .FriendlyName( _( "Draw Bounding Boxes" ) )
-        .Tooltip( _( "Draw Bounding Boxes" ) )
         .Icon( BITMAPS::gerbview_show_negative_objects ) );
 
 TOOL_ACTION ACTIONS::selectionTool( TOOL_ACTION_ARGS()
         .Name( "common.InteractiveSelection.selectionTool" )
         .Scope( AS_GLOBAL )
         .FriendlyName( _( "Select item(s)" ) )
-        .Tooltip( _( "Select item(s)" ) )
         .Icon( BITMAPS::cursor )
         .Flags( AF_ACTIVATE ) );
 
 TOOL_ACTION ACTIONS::measureTool( TOOL_ACTION_ARGS()
-        .Name( "common.InteractiveEdit.measureTool" )
+        .Name( "common.Interactive.measureTool" )
         .Scope( AS_GLOBAL )
         .DefaultHotkey( MD_CTRL + MD_SHIFT + 'M' )
         // Don't be tempted to remove "Modern Toolset only".  It's in the legacy property name.
@@ -1000,6 +1142,15 @@ TOOL_ACTION ACTIONS::reportBug( TOOL_ACTION_ARGS()
 TOOL_ACTION ACTIONS::ddAddLibrary( TOOL_ACTION_ARGS()
         .Name( "common.Control.ddaddLibrary" )
         .Scope( AS_GLOBAL ) );
+
+// API
+
+TOOL_ACTION ACTIONS::pluginsReload( TOOL_ACTION_ARGS()
+        .Name( "common.API.pluginsReload" )
+        .Scope( AS_GLOBAL )
+        .FriendlyName( _( "Refresh Plugins" ) )
+        .Tooltip( _( "Reload all python plugins and refresh plugin menus" ) )
+        .Icon( BITMAPS::reload ) );
 
 // System-wide selection Events
 

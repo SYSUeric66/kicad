@@ -217,10 +217,13 @@ void DIALOG_BOARD_STATISTICS::getDataFromPCB()
         {
             if( ( footprint->GetAttributes() & line.attribute_mask ) == line.attribute_value )
             {
-                if( footprint->IsFlipped() )
-                    line.backSideQty++;
-                else
-                    line.frontSideQty++;
+                switch( footprint->GetSide() )
+                {
+                case F_Cu: line.frontSideQty++;                  break;
+                case B_Cu: line.backSideQty++;                   break;
+                default:   /* unsided: user-layers only, etc. */ break;
+                }
+
                 break;
             }
         }
@@ -642,7 +645,7 @@ void DIALOG_BOARD_STATISTICS::saveReportClicked( wxCommandEvent& aEvent )
     wxFileName fn = m_parentFrame->GetBoard()->GetFileName();
     boardName = fn.GetName();
     wxFileDialog dlg( this, _( "Save Report File" ), s_savedDialogState.saveReportFolder,
-                      s_savedDialogState.saveReportName, TextFileWildcard(),
+                      s_savedDialogState.saveReportName, FILEEXT::TextFileWildcard(),
                       wxFD_SAVE | wxFD_OVERWRITE_PROMPT );
 
     if( dlg.ShowModal() == wxID_CANCEL )

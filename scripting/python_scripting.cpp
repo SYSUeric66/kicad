@@ -29,14 +29,14 @@
 
 #include <python_scripting.h>
 
+#undef pid_t
+#include <pybind11/embed.h>
+
 #include <cstdlib>
 #include <cstring>
-#include <Python.h>
 #include <string>
 
-#include <eda_base_frame.h>
-#include <gal/color4d.h>
-#include <gestfich.h>
+#include <env_vars.h>
 #include <trace_helpers.h>
 #include <string_utils.h>
 #include <macros.h>
@@ -54,6 +54,7 @@
 #include <wx/utils.h>
 
 #include <config.h>
+#include <gestfich.h>
 
 
 SCRIPTING::SCRIPTING()
@@ -335,72 +336,6 @@ bool SCRIPTING::scriptingSetup()
 }
 
 
-/**
- * Run a python method from the Pcbnew module.
- *
- * @param aMethodName is the name of the method (like "pcbnew.myfunction" )
- * @param aNames will contain the returned string
- */
-static void RunPythonMethodWithReturnedString( const char* aMethodName, wxString& aNames )
-{
-    aNames.Clear();
-
-    PyLOCK      lock;
-    PyErr_Clear();
-
-    PyObject* builtins = PyImport_ImportModule( "pcbnew" );
-    wxASSERT( builtins );
-
-    if( !builtins ) // Something is wrong in pcbnew.py module (incorrect version?)
-        return;
-
-    PyObject* globals = PyDict_New();
-    PyDict_SetItemString( globals, "pcbnew", builtins );
-    Py_DECREF( builtins );
-
-    // Build the python code
-    std::string cmd = "result = " + std::string( aMethodName ) + "()";
-
-    // Execute the python code and get the returned data
-    PyObject* localDict = PyDict_New();
-    PyObject* pobj = PyRun_String( cmd.c_str(), Py_file_input, globals, localDict );
-    Py_DECREF( globals );
-
-    if( pobj )
-    {
-        PyObject* str = PyDict_GetItemString(localDict, "result" );
-        const char* str_res = nullptr;
-
-        if(str)
-        {
-            PyObject* temp_bytes = PyUnicode_AsEncodedString( str, "UTF-8", "strict" );
-
-            if( temp_bytes != nullptr )
-            {
-                str_res = PyBytes_AS_STRING( temp_bytes );
-                aNames = From_UTF8( str_res );
-                Py_DECREF( temp_bytes );
-            }
-            else
-            {
-                wxLogMessage( wxS( "cannot encode Unicode python string" ) );
-            }
-        }
-        else
-        {
-            aNames = wxString();
-        }
-
-        Py_DECREF( pobj );
-    }
-
-    Py_DECREF( localDict );
-
-    if( PyErr_Occurred() )
-        wxLogMessage( PyErrStringWithTraceback() );
-}
-
-
 wxString PyEscapeString( const wxString& aSource )
 {
     wxString converted;
@@ -576,19 +511,27 @@ wxString SCRIPTING::PyScriptingPath( PATH_TYPE aPathType )
     case STOCK:
         path = PATHS::GetStockScriptingPath();
         break;
+
     case USER:
         path = PATHS::GetUserScriptingPath();
         break;
-    case THIRDPARTY:
-        const ENV_VAR_MAP& env = Pgm().GetLocalEnvVariables();
-        auto               it = env.find( "KICAD7_3RD_PARTY" );
 
-        if( it != env.end() && !it->second.GetValue().IsEmpty() )
-            path = it->second.GetValue();
+    case THIRDPARTY:
+    {
+        const ENV_VAR_MAP& env = Pgm().GetLocalEnvVariables();
+
+        if( std::optional<wxString> v = ENV_VAR::GetVersionedEnvVarValue( env,
+                                                                          wxT( "3RD_PARTY" ) ) )
+        {
+            path = *v;
+        }
         else
+        {
             path = PATHS::GetDefault3rdPartyPath();
+        }
 
         break;
+    }
     }
 
     wxFileName scriptPath( path );

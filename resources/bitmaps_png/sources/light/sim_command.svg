@@ -5,7 +5,7 @@
    viewBox="0 0 24 24"
    version="1.1"
    sodipodi:docname="sim_command.svg"
-   inkscape:version="1.2.1 (9c6d41e, 2022-07-14)"
+   inkscape:version="1.2.2 (b0a8486541, 2022-12-01)"
    xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
    xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
    xmlns="http://www.w3.org/2000/svg"
@@ -22,15 +22,15 @@
      guidetolerance="10"
      inkscape:pageopacity="0"
      inkscape:pageshadow="2"
-     inkscape:window-width="1728"
-     inkscape:window-height="987"
+     inkscape:window-width="1976"
+     inkscape:window-height="1236"
      id="namedview30"
      showgrid="true"
      inkscape:zoom="39.543586"
-     inkscape:cx="13.301778"
-     inkscape:cy="11.923552"
-     inkscape:window-x="0"
-     inkscape:window-y="38"
+     inkscape:cx="11.354559"
+     inkscape:cy="12.113216"
+     inkscape:window-x="1310"
+     inkscape:window-y="515"
      inkscape:window-maximized="0"
      inkscape:document-rotation="0"
      inkscape:current-layer="Слой_1"
@@ -100,9 +100,9 @@
      sodipodi:nodetypes="cc" />
   <path
      style="fill:none;stroke:#1a81c4;stroke-width:1.4;stroke-linecap:round;stroke-linejoin:round;stroke-miterlimit:4;stroke-dasharray:none;stroke-opacity:1"
-     d="m 3.5,14.5 c 0,0 1.3518787,-7 2.8518787,-7 1.5,0 1.6002744,8.070806 3.0698938,8.060622 C 11.421725,15.546763 10.617219,4.5 12.617219,4.5 c 2,0 1.314653,14.512198 2.814653,14.512198 1.201824,0 1.002258,-3.266618 1.988097,-4.624305 C 17.831854,13.820649 18.5,13 19,13"
+     d="m 3.5,14.5 c 0,0 1.3518787,-7 2.8518787,-7 1.5,0 1.6002744,8.070806 3.0698938,8.060622 C 11.421725,15.546763 10.617219,4.5 12.617219,4.5 c 2,0 1.314653,14.512198 2.814653,14.512198"
      id="path865"
-     sodipodi:nodetypes="cssssac" />
+     sodipodi:nodetypes="csssc" />
   <ellipse
      style="fill:none;fill-opacity:1;stroke:#545454;stroke-width:1.37119;stroke-linecap:round;stroke-linejoin:round;stroke-miterlimit:4;stroke-dasharray:none;stroke-opacity:1"
      id="circle851"
@@ -116,5 +116,5 @@
      id="path158639"
      style="fill:#bf2641;stroke:#ffffff;stroke-width:1;stroke-linecap:round;stroke-linejoin:round;stroke-miterlimit:2.3;stroke-dasharray:none;stroke-opacity:1"
      inkscape:connector-curvature="0"
-     sodipodi:nodetypes="ccccccccccccccccccccccccccccccccccccccccccccccccscc" />
+     sodipodi:nodetypes="ccccccccccccccccccccccccccccccccccccccccccccccccsccs" />
 </svg>

@@ -128,3 +128,32 @@ void DIALOG_DIELECTRIC_MATERIAL::onListItemSelected( wxListEvent& event )
     m_tcEpsilonR->SetValue( m_materialList.GetSubstrate( idx )->FormatEpsilonR() );
     m_tcLossTg->SetValue( m_materialList.GetSubstrate( idx )->FormatLossTangent() );
 }
+
+
+void DIALOG_DIELECTRIC_MATERIAL::onListKeyDown( wxListEvent& event )
+{
+    int idx = event.GetIndex();
+
+    switch( event.GetKeyCode() )
+    {
+    case WXK_DELETE:
+        if( idx >= 0 )
+        {
+            m_lcMaterials->DeleteItem( idx );
+            m_materialList.DeleteSubstrate( idx );
+
+            // Get the new material information for the next item in the list
+            // (or last if the deleted item was the last item)
+            int next = ( idx < m_materialList.GetCount() ) ? idx : idx - 1;
+
+            m_lcMaterials->SetItemState( next, wxLIST_STATE_SELECTED, wxLIST_STATE_SELECTED );
+            m_lcMaterials->SetItemState( next, wxLIST_STATE_FOCUSED, wxLIST_STATE_FOCUSED );
+            m_lcMaterials->EnsureVisible( next );
+        }
+
+        break;
+
+    default:
+        event.Skip();
+    }
+}

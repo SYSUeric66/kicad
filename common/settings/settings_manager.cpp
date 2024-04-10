@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2020 Jon Evans <jon@craftyjon.com>
- * Copyright (C) 2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2021, 2023 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software: you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -70,6 +70,15 @@ SETTINGS_MANAGER::SETTINGS_MANAGER( bool aHeadless ) :
     // Create the built-in color settings
     // Here to allow the Python API to access the built-in colors
     registerBuiltinColorSettings();
+
+    wxFileName commonSettings( GetPathForSettingsFile( m_common_settings ),
+                               m_common_settings->GetFullFilename() );
+
+    if( !wxFileExists( commonSettings.GetFullPath() ) )
+    {
+        m_common_settings->Load();
+        Save( m_common_settings );
+    }
 }
 
 SETTINGS_MANAGER::~SETTINGS_MANAGER()
@@ -94,7 +103,8 @@ JSON_SETTINGS* SETTINGS_MANAGER::registerSettings( JSON_SETTINGS* aSettings, boo
 
     ptr->SetManager( this );
 
-    wxLogTrace( traceSettings, wxT( "Registered new settings object <%s>" ), ptr->GetFullFilename() );
+    wxLogTrace( traceSettings, wxT( "Registered new settings object <%s>" ),
+                ptr->GetFullFilename() );
 
     if( aLoadNow )
         ptr->LoadFromFile( GetPathForSettingsFile( ptr.get() ) );
@@ -237,7 +247,8 @@ COLOR_SETTINGS* SETTINGS_MANAGER::loadColorSettingsByName( const wxString& aName
 
     if( !fn.IsOk() || !fn.Exists() )
     {
-        wxLogTrace( traceSettings, wxT( "Theme file %s.json not found, falling back to user" ), aName );
+        wxLogTrace( traceSettings, wxT( "Theme file %s.json not found, falling back to user" ),
+                    aName );
         return nullptr;
     }
 
@@ -532,7 +543,8 @@ bool SETTINGS_MANAGER::MigrateIfNeeded()
     if( m_headless )
     {
         // Special case namely for cli
-        // Ensure the settings directory at least exists to prevent additional loading errors from subdirectories
+        // Ensure the settings directory at least exists to prevent additional loading errors
+        // from subdirectories.
         // TODO review headless (unit tests) vs cli needs, this should be fine for unit tests though
         if( !path.DirExists() )
         {
@@ -603,7 +615,11 @@ bool SETTINGS_MANAGER::MigrateIfNeeded()
             wxT( "KICAD7_SYMBOL_DIR" ),
             wxT( "KICAD7_3DMODEL_DIR" ),
             wxT( "KICAD7_FOOTPRINT_DIR" ),
-            wxT( "KICAD7_TEMPLATE_DIR" ), // Stores the default library table to be copied
+            wxT( "KICAD7_TEMPLATE_DIR" ),
+            wxT( "KICAD8_SYMBOL_DIR" ),
+            wxT( "KICAD8_3DMODEL_DIR" ),
+            wxT( "KICAD8_FOOTPRINT_DIR" ),
+            wxT( "KICAD8_TEMPLATE_DIR" ),
 
             // Deprecated keys
             wxT( "KICAD_PTEMPLATES" ),
@@ -635,7 +651,8 @@ bool SETTINGS_MANAGER::GetPreviousVersionPaths( std::vector<wxString>* aPaths )
 
     // If the env override is set, also check the default paths
     if( wxGetEnv( wxT( "KICAD_CONFIG_HOME" ), nullptr ) )
-        base_paths.emplace_back( wxFileName( PATHS::CalculateUserSettingsPath( false, false ), wxS( "" ) ) );
+        base_paths.emplace_back( wxFileName( PATHS::CalculateUserSettingsPath( false, false ),
+                                             wxS( "" ) ) );
 
 #ifdef __WXGTK__
     // When running inside FlatPak, KIPLATFORM::ENV::GetUserConfigPath() will return a sandboxed
@@ -765,6 +782,8 @@ wxString SETTINGS_MANAGER::GetColorSettingsPath()
 
     return path.GetPath();
 }
+
+
 std::string SETTINGS_MANAGER::GetSettingsVersion()
 {
     // CMake computes the major.minor string for us.
@@ -781,7 +800,8 @@ int SETTINGS_MANAGER::compareVersions( const std::string& aFirst, const std::str
 
     if( !extractVersion( aFirst, &a_maj, &a_min ) || !extractVersion( aSecond, &b_maj, &b_min ) )
     {
-        wxLogTrace( traceSettings, wxT( "compareSettingsVersions: bad input (%s, %s)" ), aFirst, aSecond );
+        wxLogTrace( traceSettings, wxT( "compareSettingsVersions: bad input (%s, %s)" ),
+                    aFirst, aSecond );
         return -1;
     }
 
@@ -846,8 +866,8 @@ bool SETTINGS_MANAGER::LoadProject( const wxString& aFullPath, bool aSetActive )
     // Normalize path to new format even if migrating from a legacy file
     wxFileName path( aFullPath );
 
-    if( path.GetExt() == LegacyProjectFileExtension )
-        path.SetExt( ProjectFileExtension );
+    if( path.GetExt() == FILEEXT::LegacyProjectFileExtension )
+        path.SetExt( FILEEXT::ProjectFileExtension );
 
     wxString fullPath = path.GetFullPath();
 
@@ -888,13 +908,21 @@ bool SETTINGS_MANAGER::LoadProject( const wxString& aFullPath, bool aSetActive )
     std::unique_ptr<PROJECT> project = std::make_unique<PROJECT>();
     project->setProjectFullName( fullPath );
 
+    if( aSetActive )
+    {
+        // until multiple projects are in play, set an environment variable for the
+        // the project pointer.
+        wxFileName projectPath( fullPath );
+        wxSetEnv( PROJECT_VAR_NAME, projectPath.GetPath() );
+    }
+
     bool success = loadProjectFile( *project );
 
     if( success )
     {
         project->SetReadOnly( readOnly || project->GetProjectFile().IsReadOnly() );
 
-        if( lockFile )
+        if( lockFile && aSetActive )
             m_project_lock.reset( new LOCKFILE( std::move( lockFile ) ) );
     }
 
@@ -931,6 +959,8 @@ bool SETTINGS_MANAGER::UnloadProject( PROJECT* aProject, bool aSave )
     wxLogTrace( traceSettings, wxT( "Unload project %s" ), projectPath );
 
     PROJECT* toRemove = m_projects.at( projectPath );
+    bool wasActiveProject = m_projects_list.begin()->get() == toRemove;
+
     auto it = std::find_if( m_projects_list.begin(), m_projects_list.end(),
                             [&]( const std::unique_ptr<PROJECT>& ptr )
                             {
@@ -942,19 +972,22 @@ bool SETTINGS_MANAGER::UnloadProject( PROJECT* aProject, bool aSave )
 
     m_projects.erase( projectPath );
 
-    // Immediately reload a null project; this is required until the rest of the application
-    // is refactored to not assume that Prj() always works
-    if( m_projects.empty() )
-        LoadProject( "" );
+    if( wasActiveProject )
+    {
+        // Immediately reload a null project; this is required until the rest of the application
+        // is refactored to not assume that Prj() always works
+        if( m_projects_list.empty() )
+            LoadProject( "" );
 
-    // Remove the reference in the environment to the previous project
-    wxSetEnv( PROJECT_VAR_NAME, wxS( "" ) );
+        // Remove the reference in the environment to the previous project
+        wxSetEnv( PROJECT_VAR_NAME, wxS( "" ) );
 
-    // Release lock on the file, in case we had one
-    m_project_lock = nullptr;
+        // Release lock on the file, in case we had one
+        m_project_lock = nullptr;
 
-    if( m_kiway )
-        m_kiway->ProjectChanged();
+        if( m_kiway )
+            m_kiway->ProjectChanged();
+    }
 
     return true;
 }
@@ -1159,11 +1192,12 @@ bool SETTINGS_MANAGER::BackupProject( REPORTER& aReporter ) const
     wxFileName target;
     target.SetPath( GetProjectBackupsPath() );
     target.SetName( fileName );
-    target.SetExt( ArchiveFileExtension );
+    target.SetExt( FILEEXT::ArchiveFileExtension );
 
     if( !target.DirExists() && !wxMkdir( target.GetPath() ) )
     {
-        wxLogTrace( traceSettings, wxT( "Could not create project backup path %s" ), target.GetPath() );
+        wxLogTrace( traceSettings, wxT( "Could not create project backup path %s" ),
+                    target.GetPath() );
         return false;
     }
 

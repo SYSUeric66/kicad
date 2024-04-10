@@ -3,7 +3,7 @@
  *
  * Copyright (C) 2013 Jean-Pierre Charras, jp.charras at wanadoo.fr
  * Copyright (C) 2013 Wayne Stambaugh <stambaughw@gmail.com>
- * Copyright (C) 1992-2023 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2024 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -60,7 +60,8 @@ DIALOG_TEXT_PROPERTIES::DIALOG_TEXT_PROPERTIES( SCH_EDIT_FRAME* aParent, SCH_ITE
         m_borderColorSwatch->SetSwatchBackground( schematicBackground );
 
         for( const auto& [ lineStyle, lineStyleDesc ] : lineTypeNames )
-            m_borderStyleCombo->Append( lineStyleDesc.name, KiBitmap( lineStyleDesc.bitmap ) );
+            m_borderStyleCombo->Append( lineStyleDesc.name,
+                                        KiBitmapBundle( lineStyleDesc.bitmap ) );
 
         m_borderStyleCombo->Append( DEFAULT_STYLE );
 
@@ -89,22 +90,24 @@ DIALOG_TEXT_PROPERTIES::DIALOG_TEXT_PROPERTIES( SCH_EDIT_FRAME* aParent, SCH_ITE
     // Without this setting, on Windows, some esoteric unicode chars create display issue
     // in a wxStyledTextCtrl.
     // for SetTechnology() info, see https://www.scintilla.org/ScintillaDoc.html#SCI_SETTECHNOLOGY
-    m_textCtrl->SetTechnology(wxSTC_TECHNOLOGY_DIRECTWRITE);
+    m_textCtrl->SetTechnology( wxSTC_TECHNOLOGY_DIRECTWRITE );
 #endif
 
     m_scintillaTricks = new SCINTILLA_TRICKS( m_textCtrl, wxT( "{}" ), false,
-            // onAccept handler
+            // onAcceptFn
             [this]( wxKeyEvent& aEvent )
             {
                 wxPostEvent( this, wxCommandEvent( wxEVT_COMMAND_BUTTON_CLICKED, wxID_OK ) );
             },
-            // onCharAdded handler
+
+            // onCharFn
             [this]( wxStyledTextEvent& aEvent )
             {
                 m_scintillaTricks->DoTextVarAutocomplete(
-                        [this]( const wxString& crossRef, wxArrayString* tokens )
+                        // getTokensFn
+                        [this]( const wxString& xRef, wxArrayString* tokens )
                         {
-                            getContextualTextVars( crossRef, tokens );
+                            getContextualTextVars( xRef, tokens );
                         } );
             } );
 
@@ -130,6 +133,7 @@ DIALOG_TEXT_PROPERTIES::DIALOG_TEXT_PROPERTIES( SCH_EDIT_FRAME* aParent, SCH_ITE
     m_hAlignCenter->SetBitmap( KiBitmapBundle( BITMAPS::text_align_center ) );
     m_hAlignRight->SetIsRadioButton();
     m_hAlignRight->SetBitmap( KiBitmapBundle( BITMAPS::text_align_right ) );
+
     m_separator3->SetIsSeparator();
 
     m_vAlignTop->SetIsRadioButton();
@@ -259,16 +263,18 @@ bool DIALOG_TEXT_PROPERTIES::TransferDataToWindow()
 
     switch( m_currentText->GetHorizJustify() )
     {
-    case GR_TEXT_H_ALIGN_LEFT:   m_hAlignLeft->Check();   break;
-    case GR_TEXT_H_ALIGN_CENTER: m_hAlignCenter->Check(); break;
-    case GR_TEXT_H_ALIGN_RIGHT:  m_hAlignRight->Check();  break;
+    case GR_TEXT_H_ALIGN_LEFT:          m_hAlignLeft->Check();   break;
+    case GR_TEXT_H_ALIGN_CENTER:        m_hAlignCenter->Check(); break;
+    case GR_TEXT_H_ALIGN_RIGHT:         m_hAlignRight->Check();  break;
+    case GR_TEXT_H_ALIGN_INDETERMINATE:                          break;
     }
 
     switch( m_currentText->GetVertJustify() )
     {
-    case GR_TEXT_V_ALIGN_TOP:    m_vAlignTop->Check();    break;
-    case GR_TEXT_V_ALIGN_CENTER: m_vAlignCenter->Check(); break;
-    case GR_TEXT_V_ALIGN_BOTTOM: m_vAlignBottom->Check(); break;
+    case GR_TEXT_V_ALIGN_TOP:           m_vAlignTop->Check();    break;
+    case GR_TEXT_V_ALIGN_CENTER:        m_vAlignCenter->Check(); break;
+    case GR_TEXT_V_ALIGN_BOTTOM:        m_vAlignBottom->Check(); break;
+    case GR_TEXT_V_ALIGN_INDETERMINATE:                          break;
     }
 
     if( m_currentText->GetTextAngle() == ANGLE_VERTICAL )
@@ -469,21 +475,10 @@ bool DIALOG_TEXT_PROPERTIES::TransferDataFromWindow()
                                                               m_italic->IsChecked() ) );
     }
 
-    if( m_bold->IsChecked() != m_currentText->IsBold() )
-    {
-        if( m_bold->IsChecked() )
-        {
-            m_currentText->SetBold( true );
-            m_currentText->SetTextThickness( GetPenSizeForBold( m_currentText->GetTextWidth() ) );
-        }
-        else
-        {
-            m_currentText->SetBold( false );
-            m_currentText->SetTextThickness( 0 ); // Use default pen width
-        }
-    }
-
+    // Must come after SetTextSize()
+    m_currentText->SetBold( m_bold->IsChecked() );
     m_currentText->SetItalic( m_italic->IsChecked() );
+
     m_currentText->SetTextColor( m_textColorSwatch->GetSwatchColor() );
 
     if( m_hAlignRight->IsChecked() )
@@ -534,7 +529,7 @@ bool DIALOG_TEXT_PROPERTIES::TransferDataFromWindow()
     }
 
     if( !commit.Empty() )
-        commit.Push( _( "Edit Text" ), SKIP_CONNECTIVITY );
+        commit.Push( _( "Edit Text Properties" ) );
 
     return true;
 }

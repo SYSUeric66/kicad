@@ -47,6 +47,7 @@ bool g_resetFieldVisibilities[2] = { true,   false  };
 bool g_resetFieldEffects[2]      = { true,   false  };
 bool g_resetFieldPositions[2]    = { true,   false  };
 bool g_resetAttributes[2]        = { true,   false  };
+bool g_resetCustomPower[2]       = { false,  false  };
 
 
 DIALOG_CHANGE_SYMBOLS::DIALOG_CHANGE_SYMBOLS( SCH_EDIT_FRAME* aParent, SCH_SYMBOL* aSymbol,
@@ -146,6 +147,7 @@ DIALOG_CHANGE_SYMBOLS::DIALOG_CHANGE_SYMBOLS( SCH_EDIT_FRAME* aParent, SCH_SYMBO
     m_resetFieldEffects->SetValue( g_resetFieldEffects[ (int) m_mode ] );
     m_resetFieldPositions->SetValue( g_resetFieldPositions[ (int) m_mode ] );
     m_resetAttributes->SetValue( g_resetAttributes[ (int) m_mode ] );
+    m_resetCustomPower->SetValue( g_resetCustomPower[ (int) m_mode ] );
 
     // DIALOG_SHIM needs a unique hash_key because classname is not sufficient
     // because the update and change versions of this dialog have different controls.
@@ -227,6 +229,7 @@ DIALOG_CHANGE_SYMBOLS::~DIALOG_CHANGE_SYMBOLS()
     g_resetFieldEffects[ (int) m_mode ] = m_resetFieldEffects->GetValue();
     g_resetFieldPositions[ (int) m_mode ] = m_resetFieldPositions->GetValue();
     g_resetAttributes[ (int) m_mode ] = m_resetAttributes->GetValue();
+    g_resetCustomPower[ (int) m_mode ] = m_resetCustomPower->GetValue();
 }
 
 
@@ -351,14 +354,35 @@ void DIALOG_CHANGE_SYMBOLS::updateFieldsList()
     }
 
     // Update the listbox widget
-    for( unsigned i = m_fieldsBox->GetCount() - 1; i >= MANDATORY_FIELDS; --i )
-        m_fieldsBox->Delete( i );
+    wxArrayInt    checkedItems;
+    wxArrayString checkedNames;
+
+    m_fieldsBox->GetCheckedItems( checkedItems );
+
+    for( int ii : checkedItems )
+        checkedNames.push_back( m_fieldsBox->GetString( ii ) );
+
+    bool allChecked = true;
+
+    for( unsigned ii = 0; ii < m_fieldsBox->GetCount(); ++ii )
+    {
+        if( ii == REFERENCE_FIELD || ii == VALUE_FIELD )
+            continue;
+
+        if( !m_fieldsBox->IsChecked( ii ) )
+            allChecked = false;
+    }
+
+    for( unsigned ii = m_fieldsBox->GetCount() - 1; ii >= MANDATORY_FIELDS; --ii )
+        m_fieldsBox->Delete( ii );
 
     for( const wxString& fieldName : fieldNames )
+    {
         m_fieldsBox->Append( fieldName );
 
-    for( unsigned i = MANDATORY_FIELDS; i < m_fieldsBox->GetCount(); ++i )
-        m_fieldsBox->Check( i, true );
+        if( allChecked || alg::contains( checkedNames, fieldName ) )
+            m_fieldsBox->Check( m_fieldsBox->GetCount() - 1, true );
+    }
 }
 
 
@@ -448,8 +472,6 @@ bool DIALOG_CHANGE_SYMBOLS::isMatch( SCH_SYMBOL* aSymbol, SCH_SHEET_PATH* aInsta
 }
 
 
-
-
 int DIALOG_CHANGE_SYMBOLS::processMatchingSymbols( SCH_COMMIT* aCommit )
 {
     SCH_EDIT_FRAME* frame = dynamic_cast<SCH_EDIT_FRAME*>( GetParent() );
@@ -511,7 +533,8 @@ int DIALOG_CHANGE_SYMBOLS::processMatchingSymbols( SCH_COMMIT* aCommit )
     if( symbols.size() > 0 )
         matchesProcessed += processSymbols( aCommit, symbols );
     else
-        m_messagePanel->Report( _( "*** No symbols matching criteria found ***" ), RPT_SEVERITY_ERROR );
+        m_messagePanel->Report( _( "*** No symbols matching criteria found ***" ),
+                                RPT_SEVERITY_ERROR );
 
     frame->GetCurrentSheet().UpdateAllScreenReferences();
 
@@ -520,7 +543,8 @@ int DIALOG_CHANGE_SYMBOLS::processMatchingSymbols( SCH_COMMIT* aCommit )
 
 
 int DIALOG_CHANGE_SYMBOLS::processSymbols( SCH_COMMIT* aCommit,
-                                           const std::map<SCH_SYMBOL*, SYMBOL_CHANGE_INFO>& aSymbols )
+                                           const std::map<SCH_SYMBOL*,
+                                           SYMBOL_CHANGE_INFO>& aSymbols )
 {
     wxCHECK( !aSymbols.empty(), 0 );
 
@@ -583,6 +607,9 @@ int DIALOG_CHANGE_SYMBOLS::processSymbols( SCH_COMMIT* aCommit,
 
     for( const auto& [ symbol, symbol_change_info ] : symbols )
     {
+        // Remember initial link before changing for diags purpose
+        wxString initialLibLinkName = UnescapeString( symbol->GetLibId().Format() );
+
         if( symbol_change_info.m_LibId != symbol->GetLibId() )
             symbol->SetLibId( symbol_change_info.m_LibId );
 
@@ -630,15 +657,26 @@ int DIALOG_CHANGE_SYMBOLS::processSymbols( SCH_COMMIT* aCommit,
                 {
                     if( i == REFERENCE_FIELD )
                     {
+                        wxString prefix = UTIL::GetRefDesPrefix( libField->GetText() );
+
                         for( const SCH_SHEET_PATH& instance : symbol_change_info.m_Instances )
                         {
-                            symbol->SetRef( &instance,
-                                            UTIL::GetRefDesUnannotated( libField->GetText() ) );
+                            wxString ref = symbol->GetRef( &instance );
+                            int      number = UTIL::GetRefDesNumber( ref );
+
+                            if( number >= 0 )
+                                ref.Printf( wxS( "%s%d" ), prefix, number );
+                            else
+                                ref = UTIL::GetRefDesUnannotated( prefix );
+
+                            symbol->SetRef( &instance, ref );
                         }
                     }
                     else if( i == VALUE_FIELD )
                     {
-                        symbol->SetValueFieldText( UnescapeString( libField->GetText() ) );
+                        if( ( symbol->IsPower() && m_resetCustomPower->IsChecked() )
+                            || !symbol->IsPower() )
+                            symbol->SetValueFieldText( UnescapeString( libField->GetText() ) );
                     }
                     else if( i == FOOTPRINT_FIELD )
                     {
@@ -712,7 +750,7 @@ int DIALOG_CHANGE_SYMBOLS::processSymbols( SCH_COMMIT* aCommit,
 
         frame->GetCanvas()->GetView()->Update( symbol );
 
-        msg = getSymbolReferences( *symbol, symbol_change_info.m_LibId );
+        msg = getSymbolReferences( *symbol, symbol_change_info.m_LibId, &initialLibLinkName );
         msg += wxS( ": OK" );
         m_messagePanel->Report( msg, RPT_SEVERITY_ACTION );
         matchesProcessed +=1;
@@ -722,11 +760,20 @@ int DIALOG_CHANGE_SYMBOLS::processSymbols( SCH_COMMIT* aCommit,
 }
 
 
-wxString DIALOG_CHANGE_SYMBOLS::getSymbolReferences( SCH_SYMBOL& aSymbol, const LIB_ID& aNewId )
+wxString DIALOG_CHANGE_SYMBOLS::getSymbolReferences( SCH_SYMBOL& aSymbol,
+                                                     const LIB_ID& aNewId,
+                                                     const wxString* aOldLibLinkName )
 {
     wxString msg;
     wxString references;
     LIB_ID oldId = aSymbol.GetLibId();
+
+    wxString oldLibLinkName;    // For report
+
+    if( aOldLibLinkName )
+        oldLibLinkName = *aOldLibLinkName;
+    else
+        oldLibLinkName = UnescapeString( oldId.Format() );
 
     SCH_EDIT_FRAME* parent = dynamic_cast< SCH_EDIT_FRAME* >( GetParent() );
 
@@ -734,7 +781,7 @@ wxString DIALOG_CHANGE_SYMBOLS::getSymbolReferences( SCH_SYMBOL& aSymbol, const 
 
     SCH_SHEET_LIST sheets = parent->Schematic().GetSheets();
 
-    for( const SCH_SYMBOL_INSTANCE& instance : aSymbol.GetInstanceReferences() )
+    for( const SCH_SYMBOL_INSTANCE& instance : aSymbol.GetInstances() )
     {
         // Only include the symbol instances for the current project.
         if( !sheets.HasPath( instance.m_Path ) )
@@ -748,35 +795,35 @@ wxString DIALOG_CHANGE_SYMBOLS::getSymbolReferences( SCH_SYMBOL& aSymbol, const 
 
     if( m_mode == MODE::UPDATE )
     {
-        if( aSymbol.GetInstanceReferences().size() == 1 )
+        if( aSymbol.GetInstances().size() == 1 )
         {
             msg.Printf( _( "Update symbol %s from '%s' to '%s'" ),
                         references,
-                        UnescapeString( oldId.Format() ),
+                        oldLibLinkName,
                         UnescapeString( aNewId.Format() ) );
         }
         else
         {
             msg.Printf( _( "Update symbols %s from '%s' to '%s'" ),
                         references,
-                        UnescapeString( oldId.Format() ),
+                        oldLibLinkName,
                         UnescapeString( aNewId.Format() ) );
         }
     }
-    else
+    else    // mode is MODE::CHANGE
     {
-        if( aSymbol.GetInstanceReferences().size() == 1 )
+        if( aSymbol.GetInstances().size() == 1 )
         {
             msg.Printf( _( "Change symbol %s from '%s' to '%s'" ),
                         references,
-                        UnescapeString( oldId.Format() ),
+                        oldLibLinkName,
                         UnescapeString( aNewId.Format() ) );
         }
         else
         {
             msg.Printf( _( "Change symbols %s from '%s' to '%s'" ),
                         references,
-                        UnescapeString( oldId.Format() ),
+                        oldLibLinkName,
                         UnescapeString( aNewId.Format() ) );
         }
     }

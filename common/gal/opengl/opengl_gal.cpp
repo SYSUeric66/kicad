@@ -71,8 +71,15 @@ using namespace KIGFX;
 #include <glsl_kicad_vert.h>
 using namespace KIGFX::BUILTIN_FONT;
 
-static void      InitTesselatorCallbacks( GLUtesselator* aTesselator );
-static const int glAttributes[] = { WX_GL_RGBA, WX_GL_DOUBLEBUFFER, WX_GL_DEPTH_SIZE, 8, 0 };
+static void InitTesselatorCallbacks( GLUtesselator* aTesselator );
+
+static wxGLAttributes getGLAttribs()
+{
+    wxGLAttributes attribs;
+    attribs.RGBA().DoubleBuffer().Depth( 8 ).EndList();
+
+    return attribs;
+}
 
 wxGLContext* OPENGL_GAL::m_glMainContext = nullptr;
 int          OPENGL_GAL::m_instanceCounter = 0;
@@ -299,12 +306,13 @@ GLuint GL_BITMAP_CACHE::cacheBitmap( const BITMAP_BASE* aBitmap )
     return textureID;
 }
 
+
 OPENGL_GAL::OPENGL_GAL( const KIGFX::VC_SETTINGS& aVcSettings, GAL_DISPLAY_OPTIONS& aDisplayOptions,
                         wxWindow* aParent,
                         wxEvtHandler* aMouseListener, wxEvtHandler* aPaintListener,
                         const wxString& aName ) :
         GAL( aDisplayOptions ),
-        HIDPI_GL_CANVAS( aVcSettings, aParent, wxID_ANY, (int*) glAttributes, wxDefaultPosition,
+        HIDPI_GL_CANVAS( aVcSettings, aParent, getGLAttribs(), wxID_ANY, wxDefaultPosition,
                          wxDefaultSize,
                          wxEXPAND, aName ),
         m_mouseListener( aMouseListener ),
@@ -509,6 +517,7 @@ bool OPENGL_GAL::updatedGalDisplayOptions( const GAL_DISPLAY_OPTIONS& aOptions )
     if( m_options.m_scaleFactor != GetScaleFactor() )
     {
         SetScaleFactor( m_options.m_scaleFactor );
+        m_gridLineWidth = m_options.m_scaleFactor * ( m_options.m_gridLineWidth + 0.25 );
         refresh = true;
     }
 
@@ -1004,11 +1013,20 @@ void OPENGL_GAL::DrawArc( const VECTOR2D& aCenterPoint, double aRadius,
 
         VECTOR2D p( cos( startAngle ) * aRadius, sin( startAngle ) * aRadius );
         double   alpha;
+        unsigned int lineCount = 0;
+
+        for( alpha = startAngle + alphaIncrement; alpha <= endAngle; alpha += alphaIncrement )
+            lineCount++;
+
+        if( alpha != endAngle )
+            lineCount++;
+
+        reserveLineQuads( lineCount );
 
         for( alpha = startAngle + alphaIncrement; alpha <= endAngle; alpha += alphaIncrement )
         {
             VECTOR2D p_next( cos( alpha ) * aRadius, sin( alpha ) * aRadius );
-            DrawLine( p, p_next );
+            drawLineQuad( p, p_next, false );
 
             p = p_next;
         }
@@ -1017,7 +1035,7 @@ void OPENGL_GAL::DrawArc( const VECTOR2D& aCenterPoint, double aRadius,
         if( alpha != endAngle )
         {
             VECTOR2D p_last( cos( endAngle ) * aRadius, sin( endAngle ) * aRadius );
-            DrawLine( p, p_last );
+            drawLineQuad( p, p_last, false );
         }
     }
 
@@ -1057,9 +1075,21 @@ void OPENGL_GAL::DrawArcSegment( const VECTOR2D& aCenterPoint, double aRadius,
     if( seg_count % 2 != 0 )
         seg_count += 1;
 
+    // Our shaders have trouble rendering null line quads, so delegate this task to DrawSegment.
+    if( seg_count == 0 )
+    {
+        VECTOR2D p_start( aCenterPoint.x + cos( startAngle ) * aRadius,
+                          aCenterPoint.y + sin( startAngle ) * aRadius );
+
+        VECTOR2D p_end( aCenterPoint.x + cos( endAngle ) * aRadius,
+                        aCenterPoint.y + sin( endAngle ) * aRadius );
+
+        DrawSegment( p_start, p_end, aWidth );
+        return;
+    }
+
     // Recalculate alphaIncrement with a even integer number of segment
-    if( seg_count )
-        alphaIncrement = ( endAngle - startAngle ) / seg_count;
+    alphaIncrement = ( endAngle - startAngle ) / seg_count;
 
     Save();
     m_currentManager->Translate( aCenterPoint.x, aCenterPoint.y, 0.0 );
@@ -1465,6 +1495,9 @@ void OPENGL_GAL::DrawCurve( const VECTOR2D& aStartPoint, const VECTOR2D& aContro
     BEZIER_POLY converter( pointCtrl );
     converter.GetPoly( output, aFilterValue );
 
+    if( output.size() == 1 )
+        output.push_back( output.front() );
+
     DrawPolygon( &output[0], output.size() );
 }
 
@@ -1490,7 +1523,10 @@ void OPENGL_GAL::DrawBitmap( const BITMAP_BASE& aBitmap, double alphaBlend )
     if( !glIsTexture( texture_id ) ) // ensure the bitmap texture is still valid
         return;
 
-    glDisable( GL_DEPTH_TEST );
+    glDepthFunc( GL_ALWAYS );
+
+    glAlphaFunc( GL_GREATER, 0.01f );
+    glEnable( GL_ALPHA_TEST );
 
     glMatrixMode( GL_TEXTURE );
     glPushMatrix();
@@ -1538,7 +1574,9 @@ void OPENGL_GAL::DrawBitmap( const BITMAP_BASE& aBitmap, double alphaBlend )
     glPopMatrix();
     glMatrixMode( GL_MODELVIEW );
 
-    glEnable( GL_DEPTH_TEST );
+    glDisable( GL_ALPHA_TEST );
+
+    glDepthFunc( GL_LESS );
 }
 
 
@@ -1589,6 +1627,10 @@ void OPENGL_GAL::BitmapText( const wxString& aText, const VECTOR2I& aPosition,
         //if( IsTextMirrored() )
         //Translate( VECTOR2D( -textSize.x, 0 ) );
         break;
+
+    case GR_TEXT_H_ALIGN_INDETERMINATE:
+        wxFAIL_MSG( wxT( "Indeterminate state legal only in dialogs." ) );
+        break;
     }
 
     switch( GetVerticalJustify() )
@@ -1605,6 +1647,10 @@ void OPENGL_GAL::BitmapText( const wxString& aText, const VECTOR2I& aPosition,
         Translate( VECTOR2D( 0, -textSize.y ) );
         overbarHeight = -textSize.y / 2.0;
         break;
+
+    case GR_TEXT_V_ALIGN_INDETERMINATE:
+        wxFAIL_MSG( wxT( "Indeterminate state legal only in dialogs." ) );
+        break;
     }
 
     int overbarLength = 0;
@@ -1612,51 +1658,51 @@ void OPENGL_GAL::BitmapText( const wxString& aText, const VECTOR2I& aPosition,
     int braceNesting = 0;
 
     auto iterateString =
-            [&]( std::function<void( int aOverbarLength, int aOverbarHeight )> overbarFn,
-                 std::function<int( unsigned long aChar )>                     bitmapCharFn )
-    {
-        for( UTF8::uni_iter chIt = text.ubegin(), end = text.uend(); chIt < end; ++chIt )
-        {
-            wxASSERT_MSG( *chIt != '\n' && *chIt != '\r',
-                          "No support for multiline bitmap text yet" );
-
-            if( *chIt == '~' && overbarDepth == -1 )
+            [&]( const std::function<void( int aOverbarLength, int aOverbarHeight )>& overbarFn,
+                 const std::function<int( unsigned long aChar )>& bitmapCharFn )
             {
-                UTF8::uni_iter lookahead = chIt;
-
-                if( ++lookahead != end && *lookahead == '{' )
+                for( UTF8::uni_iter chIt = text.ubegin(), end = text.uend(); chIt < end; ++chIt )
                 {
-                    chIt = lookahead;
-                    overbarDepth = braceNesting;
-                    braceNesting++;
-                    continue;
+                    wxASSERT_MSG( *chIt != '\n' && *chIt != '\r',
+                                  "No support for multiline bitmap text yet" );
+
+                    if( *chIt == '~' && overbarDepth == -1 )
+                    {
+                        UTF8::uni_iter lookahead = chIt;
+
+                        if( ++lookahead != end && *lookahead == '{' )
+                        {
+                            chIt = lookahead;
+                            overbarDepth = braceNesting;
+                            braceNesting++;
+                            continue;
+                        }
+                    }
+                    else if( *chIt == '{' )
+                    {
+                        braceNesting++;
+                    }
+                    else if( *chIt == '}' )
+                    {
+                        if( braceNesting > 0 )
+                            braceNesting--;
+
+                        if( braceNesting == overbarDepth )
+                        {
+                            overbarFn( overbarLength, overbarHeight );
+                            overbarLength = 0;
+
+                            overbarDepth = -1;
+                            continue;
+                        }
+                    }
+
+                    if( overbarDepth != -1 )
+                        overbarLength += bitmapCharFn( *chIt );
+                    else
+                        bitmapCharFn( *chIt );
                 }
-            }
-            else if( *chIt == '{' )
-            {
-                braceNesting++;
-            }
-            else if( *chIt == '}' )
-            {
-                if( braceNesting > 0 )
-                    braceNesting--;
-
-                if( braceNesting == overbarDepth )
-                {
-                    overbarFn( overbarLength, overbarHeight );
-                    overbarLength = 0;
-
-                    overbarDepth = -1;
-                    continue;
-                }
-            }
-
-            if( overbarDepth != -1 )
-                overbarLength += bitmapCharFn( *chIt );
-            else
-                bitmapCharFn( *chIt );
-        }
-    };
+            };
 
     // First, calculate the amount of characters and overbars to reserve
 
@@ -1923,7 +1969,7 @@ void OPENGL_GAL::Translate( const VECTOR2D& aVector )
 
 void OPENGL_GAL::Scale( const VECTOR2D& aScale )
 {
-    m_currentManager->Scale( aScale.x, aScale.y, 0.0f );
+    m_currentManager->Scale( aScale.x, aScale.y, 1.0f );
 }
 
 
@@ -2590,11 +2636,13 @@ void OPENGL_GAL::blitCursor()
     VECTOR2D cursorEnd = m_cursorPosition + cursorSize / ( 2 * m_worldScale );
     VECTOR2D cursorCenter = ( cursorBegin + cursorEnd ) / 2;
 
-    const COLOR4D cColor = getCursorColor();
-    const COLOR4D color( cColor.r * cColor.a, cColor.g * cColor.a, cColor.b * cColor.a, 1.0 );
+    const COLOR4D color = getCursorColor();
 
     glActiveTexture( GL_TEXTURE0 );
     glDisable( GL_TEXTURE_2D );
+    glEnable( GL_BLEND );
+    glBlendFunc( GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA );
+
     glLineWidth( 1.0 );
     glColor4d( color.r, color.g, color.b, color.a );
 
@@ -2880,29 +2928,8 @@ void OPENGL_GAL::DrawGlyphs( const std::vector<std::unique_ptr<KIFONT::GLYPH>>& 
     }
     else if( allGlyphsAreOutline )
     {
-        // Optimized path for stroke fonts that pre-reserves glyph triangles.
+        // Optimized path for outline fonts that pre-reserves glyph triangles.
         int triangleCount = 0;
-
-        if( aGlyphs.size() > 0 )
-        {
-            thread_pool& tp = GetKiCadThreadPool();
-
-            tp.push_loop( aGlyphs.size(),
-                    [&]( const int a, const int b)
-                    {
-                        for( int ii = a; ii < b; ++ii )
-                        {
-                            auto glyph = static_cast<KIFONT::OUTLINE_GLYPH*>( aGlyphs.at( ii ).get() );
-
-                            // Only call CacheTriangulation() if it has never been done before.
-                            // Otherwise we'll hash the triangulation to see if it has been edited,
-                            // and all our glpyh editing ops update the triangulation anyway.
-                            if( glyph->TriangulatedPolyCount() == 0 )
-                                glyph->CacheTriangulation( false );
-                        }
-                    } );
-            tp.wait_for_tasks();
-        }
 
         for( const std::unique_ptr<KIFONT::GLYPH>& glyph : aGlyphs )
         {

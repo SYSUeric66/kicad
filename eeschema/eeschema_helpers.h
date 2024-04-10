@@ -25,7 +25,7 @@
 #define EESCHEMA_HELPERS_H_
 
 #include <wx/string.h>
-#include <sch_io_mgr.h>
+#include <sch_io/sch_io_mgr.h>
 
 class SCHEMATIC;
 class SCH_EDIT_FRAME;
@@ -44,8 +44,9 @@ public:
     static SETTINGS_MANAGER* GetSettingsManager();
     static void              SetSchEditFrame( SCH_EDIT_FRAME* aSchEditFrame );
     static PROJECT*          GetDefaultProject();
-    static SCHEMATIC*        LoadSchematic( wxString& aFileName );
-    static SCHEMATIC*        LoadSchematic( wxString& aFileName, SCH_IO_MGR::SCH_FILE_T aFormat );
+    static SCHEMATIC*        LoadSchematic( wxString& aFileName, bool aSetActive );
+    static SCHEMATIC*        LoadSchematic( wxString& aFileName, SCH_IO_MGR::SCH_FILE_T aFormat,
+                                            bool aSetActive );
 
 
 private:

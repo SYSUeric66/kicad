@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2013-2019 CERN
- * Copyright (C) 2021-2023 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2021-2024 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * @author Tomasz Wlostowski <tomasz.wlostowski@cern.ch>
  * @author Maciej Suminski <maciej.suminski@cern.ch>
@@ -37,6 +37,8 @@
 #include <pcb_reference_image.h>
 #include <pcb_text.h>
 #include <pcb_textbox.h>
+#include <pcb_table.h>
+#include <pcb_tablecell.h>
 #include <pcb_marker.h>
 #include <pcb_dimension.h>
 #include <pcb_target.h>
@@ -613,6 +615,10 @@ bool PCB_PAINTER::Draw( const VIEW_ITEM* aItem, int aLayer )
         draw( static_cast<const PCB_TEXTBOX*>( item ), aLayer );
         break;
 
+    case PCB_TABLE_T:
+        draw( static_cast<const PCB_TABLE*>( item ), aLayer );
+        break;
+
     case PCB_FOOTPRINT_T:
         draw( static_cast<const FOOTPRINT*>( item ), aLayer );
         break;
@@ -1142,10 +1148,10 @@ void PCB_PAINTER::draw( const PAD* aPad, int aLayer )
             padNumber = UnescapeString( aPad->GetNumber() );
 
             if( dynamic_cast<CVPCB_SETTINGS*>( viewer_settings() ) )
-                netname = aPad->GetUnescapedShortNetname();
+                netname = aPad->GetPinFunction();
         }
 
-        if( displayOpts )
+        if( displayOpts && !dynamic_cast<CVPCB_SETTINGS*>( viewer_settings() ) )
         {
             if( displayOpts->m_NetNames == 1 || displayOpts->m_NetNames == 3 )
                 netname = aPad->GetUnescapedShortNetname();
@@ -1696,6 +1702,10 @@ void PCB_PAINTER::draw( const PCB_SHAPE* aShape, int aLayer )
 
     if( IsNetnameLayer( aLayer ) )
     {
+        // Net names are shown only in board editor:
+        if( m_frameType != FRAME_T::FRAME_PCB_EDITOR )
+            return;
+
         if( !pcbconfig() || pcbconfig()->m_Display.m_NetNames < 2 )
             return;
 
@@ -1735,7 +1745,9 @@ void PCB_PAINTER::draw( const PCB_SHAPE* aShape, int aLayer )
     m_gal->SetFillColor( color );
     m_gal->SetStrokeColor( color );
 
-    if( lineStyle <= LINE_STYLE::FIRST_TYPE )
+    // Note: on LAYER_LOCKED_ITEM_SHADOW always draw shadow shapes as continuous lines
+    // otherwise the look is very strange and ugly
+    if( lineStyle <= LINE_STYLE::FIRST_TYPE || aLayer == LAYER_LOCKED_ITEM_SHADOW )
     {
         switch( aShape->GetShape() )
         {
@@ -1932,6 +1944,9 @@ void PCB_PAINTER::draw( const PCB_SHAPE* aShape, int aLayer )
             }
 
             break;
+
+        case SHAPE_T::UNDEFINED:
+            break;
         }
     }
     else
@@ -2040,7 +2055,8 @@ void PCB_PAINTER::draw( const PCB_TEXT* aText, int aLayer )
 {
     wxString resolvedText( aText->GetShownText( true ) );
 
-    if( resolvedText.Length() == 0 )
+    if( resolvedText.Length() == 0
+        || !( aText->GetAttributes().m_Visible || aLayer == LAYER_HIDDEN_TEXT ) )
         return;
 
     if( aLayer == LAYER_LOCKED_ITEM_SHADOW )    // happens only if locked
@@ -2129,10 +2145,18 @@ void PCB_PAINTER::draw( const PCB_TEXT* aText, int aLayer )
 
 void PCB_PAINTER::draw( const PCB_TEXTBOX* aTextBox, int aLayer )
 {
-    const COLOR4D& color = m_pcbSettings.GetColor( aTextBox, aLayer );
-    int            thickness = getLineThickness( aTextBox->GetWidth() );
-    LINE_STYLE     lineStyle = aTextBox->GetStroke().GetLineStyle();
-    wxString       resolvedText( aTextBox->GetShownText( true ) );
+    if( aTextBox->Type() == PCB_TABLECELL_T )
+    {
+        const PCB_TABLECELL* cell = static_cast<const PCB_TABLECELL*>( aTextBox );
+
+        if( cell->GetColSpan() == 0 || cell->GetRowSpan() == 0 )
+            return;
+    }
+
+    COLOR4D    color = m_pcbSettings.GetColor( aTextBox, aLayer );
+    int        thickness = getLineThickness( aTextBox->GetWidth() );
+    LINE_STYLE lineStyle = aTextBox->GetStroke().GetLineStyle();
+    wxString   resolvedText( aTextBox->GetShownText( true ) );
 
     KIFONT::FONT* font = aTextBox->GetFont();
 
@@ -2168,12 +2192,19 @@ void PCB_PAINTER::draw( const PCB_TEXTBOX* aTextBox, int aLayer )
         m_gal->DrawPolygon( dpts );
     }
 
+    if( aTextBox->Type() == PCB_TABLECELL_T )
+    {
+        // Selection for tables is done with a background wash, so pass in nullptr to GetColor()
+        // so we just get the "normal" (un-selected/un-brightened) color for the borders.
+        color = m_pcbSettings.GetColor( nullptr, aLayer );
+    }
+
     m_gal->SetFillColor( color );
     m_gal->SetStrokeColor( color );
     m_gal->SetIsFill( true );
     m_gal->SetIsStroke( false );
 
-    if( aTextBox->IsBorderEnabled() )
+    if( aTextBox->Type() != PCB_TABLECELL_T && aTextBox->IsBorderEnabled() )
     {
         if( lineStyle <= LINE_STYLE::FIRST_TYPE )
         {
@@ -2221,14 +2252,14 @@ void PCB_PAINTER::draw( const PCB_TEXTBOX* aTextBox, int aLayer )
         // so the text drawn on LAYER_LOCKED_ITEM_SHADOW with a thick width is disabled
         // If enabled, the thick text position must be offsetted to be exactly on the
         // initial text, which is not easy, depending on its rotation and justification.
-        #if 0
+#if 0
         const COLOR4D sh_color = m_pcbSettings.GetColor( aTextBox, aLayer );
         m_gal->SetFillColor( sh_color );
         m_gal->SetStrokeColor( sh_color );
         attrs.m_StrokeWidth += m_lockedShadowMargin;
-        #else
+#else
         return;
-        #endif
+#endif
     }
 
     std::vector<std::unique_ptr<KIFONT::GLYPH>>* cache = nullptr;
@@ -2244,6 +2275,142 @@ void PCB_PAINTER::draw( const PCB_TEXTBOX* aTextBox, int aLayer )
     else
     {
         strokeText( resolvedText, aTextBox->GetDrawPos(), attrs, aTextBox->GetFontMetrics() );
+    }
+}
+
+
+void PCB_PAINTER::draw( const PCB_TABLE* aTable, int aLayer )
+{
+    for( PCB_TABLECELL* cell : aTable->GetCells() )
+        draw( static_cast<PCB_TEXTBOX*>( cell ), aLayer );
+
+    VECTOR2I pos = aTable->GetPosition();
+    VECTOR2I end = aTable->GetEnd();
+
+    // Selection for tables is done with a background wash, so pass in nullptr to GetColor()
+    // so we just get the "normal" (un-selected/un-brightened) color for the borders.
+    COLOR4D    color = m_pcbSettings.GetColor( nullptr, aLayer );
+    int        lineWidth;
+    LINE_STYLE lineStyle;
+
+    auto setupStroke =
+            [&]( const STROKE_PARAMS& stroke )
+            {
+                lineWidth = getLineThickness( stroke.GetWidth() );
+                lineStyle = stroke.GetLineStyle();
+
+                m_gal->SetIsFill( false );
+                m_gal->SetIsStroke( true );
+                m_gal->SetStrokeColor( color );
+                m_gal->SetLineWidth( lineWidth );
+            };
+
+    auto strokeShape =
+            [&]( const SHAPE& shape )
+            {
+                STROKE_PARAMS::Stroke( &shape, lineStyle, lineWidth, &m_pcbSettings,
+                        [&]( const VECTOR2I& a, const VECTOR2I& b )
+                        {
+                            // DrawLine has problem with 0 length lines so enforce minimum
+                            if( a == b )
+                                m_gal->DrawLine( a+1, b );
+                            else
+                                m_gal->DrawLine( a, b );
+                        } );
+            };
+
+    auto strokeLine =
+            [&]( const VECTOR2I& ptA, const VECTOR2I& ptB )
+            {
+                if( lineStyle <= LINE_STYLE::FIRST_TYPE )
+                {
+                    m_gal->DrawLine( ptA, ptB );
+                }
+                else
+                {
+                    SHAPE_SEGMENT seg( ptA, ptB );
+                    strokeShape( seg );
+                }
+            };
+
+    auto strokeRect =
+            [&]( const VECTOR2I& ptA, const VECTOR2I& ptB )
+            {
+                if( lineStyle <= LINE_STYLE::FIRST_TYPE )
+                {
+                    m_gal->DrawRectangle( ptA, ptB );
+                }
+                else
+                {
+                    SHAPE_RECT rect( BOX2I( ptA, ptB - ptA ) );
+                    strokeShape( rect );
+                }
+            };
+
+    if( aTable->GetSeparatorsStroke().GetWidth() >= 0 )
+    {
+        setupStroke( aTable->GetSeparatorsStroke() );
+
+        if( aTable->StrokeColumns() )
+        {
+            for( int col = 0; col < aTable->GetColCount() - 1; ++col )
+            {
+                for( int row = 0; row < aTable->GetRowCount(); ++row )
+                {
+                    PCB_TABLECELL* cell = aTable->GetCell( row, col );
+                    VECTOR2I       topRight( cell->GetEndX(), cell->GetStartY() );
+
+                    if( cell->GetColSpan() > 0 && cell->GetRowSpan() > 0 )
+                        strokeLine( topRight, cell->GetEnd() );
+                }
+            }
+        }
+
+        if( aTable->StrokeRows() )
+        {
+            for( int row = 0; row < aTable->GetRowCount() - 1; ++row )
+            {
+                for( int col = 0; col < aTable->GetColCount(); ++col )
+                {
+                    PCB_TABLECELL* cell = aTable->GetCell( row, col );
+                    VECTOR2I       botLeft( cell->GetStartX(), cell->GetEndY() );
+
+                    if( cell->GetColSpan() > 0 && cell->GetRowSpan() > 0 )
+                        strokeLine( botLeft, cell->GetEnd() );
+                }
+            }
+        }
+    }
+
+    if( aTable->GetBorderStroke().GetWidth() >= 0 )
+    {
+        setupStroke( aTable->GetBorderStroke() );
+
+        if( aTable->StrokeHeader() )
+        {
+            PCB_TABLECELL* cell = aTable->GetCell( 0, 0 );
+            strokeLine( VECTOR2I( pos.x, cell->GetEndY() ), VECTOR2I( end.x, cell->GetEndY() ) );
+        }
+
+        if( aTable->StrokeExternal() )
+            strokeRect( pos, end );
+    }
+
+    // Highlight selected tablecells with a background wash.
+    for( PCB_TABLECELL* cell : aTable->GetCells() )
+    {
+        if( aTable->IsSelected() || cell->IsSelected() )
+        {
+            std::vector<VECTOR2I> corners = cell->GetCorners();
+            std::deque<VECTOR2D>  pts;
+
+            pts.insert( pts.end(), corners.begin(), corners.end() );
+
+            m_gal->SetFillColor( color.WithAlpha( 0.5 ) );
+            m_gal->SetIsFill( true );
+            m_gal->SetIsStroke( false );
+            m_gal->DrawPolygon( pts );
+        }
     }
 }
 

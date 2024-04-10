@@ -1,5 +1,5 @@
 ///////////////////////////////////////////////////////////////////////////
-// C++ code generated with wxFormBuilder (version 3.10.1-0-g8feb16b)
+// C++ code generated with wxFormBuilder (version 4.0.0-0-g0efcecf)
 // http://www.wxformbuilder.org/
 //
 // PLEASE DO *NOT* EDIT THIS FILE!
@@ -100,7 +100,7 @@ DIALOG_FIELD_PROPERTIES_BASE::DIALOG_FIELD_PROPERTIES_BASE( wxWindow* parent, wx
 
 	bSizer9->Add( 0, 0, 1, wxEXPAND, 5 );
 
-	m_cbAllowAutoPlace = new wxCheckBox( this, wxID_ANY, _("Allow autoplacement"), wxDefaultPosition, wxDefaultSize, 0 );
+	m_cbAllowAutoPlace = new wxCheckBox( this, wxID_ANY, _("Allow automatic placement"), wxDefaultPosition, wxDefaultSize, 0 );
 	m_cbAllowAutoPlace->SetValue(true);
 	m_cbAllowAutoPlace->Hide();
 	m_cbAllowAutoPlace->SetToolTip( _("Allow automatic placement of this field in the schematic") );
@@ -266,11 +266,11 @@ DIALOG_FIELD_PROPERTIES_BASE::DIALOG_FIELD_PROPERTIES_BASE( wxWindow* parent, wx
 	m_yPosUnits->Wrap( -1 );
 	gbSizer1->Add( m_yPosUnits, wxGBPosition( 4, 2 ), wxGBSpan( 1, 1 ), wxALIGN_CENTER_VERTICAL|wxLEFT, 3 );
 
-	m_CommonUnit = new wxCheckBox( this, wxID_ANY, _("Common to all units"), wxDefaultPosition, wxDefaultSize, 0 );
-	gbSizer1->Add( m_CommonUnit, wxGBPosition( 3, 4 ), wxGBSpan( 1, 1 ), wxRIGHT, 5 );
+	m_commonToAllUnits = new wxCheckBox( this, wxID_ANY, _("Common to all units"), wxDefaultPosition, wxDefaultSize, 0 );
+	gbSizer1->Add( m_commonToAllUnits, wxGBPosition( 3, 4 ), wxGBSpan( 1, 1 ), wxRIGHT, 5 );
 
-	m_CommonConvert = new wxCheckBox( this, wxID_ANY, _("Common to all body styles"), wxDefaultPosition, wxDefaultSize, 0 );
-	gbSizer1->Add( m_CommonConvert, wxGBPosition( 4, 4 ), wxGBSpan( 1, 1 ), wxRIGHT, 5 );
+	m_commonToAllBodyStyles = new wxCheckBox( this, wxID_ANY, _("Common to all body styles"), wxDefaultPosition, wxDefaultSize, 0 );
+	gbSizer1->Add( m_commonToAllBodyStyles, wxGBPosition( 4, 4 ), wxGBSpan( 1, 1 ), wxRIGHT, 5 );
 
 
 	bPropertiesSizer->Add( gbSizer1, 1, wxEXPAND|wxRIGHT|wxLEFT, 5 );

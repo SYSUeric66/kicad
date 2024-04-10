@@ -113,9 +113,14 @@ class SIM_ENUM_PROPERTY : public wxEnumProperty, public SIM_PROPERTY
 {
 public:
     SIM_ENUM_PROPERTY( const wxString& aLabel, const wxString& aName, SIM_MODEL& aModel,
-                       int aParamIndex );
+                       int aParamIndex, const wxArrayString& aValues );
 
+#if wxCHECK_VERSION( 3, 3, 0 )
+    bool IntToValue( wxVariant& aVariant, int aNumber,
+            wxPGPropValFormatFlags aArgFlags = wxPGPropValFormatFlags::Null ) const override;
+#else
     bool IntToValue( wxVariant& aVariant, int aNumber, int aArgFlags = 0 ) const override;
+#endif
 };
 
 #endif // SIM_PROPERTY_H

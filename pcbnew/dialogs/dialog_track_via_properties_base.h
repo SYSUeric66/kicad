@@ -1,5 +1,5 @@
 ///////////////////////////////////////////////////////////////////////////
-// C++ code generated with wxFormBuilder (version 3.10.1-0-g8feb16b)
+// C++ code generated with wxFormBuilder (version 4.0.0-0-g0efcecf)
 // http://www.wxformbuilder.org/
 //
 // PLEASE DO *NOT* EDIT THIS FILE!
@@ -45,6 +45,12 @@ class PCB_LAYER_BOX_SELECTOR;
 class DIALOG_TRACK_VIA_PROPERTIES_BASE : public DIALOG_SHIM
 {
 	private:
+		wxStaticText* m_stLenPercentUnits;
+		wxStaticText* m_stLenPercentHint;
+		wxStaticText* m_stLenPercentSuffix;
+		wxStaticText* m_stWidthPercentUnits;
+		wxStaticText* m_stWidthPercentHint;
+		wxStaticText* m_stWidthPercentSuffix;
 
 	protected:
 		wxBoxSizer* m_MainSizer;
@@ -65,10 +71,9 @@ class DIALOG_TRACK_VIA_PROPERTIES_BASE : public DIALOG_SHIM
 		wxStaticText* m_TrackEndYLabel;
 		wxTextCtrl* m_TrackEndYCtrl;
 		wxStaticText* m_TrackEndYUnit;
-		wxCheckBox* m_trackDesignRules;
-		wxStaticText* m_DesignRuleWidths;
-		wxChoice* m_DesignRuleWidthsCtrl;
-		wxStaticText* m_DesignRuleWidthsUnits;
+		wxStaticText* m_predefinedTrackWidthsLabel;
+		wxChoice* m_predefinedTrackWidthsCtrl;
+		wxStaticText* m_predefinedTrackWidthsUnits;
 		wxStaticText* m_TrackWidthLabel;
 		wxTextCtrl* m_TrackWidthCtrl;
 		wxStaticText* m_TrackWidthUnit;
@@ -80,10 +85,9 @@ class DIALOG_TRACK_VIA_PROPERTIES_BASE : public DIALOG_SHIM
 		wxStaticText* m_ViaYLabel;
 		wxTextCtrl* m_ViaYCtrl;
 		wxStaticText* m_ViaYUnit;
-		wxCheckBox* m_viaDesignRules;
-		wxStaticText* m_DesignRuleVias;
-		wxChoice* m_DesignRuleViasCtrl;
-		wxStaticText* m_DesignRuleViasUnit;
+		wxStaticText* m_predefinedViaSizesLabel;
+		wxChoice* m_predefinedViaSizesCtrl;
+		wxStaticText* m_predefinedViaSizesUnits;
 		wxStaticText* m_ViaDiameterLabel;
 		wxTextCtrl* m_ViaDiameterCtrl;
 		wxStaticText* m_ViaDiameterUnit;
@@ -112,16 +116,14 @@ class DIALOG_TRACK_VIA_PROPERTIES_BASE : public DIALOG_SHIM
 		wxStaticBitmap* m_bitmapTeardrop;
 		wxStaticText* m_stLenPercentLabel;
 		wxTextCtrl* m_tcLenPercent;
-		wxStaticText* m_stLenPercentUnits;
 		wxStaticText* m_stMaxLen;
 		wxTextCtrl* m_tcTdMaxLen;
 		wxStaticText* m_stMaxLenUnits;
-		wxStaticText* m_stHeightPercentLabel;
-		wxTextCtrl* m_tcHeightPercent;
-		wxStaticText* m_stHeightPercentUnits;
-		wxStaticText* m_stMaxHeight;
-		wxTextCtrl* m_tcMaxHeight;
-		wxStaticText* m_stMaxHeightUnits;
+		wxStaticText* m_stWidthPercentLabel;
+		wxTextCtrl* m_tcWidthPercent;
+		wxStaticText* m_stMaxWidthLabel;
+		wxTextCtrl* m_tcMaxWidth;
+		wxStaticText* m_stMaxWidthUnits;
 		wxCheckBox* m_curvedEdges;
 		wxStaticText* m_curvePointsLabel;
 		wxSpinCtrl* m_curvePointsCtrl;
@@ -131,10 +133,8 @@ class DIALOG_TRACK_VIA_PROPERTIES_BASE : public DIALOG_SHIM
 
 		// Virtual event handlers, override them in your derived class
 		virtual void onViaNotFreeClicked( wxCommandEvent& event ) { event.Skip(); }
-		virtual void onTrackNetclassCheck( wxCommandEvent& event ) { event.Skip(); }
 		virtual void onWidthSelect( wxCommandEvent& event ) { event.Skip(); }
 		virtual void onWidthEdit( wxCommandEvent& event ) { event.Skip(); }
-		virtual void onViaNetclassCheck( wxCommandEvent& event ) { event.Skip(); }
 		virtual void onViaSelect( wxCommandEvent& event ) { event.Skip(); }
 		virtual void onViaEdit( wxCommandEvent& event ) { event.Skip(); }
 		virtual void onTeardropsUpdateUi( wxUpdateUIEvent& event ) { event.Skip(); }

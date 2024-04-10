@@ -53,11 +53,6 @@ public:
     static wxString GetUserPluginsPath();
 
     /**
-     * Gets the user path for 3d viewer plugin
-     */
-    static wxString GetUserPlugins3DPath();
-
-    /**
      * Gets the default path we point users to create projects
      */
     static wxString GetDefaultUserProjectsPath();
@@ -149,6 +144,16 @@ public:
     static wxString GetDocumentationPath();
 
     /**
+     * Gets the path used for wxSingleInstanceChecker lock files
+     */
+    static wxString GetInstanceCheckerPath();
+
+    /**
+     * Gets a path to use for user-visible log files
+     */
+    static wxString GetLogsPath();
+
+    /**
      * Attempts to create a given path if it does not exist
      */
     static bool EnsurePathExists( const wxString& aPath );
@@ -177,11 +182,17 @@ public:
     static wxString GetOSXKicadDataDir();
 #endif
 
-#ifdef __WXWINDOWS__
+#ifdef __WXMSW__
     /**
      * @return The directory the font config support files can be found
      */
     static wxString GetWindowsFontConfigDir();
+
+
+    /**
+     * Gets the stock (install) data path, which is the base path for things like scripting, etc
+     */
+    static wxString GetWindowsBaseSharePath();
 #endif
 
     /**
@@ -223,7 +234,7 @@ private:
      */
     static void getUserDocumentPath( wxFileName& aPath );
 
-#ifdef __WXWINDOWS__
+#ifdef __WXMSW__
     /**
      * Gets the root of the kicad install on Windows specifically.
      * KiCad on Windows has a pseudo posix folder structure contained in its installed folder

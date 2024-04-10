@@ -147,25 +147,13 @@ bool DIALOG_SHEET_PIN_PROPERTIES::TransferDataFromWindow()
                                                            m_italic->IsChecked() ) );
     }
 
-    if( m_bold->IsChecked() != m_sheetPin->IsBold() )
-    {
-        if( m_bold->IsChecked() )
-        {
-            m_sheetPin->SetBold( true );
-            m_sheetPin->SetTextThickness( GetPenSizeForBold( m_sheetPin->GetTextWidth() ) );
-        }
-        else
-        {
-            m_sheetPin->SetBold( false );
-            m_sheetPin->SetTextThickness( 0 ); // Use default pen width
-        }
-    }
-
-    m_sheetPin->SetItalic( m_italic->IsChecked() );
-
     // Currently, eeschema uses only the text width as text size,
     // and expects text width = text height
     m_sheetPin->SetTextSize( VECTOR2I( m_textSize.GetIntValue(), m_textSize.GetIntValue() ) );
+
+    // Must come after SetTextSize()
+    m_sheetPin->SetBold( m_bold->IsChecked() );
+    m_sheetPin->SetItalic( m_italic->IsChecked() );
 
     m_sheetPin->SetTextColor( m_textColorSwatch->GetSwatchColor() );
 
@@ -176,7 +164,7 @@ bool DIALOG_SHEET_PIN_PROPERTIES::TransferDataFromWindow()
     else if( m_passive->GetValue() )       m_sheetPin->SetShape( LABEL_FLAG_SHAPE::L_UNSPECIFIED );
 
     if( !commit.Empty() )
-        commit.Push( _( "Edit Sheet Pin" ) );
+        commit.Push( _( "Edit Sheet Pin Properties" ) );
 
     return true;
 }

@@ -74,7 +74,7 @@ SYMBOL_PREVIEW_WIDGET::SYMBOL_PREVIEW_WIDGET( wxWindow* aParent, KIWAY* aKiway, 
     // Early initialization of the canvas background color,
     // before any OnPaint event is fired for the canvas using a wrong bg color
     KIGFX::VIEW* view = m_preview->GetView();
-    auto settings = static_cast<KIGFX::SCH_RENDER_SETTINGS*>( view->GetPainter()->GetSettings() );
+    auto settings = static_cast<SCH_RENDER_SETTINGS*>( view->GetPainter()->GetSettings() );
 
     if( auto* theme = Pgm().GetSettingsManager().GetColorSettings( app_settings->m_ColorTheme ) )
         settings->LoadColors( theme );
@@ -86,6 +86,8 @@ SYMBOL_PREVIEW_WIDGET::SYMBOL_PREVIEW_WIDGET( wxWindow* aParent, KIWAY* aKiway, 
 
     settings->m_ShowPinsElectricalType = app_settings->m_LibViewPanel.show_pin_electrical_type;
     settings->m_ShowPinNumbers = app_settings->m_LibViewPanel.show_pin_numbers;
+    settings->m_ShowHiddenPins = false;
+    settings->m_ShowHiddenFields = false;
 
     m_outerSizer = new wxBoxSizer( wxVERTICAL );
 
@@ -183,10 +185,10 @@ void SYMBOL_PREVIEW_WIDGET::fitOnDrawArea()
 }
 
 
-void SYMBOL_PREVIEW_WIDGET::DisplaySymbol( const LIB_ID& aSymbolID, int aUnit, int aConvert )
+void SYMBOL_PREVIEW_WIDGET::DisplaySymbol( const LIB_ID& aSymbolID, int aUnit, int aBodyStyle )
 {
     KIGFX::VIEW* view = m_preview->GetView();
-    auto settings = static_cast<KIGFX::SCH_RENDER_SETTINGS*>( view->GetPainter()->GetSettings() );
+    auto settings = static_cast<SCH_RENDER_SETTINGS*>( view->GetPainter()->GetSettings() );
     std::unique_ptr< LIB_SYMBOL > symbol;
 
     try
@@ -233,14 +235,14 @@ void SYMBOL_PREVIEW_WIDGET::DisplaySymbol( const LIB_ID& aSymbolID, int aUnit, i
         settings->m_ShowUnit = ( m_previewItem->IsMulti() && aUnit == 0 ) ? 1 : aUnit;
 
         // For symbols having a De Morgan body style, use the first style
-        settings->m_ShowConvert =
-                ( m_previewItem->HasConversion() && aConvert == 0 ) ? 1 : aConvert;
+        settings->m_ShowBodyStyle =
+                ( m_previewItem->HasAlternateBodyStyle() && aBodyStyle == 0 ) ? 1 : aBodyStyle;
 
         view->Add( m_previewItem );
 
         // Get the symbol size, in internal units
         m_itemBBox = m_previewItem->GetUnitBoundingBox( settings->m_ShowUnit,
-                                                        settings->m_ShowConvert );
+                                                        settings->m_ShowBodyStyle );
 
         if( !m_preview->IsShownOnScreen() )
         {
@@ -260,7 +262,7 @@ void SYMBOL_PREVIEW_WIDGET::DisplaySymbol( const LIB_ID& aSymbolID, int aUnit, i
 }
 
 
-void SYMBOL_PREVIEW_WIDGET::DisplayPart( LIB_SYMBOL* aSymbol, int aUnit, int aConvert )
+void SYMBOL_PREVIEW_WIDGET::DisplayPart( LIB_SYMBOL* aSymbol, int aUnit, int aBodyStyle )
 {
     KIGFX::VIEW* view = m_preview->GetView();
 
@@ -276,20 +278,19 @@ void SYMBOL_PREVIEW_WIDGET::DisplayPart( LIB_SYMBOL* aSymbol, int aUnit, int aCo
         m_previewItem = new LIB_SYMBOL( *aSymbol );
 
         // For symbols having a De Morgan body style, use the first style
-        auto settings =
-                static_cast<KIGFX::SCH_RENDER_SETTINGS*>( view->GetPainter()->GetSettings() );
+        auto settings = static_cast<SCH_RENDER_SETTINGS*>( view->GetPainter()->GetSettings() );
 
         // If unit isn't specified for a multi-unit part, pick the first.  (Otherwise we'll
         // draw all of them.)
         settings->m_ShowUnit = ( m_previewItem->IsMulti() && aUnit == 0 ) ? 1 : aUnit;
 
-        settings->m_ShowConvert =
-                ( m_previewItem->HasConversion() && aConvert == 0 ) ? 1 : aConvert;
+        settings->m_ShowBodyStyle =
+                ( m_previewItem->HasAlternateBodyStyle() && aBodyStyle == 0 ) ? 1 : aBodyStyle;
 
         view->Add( m_previewItem );
 
         // Get the symbol size, in internal units
-        m_itemBBox = aSymbol->GetUnitBoundingBox( settings->m_ShowUnit, settings->m_ShowConvert );
+        m_itemBBox = aSymbol->GetUnitBoundingBox( settings->m_ShowUnit, settings->m_ShowBodyStyle );
 
         // Calculate the draw scale to fit the drawing area
         fitOnDrawArea();

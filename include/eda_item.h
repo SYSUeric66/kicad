@@ -29,6 +29,7 @@
 
 #include <deque>
 
+#include <api/serializable.h>
 #include <core/typeinfo.h>
 #include <eda_item_flags.h>
 #include <eda_search_data.h>
@@ -51,6 +52,8 @@ enum class INSPECT_RESULT
 class UNITS_PROVIDER;
 class EDA_DRAW_FRAME;
 class MSG_PANEL_ITEM;
+
+namespace google { namespace protobuf { class Any; } }
 
 
 /**
@@ -81,7 +84,7 @@ typedef const INSPECTOR_FUNC& INSPECTOR;
 /**
  * A base class for most all the KiCad significant classes used in schematics and boards.
  */
-class EDA_ITEM : public KIGFX::VIEW_ITEM
+class EDA_ITEM : public KIGFX::VIEW_ITEM, public SERIALIZABLE
 {
 public:
     virtual ~EDA_ITEM() { };
@@ -134,7 +137,7 @@ public:
         return m_flags & mask;
     }
 
-    void ClearEditFlags()
+    virtual void ClearEditFlags()
     {
         ClearFlags( GetEditFlags() );
     }
@@ -146,7 +149,7 @@ public:
         return m_flags & mask;
     }
 
-    void ClearTempFlags()
+    virtual void ClearTempFlags()
     {
         ClearFlags( GetTempFlags() );
     }
@@ -447,7 +450,7 @@ public:
      *                  of nesting of this object within the overall tree.
      * @param os The ostream& to output to.
      */
-    virtual void Show( int nestLevel, std::ostream& os ) const = 0;
+    virtual void Show( int nestLevel, std::ostream& os ) const { ShowDummy( os ); };
 
     void ShowDummy( std::ostream& os ) const;  ///< call this if you are a lazy developer
 

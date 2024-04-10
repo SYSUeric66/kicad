@@ -86,14 +86,14 @@ public:
     {
     }
 
-    RC_ITEM( std::shared_ptr<RC_ITEM> aItem )
+    RC_ITEM( const std::shared_ptr<RC_ITEM>& aItem )
     {
         m_errorCode    = aItem->m_errorCode;
         m_errorMessage = aItem->m_errorMessage;
         m_errorTitle   = aItem->m_errorTitle;
         m_settingsKey  = aItem->m_settingsKey;
         m_parent       = aItem->m_parent;
-        m_ids = aItem->m_ids;
+        m_ids          = aItem->m_ids;
     }
 
     virtual ~RC_ITEM() { }
@@ -179,6 +179,8 @@ public:
     }
 
 protected:
+    static wxString getSeverityString( SEVERITY aSeverity );
+
     int           m_errorCode;         ///< The error code's numeric value
     wxString      m_errorMessage;      ///< A message describing the details of this specific error
     wxString      m_errorTitle;        ///< The string describing the type of error
@@ -193,9 +195,17 @@ protected:
 class RC_TREE_NODE
 {
 public:
-    enum NODE_TYPE { MARKER, MAIN_ITEM, AUX_ITEM, AUX_ITEM2, AUX_ITEM3 };
+    enum NODE_TYPE
+    {
+        MARKER,
+        MAIN_ITEM,
+        AUX_ITEM,
+        AUX_ITEM2,
+        AUX_ITEM3,
+        COMMENT
+    };
 
-    RC_TREE_NODE( RC_TREE_NODE* aParent, std::shared_ptr<RC_ITEM> aRcItem, NODE_TYPE aType ) :
+    RC_TREE_NODE( RC_TREE_NODE* aParent, const std::shared_ptr<RC_ITEM>& aRcItem, NODE_TYPE aType ) :
             m_Type( aType ),
             m_RcItem( aRcItem ),
             m_Parent( aParent )
@@ -278,7 +288,7 @@ public:
     bool GetAttr( wxDataViewItem const& aItem, unsigned int aCol,
                   wxDataViewItemAttr& aAttr ) const override;
 
-    void ValueChanged( const RC_TREE_NODE* aNode );
+    void ValueChanged( RC_TREE_NODE* aNode );
 
     void DeleteCurrentItem( bool aDeep );
 
@@ -290,8 +300,6 @@ public:
 
 protected:
     void     rebuildModel( std::shared_ptr<RC_ITEMS_PROVIDER> aProvider, int aSeverities );
-    void     onSizeView( wxSizeEvent& aEvent );
-    wxString getSeverityString( SEVERITY aSeverity );
 
     EDA_DRAW_FRAME*                    m_editFrame;
     wxDataViewCtrl*                    m_view;

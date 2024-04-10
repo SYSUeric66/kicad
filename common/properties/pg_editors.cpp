@@ -1,7 +1,7 @@
 /*
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
- * Copyright (C) 2022 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2022-2024 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software: you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -18,7 +18,7 @@
  */
 
 #include <eda_draw_frame.h>
-#include <dialogs/dialog_color_picker.h>
+#include <properties/std_optional_variants.h>
 #include <properties/eda_angle_variant.h>
 #include <properties/pg_editors.h>
 #include <properties/pg_properties.h>
@@ -30,6 +30,7 @@
 const wxString PG_UNIT_EDITOR::EDITOR_NAME = wxS( "KiCadUnitEditor" );
 const wxString PG_CHECKBOX_EDITOR::EDITOR_NAME = wxS( "KiCadCheckboxEditor" );
 const wxString PG_COLOR_EDITOR::EDITOR_NAME = wxS( "KiCadColorEditor" );
+const wxString PG_RATIO_EDITOR::EDITOR_NAME = wxS( "KiCadRatioEditor" );
 
 
 PG_UNIT_EDITOR::PG_UNIT_EDITOR( EDA_DRAW_FRAME* aFrame ) :
@@ -75,7 +76,11 @@ wxPGWindowList PG_UNIT_EDITOR::CreateControls( wxPropertyGrid* aPropGrid, wxPGPr
 {
     wxASSERT( m_unitBinder );
 
+#if wxCHECK_VERSION( 3, 3, 0 )
+    wxString text = aProperty->GetValueAsString( wxPGPropValFormatFlags::EditableValue );
+#else
     wxString text = aProperty->GetValueAsString( wxPG_EDITABLE_VALUE );
+#endif
     wxWindow* win = aPropGrid->GenerateEditorTextCtrl( aPos, aSize, text, nullptr, 0,
                                                        aProperty->GetMaxLength() );
     wxPGWindowList ret( win, nullptr );
@@ -87,6 +92,10 @@ wxPGWindowList PG_UNIT_EDITOR::CreateControls( wxPropertyGrid* aPropGrid, wxPGPr
     if( PGPROPERTY_DISTANCE* prop = dynamic_cast<PGPROPERTY_DISTANCE*>( aProperty ) )
     {
         m_unitBinder->SetCoordType( prop->CoordType() );
+    }
+    else if( dynamic_cast<PGPROPERTY_AREA*>( aProperty) != nullptr )
+    {
+        m_unitBinder->SetDataType( EDA_DATA_TYPE::AREA );
     }
     else if( dynamic_cast<PGPROPERTY_ANGLE*>( aProperty ) != nullptr )
     {
@@ -104,9 +113,22 @@ void PG_UNIT_EDITOR::UpdateControl( wxPGProperty* aProperty, wxWindow* aCtrl ) c
 {
     wxVariant var = aProperty->GetValue();
 
-    if( var.GetType() == wxPG_VARIANT_TYPE_LONG )
+    if( var.GetType() == wxT( "std::optional<int>" ) )
+    {
+        auto* variantData = static_cast<STD_OPTIONAL_INT_VARIANT_DATA*>( var.GetData() );
+
+        if( variantData->Value().has_value() )
+            m_unitBinder->ChangeValue( variantData->Value().value() );
+        else
+            m_unitBinder->ChangeValue( wxEmptyString );
+    }
+    else if( var.GetType() == wxPG_VARIANT_TYPE_LONG )
     {
         m_unitBinder->ChangeValue( var.GetLong() );
+    }
+    else if( var.GetType() == wxPG_VARIANT_TYPE_LONGLONG )
+    {
+        m_unitBinder->ChangeDoubleValue( var.GetLongLong().ToDouble() );
     }
     else if( var.GetType() == wxPG_VARIANT_TYPE_DOUBLE )
     {
@@ -153,11 +175,12 @@ bool PG_UNIT_EDITOR::GetValueFromControl( wxVariant& aVariant, wxPGProperty* aPr
     wxCHECK_MSG( textCtrl, false, "PG_UNIT_EDITOR requires a text control!" );
     wxString textVal = textCtrl->GetValue();
 
-    if( aProperty->UsesAutoUnspecified() && textVal.empty() )
+    if( textVal == wxT( "<...>" ) )
     {
         aVariant.MakeNull();
         return true;
     }
+
     bool changed;
 
     if( dynamic_cast<PGPROPERTY_ANGLE*>( aProperty ) != nullptr )
@@ -183,6 +206,44 @@ bool PG_UNIT_EDITOR::GetValueFromControl( wxVariant& aVariant, wxPGProperty* aPr
             {
                 aVariant = angle.AsDegrees();
                 m_unitBinder->SetValue( angle.AsDegrees() );
+            }
+        }
+    }
+    else if( dynamic_cast<PGPROPERTY_AREA*>( aProperty ) != nullptr )
+    {
+        wxLongLongNative result = m_unitBinder->GetValue();
+        changed = ( aVariant.IsNull() || result != aVariant.GetLongLong() );
+
+        if( changed )
+        {
+            aVariant = result;
+            m_unitBinder->SetDoubleValue( result.ToDouble() );
+        }
+    }
+    else if( aVariant.GetType() == wxT( "std::optional<int>" ) )
+    {
+        auto* variantData = static_cast<STD_OPTIONAL_INT_VARIANT_DATA*>( aVariant.GetData() );
+        std::optional<int> result;
+
+        if( m_unitBinder->IsNull() )
+        {
+            changed = ( aVariant.IsNull() || variantData->Value().has_value() );
+
+            if( changed )
+            {
+                aVariant = wxVariant( std::optional<int>() );
+                m_unitBinder->SetValue( wxEmptyString );
+            }
+        }
+        else
+        {
+            result = std::optional<int>( m_unitBinder->GetValue() );
+            changed = ( aVariant.IsNull() || result != variantData->Value() );
+
+            if( changed )
+            {
+                aVariant = wxVariant( result );
+                m_unitBinder->SetValue( result.value() );
             }
         }
     }
@@ -301,4 +362,94 @@ KIGFX::COLOR4D PG_COLOR_EDITOR::colorFromVariant( const wxVariant& aVariant ) co
 KIGFX::COLOR4D PG_COLOR_EDITOR::colorFromProperty( wxPGProperty* aProperty ) const
 {
     return colorFromVariant( aProperty->GetValue() );
+}
+
+
+bool PG_RATIO_EDITOR::GetValueFromControl( wxVariant& aVariant, wxPGProperty* aProperty,
+                                           wxWindow* aCtrl ) const
+{
+    wxTextCtrl* textCtrl = dynamic_cast<wxTextCtrl*>( aCtrl );
+    wxCHECK_MSG( textCtrl, false, "PG_RATIO_EDITOR requires a text control!" );
+    wxString textVal = textCtrl->GetValue();
+
+    if( textVal == wxT( "<...>" ) )
+    {
+        aVariant.MakeNull();
+        return true;
+    }
+
+    bool changed;
+
+    if( aVariant.GetType() == wxT( "std::optional<double>" ) )
+    {
+        auto* variantData = static_cast<STD_OPTIONAL_DOUBLE_VARIANT_DATA*>( aVariant.GetData() );
+
+        if( textVal.empty() )
+        {
+            changed = ( aVariant.IsNull() || variantData->Value().has_value() );
+
+            if( changed )
+                aVariant = wxVariant( std::optional<double>() );
+        }
+        else
+        {
+            double dblValue;
+            textVal.ToDouble( &dblValue );
+            std::optional<double> result( dblValue );
+            changed = ( aVariant.IsNull() || result != variantData->Value() );
+
+            if( changed )
+            {
+                aVariant = wxVariant( result );
+                textCtrl->SetValue( wxString::Format( wxS( "%g" ), dblValue ) );
+            }
+        }
+    }
+    else
+    {
+        double result;
+        textVal.ToDouble( &result );
+        changed = ( aVariant.IsNull() || result != aVariant.GetDouble() );
+
+        if( changed )
+        {
+            aVariant = result;
+            textCtrl->SetValue( wxString::Format( wxS( "%g" ), result ) );
+        }
+    }
+
+    // Changing unspecified always causes event (returning
+    // true here should be enough to trigger it).
+    if( !changed && aVariant.IsNull() )
+        changed = true;
+
+    return changed;
+}
+
+
+void PG_RATIO_EDITOR::UpdateControl( wxPGProperty* aProperty, wxWindow* aCtrl ) const
+{
+    wxTextCtrl* textCtrl = dynamic_cast<wxTextCtrl*>( aCtrl );
+    wxVariant   var = aProperty->GetValue();
+
+    wxCHECK_MSG( textCtrl, /*void*/, wxT( "PG_RATIO_EDITOR must be used with a textCtrl!" ) );
+
+    if( var.GetType() == wxT( "std::optional<double>" ) )
+    {
+        auto*    variantData = static_cast<STD_OPTIONAL_DOUBLE_VARIANT_DATA*>( var.GetData() );
+        wxString strValue;
+
+        if( variantData->Value().has_value() )
+            strValue = wxString::Format( wxS( "%g" ), variantData->Value().value() );
+
+        textCtrl->ChangeValue( strValue );
+    }
+    else if( var.GetType() == wxPG_VARIANT_TYPE_DOUBLE )
+    {
+        textCtrl->ChangeValue( wxString::Format( wxS( "%g" ), var.GetDouble() ) );
+    }
+    else if( !aProperty->IsValueUnspecified() )
+    {
+        wxFAIL_MSG( wxT( "PG_RATIO_EDITOR should only be used with scale-free numeric properties!" ) );
+    }
 }

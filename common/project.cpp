@@ -121,15 +121,7 @@ void PROJECT::setProjectFullName( const wxString& aFullPathAndName )
 
         wxASSERT( m_project_name.IsAbsolute() );
 
-        wxASSERT( m_project_name.GetExt() == ProjectFileExtension );
-
-        // until multiple projects are in play, set an environment variable for the
-        // the project pointer.
-        {
-            wxString path = m_project_name.GetPath();
-
-            wxSetEnv( PROJECT_VAR_NAME, path );
-        }
+        wxASSERT( m_project_name.GetExt() == FILEEXT::ProjectFileExtension );
     }
 }
 

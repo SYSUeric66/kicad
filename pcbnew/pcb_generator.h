@@ -47,26 +47,32 @@ public:
 
     virtual ~PCB_GENERATOR();
 
-    virtual void EditStart( GENERATOR_TOOL* aTool, BOARD* aBoard, PCB_BASE_EDIT_FRAME* aFrame,
-                            BOARD_COMMIT* aCommit );
+    /*
+     * Clone() this and all descendants
+     */
+    PCB_GENERATOR* DeepClone() const;
 
-    virtual void EditPush( GENERATOR_TOOL* aTool, BOARD* aBoard, PCB_BASE_EDIT_FRAME* aFrame,
-                           BOARD_COMMIT* aCommit, const wxString& aCommitMsg = wxEmptyString,
-                           int aCommitFlags = 0 );
+    virtual void EditStart( GENERATOR_TOOL* aTool, BOARD* aBoard, BOARD_COMMIT* aCommit );
 
-    virtual void EditRevert( GENERATOR_TOOL* aTool, BOARD* aBoard, PCB_BASE_EDIT_FRAME* aFrame,
-                             BOARD_COMMIT* aCommit );
+    virtual void EditPush( GENERATOR_TOOL* aTool, BOARD* aBoard, BOARD_COMMIT* aCommit,
+                           const wxString& aCommitMsg = wxEmptyString, int aCommitFlags = 0 );
 
-    virtual void Remove( GENERATOR_TOOL* aTool, BOARD* aBoard, PCB_BASE_EDIT_FRAME* aFrame,
-                         BOARD_COMMIT* aCommit );
+    virtual void EditRevert( GENERATOR_TOOL* aTool, BOARD* aBoard, BOARD_COMMIT* aCommit );
 
-    virtual bool Update( GENERATOR_TOOL* aTool, BOARD* aBoard, PCB_BASE_EDIT_FRAME* aFrame,
-                         BOARD_COMMIT* aCommit );
+    virtual void Remove( GENERATOR_TOOL* aTool, BOARD* aBoard, BOARD_COMMIT* aCommit );
+
+    virtual bool Update( GENERATOR_TOOL* aTool, BOARD* aBoard, BOARD_COMMIT* aCommit );
+
+#define STATUS_ITEMS_ONLY true
+
+    virtual std::vector<EDA_ITEM*> GetPreviewItems( GENERATOR_TOOL* aTool,
+                                                    PCB_BASE_EDIT_FRAME* aFrame,
+                                                    bool aStatusItemsOnly = false );
 
     virtual bool MakeEditPoints( std::shared_ptr<EDIT_POINTS> aEditPoints ) const;
 
     virtual bool UpdateFromEditPoints( std::shared_ptr<EDIT_POINTS> aEditPoints,
-                                       BOARD_COMMIT*                aCommit );
+                                       BOARD_COMMIT* aCommit );
 
     virtual bool UpdateEditPoints( std::shared_ptr<EDIT_POINTS> aEditPoints );
 
@@ -92,9 +98,6 @@ public:
     virtual std::vector<std::pair<wxString, wxVariant>> GetRowData();
 
     virtual void ShowPropertiesDialog( PCB_BASE_EDIT_FRAME* aEditFrame ) {};
-
-    virtual void UpdateStatus( GENERATOR_TOOL* aTool, PCB_BASE_EDIT_FRAME* aFrame,
-                               STATUS_MIN_MAX_POPUP* aPopup ) {};
 
     wxString GetItemDescription( UNITS_PROVIDER* aUnitsProvider ) const override;
 

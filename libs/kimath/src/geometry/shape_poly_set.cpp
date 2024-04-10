@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2015-2019 CERN
- * Copyright (C) 2021-2023 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2021-2024 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * @author Tomasz Wlostowski <tomasz.wlostowski@cern.ch>
  * @author Alejandro García Montoro <alejandro.garciamontoro@gmail.com>
@@ -37,9 +37,9 @@
 #include <map>
 #include <memory>
 #include <set>
-#include <string>                            // for char_traits, operator!=
-#include <type_traits>                       // for swap, move
+#include <string> // for char_traits, operator!=
 #include <unordered_set>
+#include <utility> // for swap, move
 #include <vector>
 
 #include <clipper.hpp>                       // for Clipper, PolyNode, Clipp...
@@ -671,53 +671,54 @@ void SHAPE_POLY_SET::RebuildHolesFromContours()
 
     std::function<void( int, int, std::vector<int> )> process;
 
-    process = [&]( int myId, int parentOutlineId, std::vector<int> path )
-    {
-        std::set<int> relParents = childToParents[myId];
-
-        for( int pathId : path )
-        {
-            int erased = relParents.erase( pathId );
-            wxASSERT( erased > 0 );
-        }
-
-        wxASSERT( relParents.size() == 0 );
-
-        int myOutline = -1;
-
-        bool isOutline = path.size() % 2 == 0;
-
-        if( isOutline )
-        {
-            int outlineId = result.AddOutline( contours[myId] );
-            myOutline = outlineId;
-        }
-        else
-        {
-            wxASSERT( parentOutlineId != -1 );
-            result.AddHole( contours[myId], parentOutlineId );
-        }
-
-        auto it = parentToChildren.find( myId );
-        if( it != parentToChildren.end() )
-        {
-            std::vector<int> thisPath = path;
-            thisPath.emplace_back( myId );
-
-            std::set<int> thisPathSet;
-            thisPathSet.insert( thisPath.begin(), thisPath.end() );
-
-            for( int childId : it->second )
+    process =
+            [&]( int myId, int parentOutlineId, const std::vector<int>& path )
             {
-                const std::set<int>& childPathSet = childToParents[childId];
+                std::set<int> relParents = childToParents[myId];
 
-                if( thisPathSet != childPathSet )
-                    continue; // Only interested in immediate children
+                for( int pathId : path )
+                {
+                    int erased = relParents.erase( pathId );
+                    wxASSERT( erased > 0 );
+                }
 
-                process( childId, myOutline, thisPath );
-            }
-        }
-    };
+                wxASSERT( relParents.size() == 0 );
+
+                int myOutline = -1;
+
+                bool isOutline = path.size() % 2 == 0;
+
+                if( isOutline )
+                {
+                    int outlineId = result.AddOutline( contours[myId] );
+                    myOutline = outlineId;
+                }
+                else
+                {
+                    wxASSERT( parentOutlineId != -1 );
+                    result.AddHole( contours[myId], parentOutlineId );
+                }
+
+                auto it = parentToChildren.find( myId );
+                if( it != parentToChildren.end() )
+                {
+                    std::vector<int> thisPath = path;
+                    thisPath.emplace_back( myId );
+
+                    std::set<int> thisPathSet;
+                    thisPathSet.insert( thisPath.begin(), thisPath.end() );
+
+                    for( int childId : it->second )
+                    {
+                        const std::set<int>& childPathSet = childToParents[childId];
+
+                        if( thisPathSet != childPathSet )
+                            continue; // Only interested in immediate children
+
+                        process( childId, myOutline, thisPath );
+                    }
+                }
+            };
 
     for( int topParentId : topLevelParents )
     {
@@ -833,7 +834,7 @@ void SHAPE_POLY_SET::booleanOp( ClipperLib::ClipType aType, const SHAPE_POLY_SET
                 //@todo amend X,Y values to true intersection between arcs or arc and segment
             };
 
-    c.ZFillFunction( callback ); // register callback
+    c.ZFillFunction( std::move( callback ) ); // register callback
 
     c.Execute( aType, solution, ClipperLib::pftNonZero, ClipperLib::pftNonZero );
 
@@ -946,7 +947,7 @@ void SHAPE_POLY_SET::booleanOp( Clipper2Lib::ClipType aType, const SHAPE_POLY_SE
                 //@todo amend X,Y values to true intersection between arcs or arc and segment
             };
 
-    c.SetZCallback( callback ); // register callback
+    c.SetZCallback( std::move( callback ) ); // register callback
 
     c.Execute( aType, Clipper2Lib::FillRule::NonZero, solution );
 
@@ -1217,11 +1218,11 @@ void SHAPE_POLY_SET::inflate2( int aAmount, int aCircleSegCount, CORNER_STRATEGY
         Paths64 paths;
         c.Execute( aAmount, paths );
 
-        Clipper2Lib::SimplifyPaths( paths, std::abs( aAmount ) * coeff, false );
+        Clipper2Lib::SimplifyPaths( paths, std::abs( aAmount ) * coeff, true );
 
         Clipper64 c2;
-        c2.PreserveCollinear = false;
-        c2.ReverseSolution = false;
+        c2.PreserveCollinear( false );
+        c2.ReverseSolution( false );
         c2.AddSubject( paths );
         c2.Execute(ClipType::Union, FillRule::Positive, tree);
     }
@@ -1317,8 +1318,8 @@ void SHAPE_POLY_SET::inflateLine2( const SHAPE_LINE_CHAIN& aLine, int aAmount, i
         Clipper2Lib::SimplifyPaths( paths2, std::abs( aAmount ) * coeff, false );
 
         Clipper64 c2;
-        c2.PreserveCollinear = false;
-        c2.ReverseSolution = false;
+        c2.PreserveCollinear( false );
+        c2.ReverseSolution( false );
         c2.AddSubject( paths2 );
         c2.Execute( ClipType::Union, FillRule::Positive, tree );
     }
@@ -1442,18 +1443,12 @@ void SHAPE_POLY_SET::importPaths( Clipper2Lib::Paths64&              aPath,
 
 struct FractureEdge
 {
-    FractureEdge( int y = 0 ) :
-        m_connected( false ),
-        m_next( nullptr )
-    {
-        m_p1.x = m_p2.y = y;
-    }
+    using Index = int;
 
-    FractureEdge( bool connected, const VECTOR2I& p1, const VECTOR2I& p2 ) :
-        m_connected( connected ),
-        m_p1( p1 ),
-        m_p2( p2 ),
-        m_next( nullptr )
+    FractureEdge() = default;
+
+    FractureEdge( const VECTOR2I& p1, const VECTOR2I& p2, Index next ) :
+            m_p1( p1 ), m_p2( p2 ), m_next( next )
     {
     }
 
@@ -1462,26 +1457,257 @@ struct FractureEdge
         return ( y >= m_p1.y || y >= m_p2.y ) && ( y <= m_p1.y || y <= m_p2.y );
     }
 
-    bool          m_connected;
-    VECTOR2I      m_p1;
-    VECTOR2I      m_p2;
-    FractureEdge* m_next;
+    VECTOR2I m_p1;
+    VECTOR2I m_p2;
+    Index    m_next;
 };
 
 
-typedef std::vector<FractureEdge*> FractureEdgeSet;
+typedef std::vector<FractureEdge> FractureEdgeSet;
 
 
-static int processEdge( FractureEdgeSet& edges, FractureEdge* edge )
+static FractureEdge* processHole( FractureEdgeSet& edges, FractureEdge::Index provokingIndex,
+                                  FractureEdge::Index edgeIndex, FractureEdge::Index bridgeIndex )
 {
-    int x   = edge->m_p1.x;
-    int y   = edge->m_p1.y;
-    int min_dist    = std::numeric_limits<int>::max();
-    int x_nearest   = 0;
+    FractureEdge& edge = edges[edgeIndex];
+    int           x = edge.m_p1.x;
+    int           y = edge.m_p1.y;
+    int           min_dist = std::numeric_limits<int>::max();
+    int           x_nearest = 0;
 
     FractureEdge* e_nearest = nullptr;
 
-    for( FractureEdge* e : edges )
+    // Since this function is run for all holes left to right, no need to
+    // check for any edge beyond the provoking one because they will always be
+    // further to the right, and unconnected to the outline anyway.
+    for( FractureEdge::Index i = 0; i < provokingIndex; i++ )
+    {
+        FractureEdge& e = edges[i];
+        // Don't consider this edge if it can't be bridged to, or faces left.
+        if( !e.matches( y ) )
+            continue;
+
+        int x_intersect;
+
+        if( e.m_p1.y == e.m_p2.y ) // horizontal edge
+        {
+            x_intersect = std::max( e.m_p1.x, e.m_p2.x );
+        }
+        else
+        {
+            x_intersect =
+                    e.m_p1.x + rescale( e.m_p2.x - e.m_p1.x, y - e.m_p1.y, e.m_p2.y - e.m_p1.y );
+        }
+
+        int dist = ( x - x_intersect );
+
+        if( dist >= 0 && dist < min_dist )
+        {
+            min_dist = dist;
+            x_nearest = x_intersect;
+            e_nearest = &e;
+        }
+    }
+
+    if( e_nearest )
+    {
+        const FractureEdge::Index outline2hole_index = bridgeIndex;
+        const FractureEdge::Index hole2outline_index = bridgeIndex + 1;
+        const FractureEdge::Index split_index = bridgeIndex + 2;
+        // Make an edge between the split outline edge and the hole...
+        edges[outline2hole_index] = FractureEdge( VECTOR2I( x_nearest, y ), edge.m_p1, edgeIndex );
+        // ...between the hole and the edge...
+        edges[hole2outline_index] =
+                FractureEdge( edge.m_p1, VECTOR2I( x_nearest, y ), split_index );
+        // ...and between the split outline edge and the rest.
+        edges[split_index] =
+                FractureEdge( VECTOR2I( x_nearest, y ), e_nearest->m_p2, e_nearest->m_next );
+
+        // Perform the actual outline edge split
+        e_nearest->m_p2 = VECTOR2I( x_nearest, y );
+        e_nearest->m_next = outline2hole_index;
+
+        FractureEdge* last = &edge;
+        for( ; last->m_next != edgeIndex; last = &edges[last->m_next] )
+            ;
+        last->m_next = hole2outline_index;
+    }
+
+    return e_nearest;
+}
+
+
+static void fractureSingleCacheFriendly( SHAPE_POLY_SET::POLYGON& paths )
+{
+    FractureEdgeSet edges;
+    bool            outline = true;
+
+    if( paths.size() == 1 )
+        return;
+
+    size_t total_point_count = 0;
+
+    for( const SHAPE_LINE_CHAIN& path : paths )
+    {
+        total_point_count += path.PointCount();
+    }
+
+    if( total_point_count > std::numeric_limits<FractureEdge::Index>::max() )
+    {
+        wxLogWarning( wxT( "Polygon has more points than int limit" ) );
+        return;
+    }
+
+    // Reserve space in the edge set so pointers don't get invalidated during
+    // the whole fracture process; one for each original edge, plus 3 per
+    // path to join it to the outline.
+    edges.reserve( total_point_count + paths.size() * 3 );
+
+    // Sort the paths by their lowest X bound before processing them.
+    // This ensures the processing order for processEdge() is correct.
+    struct PathInfo
+    {
+        int                 path_or_provoking_index;
+        FractureEdge::Index leftmost;
+        int                 x;
+        int                 y_or_bridge;
+    };
+    std::vector<PathInfo> sorted_paths;
+    const int             paths_count = static_cast<int>( paths.size() );
+    sorted_paths.reserve( paths_count );
+
+    for( int path_index = 0; path_index < paths_count; path_index++ )
+    {
+        const SHAPE_LINE_CHAIN&      path = paths[path_index];
+        const std::vector<VECTOR2I>& points = path.CPoints();
+        const int                    point_count = static_cast<int>( points.size() );
+        int                          x_min = std::numeric_limits<int>::max();
+        int                          y_min = std::numeric_limits<int>::max();
+        int                          leftmost = -1;
+
+        for( int point_index = 0; point_index < point_count; point_index++ )
+        {
+            const VECTOR2I& point = points[point_index];
+            if( point.x < x_min )
+            {
+                x_min = point.x;
+                leftmost = point_index;
+            }
+            if( point.y < y_min )
+                y_min = point.y;
+        }
+
+        sorted_paths.emplace_back( PathInfo{ path_index, leftmost, x_min, y_min } );
+    }
+
+    std::sort( sorted_paths.begin() + 1, sorted_paths.end(),
+               []( const PathInfo& a, const PathInfo& b )
+               {
+                   if( a.x == b.x )
+                       return a.y_or_bridge < b.y_or_bridge;
+                   return a.x < b.x;
+               } );
+
+    FractureEdge::Index edge_index = 0;
+
+    for( PathInfo& path_info : sorted_paths )
+    {
+        const SHAPE_LINE_CHAIN&      path = paths[path_info.path_or_provoking_index];
+        const std::vector<VECTOR2I>& points = path.CPoints();
+        const size_t                 point_count = points.size();
+
+        // Index of the provoking (first) edge for this path
+        const FractureEdge::Index provoking_edge = edge_index;
+
+        for( size_t i = 0; i < point_count - 1; i++ )
+        {
+            edges.emplace_back( points[i], points[i + 1], edge_index + 1 );
+            edge_index++;
+        }
+
+        // Create last edge looping back to the provoking one.
+        edges.emplace_back( points[point_count - 1], points[0], provoking_edge );
+        edge_index++;
+
+        if( !outline )
+        {
+            // Repurpose the path sorting data structure to schedule the leftmost edge
+            // for merging to the outline, which will in turn merge the rest of the path.
+            path_info.path_or_provoking_index = provoking_edge;
+            path_info.y_or_bridge = edge_index;
+
+            // Reserve 3 additional edges to bridge with the outline.
+            edge_index += 3;
+            edges.resize( edge_index );
+        }
+
+        outline = false; // first path is always the outline
+    }
+
+    for( auto it = sorted_paths.begin() + 1; it != sorted_paths.end(); it++ )
+    {
+        auto edge = processHole( edges, it->path_or_provoking_index,
+                                 it->path_or_provoking_index + it->leftmost, it->y_or_bridge );
+
+        // If we can't handle the hole, the zone is broken (maybe)
+        if( !edge )
+        {
+            wxLogWarning( wxT( "Broken polygon, dropping path" ) );
+
+            return;
+        }
+    }
+
+    paths.resize( 1 );
+    SHAPE_LINE_CHAIN& newPath = paths[0];
+
+    newPath.Clear();
+    newPath.SetClosed( true );
+
+    // Root edge is always at index 0
+    FractureEdge* e = &edges[0];
+
+    for( ; e->m_next != 0; e = &edges[e->m_next] )
+        newPath.Append( e->m_p1 );
+
+    newPath.Append( e->m_p1 );
+}
+
+
+struct FractureEdgeSlow
+{
+    FractureEdgeSlow( int y = 0 ) : m_connected( false ), m_next( nullptr ) { m_p1.x = m_p2.y = y; }
+
+    FractureEdgeSlow( bool connected, const VECTOR2I& p1, const VECTOR2I& p2 ) :
+            m_connected( connected ), m_p1( p1 ), m_p2( p2 ), m_next( nullptr )
+    {
+    }
+
+    bool matches( int y ) const
+    {
+        return ( y >= m_p1.y || y >= m_p2.y ) && ( y <= m_p1.y || y <= m_p2.y );
+    }
+
+    bool              m_connected;
+    VECTOR2I          m_p1;
+    VECTOR2I          m_p2;
+    FractureEdgeSlow* m_next;
+};
+
+
+typedef std::vector<FractureEdgeSlow*> FractureEdgeSetSlow;
+
+
+static int processEdge( FractureEdgeSetSlow& edges, FractureEdgeSlow* edge )
+{
+    int x = edge->m_p1.x;
+    int y = edge->m_p1.y;
+    int min_dist = std::numeric_limits<int>::max();
+    int x_nearest = 0;
+
+    FractureEdgeSlow* e_nearest = nullptr;
+
+    for( FractureEdgeSlow* e : edges )
     {
         if( !e->matches( y ) )
             continue;
@@ -1494,17 +1720,17 @@ static int processEdge( FractureEdgeSet& edges, FractureEdge* edge )
         }
         else
         {
-            x_intersect = e->m_p1.x + rescale( e->m_p2.x - e->m_p1.x, y - e->m_p1.y,
-                                               e->m_p2.y - e->m_p1.y );
+            x_intersect = e->m_p1.x
+                          + rescale( e->m_p2.x - e->m_p1.x, y - e->m_p1.y, e->m_p2.y - e->m_p1.y );
         }
 
         int dist = ( x - x_intersect );
 
         if( dist >= 0 && dist < min_dist && e->m_connected )
         {
-            min_dist    = dist;
-            x_nearest   = x_intersect;
-            e_nearest   = e;
+            min_dist = dist;
+            x_nearest = x_intersect;
+            e_nearest = e;
         }
     }
 
@@ -1512,21 +1738,24 @@ static int processEdge( FractureEdgeSet& edges, FractureEdge* edge )
     {
         int count = 0;
 
-        FractureEdge* lead1 = new FractureEdge( true, VECTOR2I( x_nearest, y ), VECTOR2I( x, y ) );
-        FractureEdge* lead2 = new FractureEdge( true, VECTOR2I( x, y ), VECTOR2I( x_nearest, y ) );
-        FractureEdge* split_2 = new FractureEdge( true, VECTOR2I( x_nearest, y ), e_nearest->m_p2 );
+        FractureEdgeSlow* lead1 =
+                new FractureEdgeSlow( true, VECTOR2I( x_nearest, y ), VECTOR2I( x, y ) );
+        FractureEdgeSlow* lead2 =
+                new FractureEdgeSlow( true, VECTOR2I( x, y ), VECTOR2I( x_nearest, y ) );
+        FractureEdgeSlow* split_2 =
+                new FractureEdgeSlow( true, VECTOR2I( x_nearest, y ), e_nearest->m_p2 );
 
         edges.push_back( split_2 );
         edges.push_back( lead1 );
         edges.push_back( lead2 );
 
-        FractureEdge* link = e_nearest->m_next;
+        FractureEdgeSlow* link = e_nearest->m_next;
 
         e_nearest->m_p2 = VECTOR2I( x_nearest, y );
         e_nearest->m_next = lead1;
         lead1->m_next = edge;
 
-        FractureEdge* last;
+        FractureEdgeSlow* last;
 
         for( last = edge; last->m_next != edge; last = last->m_next )
         {
@@ -1535,8 +1764,8 @@ static int processEdge( FractureEdgeSet& edges, FractureEdge* edge )
         }
 
         last->m_connected = true;
-        last->m_next    = lead2;
-        lead2->m_next   = split_2;
+        last->m_next = lead2;
+        lead2->m_next = split_2;
         split_2->m_next = link;
 
         return count + 1;
@@ -1546,11 +1775,11 @@ static int processEdge( FractureEdgeSet& edges, FractureEdge* edge )
 }
 
 
-void SHAPE_POLY_SET::fractureSingle( POLYGON& paths )
+static void fractureSingleSlow( SHAPE_POLY_SET::POLYGON& paths )
 {
-    FractureEdgeSet edges;
-    FractureEdgeSet border_edges;
-    FractureEdge*   root = nullptr;
+    FractureEdgeSetSlow edges;
+    FractureEdgeSetSlow border_edges;
+    FractureEdgeSlow*   root = nullptr;
 
     bool first = true;
 
@@ -1562,9 +1791,9 @@ void SHAPE_POLY_SET::fractureSingle( POLYGON& paths )
     for( const SHAPE_LINE_CHAIN& path : paths )
     {
         const std::vector<VECTOR2I>& points = path.CPoints();
-        int pointCount = points.size();
+        int                          pointCount = points.size();
 
-        FractureEdge* prev = nullptr, * first_edge = nullptr;
+        FractureEdgeSlow *prev = nullptr, *first_edge = nullptr;
 
         int x_min = std::numeric_limits<int>::max();
 
@@ -1575,8 +1804,8 @@ void SHAPE_POLY_SET::fractureSingle( POLYGON& paths )
 
             // Do not use path.CPoint() here; open-coding it using the local variables "points"
             // and "pointCount" gives a non-trivial performance boost to zone fill times.
-            FractureEdge* fe = new FractureEdge( first, points[ i ],
-                                                 points[ i+1 == pointCount ? 0 : i+1 ] );
+            FractureEdgeSlow* fe = new FractureEdgeSlow( first, points[i],
+                                                         points[i + 1 == pointCount ? 0 : i + 1] );
 
             if( !root )
                 root = fe;
@@ -1603,22 +1832,22 @@ void SHAPE_POLY_SET::fractureSingle( POLYGON& paths )
                 num_unconnected++;
         }
 
-        first = false;    // first path is always the outline
+        first = false; // first path is always the outline
     }
 
     // keep connecting holes to the main outline, until there's no holes left...
     while( num_unconnected > 0 )
     {
-        int x_min = std::numeric_limits<int>::max();
+        int  x_min = std::numeric_limits<int>::max();
         auto it = border_edges.begin();
 
-        FractureEdge* smallestX = nullptr;
+        FractureEdgeSlow* smallestX = nullptr;
 
         // find the left-most hole edge and merge with the outline
         for( ; it != border_edges.end(); ++it )
         {
-            FractureEdge* border_edge = *it;
-            int xt = border_edge->m_p1.x;
+            FractureEdgeSlow* border_edge = *it;
+            int               xt = border_edge->m_p1.x;
 
             if( ( xt <= x_min ) && !border_edge->m_connected )
             {
@@ -1634,7 +1863,7 @@ void SHAPE_POLY_SET::fractureSingle( POLYGON& paths )
         {
             wxLogWarning( wxT( "Broken polygon, dropping path" ) );
 
-            for( FractureEdge* edge : edges )
+            for( FractureEdgeSlow* edge : edges )
                 delete edge;
 
             return;
@@ -1648,17 +1877,25 @@ void SHAPE_POLY_SET::fractureSingle( POLYGON& paths )
 
     newPath.SetClosed( true );
 
-    FractureEdge* e;
+    FractureEdgeSlow* e;
 
     for( e = root; e->m_next != root; e = e->m_next )
         newPath.Append( e->m_p1 );
 
     newPath.Append( e->m_p1 );
 
-    for( FractureEdge* edge : edges )
+    for( FractureEdgeSlow* edge : edges )
         delete edge;
 
     paths.push_back( std::move( newPath ) );
+}
+
+
+void SHAPE_POLY_SET::fractureSingle( POLYGON& paths )
+{
+    if( ADVANCED_CFG::GetCfg().m_EnableCacheFriendlyFracture )
+        return fractureSingleCacheFriendly( paths );
+    fractureSingleSlow( paths );
 }
 
 
@@ -1870,6 +2107,18 @@ void SHAPE_POLY_SET::Simplify( POLYGON_MODE aFastMode )
         booleanOp( Clipper2Lib::ClipType::Union, empty );
     else
         booleanOp( ClipperLib::ctUnion, empty, aFastMode );
+}
+
+
+void SHAPE_POLY_SET::SimplifyOutlines( int aMaxError )
+{
+    for( POLYGON& paths : m_polys )
+    {
+        for( SHAPE_LINE_CHAIN& path : paths )
+        {
+            path.Simplify( aMaxError );
+        }
+    }
 }
 
 
@@ -2882,7 +3131,7 @@ SHAPE_POLY_SET &SHAPE_POLY_SET::operator=( const SHAPE_POLY_SET& aOther )
     }
 
     m_hash = aOther.m_hash;
-    m_triangulationValid = aOther.m_triangulationValid;
+    m_triangulationValid = aOther.m_triangulationValid.load();
 
     return *this;
 }
@@ -2980,34 +3229,32 @@ static SHAPE_POLY_SET partitionPolyIntoRegularCellGrid( const SHAPE_POLY_SET& aP
 }
 
 
-void SHAPE_POLY_SET::CacheTriangulation( bool aPartition, bool aSimplify )
+void SHAPE_POLY_SET::cacheTriangulation( bool aPartition, bool aSimplify,
+                                         std::vector<std::unique_ptr<TRIANGULATED_POLYGON>>* aHintData )
 {
-    bool recalculate = !m_hash.IsValid();
-    MD5_HASH hash;
+    std::unique_lock<std::mutex> lock( m_triangulationMutex );
 
-    if( !m_triangulationValid )
-        recalculate = true;
-
-    if( !recalculate )
+    if( m_triangulationValid && m_hash.IsValid() )
     {
-        hash = checksum();
-
-        if( m_hash != hash )
-        {
-            m_hash = hash;
-            recalculate = true;
-        }
+        if( m_hash == checksum() )
+            return;
     }
 
-    if( !recalculate )
-        return;
+    // Invalidate, in case anything goes wrong below
+    m_triangulationValid = false;
+    m_hash.SetValid( false );
 
     auto triangulate =
             []( SHAPE_POLY_SET& polySet, int forOutline,
-                std::vector<std::unique_ptr<TRIANGULATED_POLYGON>>& dest )
+                std::vector<std::unique_ptr<TRIANGULATED_POLYGON>>& dest,
+                std::vector<std::unique_ptr<TRIANGULATED_POLYGON>>* hintData )
             {
                 bool triangulationValid = false;
                 int pass = 0;
+                int index = 0;
+
+                if( hintData && hintData->size() != (unsigned) polySet.OutlineCount() )
+                    hintData = nullptr;
 
                 while( polySet.OutlineCount() > 0 )
                 {
@@ -3015,27 +3262,42 @@ void SHAPE_POLY_SET::CacheTriangulation( bool aPartition, bool aSimplify )
                         dest.erase( dest.end() - 1 );
 
                     dest.push_back( std::make_unique<TRIANGULATED_POLYGON>( forOutline ) );
-                    PolygonTriangulation tess( *dest.back() );
+                    POLYGON_TRIANGULATION tess( *dest.back() );
 
                     // If the tessellation fails, we re-fracture the polygon, which will
                     // first simplify the system before fracturing and removing the holes
                     // This may result in multiple, disjoint polygons.
-                    if( !tess.TesselatePolygon( polySet.Polygon( 0 ).front() ) )
+                    if( !tess.TesselatePolygon( polySet.Polygon( 0 ).front(),
+                                                hintData ? hintData->at( index ).get() : nullptr ) )
                     {
                         ++pass;
 
                         if( pass == 1 )
+                        {
                             polySet.Fracture( PM_FAST );
+                        }
                         else if( pass == 2 )
+                        {
+                            polySet.SimplifyOutlines(
+                                    ADVANCED_CFG::GetCfg().m_TriangulateSimplificationLevel );
+                        }
+                        // In Clipper2, there is only one type of simplification
+                        else if( pass == 3 && !ADVANCED_CFG::GetCfg().m_UseClipper2 )
+                        {
                             polySet.Fracture( PM_STRICTLY_SIMPLE );
+                        }
                         else
+                        {
                             break;
+                        }
 
                         triangulationValid = false;
+                        hintData = nullptr;
                         continue;
                     }
 
                     polySet.DeletePolygon( 0 );
+                    index++;
                     triangulationValid = true;
                 }
 
@@ -3043,7 +3305,6 @@ void SHAPE_POLY_SET::CacheTriangulation( bool aPartition, bool aSimplify )
             };
 
     m_triangulatedPolys.clear();
-    m_triangulationValid = true;
 
     if( aPartition )
     {
@@ -3066,7 +3327,16 @@ void SHAPE_POLY_SET::CacheTriangulation( bool aPartition, bool aSimplify )
 
             // This pushes the triangulation for all polys in partitions
             // to be referenced to the ii-th polygon
-            m_triangulationValid &= triangulate( partitions, ii , m_triangulatedPolys );
+            if( !triangulate( partitions, ii , m_triangulatedPolys, aHintData ) )
+            {
+                wxLogTrace( TRIANGULATE_TRACE, "Failed to triangulate partitioned polygon %d", ii );
+            }
+            else
+            {
+                m_hash = checksum();
+                // Set valid flag only after everything has been updated
+                m_triangulationValid = true;
+            }
         }
     }
     else
@@ -3077,11 +3347,17 @@ void SHAPE_POLY_SET::CacheTriangulation( bool aPartition, bool aSimplify )
 
         tmpSet.Fracture( PM_FAST );
 
-        m_triangulationValid = triangulate( tmpSet, -1, m_triangulatedPolys );
+        if( !triangulate( tmpSet, -1, m_triangulatedPolys, aHintData ) )
+        {
+            wxLogTrace( TRIANGULATE_TRACE, "Failed to triangulate polygon" );
+        }
+        else
+        {
+            m_hash = checksum();
+            // Set valid flag only after everything has been updated
+            m_triangulationValid = true;
+        }
     }
-
-    if( m_triangulationValid )
-        m_hash = checksum();
 }
 
 
@@ -3169,7 +3445,7 @@ void SHAPE_POLY_SET::GetIndexableSubshapes( std::vector<const SHAPE*>& aSubshape
 
     for( const std::unique_ptr<TRIANGULATED_POLYGON>& tpoly : m_triangulatedPolys )
     {
-        for( TRIANGULATED_POLYGON::TRI& tri : tpoly->Triangles() )
+        for( const TRIANGULATED_POLYGON::TRI& tri : tpoly->Triangles() )
             aSubshapes.push_back( &tri );
     }
 }

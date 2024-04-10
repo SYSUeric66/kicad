@@ -448,6 +448,9 @@ void HPGL_PLOTTER::Circle( const VECTOR2I& aCenter, int aDiameter, FILL_T aFill,
 void HPGL_PLOTTER::PlotPoly( const std::vector<VECTOR2I>& aCornerList, FILL_T aFill, int aWidth,
                              void* aData )
 {
+    if( aFill == FILL_T::NO_FILL && aWidth <= 0 )
+        return;
+
     if( aCornerList.size() <= 1 )
         return;
 
@@ -462,7 +465,7 @@ void HPGL_PLOTTER::PlotPoly( const std::vector<VECTOR2I>& aCornerList, FILL_T aF
     MoveTo( aCornerList[0] );
     startItem( userToDeviceCoordinates( aCornerList[0] ) );
 
-    if( aFill == FILL_T::FILLED_SHAPE || aFill == FILL_T::FILLED_WITH_COLOR )
+    if( aFill != FILL_T::NO_FILL )
     {
         // Draw the filled area
         SetCurrentLineWidth( USE_DEFAULT_LINE_WIDTH );
@@ -562,6 +565,13 @@ void HPGL_PLOTTER::Arc( const VECTOR2D& aCenter, const EDA_ANGLE& aStartAngle,
     if( aRadius <= 0 )
         return;
 
+    // Avoid integer overflow when calculating the center point
+    if( std::abs( aAngle.AsDegrees() ) < 5 )
+    {
+        polyArc( aCenter, aStartAngle, aAngle, aRadius, aFill, aWidth );
+        return;
+    }
+
     double const radius_device       = userToDeviceSize( aRadius );
     double const circumf_device      = 2.0 * M_PI * radius_device;
     double const target_chord_length = m_arcTargetChordLength;
@@ -578,11 +588,11 @@ void HPGL_PLOTTER::Arc( const VECTOR2D& aCenter, const EDA_ANGLE& aStartAngle,
     EDA_ANGLE startAngle = -aStartAngle;
 
     // Calculate arc start point:
-    VECTOR2I cmap( aCenter.x + KiROUND( aRadius * startAngle.Cos() ),
-                   aCenter.y - KiROUND( aRadius * startAngle.Sin() ) );
+    VECTOR2I cmap( KiROUND( aCenter.x + aRadius * startAngle.Cos() ),
+                   KiROUND( aCenter.y - aRadius * startAngle.Sin() ) );
     VECTOR2D cmap_dev = userToDeviceCoordinates( cmap );
 
-    startOrAppendItem( cmap_dev, wxString::Format( "AA %.0f,%.0f,%.0f,%g",
+    startOrAppendItem( cmap_dev, wxString::Format( "AA %.0f,%.0f,%g,%g",
                                                    centre_device.x,
                                                    centre_device.y,
                                                    angle.AsDegrees(),

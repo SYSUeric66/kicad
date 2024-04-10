@@ -1,7 +1,7 @@
 /*
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
- * Copyright (C) 2018-2023 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2018-2024 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -62,16 +62,60 @@ enum
 
 static wxString netList( SCH_SYMBOL* aSymbol, SCH_SHEET_PATH& aSheetPath )
 {
+    wxCHECK( aSymbol && aSymbol->GetLibSymbolRef(), wxEmptyString );
+
     /*
      * Symbol netlist format:
-     *   pinCount
-     *   fpFilters
+     *   pinNumber pinName <tab> pinNumber pinName...
+     *   fpFilter fpFilter...
      */
     wxString netlist;
 
-    netlist << wxString::Format( wxS( "%zu\r" ), aSymbol->GetFullPinCount() );
+    wxArrayString pins;
+
+    for( SCH_PIN* pin : aSymbol->GetPins( &aSheetPath ) )
+        pins.push_back( pin->GetNumber() + ' ' + pin->GetShownName() );
+
+    if( !pins.IsEmpty() )
+        netlist << EscapeString( wxJoin( pins, '\t' ), CTX_LINE );
+
+    netlist << wxS( "\r" );
 
     wxArrayString fpFilters = aSymbol->GetLibSymbolRef()->GetFPFilters();
+
+    if( !fpFilters.IsEmpty() )
+        netlist << EscapeString( wxJoin( fpFilters, ' ' ), CTX_LINE );
+
+    netlist << wxS( "\r" );
+
+    return netlist;
+}
+
+
+static wxString netList( LIB_SYMBOL* aSymbol )
+{
+    /*
+     * Symbol netlist format:
+     *   pinNumber pinName <tab> pinNumber pinName...
+     *   fpFilter fpFilter...
+     */
+    wxString netlist;
+
+    std::vector<LIB_PIN*> pinList;
+
+    aSymbol->GetPins( pinList, 0, 1 );   // All units, but a single convert
+
+    wxArrayString pins;
+
+    for( LIB_PIN* pin : pinList )
+        pins.push_back( pin->GetNumber() + ' ' + pin->GetShownName() );
+
+    if( !pins.IsEmpty() )
+        netlist << EscapeString( wxJoin( pins, '\t' ), CTX_LINE );
+
+    netlist << wxS( "\r" );
+
+    wxArrayString fpFilters = aSymbol->GetFPFilters();
 
     if( !fpFilters.IsEmpty() )
         netlist << EscapeString( wxJoin( fpFilters, ' ' ), CTX_LINE );
@@ -91,6 +135,7 @@ FIELDS_GRID_TABLE<T>::FIELDS_GRID_TABLE( DIALOG_SHIM* aDialog, SCH_BASE_FRAME* a
         m_parentType( SCH_SYMBOL_T ),
         m_mandatoryFieldCount( MANDATORY_FIELDS ),
         m_part( aSymbol ),
+        m_symbolNetlist( netList( aSymbol ) ),
         m_fieldNameValidator( FIELD_NAME ),
         m_referenceValidator( REFERENCE_FIELD ),
         m_valueValidator( VALUE_FIELD ),
@@ -223,7 +268,7 @@ void FIELDS_GRID_TABLE<T>::initGrid( WX_GRID* aGrid )
     // Create a wild card using wxFileDialog syntax.
     wxString wildCard( _( "Schematic Files" ) );
     std::vector<std::string> exts;
-    exts.push_back( KiCadSchematicFileExtension );
+    exts.push_back( FILEEXT::KiCadSchematicFileExtension );
     wildCard += AddFileExtListToFilter( exts );
 
     auto filepathEditor = new GRID_CELL_PATH_EDITOR( m_dialog, aGrid, &m_curdir, wildCard );
@@ -429,8 +474,19 @@ wxGridCellAttr* FIELDS_GRID_TABLE<T>::GetAttr( int aRow, int aCol, wxGridCellAtt
         }
         else if( m_parentType == SCH_SYMBOL_T && aRow == FOOTPRINT_FIELD )
         {
-            m_footprintAttr->IncRef();
-            return m_footprintAttr;
+            // Power symbols have do not appear in the board, so don't allow
+            // a footprint (m_part can be nullptr when loading a old schematic
+            // (for instance Kicad 4) with libraries missing)
+            if( m_part && m_part->IsPower() )
+            {
+                m_readOnlyAttr->IncRef();
+                return m_readOnlyAttr;
+            }
+            else
+            {
+                m_footprintAttr->IncRef();
+                return m_footprintAttr;
+            }
         }
         else if( m_parentType == SCH_SYMBOL_T && aRow == DATASHEET_FIELD )
         {
@@ -572,9 +628,10 @@ wxString FIELDS_GRID_TABLE<T>::GetValue( int aRow, int aCol )
     case FDC_H_ALIGN:
         switch ( field.GetEffectiveHorizJustify() )
         {
-        case GR_TEXT_H_ALIGN_LEFT:   return _( "Left" );
-        case GR_TEXT_H_ALIGN_CENTER: return _( "Center" );
-        case GR_TEXT_H_ALIGN_RIGHT:  return _( "Right" );
+        case GR_TEXT_H_ALIGN_LEFT:          return _( "Left" );
+        case GR_TEXT_H_ALIGN_CENTER:        return _( "Center" );
+        case GR_TEXT_H_ALIGN_RIGHT:         return _( "Right" );
+        case GR_TEXT_H_ALIGN_INDETERMINATE: return INDETERMINATE_STATE;
         }
 
         break;
@@ -582,9 +639,10 @@ wxString FIELDS_GRID_TABLE<T>::GetValue( int aRow, int aCol )
     case FDC_V_ALIGN:
         switch ( field.GetEffectiveVertJustify() )
         {
-        case GR_TEXT_V_ALIGN_TOP:    return _( "Top" );
-        case GR_TEXT_V_ALIGN_CENTER: return _( "Center" );
-        case GR_TEXT_V_ALIGN_BOTTOM: return _( "Bottom" );
+        case GR_TEXT_V_ALIGN_TOP:           return _( "Top" );
+        case GR_TEXT_V_ALIGN_CENTER:        return _( "Center" );
+        case GR_TEXT_V_ALIGN_BOTTOM:        return _( "Bottom" );
+        case GR_TEXT_V_ALIGN_INDETERMINATE: return INDETERMINATE_STATE;
         }
 
         break;
@@ -689,7 +747,7 @@ void FIELDS_GRID_TABLE<T>::SetValue( int aRow, int aCol, const wxString &aValue 
     {
         if( m_parentType == SCH_SHEET_T && aRow == SHEETFILENAME )
         {
-            value = EnsureFileExtension( value, KiCadSchematicFileExtension );
+            value = EnsureFileExtension( value, FILEEXT::KiCadSchematicFileExtension );
         }
         else if( m_parentType == LIB_SYMBOL_T && aRow == VALUE_FIELD )
         {
@@ -866,7 +924,8 @@ template class FIELDS_GRID_TABLE<LIB_FIELD>;
 
 void FIELDS_GRID_TRICKS::showPopupMenu( wxMenu& menu, wxGridEvent& aEvent )
 {
-    if( m_grid->GetGridCursorRow() == FOOTPRINT_FIELD && m_grid->GetGridCursorCol() == FDC_VALUE )
+    if( m_grid->GetGridCursorRow() == FOOTPRINT_FIELD && m_grid->GetGridCursorCol() == FDC_VALUE
+        && !m_grid->IsReadOnly( FOOTPRINT_FIELD, FDC_VALUE ) )
     {
         menu.Append( MYID_SELECT_FOOTPRINT, _( "Select Footprint..." ),
                      _( "Browse for footprint" ) );

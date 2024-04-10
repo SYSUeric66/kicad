@@ -249,40 +249,33 @@ int GROUP_TOOL::Group( const TOOL_EVENT& aEvent )
     if( selection.Empty() )
         return 0;
 
-    BOARD*     board = getModel<BOARD>();
-    PCB_GROUP* group = nullptr;
-    bool       lockGroup = false;
+    BOARD*       board = getModel<BOARD>();
+    BOARD_COMMIT commit( m_toolMgr );
+    PCB_GROUP*   group = nullptr;
 
     if( m_isFootprintEditor )
-    {
         group = new PCB_GROUP( board->GetFirstFootprint() );
-        board->GetFirstFootprint()->Add( group );
-    }
     else
-    {
         group = new PCB_GROUP( board );
-        board->Add( group );
-    }
-
-    PICKED_ITEMS_LIST undoList;
-    undoList.PushItem( ITEM_PICKER( nullptr, group, UNDO_REDO::NEWITEM ) );
 
     for( EDA_ITEM* eda_item : selection )
     {
         if( BOARD_ITEM* item = dynamic_cast<BOARD_ITEM*>( eda_item ) )
         {
             if( item->IsLocked() )
-                lockGroup = true;
-
-            group->AddItem( item );
-            undoList.PushItem( ITEM_PICKER( nullptr, item, UNDO_REDO::REGROUP ) );
+                group->SetLocked( true );
         }
     }
 
-    m_frame->SaveCopyInUndoList( undoList, UNDO_REDO::REGROUP );
+    commit.Add( group );
 
-    if( lockGroup )
-        group->SetLocked( true );
+    for( EDA_ITEM* eda_item : selection )
+    {
+        if( BOARD_ITEM* item = dynamic_cast<BOARD_ITEM*>( eda_item ) )
+            commit.Stage( item, CHT_GROUP );
+    }
+
+    commit.Push( _( "Group Items" ) );
 
     selTool->ClearSelection();
     selTool->select( group );
@@ -296,9 +289,9 @@ int GROUP_TOOL::Group( const TOOL_EVENT& aEvent )
 
 int GROUP_TOOL::Ungroup( const TOOL_EVENT& aEvent )
 {
-    const PCB_SELECTION&     selection = m_toolMgr->GetTool<PCB_SELECTION_TOOL>()->GetSelection();
-    BOARD*                   board     = getModel<BOARD>();
-    std::vector<BOARD_ITEM*> members;
+    const PCB_SELECTION& selection = m_toolMgr->GetTool<PCB_SELECTION_TOOL>()->GetSelection();
+    BOARD_COMMIT         commit( m_toolMgr );
+    EDA_ITEMS            toSelect;
 
     if( selection.Empty() )
         m_toolMgr->RunAction( PCB_ACTIONS::selectionCursor );
@@ -312,29 +305,20 @@ int GROUP_TOOL::Ungroup( const TOOL_EVENT& aEvent )
 
         if( group )
         {
-            PICKED_ITEMS_LIST undoList;
-
             for( BOARD_ITEM* member : group->GetItems() )
             {
-                undoList.PushItem( ITEM_PICKER( nullptr, member, UNDO_REDO::UNGROUP ) );
-                members.push_back( member );
+                commit.Stage( member, CHT_UNGROUP );
+                toSelect.push_back( member );
             }
 
-            group->RemoveAll();
-
-            if( m_isFootprintEditor )
-                board->GetFirstFootprint()->Remove( group );
-            else
-                board->Remove( group );
-
-            undoList.PushItem( ITEM_PICKER( nullptr, group, UNDO_REDO::DELETED ) );
-            m_frame->SaveCopyInUndoList( undoList, UNDO_REDO::UNGROUP );
             group->SetSelected();
+            commit.Remove( group );
         }
     }
 
-    EDA_ITEMS mem( members.begin(), members.end() );
-    m_toolMgr->RunAction<EDA_ITEMS*>( PCB_ACTIONS::selectItems, &mem );
+    commit.Push( _( "Ungroup Items" ) );
+
+    m_toolMgr->RunAction<EDA_ITEMS*>( PCB_ACTIONS::selectItems, &toSelect );
 
     m_toolMgr->PostEvent( EVENTS::SelectedItemsModified );
     m_frame->OnModify();
@@ -352,23 +336,13 @@ int GROUP_TOOL::RemoveFromGroup( const TOOL_EVENT& aEvent )
     if( selection.Empty() )
         m_toolMgr->RunAction( PCB_ACTIONS::selectionCursor );
 
-    std::map<PCB_GROUP*, std::vector<BOARD_ITEM*>> groupMap;
-
     for( EDA_ITEM* item : selection )
     {
         BOARD_ITEM* boardItem = static_cast<BOARD_ITEM*>( item );
         PCB_GROUP*  group = boardItem->GetParentGroup();
 
         if( group )
-            groupMap[ group ].push_back( boardItem );
-    }
-
-    for( std::pair<PCB_GROUP*, std::vector<BOARD_ITEM*>> pair : groupMap )
-    {
-        commit.Modify( pair.first );
-
-        for( BOARD_ITEM* item : pair.second )
-            pair.first->RemoveItem( item );
+            commit.Stage( boardItem, CHT_UNGROUP );
     }
 
     commit.Push( wxT( "Remove Group Items" ) );

@@ -1,5 +1,5 @@
 ///////////////////////////////////////////////////////////////////////////
-// C++ code generated with wxFormBuilder (version 3.10.1-0-g8feb16b3)
+// C++ code generated with wxFormBuilder (version 4.0.0-0-g0efcecf)
 // http://www.wxformbuilder.org/
 //
 // PLEASE DO *NOT* EDIT THIS FILE!
@@ -66,7 +66,7 @@ class DIALOG_LIB_SYMBOL_PROPERTIES_BASE : public DIALOG_SHIM
 		wxStaticText* m_staticTextNbUnits;
 		wxSpinCtrl* m_SelNumberOfUnits;
 		wxCheckBox* m_OptionPartsInterchangeable;
-		wxCheckBox* m_AsConvertButt;
+		wxCheckBox* m_hasAlternateBodyStyles;
 		wxCheckBox* m_OptionPower;
 		wxCheckBox* m_ShowPinNumButt;
 		wxCheckBox* m_ShowPinNameButt;

@@ -188,8 +188,8 @@ public:
     {
         if( m_fileFilterFn )
         {
-        return new GRID_CELL_PATH_EDITOR( m_dlg, m_grid, m_currentDir, m_normalize,
-                                          m_normalizeBasePath, m_fileFilterFn );
+            return new GRID_CELL_PATH_EDITOR( m_dlg, m_grid, m_currentDir, m_normalize,
+                                              m_normalizeBasePath, m_fileFilterFn );
         }
         else
         {

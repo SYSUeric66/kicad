@@ -97,10 +97,13 @@ ERC_SETTINGS::ERC_SETTINGS( JSON_SETTINGS* aParent, const std::string& aPath ) :
     m_ERCSeverities[ERCE_ENDPOINT_OFF_GRID]       = RPT_SEVERITY_WARNING;
     m_ERCSeverities[ERCE_PIN_TO_PIN_WARNING]      = RPT_SEVERITY_WARNING;
     m_ERCSeverities[ERCE_SIMILAR_LABELS]          = RPT_SEVERITY_WARNING;
+    m_ERCSeverities[ERCE_SINGLE_GLOBAL_LABEL]     = RPT_SEVERITY_IGNORE;
     m_ERCSeverities[ERCE_GLOBLABEL]               = RPT_SEVERITY_WARNING;
     m_ERCSeverities[ERCE_DRIVER_CONFLICT]         = RPT_SEVERITY_WARNING;
     m_ERCSeverities[ERCE_BUS_ENTRY_CONFLICT]      = RPT_SEVERITY_WARNING;
     m_ERCSeverities[ERCE_LIB_SYMBOL_ISSUES]       = RPT_SEVERITY_WARNING;
+    m_ERCSeverities[ERCE_LIB_SYMBOL_MISMATCH]     = RPT_SEVERITY_WARNING;
+    m_ERCSeverities[ERCE_FOOTPRINT_LINK_ISSUES]   = RPT_SEVERITY_WARNING;
     m_ERCSeverities[ERCE_NOCONNECT_CONNECTED]     = RPT_SEVERITY_WARNING;
     m_ERCSeverities[ERCE_NOCONNECT_NOT_CONNECTED] = RPT_SEVERITY_WARNING;
     m_ERCSeverities[ERCE_MISSING_UNIT]            = RPT_SEVERITY_WARNING;
@@ -149,8 +152,8 @@ ERC_SETTINGS::ERC_SETTINGS( JSON_SETTINGS* aParent, const std::string& aPath ) :
             {
                 nlohmann::json js = nlohmann::json::array();
 
-                for( const auto& entry : m_ErcExclusions )
-                    js.push_back( entry );
+                for( const wxString& entry : m_ErcExclusions )
+                    js.push_back( { entry, m_ErcExclusionComments[ entry ] } );
 
                 return js;
             },
@@ -163,10 +166,16 @@ ERC_SETTINGS::ERC_SETTINGS( JSON_SETTINGS* aParent, const std::string& aPath ) :
 
                 for( const nlohmann::json& entry : aObj )
                 {
-                    if( entry.empty() )
-                        continue;
-
-                    m_ErcExclusions.insert( entry.get<wxString>() );
+                    if( entry.is_array() )
+                    {
+                        wxString serialized = entry[0].get<wxString>();
+                        m_ErcExclusions.insert( serialized );
+                        m_ErcExclusionComments[ serialized ] = entry[1].get<wxString>();
+                    }
+                    else if( entry.is_string() )
+                    {
+                        m_ErcExclusions.insert( entry.get<wxString>() );
+                    }
                 }
             },
             {} ) );

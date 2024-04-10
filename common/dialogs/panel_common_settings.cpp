@@ -1,7 +1,7 @@
 /*
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
- * Copyright (C) 2018-2022 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2018-2023 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -190,6 +190,8 @@ bool PANEL_COMMON_SETTINGS::TransferDataFromWindow()
 
     commonSettings->m_Appearance.show_scrollbars = m_showScrollbars->GetValue();
 
+    commonSettings->m_Appearance.grid_striping = m_gridStriping->GetValue();
+
     double dimmingPercent = 80;
     m_highContrastCtrl->GetValue().ToDouble( &dimmingPercent );
     commonSettings->m_Appearance.hicontrast_dimming_factor = dimmingPercent / 100.0f;
@@ -276,6 +278,8 @@ void PANEL_COMMON_SETTINGS::applySettingsToPanel( COMMON_SETTINGS& aSettings )
     m_checkBoxIconsInMenus->SetValue( aSettings.m_Appearance.use_icons_in_menus );
     m_scaleFonts->SetValue( aSettings.m_Appearance.apply_icon_scale_to_fonts );
 
+    m_gridStriping->SetValue( aSettings.m_Appearance.grid_striping );
+
     double dimmingPercent = aSettings.m_Appearance.hicontrast_dimming_factor * 100.0f;
     m_highContrastCtrl->SetValue( wxString::Format( "%.0f", dimmingPercent ) );
 
@@ -344,8 +348,10 @@ void PANEL_COMMON_SETTINGS::OnPDFViewerClick( wxCommandEvent& event )
     Pgm().ReadPdfBrowserInfos();
     wxFileName fn = Pgm().GetPdfBrowserName();
 
-    wxFileDialog dlg( this, _( "Select Preferred PDF Viewer" ), fn.GetPath(), fn.GetFullPath(),
-                      wildcard, wxFD_OPEN | wxFD_FILE_MUST_EXIST );
+    wxWindow* topLevelParent = wxGetTopLevelParent( this );
+
+    wxFileDialog dlg( topLevelParent, _( "Select Preferred PDF Viewer" ), fn.GetPath(),
+                      fn.GetFullPath(), wildcard, wxFD_OPEN | wxFD_FILE_MUST_EXIST );
 
     if( dlg.ShowModal() == wxID_CANCEL )
         return;

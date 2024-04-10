@@ -3,7 +3,7 @@
  *
  * Copyright (C) 2017 Wayne Stambaugh <stambaughw@gmail.com>
  * Copyright (C) 2021 CERN
- * Copyright (C) 2017-2023 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2017-2024 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software: you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -22,6 +22,7 @@
 #include <set>
 #include <wx/regex.h>
 
+#include <build_version.h>
 #include <common.h>     // For ExpandEnvVarSubstitutions
 #include <dialogs/dialog_plugin_options.h>
 #include <project.h>
@@ -83,6 +84,7 @@ enum {
  */
 class SYMBOL_LIB_TABLE_GRID : public LIB_TABLE_GRID, public SYMBOL_LIB_TABLE
 {
+    friend class PANEL_SYM_LIB_TABLE;
     friend class SYMBOL_GRID_TRICKS;
 
 protected:
@@ -112,12 +114,17 @@ protected:
 public:
     void SetValue( int aRow, int aCol, const wxString &aValue ) override
     {
+        wxCHECK( aRow < (int) size(), /* void */ );
+
         LIB_TABLE_GRID::SetValue( aRow, aCol, aValue );
 
         // If setting a filepath, attempt to auto-detect the format
         if( aCol == COL_URI )
         {
-            SCH_IO_MGR::SCH_FILE_T pluginType = SCH_IO_MGR::GuessPluginTypeFromLibPath( aValue );
+            LIB_TABLE_ROW* row = at( (size_t) aRow );
+            wxString       fullURI = row->GetFullURI( true );
+
+            SCH_IO_MGR::SCH_FILE_T pluginType = SCH_IO_MGR::GuessPluginTypeFromLibPath( fullURI );
 
             if( pluginType == SCH_IO_MGR::SCH_FILE_UNKNOWN )
                 pluginType = SCH_IO_MGR::SCH_KICAD;
@@ -157,8 +164,8 @@ protected:
             STRING_UTF8_MAP choices;
 
             SCH_IO_MGR::SCH_FILE_T pi_type = SCH_IO_MGR::EnumFromStr( row->GetType() );
-            SCH_PLUGIN::SCH_PLUGIN_RELEASER pi( SCH_IO_MGR::FindPlugin( pi_type ) );
-            pi->SymbolLibOptions( &choices );
+            IO_RELEASER<SCH_IO> pi( SCH_IO_MGR::FindPlugin( pi_type ) );
+            pi->GetLibraryOptions( &choices );
 
             DIALOG_PLUGIN_OPTIONS dlg( m_dialog, row->GetNickName(), choices, options, &result );
             dlg.ShowModal();
@@ -241,12 +248,12 @@ PANEL_SYM_LIB_TABLE::PANEL_SYM_LIB_TABLE( DIALOG_EDIT_LIBRARY_TABLES* aParent, P
 
     for( const SCH_IO_MGR::SCH_FILE_T& type : SCH_IO_MGR::SCH_FILE_T_vector )
     {
-        SCH_PLUGIN::SCH_PLUGIN_RELEASER pi( SCH_IO_MGR::FindPlugin( type ) );
+        IO_RELEASER<SCH_IO> pi( SCH_IO_MGR::FindPlugin( type ) );
 
         if( !pi )
             continue;
 
-        if( PLUGIN_FILE_DESC desc = pi->GetLibraryFileDesc() )
+        if( const IO_BASE::IO_FILE_DESC& desc = pi->GetLibraryDesc() )
             pluginChoices.Add( SCH_IO_MGR::ShowType( type ) );
     }
 
@@ -285,36 +292,26 @@ PANEL_SYM_LIB_TABLE::PANEL_SYM_LIB_TABLE( DIALOG_EDIT_LIBRARY_TABLES* aParent, P
                 wxString fileFiltersStr;
                 wxString allWildcardsStr;
 
-                for( const SCH_IO_MGR::SCH_FILE_T& fileType : SCH_IO_MGR::SCH_FILE_T_vector )
-                {
-                    if( fileType == SCH_IO_MGR::SCH_KICAD || fileType == SCH_IO_MGR::SCH_LEGACY )
-                        continue; // this is "Import non-KiCad schematic"
-
-                    SCH_PLUGIN::SCH_PLUGIN_RELEASER pi( SCH_IO_MGR::FindPlugin( fileType ) );
-
-                    if( !pi )
-                        continue;
-
-                    const PLUGIN_FILE_DESC& desc = pi->GetLibraryFileDesc();
-
-                    if( desc.m_FileExtensions.empty() )
-                        continue;
-
-                    if( !fileFiltersStr.IsEmpty() )
-                        fileFiltersStr += wxChar( '|' );
-
-                    fileFiltersStr += desc.FileFilter();
-
-                    for( const std::string& ext : desc.m_FileExtensions )
-                        allWildcardsStr << wxT( "*." ) << formatWildcardExt( ext ) << wxT( ";" );
-                }
-
-                fileFiltersStr = _( "All supported formats" ) + wxT( "|" ) + allWildcardsStr + wxT( "|" )
-                                 + fileFiltersStr;
-
                 attr->SetEditor( new GRID_CELL_PATH_EDITOR( m_parent, aGrid,
-                                                            &cfg->m_lastSymbolLibDir, fileFiltersStr,
-                                                            true, m_project->GetProjectPath() ) );
+                                                            &cfg->m_lastSymbolLibDir,
+                                                            true, m_project->GetProjectPath(),
+                        []( WX_GRID* grid, int row ) -> wxString
+                        {
+                            auto* libTable = static_cast<SYMBOL_LIB_TABLE_GRID*>( grid->GetTable() );
+                            auto* tableRow = static_cast<SYMBOL_LIB_TABLE_ROW*>( libTable->at( row ) );
+
+                            IO_RELEASER<SCH_IO> pi( SCH_IO_MGR::FindPlugin( tableRow->GetFileType() ) );
+
+                            if( pi )
+                            {
+                                const IO_BASE::IO_FILE_DESC& desc = pi->GetLibraryDesc();
+
+                                if( desc.m_IsFile )
+                                    return desc.FileFilter();
+                            }
+
+                            return wxEmptyString;
+                        } ) );
                 aGrid->SetColAttr( COL_URI, attr );
 
                 attr = new wxGridCellAttr;
@@ -405,7 +402,7 @@ bool PANEL_SYM_LIB_TABLE::allowAutomaticPluginTypeSelection( wxString& aLibraryP
 
     // Currently, only the extension .lib is common to legacy libraries and Cadstar libraries
     // so return false in this case
-    if( ext == LegacySymbolLibFileExtension )
+    if( ext == FILEEXT::LegacySymbolLibFileExtension )
         return false;
 
     return true;
@@ -436,7 +433,9 @@ bool PANEL_SYM_LIB_TABLE::verifyTables()
                 else
                     msg = _( "A library table row path cell is empty." );
 
-                wxMessageDialog badCellDlg( this, msg, _( "Invalid Row Definition" ),
+                wxWindow* topLevelParent = wxGetTopLevelParent( this );
+
+                wxMessageDialog badCellDlg( topLevelParent, msg, _( "Invalid Row Definition" ),
                                             wxYES_NO | wxCENTER | wxICON_QUESTION | wxYES_DEFAULT );
                 badCellDlg.SetExtendedMessage( _( "Empty cells will result in all rows that are "
                                                   "invalid to be removed from the table." ) );
@@ -465,7 +464,9 @@ bool PANEL_SYM_LIB_TABLE::verifyTables()
                 m_cur_grid->MakeCellVisible( r, 0 );
                 m_cur_grid->SetGridCursor( r, 1 );
 
-                wxMessageDialog errdlg( this, msg, _( "Library Nickname Error" ) );
+                wxWindow* topLevelParent = wxGetTopLevelParent( this );
+
+                wxMessageDialog errdlg( topLevelParent, msg, _( "Library Nickname Error" ) );
                 errdlg.ShowModal();
                 return false;
             }
@@ -515,7 +516,9 @@ bool PANEL_SYM_LIB_TABLE::verifyTables()
                     m_cur_grid->MakeCellVisible( r2, 0 );
                     m_cur_grid->SetGridCursor( r2, 1 );
 
-                    wxMessageDialog errdlg( this, msg, _( "Library Nickname Error" ) );
+                    wxWindow* topLevelParent = wxGetTopLevelParent( this );
+
+                    wxMessageDialog errdlg( topLevelParent, msg, _( "Library Nickname Error" ) );
                     errdlg.ShowModal();
 
                     return false;
@@ -553,7 +556,9 @@ bool PANEL_SYM_LIB_TABLE::verifyTables()
             {
                 msg.Printf( _( "Symbol library '%s' failed to load." ), row.GetNickName() );
 
-                wxMessageDialog errdlg( this, msg + wxS( "\n" ) + ioe.What(),
+                wxWindow* topLevelParent = wxGetTopLevelParent( this );
+
+                wxMessageDialog errdlg( topLevelParent, msg + wxS( "\n" ) + ioe.What(),
                                         _( "Error Loading Library" ) );
                 errdlg.ShowModal();
 
@@ -580,12 +585,12 @@ void PANEL_SYM_LIB_TABLE::browseLibrariesHandler( wxCommandEvent& event )
 
     for( const SCH_IO_MGR::SCH_FILE_T& fileType : SCH_IO_MGR::SCH_FILE_T_vector )
     {
-        SCH_PLUGIN::SCH_PLUGIN_RELEASER pi( SCH_IO_MGR::FindPlugin( fileType ) );
+        IO_RELEASER<SCH_IO> pi( SCH_IO_MGR::FindPlugin( fileType ) );
 
         if( !pi )
             continue;
 
-        const PLUGIN_FILE_DESC& desc = pi->GetLibraryFileDesc();
+        const IO_BASE::IO_FILE_DESC& desc = pi->GetLibraryDesc();
 
         if( desc.m_FileExtensions.empty() )
             continue;
@@ -609,7 +614,9 @@ void PANEL_SYM_LIB_TABLE::browseLibrariesHandler( wxCommandEvent& event )
     if( m_cur_grid == m_project_grid )
         openDir = m_lastProjectLibDir;
 
-    wxFileDialog dlg( this, _( "Add Library" ), openDir, wxEmptyString, fileFiltersStr,
+    wxWindow* topLevelParent = wxGetTopLevelParent( this );
+
+    wxFileDialog dlg( topLevelParent, _( "Add Library" ), openDir, wxEmptyString, fileFiltersStr,
                       wxFD_OPEN | wxFD_FILE_MUST_EXIST | wxFD_MULTIPLE );
 
     if( dlg.ShowModal() == wxID_CANCEL )
@@ -642,7 +649,8 @@ void PANEL_SYM_LIB_TABLE::browseLibrariesHandler( wxCommandEvent& event )
             if( !applyToAll )
             {
                 // The cancel button adds the library to the table anyway
-                addDuplicates = OKOrCancelDialog( this, warning, wxString::Format( msg, nickname ),
+                addDuplicates = OKOrCancelDialog( wxGetTopLevelParent( this ), warning,
+                                                  wxString::Format( msg, nickname ),
                                                   detailedMsg, _( "Skip" ), _( "Add Anyway" ),
                                                   &applyToAll ) == wxID_CANCEL;
             }
@@ -877,7 +885,10 @@ void PANEL_SYM_LIB_TABLE::onConvertLegacyLibraries( wxCommandEvent& event )
         if( !legacyLib.Exists() )
         {
             msg.Printf( _( "Library '%s' not found." ), relPath );
-            DisplayErrorMessage( this, msg );
+
+            wxWindow* topLevelParent = wxGetTopLevelParent( this );
+
+            DisplayErrorMessage( topLevelParent, msg );
             continue;
         }
 
@@ -901,7 +912,7 @@ void PANEL_SYM_LIB_TABLE::onConvertLegacyLibraries( wxCommandEvent& event )
         wxString options = m_cur_grid->GetCellValue( row, COL_OPTIONS );
         std::unique_ptr<STRING_UTF8_MAP> props( LIB_TABLE::ParseOptions( options.ToStdString() ) );
 
-        if( convertLibrary( props.get(), legacyLib.GetFullPath(), newLib.GetFullPath() ) )
+        if( SCH_IO_MGR::ConvertLibrary( props.get(), legacyLib.GetFullPath(), newLib.GetFullPath() ) )
         {
             relPath = NormalizePath( newLib.GetFullPath(), &Pgm().GetLocalEnvVariables(),
                                      m_project );
@@ -913,79 +924,17 @@ void PANEL_SYM_LIB_TABLE::onConvertLegacyLibraries( wxCommandEvent& event )
 
             m_cur_grid->SetCellValue( row, COL_URI, relPath );
             m_cur_grid->SetCellValue( row, COL_TYPE, kicadType );
+            m_cur_grid->SetCellValue( row, COL_OPTIONS, wxEmptyString );
         }
         else
         {
             msg.Printf( _( "Failed to save symbol library file '%s'." ), newLib.GetFullPath() );
-            DisplayErrorMessage( this, msg );
+
+            wxWindow* topLevelParent = wxGetTopLevelParent( this );
+
+            DisplayErrorMessage( topLevelParent, msg );
         }
     }
-}
-
-
-bool PANEL_SYM_LIB_TABLE::convertLibrary( STRING_UTF8_MAP* aOldFileProps, const wxString& aOldFilePath,
-                                          const wxString& aNewFilepath )
-{
-    SCH_IO_MGR::SCH_FILE_T oldFileType = SCH_IO_MGR::GuessPluginTypeFromLibPath( aOldFilePath );
-
-    if( oldFileType == SCH_IO_MGR::SCH_FILE_UNKNOWN )
-        return false;
-
-    SCH_PLUGIN::SCH_PLUGIN_RELEASER    oldFilePI( SCH_IO_MGR::FindPlugin( oldFileType ) );
-    SCH_PLUGIN::SCH_PLUGIN_RELEASER    kicadPI( SCH_IO_MGR::FindPlugin( SCH_IO_MGR::SCH_KICAD ) );
-    std::vector<LIB_SYMBOL*>           symbols;
-    std::vector<LIB_SYMBOL*>           newSymbols;
-    std::map<LIB_SYMBOL*, LIB_SYMBOL*> symbolMap;
-
-    try
-    {
-        // Write a stub file; SaveSymbol() expects something to be there already.
-        FILE_OUTPUTFORMATTER* formatter = new FILE_OUTPUTFORMATTER( aNewFilepath );
-
-        formatter->Print( 0, "(kicad_symbol_lib (version %d) (generator kicad_converter))",
-                          SEXPR_SYMBOL_LIB_FILE_VERSION );
-
-        // This will write the file
-        delete formatter;
-
-        oldFilePI->EnumerateSymbolLib( symbols, aOldFilePath, aOldFileProps );
-
-        // Copy non-aliases first so we can build a map from symbols to newSymbols
-        for( LIB_SYMBOL* symbol : symbols )
-        {
-            if( symbol->IsAlias() )
-                continue;
-
-            symbol->SetName( EscapeString( symbol->GetName(), CTX_LIBID ) );
-
-            newSymbols.push_back( new LIB_SYMBOL( *symbol ) );
-            symbolMap[symbol] = newSymbols.back();
-        }
-
-        // Now do the aliases using the map to hook them up to their newSymbol parents
-        for( LIB_SYMBOL* symbol : symbols )
-        {
-            if( !symbol->IsAlias() )
-                continue;
-
-            symbol->SetName( EscapeString( symbol->GetName(), CTX_LIBID ) );
-
-            newSymbols.push_back( new LIB_SYMBOL( *symbol ) );
-            newSymbols.back()->SetParent( symbolMap[ symbol->GetParent().lock().get() ] );
-        }
-
-        // Finally write out newSymbols
-        for( LIB_SYMBOL* symbol : newSymbols )
-        {
-            kicadPI->SaveSymbol( aNewFilepath, symbol );
-        }
-    }
-    catch( ... )
-    {
-        return false;
-    }
-
-    return true;
 }
 
 

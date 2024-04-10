@@ -3,7 +3,7 @@
  *
  * Copyright (C) 2014 Jean-Pierre Charras, jp.charras at wanadoo.fr
  * Copyright (C) 2008 Wayne Stambaugh <stambaughw@gmail.com>
- * Copyright (C) 2004-2023 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2004-2024 KiCad Developers, see AUTHORS.txt for contributors.
  * Copyright (C) 2017 CERN
  * @author Maciej Suminski <maciej.suminski@cern.ch>
  *
@@ -30,7 +30,6 @@
 
 #include <sch_base_frame.h>
 #include <sch_screen.h>
-#include <lib_item.h>
 #include <ee_collectors.h>
 #include <optional>
 
@@ -236,11 +235,14 @@ public:
     int GetUnit() const { return m_unit; }
     void SetUnit( int aUnit ) { m_unit = aUnit; }
 
-    int GetConvert() const { return m_convert; }
-    void SetConvert( int aConvert ) { m_convert = aConvert; }
+    int  GetBodyStyle() const { return m_bodyStyle; }
+    void SetBodyStyle( int aBodyStyle ) { m_bodyStyle = aBodyStyle; }
 
     bool GetShowDeMorgan() const { return m_showDeMorgan; }
     void SetShowDeMorgan( bool show ) { m_showDeMorgan = show; }
+
+    bool GetShowInvisibleFields();
+    bool GetShowInvisiblePins();
 
     void ClearMsgPanel() override
     {
@@ -281,8 +283,11 @@ public:
      * Because a symbol in library editor does not have a lot of primitives, the full data is
      * duplicated. It is not worth to try to optimize this save function.
      */
-    void SaveCopyInUndoList( const wxString& aDescription, EDA_ITEM* aItem,
+    void SaveCopyInUndoList( const wxString& aDescription, LIB_SYMBOL* aSymbol,
                              UNDO_REDO aUndoType = UNDO_REDO::LIBEDIT );
+
+    void PushSymbolToUndoList( const wxString& aDescription, LIB_SYMBOL* aSymbolCopy,
+                               UNDO_REDO aUndoType = UNDO_REDO::LIBEDIT );
 
     void GetSymbolFromUndoList();
     void GetSymbolFromRedoList();
@@ -306,10 +311,10 @@ public:
      *
      * @param aLibId is the #LIB_ID of the symbol to select.
      * @param aUnit the unit to show
-     * @param aConvert the DeMorgan variant to show
+     * @param aBodyStyle the DeMorgan variant to show
      * @return true if the symbol defined by \a aLibId was loaded.
      */
-    bool LoadSymbol( const LIB_ID& aLibId, int aUnit, int aConvert );
+    bool LoadSymbol( const LIB_ID& aLibId, int aUnit, int aBodyStyle );
 
     /**
      * Print a page.
@@ -321,7 +326,7 @@ public:
      * @param aFullFileName is the full filename
      * @param aOffset is a plot offset, in iu
      */
-    void SVGPlotSymbol( const wxString& aFullFileName, VECTOR2I aOffset );
+    void SVGPlotSymbol( const wxString& aFullFileName, const VECTOR2I& aOffset );
 
     /**
      * Synchronize the library manager to the symbol library table, and then the symbol tree
@@ -383,7 +388,7 @@ public:
 
     void KiwayMailIn( KIWAY_EXPRESS& mail ) override;
 
-    void FocusOnItem( LIB_ITEM* aItem );
+    void FocusOnItem( SCH_ITEM* aItem );
 
     /**
      * Load a symbol from the schematic to edit in place.
@@ -417,6 +422,8 @@ protected:
 
     void doReCreateMenuBar() override;
 
+    void updateSelectionFilterVisbility() override;
+
 private:
     // Set up the tool framework
     void setupTools();
@@ -449,10 +456,10 @@ private:
      *
      * @param aAliasName The symbol alias name to load from the current library.
      * @param aUnit Unit to be selected
-     * @param aConvert Convert to be selected
+     * @param aBodyStyle Convert to be selected
      * @return true if the symbol loaded correctly.
      */
-    bool LoadSymbolFromCurrentLib( const wxString& aAliasName, int aUnit = 0, int aConvert = 0 );
+    bool LoadSymbolFromCurrentLib( const wxString& aAliasName, int aUnit = 0, int aBodyStyle = 0 );
 
     /**
      * Create a copy of \a aLibEntry into memory.
@@ -461,11 +468,11 @@ private:
      * @param aLibrary the path to the library file that \a aLibEntry was loaded from.  This is
      *                 for error messaging purposes only.
      * @param aUnit the initial unit to show.
-     * @param aConvert the initial DeMorgan variant to show.
+     * @param aBodyStyle the initial DeMorgan variant to show.
      * @return True if a copy of \a aLibEntry was successfully copied.
      */
     bool LoadOneLibrarySymbolAux( LIB_SYMBOL* aLibEntry, const wxString& aLibrary, int aUnit,
-                                  int aConvert );
+                                  int aBodyStyle );
 
     ///< Create a backup copy of a file with requested extension.
     bool backupFile( const wxFileName& aOriginalFile, const wxString& aBackupExt );
@@ -568,8 +575,8 @@ private:
     // The unit number to edit and show
     int         m_unit;
 
-    // Show the normal shape ( m_convert <= 1 ) or the converted shape ( m_convert > 1 )
-    int         m_convert;
+    // Show the normal shape (m_bodyStyle <= 1) or the DeMorgan converted shape (m_bodyStyle > 1)
+    int         m_bodyStyle;
 
     ///< Flag if the symbol being edited was loaded directly from a schematic.
     bool        m_isSymbolFromSchematic;

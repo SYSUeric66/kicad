@@ -12,19 +12,7 @@
    viewBox="0 0 24 24"
    version="1.1"
    sodipodi:docname="drag.svg"
-   inkscape:version="1.0.1 (3bc2e813f5, 2020-09-07)">
-  <metadata
-     id="metadata993">
-    <rdf:RDF>
-      <cc:Work
-         rdf:about="">
-        <dc:format>image/svg+xml</dc:format>
-        <dc:type
-           rdf:resource="http://purl.org/dc/dcmitype/StillImage" />
-        <dc:title>drag</dc:title>
-      </cc:Work>
-    </rdf:RDF>
-  </metadata>
+   inkscape:version="1.0.2 (1.0.2+r75+1)">
   <sodipodi:namedview
      pagecolor="#ffffff"
      bordercolor="#666666"
@@ -34,43 +22,83 @@
      guidetolerance="10"
      inkscape:pageopacity="0"
      inkscape:pageshadow="2"
-     inkscape:window-width="1712"
-     inkscape:window-height="1683"
-     id="namedview991"
+     inkscape:window-width="1315"
+     inkscape:window-height="704"
+     id="namedview30"
      showgrid="true"
-     inkscape:zoom="27.961538"
-     inkscape:cx="1.8552441"
-     inkscape:cy="10.045252"
-     inkscape:window-x="1871"
-     inkscape:window-y="108"
-     inkscape:window-maximized="0"
+     inkscape:zoom="22.627418"
+     inkscape:cx="9.4295406"
+     inkscape:cy="8.4866927"
+     inkscape:window-x="51"
+     inkscape:window-y="27"
+     inkscape:window-maximized="1"
+     inkscape:document-rotation="0"
      inkscape:current-layer="Слой_1"
-     inkscape:document-rotation="0">
+     inkscape:snap-smooth-nodes="true">
     <inkscape:grid
        type="xygrid"
-       id="grid1556" />
+       id="grid_kicad"
+       spacingx="0.5"
+       spacingy="0.5"
+       color="#9999ff"
+       opacity="0.13"
+       empspacing="2" />
   </sodipodi:namedview>
+  <metadata
+     id="metadata43">
+    <rdf:RDF>
+      <cc:Work
+         rdf:about="">
+        <cc:license
+           rdf:resource="http://creativecommons.org/licenses/by-sa/4.0/" />
+        <dc:format>image/svg+xml</dc:format>
+        <dc:type
+           rdf:resource="http://purl.org/dc/dcmitype/StillImage" />
+        <dc:title>ps_diff_pair_tune_phase</dc:title>
+      </cc:Work>
+      <cc:License
+         rdf:about="http://creativecommons.org/licenses/by-sa/4.0/">
+        <cc:permits
+           rdf:resource="http://creativecommons.org/ns#Reproduction" />
+        <cc:permits
+           rdf:resource="http://creativecommons.org/ns#Distribution" />
+        <cc:requires
+           rdf:resource="http://creativecommons.org/ns#Notice" />
+        <cc:requires
+           rdf:resource="http://creativecommons.org/ns#Attribution" />
+        <cc:permits
+           rdf:resource="http://creativecommons.org/ns#DerivativeWorks" />
+        <cc:requires
+           rdf:resource="http://creativecommons.org/ns#ShareAlike" />
+      </cc:License>
+    </rdf:RDF>
+  </metadata>
   <defs
-     id="defs978">
+     id="defs159429">
     <style
-       id="style976">.cls-1{fill:#545454;}.cls-2{fill:#1a81c4;}.cls-3{fill:none;stroke:#545454;stroke-linecap:round;stroke-linejoin:round;}</style>
+       id="style159427">.cls-1{fill:#1a81c4;}</style>
   </defs>
   <title
-     id="title980">drag</title>
-  <path
-     style="fill:none;stroke:#545454;stroke-width:2;stroke-linecap:round;stroke-linejoin:miter;stroke-miterlimit:4;stroke-dasharray:none;stroke-opacity:1"
-     d="M 3,17 16,12 19.533472,1 v 0"
-     id="path1562" />
-  <path
-     class="cls-2"
-     d="m 16,15 a 3,3 0 1 1 3,-3 3,3 0 0 1 -3,3 z"
-     id="path984" />
-  <path
-     class="cls-1"
-     d="m 16,12 -0.0011,10.882624 2.415254,-2.312217 c 0.32567,0.741355 0.803184,1.836141 1.22087,2.791856 a 1.2338,1.2338 0 0 0 1.627633,0.634825 v 0 a 1.2337,1.2337 0 0 0 0.63533,-1.624847 c -0.417612,-0.955902 -0.895724,-2.052433 -1.222119,-2.796017 l 3.337756,-0.213065 z"
-     id="path986" />
-  <path
-     class="cls-3"
-     d="M 10.3994,14.202 A 6.0022,6.0022 0 0 1 17.7576,6.2955"
-     id="path988" />
+     id="title159431">ps_diff_pair_tune_phase</title>
+  <g
+     id="g845">
+    <g
+       id="g874">
+      <path
+         id="rect25847"
+         style="fill:#545454;stroke-width:1.00025"
+         d="M 5.0011973,0 0,5 5,10 5.0012,7 H 9.0020796 V 2.9989931 H 5.0011973 Z"
+         sodipodi:nodetypes="cccccccc" />
+      <path
+         id="path870"
+         style="fill:#545454;stroke-width:1.00025"
+         d="M 18.998803,0 24,5 19,10 18.9988,7 H 14.997921 V 2.9989931 h 4.000882 z"
+         sodipodi:nodetypes="cccccccc" />
+    </g>
+    <path
+       style="fill:none;fill-opacity:1;stroke:#545454;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;stroke-miterlimit:4;stroke-dasharray:none;stroke-opacity:1;paint-order:fill markers stroke"
+       d="m 7,13.491423 v 1.5 -4.5 c 0,-1.5 1.5,-1.5 1.5,-1.5 0,0 1.5,0 1.5,1.5 v 2 -2.5 c 0,-1.5 1.5,-1.5 1.5,-1.5 0,0 1.5,0 1.5,1.5 v 2.5 -2 c 0,-1.5 1.5,-1.5 1.5,-1.5 0,0 1.5,0 1.5,1.5 v 1.5 0.5 c 0,-1.5 1.5,-1.5 1.5,-1.5 0,0 1.5,0 1.5,1.5 v 4.5 c 0,6 -4.5,6 -4.5,6 h -5 c 0,0 -3,0.5 -5.5,-5 -1.2194793,-3.038326 0.766361,-4.967938 2.5,-5 0.1666667,0 0.5,0.5 0.5,0.5 z"
+       id="path899"
+       sodipodi:nodetypes="csccsscccscscscscscsccc" />
+  </g>
 </svg>

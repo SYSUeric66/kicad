@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2021 Ola Rinta-Koski <gitlab@rinta-koski.net>
- * Copyright (C) 2021-2022 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2021-2024 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software: you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -82,19 +82,19 @@ std::unique_ptr<GLYPH> STROKE_GLYPH::Transform( const VECTOR2D& aGlyphSize, cons
     end.x *= aGlyphSize.x;
     end.y *= aGlyphSize.y;
 
-    if( aTilt )
+    if( aTilt != 0.0 )
         end.x -= end.y * aTilt;
 
     glyph->m_boundingBox.SetEnd( end );
     glyph->m_boundingBox.Offset( aOffset );
 
-    for( std::vector<VECTOR2D>& pointList : *glyph.get() )
+    for( std::vector<VECTOR2D>& pointList : *glyph )
     {
         for( VECTOR2D& point : pointList )
         {
             point *= aGlyphSize;
 
-            if( aTilt )
+            if( aTilt != 0.0 )
                 point.x -= point.y * aTilt;
 
             point += aOffset;
@@ -111,6 +111,18 @@ std::unique_ptr<GLYPH> STROKE_GLYPH::Transform( const VECTOR2D& aGlyphSize, cons
 }
 
 
+void STROKE_GLYPH::Move( const VECTOR2I& aOffset )
+{
+    m_boundingBox.Offset( aOffset );
+
+    for( std::vector<VECTOR2D>& pointList : *this )
+    {
+        for( VECTOR2D& point : pointList )
+            point += aOffset;
+    }
+}
+
+
 BOX2D OUTLINE_GLYPH::BoundingBox()
 {
     BOX2I bbox = BBox();
@@ -122,10 +134,7 @@ void OUTLINE_GLYPH::Triangulate( std::function<void( const VECTOR2I& aPt1,
                                                      const VECTOR2I& aPt2,
                                                      const VECTOR2I& aPt3 )> aCallback ) const
 {
-    // Only call CacheTriangulation if it has never been done before.  Otherwise we'll hash
-    // the triangulation to see if it has been edited, and glyphs after creation are read-only.
-    if( TriangulatedPolyCount() == 0 )
-        const_cast<OUTLINE_GLYPH*>( this )->CacheTriangulation( false );
+    const_cast<OUTLINE_GLYPH*>( this )->CacheTriangulation( false );
 
     for( unsigned int i = 0; i < TriangulatedPolyCount(); i++ )
     {
@@ -141,3 +150,30 @@ void OUTLINE_GLYPH::Triangulate( std::function<void( const VECTOR2I& aPt1,
 }
 
 
+void OUTLINE_GLYPH::CacheTriangulation( bool aPartition, bool aSimplify )
+{
+    // Only call CacheTriangulation if it has never been done before.  Otherwise we'll hash
+    // the triangulation to see if it has been edited, and glyphs are invariant after creation.
+    //
+    // Also forces "partition" to false as we never want to partition a glyph.
+
+    if( TriangulatedPolyCount() == 0 )
+        SHAPE_POLY_SET::CacheTriangulation( false, aSimplify );
+}
+
+
+std::vector<std::unique_ptr<SHAPE_POLY_SET::TRIANGULATED_POLYGON>> OUTLINE_GLYPH::GetTriangulationData() const
+{
+    std::vector<std::unique_ptr<SHAPE_POLY_SET::TRIANGULATED_POLYGON>> data;
+
+    for( const std::unique_ptr<SHAPE_POLY_SET::TRIANGULATED_POLYGON>& poly : m_triangulatedPolys )
+        data.push_back( std::make_unique<SHAPE_POLY_SET::TRIANGULATED_POLYGON>( *poly ) );
+
+    return data;
+}
+
+
+void OUTLINE_GLYPH::CacheTriangulation( std::vector<std::unique_ptr<SHAPE_POLY_SET::TRIANGULATED_POLYGON>>& aHintData )
+{
+    cacheTriangulation( false, false, &aHintData );
+}

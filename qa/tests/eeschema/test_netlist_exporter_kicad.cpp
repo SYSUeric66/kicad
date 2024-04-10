@@ -97,7 +97,7 @@ BOOST_FIXTURE_TEST_SUITE( Netlists, TEST_NETLIST_EXPORTER_KICAD_FIXTURE )
 
 BOOST_AUTO_TEST_CASE( FindPlugin )
 {
-    BOOST_CHECK_NE( m_pi, nullptr );
+    BOOST_CHECK_NE( m_pi.get(), nullptr );
 }
 
 
@@ -202,6 +202,11 @@ BOOST_AUTO_TEST_CASE( Issue14818 )
 BOOST_AUTO_TEST_CASE( Issue16003 )
 {
     TestNetlist( "issue16003" );
+}
+
+BOOST_AUTO_TEST_CASE( Issue16439 )
+{
+    TestNetlist( "issue16439" );
 }
 
 

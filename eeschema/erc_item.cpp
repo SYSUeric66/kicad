@@ -95,6 +95,10 @@ ERC_ITEM ERC_ITEM::similarLabels( ERCE_SIMILAR_LABELS,
         _( "Labels are similar (lower/upper case difference only)"),
         wxT( "similar_labels" ) );
 
+ERC_ITEM ERC_ITEM::singleGlobalLabel( ERCE_SINGLE_GLOBAL_LABEL,
+        _( "Global label only appears once in the schematic"),
+        wxT( "single_global_label" ) );
+
 ERC_ITEM ERC_ITEM::differentUnitFootprint( ERCE_DIFFERENT_UNIT_FP,
         _( "Different footprint assigned in another unit of the symbol" ),
         wxT( "different_unit_footprint" ) );
@@ -118,10 +122,6 @@ ERC_ITEM ERC_ITEM::netclassConflict( ERCE_NETCLASS_CONFLICT,
 ERC_ITEM ERC_ITEM::netNotBusMember( ERCE_BUS_ENTRY_CONFLICT,
         _( "Net is graphically connected to a bus but not a bus member" ),
         wxT( "net_not_bus_member" ) );
-
-ERC_ITEM ERC_ITEM::busLabelSyntax( ERCE_BUS_LABEL_ERROR,
-        _( "Label attached to bus item does not describe a bus" ),
-        wxT( "bus_label_syntax" ) );
 
 ERC_ITEM ERC_ITEM::busToBusConflict( ERCE_BUS_TO_BUS_CONFLICT,
         _( "Buses are graphically connected but share no bus members" ),
@@ -150,6 +150,14 @@ ERC_ITEM ERC_ITEM::wireDangling( ERCE_WIRE_DANGLING,
 ERC_ITEM ERC_ITEM::libSymbolIssues( ERCE_LIB_SYMBOL_ISSUES,
         _( "Library symbol issue" ),
         wxT( "lib_symbol_issues" ) );
+
+ERC_ITEM ERC_ITEM::libSymbolMismatch( ERCE_LIB_SYMBOL_MISMATCH,
+        _( "Symbol doesn't match copy in library" ),
+        wxT( "lib_symbol_mismatch" ) );
+
+ERC_ITEM ERC_ITEM::footprintLinkIssues( ERCE_FOOTPRINT_LINK_ISSUES,
+        _( "Footprint link issue" ),
+        wxT( "footprint_link_issues" ) );
 
 ERC_ITEM ERC_ITEM::unannotated( ERCE_UNANNOTATED,
         _( "Symbol is not annotated" ),
@@ -196,6 +204,7 @@ std::vector<std::reference_wrapper<RC_ITEM>> ERC_ITEM::allItemTypes( {
                  ERC_ITEM::noConnectDangling,
                  ERC_ITEM::labelDangling,
                  ERC_ITEM::globalLabelDangling,
+                 ERC_ITEM::singleGlobalLabel,
                  ERC_ITEM::wireDangling,
                  ERC_ITEM::busEntryNeeded,
                  ERC_ITEM::endpointOffGrid,
@@ -224,6 +233,8 @@ std::vector<std::reference_wrapper<RC_ITEM>> ERC_ITEM::allItemTypes( {
                  // TODO: Add bus label syntax checking
 //                 ERC_ITEM::busLabelSyntax,
                  ERC_ITEM::libSymbolIssues,
+                 ERC_ITEM::libSymbolMismatch,
+                 ERC_ITEM::footprintLinkIssues,
                  ERC_ITEM::extraUnits,
                  ERC_ITEM::missingUnits,
                  ERC_ITEM::missingInputPin,
@@ -249,12 +260,12 @@ std::shared_ptr<ERC_ITEM> ERC_ITEM::Create( int aErrorCode )
     case ERCE_NOCONNECT_NOT_CONNECTED: return std::make_shared<ERC_ITEM>( noConnectDangling );
     case ERCE_LABEL_NOT_CONNECTED:     return std::make_shared<ERC_ITEM>( labelDangling );
     case ERCE_SIMILAR_LABELS:          return std::make_shared<ERC_ITEM>( similarLabels );
+    case ERCE_SINGLE_GLOBAL_LABEL:     return std::make_shared<ERC_ITEM>( singleGlobalLabel );
     case ERCE_DIFFERENT_UNIT_FP:       return std::make_shared<ERC_ITEM>( differentUnitFootprint );
     case ERCE_DIFFERENT_UNIT_NET:      return std::make_shared<ERC_ITEM>( differentUnitNet );
     case ERCE_BUS_ALIAS_CONFLICT:      return std::make_shared<ERC_ITEM>( busDefinitionConflict );
     case ERCE_DRIVER_CONFLICT:         return std::make_shared<ERC_ITEM>( multipleNetNames );
     case ERCE_BUS_ENTRY_CONFLICT:      return std::make_shared<ERC_ITEM>( netNotBusMember );
-    case ERCE_BUS_LABEL_ERROR:         return std::make_shared<ERC_ITEM>( busLabelSyntax );
     case ERCE_BUS_TO_BUS_CONFLICT:     return std::make_shared<ERC_ITEM>( busToBusConflict );
     case ERCE_BUS_TO_NET_CONFLICT:     return std::make_shared<ERC_ITEM>( busToNetConflict );
     case ERCE_NETCLASS_CONFLICT:       return std::make_shared<ERC_ITEM>( netclassConflict );
@@ -264,6 +275,8 @@ std::shared_ptr<ERC_ITEM> ERC_ITEM::Create( int aErrorCode )
     case ERCE_SIMULATION_MODEL:        return std::make_shared<ERC_ITEM>( simulationModelIssues );
     case ERCE_WIRE_DANGLING:           return std::make_shared<ERC_ITEM>( wireDangling );
     case ERCE_LIB_SYMBOL_ISSUES:       return std::make_shared<ERC_ITEM>( libSymbolIssues );
+    case ERCE_LIB_SYMBOL_MISMATCH:     return std::make_shared<ERC_ITEM>( libSymbolMismatch );
+    case ERCE_FOOTPRINT_LINK_ISSUES:   return std::make_shared<ERC_ITEM>( footprintLinkIssues );
     case ERCE_UNANNOTATED:             return std::make_shared<ERC_ITEM>( unannotated );
     case ERCE_EXTRA_UNITS:             return std::make_shared<ERC_ITEM>( extraUnits );
     case ERCE_DIFFERENT_UNIT_VALUE:    return std::make_shared<ERC_ITEM>( differentUnitValue );
@@ -375,6 +388,12 @@ void ERC_TREE_MODEL::GetValue( wxVariant& aVariant, wxDataViewItem const& aItem,
     case RC_TREE_NODE::AUX_ITEM3:
         msg = getItemDesc( schEditFrame->GetItem( ercItem->GetAuxItem3ID() ),
                            schEditFrame->GetCurrentSheet() );
+        break;
+
+    case RC_TREE_NODE::COMMENT:
+        if( marker )
+            msg = marker->GetComment();
+
         break;
     }
 

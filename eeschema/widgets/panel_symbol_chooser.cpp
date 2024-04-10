@@ -54,7 +54,8 @@ PANEL_SYMBOL_CHOOSER::PANEL_SYMBOL_CHOOSER( SCH_BASE_FRAME* aFrame, wxWindow* aP
                                             std::vector<PICKED_SYMBOL>&  aHistoryList,
                                             std::vector<PICKED_SYMBOL>&  aAlreadyPlaced,
                                             bool aAllowFieldEdits, bool aShowFootprints,
-                                            std::function<void()> aCloseHandler ) :
+                                            std::function<void()> aAcceptHandler,
+                                            std::function<void()> aEscapeHandler ) :
         wxPanel( aParent, wxID_ANY, wxDefaultPosition, wxDefaultSize ),
         m_symbol_preview( nullptr ),
         m_hsplitter( nullptr ),
@@ -64,7 +65,8 @@ PANEL_SYMBOL_CHOOSER::PANEL_SYMBOL_CHOOSER( SCH_BASE_FRAME* aFrame, wxWindow* aP
         m_tree( nullptr ),
         m_details( nullptr ),
         m_frame( aFrame ),
-        m_closeHandler( std::move( aCloseHandler ) ),
+        m_acceptHandler( std::move( aAcceptHandler ) ),
+        m_escapeHandler( std::move( aEscapeHandler ) ),
         m_showPower( false ),
         m_allow_field_edits( aAllowFieldEdits ),
         m_show_footprints( aShowFootprints )
@@ -124,32 +126,41 @@ PANEL_SYMBOL_CHOOSER::PANEL_SYMBOL_CHOOSER( SCH_BASE_FRAME* aFrame, wxWindow* aP
     std::vector<LIB_TREE_ITEM*> already_placed;
 
     // Lambda to encapsulate the common logic
-    auto processList = [&]( const std::vector<PICKED_SYMBOL>& inputList,
-                            std::vector<LIB_SYMBOL>&          storageList,
-                            std::vector<LIB_TREE_ITEM*>&      resultList )
-    {
-        storageList.reserve( inputList.size() );
-
-        for( const PICKED_SYMBOL& i : inputList )
-        {
-            LIB_SYMBOL* symbol = m_frame->GetLibSymbol( i.LibId );
-
-            if( symbol )
+    auto processList =
+            [&]( const std::vector<PICKED_SYMBOL>& inputList,
+                 std::vector<LIB_SYMBOL>&          storageList,
+                 std::vector<LIB_TREE_ITEM*>&      resultList )
             {
-                storageList.emplace_back( *symbol );
+                storageList.reserve( inputList.size() );
 
-                for( const std::pair<int, wxString>& fieldDef : i.Fields )
+                for( const PICKED_SYMBOL& i : inputList )
                 {
-                    LIB_FIELD* field = storageList.back().GetFieldById( fieldDef.first );
+                    LIB_SYMBOL* symbol = m_frame->GetLibSymbol( i.LibId );
 
-                    if( field )
-                        field->SetText( fieldDef.second );
+                    if( symbol )
+                    {
+                        storageList.emplace_back( *symbol );
+
+                        for( const std::pair<int, wxString>& fieldDef : i.Fields )
+                        {
+                            LIB_FIELD* field = storageList.back().GetFieldById( fieldDef.first );
+
+                            if( field )
+                                field->SetText( fieldDef.second );
+                        }
+
+                        resultList.push_back( &storageList.back() );
+                    }
                 }
+            };
 
-                resultList.push_back( &storageList.back() );
-            }
-        }
-    };
+    // Sort the already placed list since it is potentially from multiple sessions,
+    // but not the most recent list since we want this listed by most recent usage.
+    std::sort( aAlreadyPlaced.begin(), aAlreadyPlaced.end(),
+               []( PICKED_SYMBOL const& a, PICKED_SYMBOL const& b )
+               {
+                   return a.LibId.GetLibItemName() < b.LibId.GetLibItemName();
+               } );
 
     processList( aHistoryList, history_list_storage, history_list );
     processList( aAlreadyPlaced, already_placed_storage, already_placed );
@@ -170,7 +181,7 @@ PANEL_SYMBOL_CHOOSER::PANEL_SYMBOL_CHOOSER( SCH_BASE_FRAME* aFrame, wxWindow* aP
         if( !adapter->AddLibraries( libNicknames, m_frame ) )
         {
             // loading cancelled by user
-            m_closeHandler();
+            m_acceptHandler();
         }
     }
 
@@ -243,14 +254,17 @@ PANEL_SYMBOL_CHOOSER::PANEL_SYMBOL_CHOOSER( SCH_BASE_FRAME* aFrame, wxWindow* aP
     m_hsplitter->SplitVertically( treePanel, constructRightPanel( m_hsplitter ) );
 
     m_dbl_click_timer = new wxTimer( this );
+    m_open_libs_timer = new wxTimer( this );
 
     SetSizer( sizer );
 
     Layout();
 
     Bind( wxEVT_TIMER, &PANEL_SYMBOL_CHOOSER::onCloseTimer, this, m_dbl_click_timer->GetId() );
+    Bind( wxEVT_TIMER, &PANEL_SYMBOL_CHOOSER::onOpenLibsTimer, this, m_open_libs_timer->GetId() );
     Bind( EVT_LIBITEM_SELECTED, &PANEL_SYMBOL_CHOOSER::onSymbolSelected, this );
     Bind( EVT_LIBITEM_CHOSEN, &PANEL_SYMBOL_CHOOSER::onSymbolChosen, this );
+    Bind( wxEVT_CHAR_HOOK, &PANEL_SYMBOL_CHOOSER::OnChar, this );
 
     if( m_fp_sel_ctrl )
     {
@@ -260,9 +274,15 @@ PANEL_SYMBOL_CHOOSER::PANEL_SYMBOL_CHOOSER( SCH_BASE_FRAME* aFrame, wxWindow* aP
 
     if( m_details )
     {
-        m_details->Connect( wxEVT_CHAR_HOOK, wxKeyEventHandler( PANEL_SYMBOL_CHOOSER::OnCharHook ),
+        m_details->Connect( wxEVT_CHAR_HOOK,
+                            wxKeyEventHandler( PANEL_SYMBOL_CHOOSER::OnDetailsCharHook ),
                             nullptr, this );
     }
+
+    // Open the user's previously opened libraries on timer expiration.
+    // This is done on a timer because we need a gross hack to keep GTK from garbling the
+    // display. Must be longer than the search debounce timer.
+    m_open_libs_timer->StartOnce( 300 );
 }
 
 
@@ -271,10 +291,13 @@ PANEL_SYMBOL_CHOOSER::~PANEL_SYMBOL_CHOOSER()
     Unbind( wxEVT_TIMER, &PANEL_SYMBOL_CHOOSER::onCloseTimer, this );
     Unbind( EVT_LIBITEM_SELECTED, &PANEL_SYMBOL_CHOOSER::onSymbolSelected, this );
     Unbind( EVT_LIBITEM_CHOSEN, &PANEL_SYMBOL_CHOOSER::onSymbolChosen, this );
+    Unbind( wxEVT_CHAR_HOOK, &PANEL_SYMBOL_CHOOSER::OnChar, this );
 
     // Stop the timer during destruction early to avoid potential race conditions (that do happen)
     m_dbl_click_timer->Stop();
+    m_open_libs_timer->Stop();
     delete m_dbl_click_timer;
+    delete m_open_libs_timer;
 
     if( m_showPower )
         g_powerSearchString = m_tree->GetSearchString();
@@ -290,12 +313,15 @@ PANEL_SYMBOL_CHOOSER::~PANEL_SYMBOL_CHOOSER()
     if( m_details )
     {
         m_details->Disconnect( wxEVT_CHAR_HOOK,
-                               wxKeyEventHandler( PANEL_SYMBOL_CHOOSER::OnCharHook ), nullptr,
-                               this );
+                               wxKeyEventHandler( PANEL_SYMBOL_CHOOSER::OnDetailsCharHook ),
+                               nullptr, this );
     }
 
     if( EESCHEMA_SETTINGS* cfg = dynamic_cast<EESCHEMA_SETTINGS*>( Kiface().KifaceSettings() ) )
     {
+        // Save any changes to column widths, etc.
+        m_adapter->SaveSettings();
+
         cfg->m_SymChooserPanel.width = GetParent()->GetSize().x;
         cfg->m_SymChooserPanel.height = GetParent()->GetSize().y;
 
@@ -305,6 +331,32 @@ PANEL_SYMBOL_CHOOSER::~PANEL_SYMBOL_CHOOSER()
             cfg->m_SymChooserPanel.sash_pos_v = m_vsplitter->GetSashPosition();
 
         cfg->m_SymChooserPanel.sort_mode = m_tree->GetSortMode();
+    }
+}
+
+
+void PANEL_SYMBOL_CHOOSER::OnChar( wxKeyEvent& aEvent )
+{
+    if( aEvent.GetKeyCode() == WXK_ESCAPE )
+    {
+        wxObject* eventSource = aEvent.GetEventObject();
+
+        if( wxTextCtrl* textCtrl = dynamic_cast<wxTextCtrl*>( eventSource ) )
+        {
+            // First escape cancels search string value
+            if( textCtrl->GetValue() == m_tree->GetSearchString()
+                && !m_tree->GetSearchString().IsEmpty() )
+            {
+                m_tree->SetSearchString( wxEmptyString );
+                return;
+            }
+        }
+
+        m_escapeHandler();
+    }
+    else
+    {
+        aEvent.Skip();
     }
 }
 
@@ -410,7 +462,7 @@ void PANEL_SYMBOL_CHOOSER::FinishSetup()
 }
 
 
-void PANEL_SYMBOL_CHOOSER::OnCharHook( wxKeyEvent& e )
+void PANEL_SYMBOL_CHOOSER::OnDetailsCharHook( wxKeyEvent& e )
 {
     if( m_details && e.GetKeyCode() == 'C' && e.ControlDown() &&
         !e.AltDown() && !e.ShiftDown() && !e.MetaDown() )
@@ -459,8 +511,15 @@ void PANEL_SYMBOL_CHOOSER::onCloseTimer( wxTimerEvent& aEvent )
     }
     else
     {
-        m_closeHandler();
+        m_acceptHandler();
     }
+}
+
+
+void PANEL_SYMBOL_CHOOSER::onOpenLibsTimer( wxTimerEvent& aEvent )
+{
+    if( EESCHEMA_SETTINGS* cfg = dynamic_cast<EESCHEMA_SETTINGS*>( Kiface().KifaceSettings() ) )
+        m_adapter->OpenLibs( cfg->m_LibTree.open_libs );
 }
 
 
@@ -545,12 +604,12 @@ void PANEL_SYMBOL_CHOOSER::populateFootprintSelector( LIB_ID const& aLibId )
 
     if( symbol != nullptr )
     {
-        LIB_PINS   temp_pins;
-        LIB_FIELD* fp_field = symbol->GetFieldById( FOOTPRINT_FIELD );
-        wxString   fp_name = fp_field ? fp_field->GetFullText() : wxString( "" );
+        std::vector<LIB_PIN*> temp_pins;
+        LIB_FIELD*            fp_field = symbol->GetFieldById( FOOTPRINT_FIELD );
+        wxString              fp_name = fp_field ? fp_field->GetFullText() : wxString( "" );
 
         // All units, but only a single De Morgan variant.
-        if( symbol->HasConversion() )
+        if( symbol->HasAlternateBodyStyle() )
             symbol->GetPins( temp_pins, 0, 1 );
         else
             symbol->GetPins( temp_pins );

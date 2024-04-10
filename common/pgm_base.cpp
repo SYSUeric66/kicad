@@ -45,6 +45,7 @@
 #include <advanced_config.h>
 #include <background_jobs_monitor.h>
 #include <bitmaps.h>
+#include <build_version.h>
 #include <common.h>
 #include <confirm.h>
 #include <core/arraydim.h>
@@ -71,6 +72,12 @@
 #include <boost/uuid/uuid_generators.hpp>
 #include <sentry.h>
 #include <build_version.h>
+#endif
+
+#ifdef KICAD_IPC_API
+#include <api/api_plugin_manager.h>
+#include <api/api_server.h>
+#include <python_manager.h>
 #endif
 
 /**
@@ -101,7 +108,7 @@ LANGUAGE_DESCR LanguagesList[] =
     { wxLANGUAGE_ITALIAN,    ID_LANGUAGE_ITALIAN,    wxT( "Italiano" ), true },
     { wxLANGUAGE_LITHUANIAN, ID_LANGUAGE_LITHUANIAN, wxT( "Lietuvių" ), true },
 //    { wxLANGUAGE_HUNGARIAN,  ID_LANGUAGE_HUNGARIAN,  wxT( "Magyar" ),   true },
-    { wxLANGUAGE_DUTCH,      ID_LANGUAGE_DUTCH,      wxT( "Nederlandse" ), true },
+    { wxLANGUAGE_DUTCH,      ID_LANGUAGE_DUTCH,      wxT( "Nederlands" ), true },
     { wxLANGUAGE_JAPANESE,   ID_LANGUAGE_JAPANESE,   wxT( "日本語" ),    true },
     { wxLANGUAGE_THAI,       ID_LANGUAGE_THAI,       wxT( "ภาษาไทย" ),    true },
     { wxLANGUAGE_POLISH,     ID_LANGUAGE_POLISH,     wxT( "Polski" ),   true },
@@ -118,7 +125,7 @@ LANGUAGE_DESCR LanguagesList[] =
     { wxLANGUAGE_CHINESE_SIMPLIFIED, ID_LANGUAGE_CHINESE_SIMPLIFIED,
             wxT( "简体中文" ), true },
     { wxLANGUAGE_CHINESE_TRADITIONAL, ID_LANGUAGE_CHINESE_TRADITIONAL,
-            wxT( "繁體中文" ), false },
+            wxT( "繁體中文" ), true },
     { 0, 0, "", false }         // Sentinel
 };
 #undef _
@@ -133,6 +140,7 @@ PGM_BASE::PGM_BASE()
     m_argcUtf8 = 0;
     m_argvUtf8 = nullptr;
     m_splash = nullptr;
+    m_PropertyGridInitialized = false;
 
     setLanguageId( wxLANGUAGE_DEFAULT );
 
@@ -417,6 +425,12 @@ void PGM_BASE::BuildArgvUtf8()
 
 void PGM_BASE::ShowSplash()
 {
+    // Disabling until we change to load each DSO at startup rather than lazy-load when needed.
+    // Note that once the splash screen is re-enabled, there are some remaining bugs to fix:
+    // Any wxWidgets error dialogs that appear during startup are hidden by the splash screen,
+    // so we either need to prevent these from happening (probably not feasible) or else change
+    // the error-handling path to make sure errors go on top of the splash.
+#if 0
     if( m_splash )
         return;
 
@@ -424,6 +438,7 @@ void PGM_BASE::ShowSplash()
                               NULL, -1, wxDefaultPosition, wxDefaultSize,
                               wxBORDER_NONE | wxSTAY_ON_TOP );
     wxYield();
+#endif
 }
 
 
@@ -482,8 +497,22 @@ bool PGM_BASE::InitPgm( bool aHeadless, bool aSkipPyInit, bool aIsUnitTest )
         return false;
     }
 #endif
+
+    // Ensure the instance checker directory exists
+    // It should be globally writable because it is shared between all users on Linux, and so on a
+    // multi-user machine, other need to be able to access it to check for the lock files or make
+    // their own lock files.
+    wxString instanceCheckerDir = PATHS::GetInstanceCheckerPath();
+    PATHS::EnsurePathExists( instanceCheckerDir );
+    wxChmod( instanceCheckerDir, wxPOSIX_USER_READ | wxPOSIX_USER_WRITE | wxPOSIX_USER_EXECUTE |
+                                 wxPOSIX_GROUP_READ | wxPOSIX_GROUP_WRITE | wxPOSIX_GROUP_EXECUTE |
+                                 wxPOSIX_OTHERS_READ | wxPOSIX_OTHERS_WRITE | wxPOSIX_OTHERS_EXECUTE );
+
+    wxString instanceCheckerName = wxString::Format( wxS( "%s-%s" ), pgm_name,
+                                                     GetMajorMinorVersion() );
+
     m_pgm_checker = std::make_unique<wxSingleInstanceChecker>();
-    m_pgm_checker->Create( pgm_name, wxStandardPaths::Get().GetTempDir() );
+    m_pgm_checker->Create( instanceCheckerName, instanceCheckerDir );
 
     // Init KiCad environment
     // the environment variable KICAD (if exists) gives the kicad path:
@@ -530,6 +559,10 @@ bool PGM_BASE::InitPgm( bool aHeadless, bool aSkipPyInit, bool aIsUnitTest )
     m_background_jobs_monitor = std::make_unique<BACKGROUND_JOBS_MONITOR>();
     m_notifications_manager = std::make_unique<NOTIFICATIONS_MANAGER>();
 
+#ifdef KICAD_IPC_API
+    m_plugin_manager = std::make_unique<API_PLUGIN_MANAGER>( &App() );
+#endif
+
     // Our unit test mocks break if we continue
     // A bug caused InitPgm to terminate early in unit tests and the mocks are...simplistic
     // TODO fix the unit tests so this can be removed
@@ -541,13 +574,20 @@ bool PGM_BASE::InitPgm( bool aHeadless, bool aSkipPyInit, bool aIsUnitTest )
         return false;
 
     // Set up built-in environment variables (and override them from the system environment if set)
-    GetCommonSettings()->InitializeEnvironment();
+    COMMON_SETTINGS* commonSettings = GetCommonSettings();
+    commonSettings->InitializeEnvironment();
 
     // Load color settings after env is initialized
     m_settings_manager->ReloadColorSettings();
 
     // Load common settings from disk after setting up env vars
-    GetSettingsManager().Load( GetCommonSettings() );
+    GetSettingsManager().Load( commonSettings );
+
+#ifdef KICAD_IPC_API
+    // If user doesn't have a saved Python interpreter, try (potentially again) to find one
+    if( commonSettings->m_Api.python_interpreter.IsEmpty() )
+        commonSettings->m_Api.python_interpreter = PYTHON_MANAGER::FindPythonInterpreter();
+#endif
 
     // Init user language *before* calling loadSettings, because
     // env vars could be incorrectly initialized on Linux
@@ -575,6 +615,10 @@ bool PGM_BASE::InitPgm( bool aHeadless, bool aSkipPyInit, bool aIsUnitTest )
     // TODO(JE): Remove this if apps are refactored to not assume Prj() always works
     // Need to create a project early for now (it can have an empty path for the moment)
     GetSettingsManager().LoadProject( "" );
+
+#ifdef KICAD_IPC_API
+    m_plugin_manager->ReloadPlugins();
+#endif
 
     // This sets the maximum tooltip display duration to 10s (up from 5) but only affects
     // Windows as other platforms display tooltips while the mouse is not moving
@@ -813,6 +857,10 @@ wxString PGM_BASE::GetLanguageTag()
 
 void PGM_BASE::SetLanguagePath()
 {
+#ifdef _MSC_VER
+    wxLocale::AddCatalogLookupPathPrefix( PATHS::GetWindowsBaseSharePath()
+                                                  + wxT( "locale" ) );
+#endif
     wxLocale::AddCatalogLookupPathPrefix( PATHS::GetLocaleDataPath() );
 
     if( wxGetEnv( wxT( "KICAD_RUN_FROM_BUILD_DIR" ), nullptr ) )
@@ -990,4 +1038,37 @@ void PGM_BASE::HandleAssert( const wxString& aFile, int aLine, const wxString& a
 const wxString& PGM_BASE::GetExecutablePath() const
 {
     return PATHS::GetExecutablePath();
+}
+
+
+void PGM_BASE::ReadPdfBrowserInfos()
+{
+    SetPdfBrowserName( GetCommonSettings()->m_System.pdf_viewer_name );
+    m_use_system_pdf_browser = GetCommonSettings()->m_System.use_system_pdf_viewer;
+}
+
+
+void PGM_BASE::WritePdfBrowserInfos()
+{
+    GetCommonSettings()->m_System.pdf_viewer_name = GetPdfBrowserName();
+    GetCommonSettings()->m_System.use_system_pdf_viewer = m_use_system_pdf_browser;
+}
+
+static PGM_BASE* process;
+
+PGM_BASE& Pgm()
+{
+    wxASSERT( process ); // KIFACE_GETTER has already been called.
+    return *process;
+}
+
+// Similar to PGM_BASE& Pgm(), but return nullptr when a *.ki_face is run from a python script.
+PGM_BASE* PgmOrNull()
+{
+    return process;
+}
+
+void SetPgm(PGM_BASE* pgm)
+{
+    process = pgm;
 }

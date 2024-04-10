@@ -31,7 +31,7 @@
 
 #include <board_design_settings.h>
 
-#include <pcbnew/plugins/kicad/pcb_plugin.h>
+#include <pcbnew/pcb_io/kicad_sexpr/pcb_io_kicad_sexpr.h>
 #include <pcbnew/drc/drc_engine.h>
 
 #include <project.h>
@@ -69,7 +69,8 @@ PNS_LOG_FILE::PNS_LOG_FILE() :
     m_routerSettings.reset( new PNS::ROUTING_SETTINGS( nullptr, "" ) );
 }
 
-std::shared_ptr<SHAPE> parseShape( SHAPE_TYPE expectedType, wxStringTokenizer& aTokens )
+
+std::shared_ptr<SHAPE> PNS_LOG_FILE::parseShape( SHAPE_TYPE expectedType, wxStringTokenizer& aTokens )
 {
     SHAPE_TYPE type = static_cast<SHAPE_TYPE> ( wxAtoi( aTokens.GetNextToken() ) );
 
@@ -119,15 +120,15 @@ bool PNS_LOG_FILE::parseCommonPnsProps( PNS::ITEM* aItem, const wxString& cmd,
     return false;
 }
 
-PNS::SEGMENT* PNS_LOG_FILE::parsePnsSegmentFromString( wxStringTokenizer& aTokens )
+std::unique_ptr<PNS::SEGMENT> PNS_LOG_FILE::parsePnsSegmentFromString( wxStringTokenizer& aTokens )
 {
-    PNS::SEGMENT* seg = new PNS::SEGMENT();
+    std::unique_ptr<PNS::SEGMENT> seg( new PNS::SEGMENT() );
 
     while( aTokens.CountTokens() )
     {
         wxString cmd = aTokens.GetNextToken();
 
-        if( !parseCommonPnsProps( seg, cmd, aTokens ) )
+        if( !parseCommonPnsProps( seg.get(), cmd, aTokens ) )
         {
             if( cmd == wxS( "shape" ) )
             {
@@ -145,15 +146,15 @@ PNS::SEGMENT* PNS_LOG_FILE::parsePnsSegmentFromString( wxStringTokenizer& aToken
     return seg;
 }
 
-PNS::VIA* PNS_LOG_FILE::parsePnsViaFromString( wxStringTokenizer& aTokens )
+std::unique_ptr<PNS::VIA> PNS_LOG_FILE::parsePnsViaFromString( wxStringTokenizer& aTokens )
 {
-    PNS::VIA* via = new PNS::VIA();
+    std::unique_ptr<PNS::VIA> via( new PNS::VIA() );
 
     while( aTokens.CountTokens() )
     {
         wxString cmd = aTokens.GetNextToken();
 
-        if( !parseCommonPnsProps( via, cmd, aTokens ) )
+        if( !parseCommonPnsProps( via.get(), cmd, aTokens ) )
         {
             if( cmd == wxS( "shape" ) )
             {
@@ -178,7 +179,7 @@ PNS::VIA* PNS_LOG_FILE::parsePnsViaFromString( wxStringTokenizer& aTokens )
 }
 
 
-PNS::ITEM* PNS_LOG_FILE::parseItemFromString( wxStringTokenizer& aTokens )
+std::unique_ptr<PNS::ITEM> PNS_LOG_FILE::parseItemFromString( wxStringTokenizer& aTokens )
 {
     wxString type = aTokens.GetNextToken();
 
@@ -298,11 +299,10 @@ bool PNS_LOG_FILE::COMMIT_STATE::Compare( const PNS_LOG_FILE::COMMIT_STATE& aOth
 
 bool PNS_LOG_FILE::SaveLog( const wxFileName& logFileName, REPORTER* aRpt )
 {
-    std::vector<PNS::ITEM*> dummyHeads; // todo - save heads when we support it in QA
-
     FILE*    log_f = wxFopen( logFileName.GetFullPath(), "wb" );
     wxString logString = PNS::LOGGER::FormatLogFileAsString( m_mode, m_commitState.m_addedItems,
-                                                             m_commitState.m_removedIds, dummyHeads,
+                                                             m_commitState.m_removedIds,
+                                                             m_commitState.m_heads,
                                                              m_events );
     fprintf( log_f, "%s\n", logString.c_str().AsChar() );
     fclose( log_f );
@@ -347,7 +347,7 @@ bool PNS_LOG_FILE::Load( const wxFileName& logFileName, REPORTER* aRpt )
 
     try
     {
-        PCB_PLUGIN io;
+        PCB_IO_KICAD_SEXPR io;
         aRpt->Report( wxString::Format( wxT("Loading board snapshot from '%s'"),
                                         fname_dump.GetFullPath() ) );
 
@@ -356,7 +356,6 @@ bool PNS_LOG_FILE::Load( const wxFileName& logFileName, REPORTER* aRpt )
 
         std::shared_ptr<DRC_ENGINE> drcEngine( new DRC_ENGINE );
 
-        CONSOLE_LOG            consoleLog;
         BOARD_DESIGN_SETTINGS& bds = m_board->GetDesignSettings();
 
         bds.m_DRCEngine = drcEngine;
@@ -366,7 +365,7 @@ bool PNS_LOG_FILE::Load( const wxFileName& logFileName, REPORTER* aRpt )
 
         drcEngine->SetBoard( m_board.get() );
         drcEngine->SetDesignSettings( &bds );
-        drcEngine->SetLogReporter( new CONSOLE_MSG_REPORTER( &consoleLog ) );
+        drcEngine->SetLogReporter( aRpt );
         drcEngine->InitEngine( wxFileName() );
     }
     catch( const PARSE_ERROR& parse_error )
@@ -405,12 +404,12 @@ bool PNS_LOG_FILE::Load( const wxFileName& logFileName, REPORTER* aRpt )
         }
         else if( cmd == wxT( "event" ) )
         {
-            m_events.push_back( PNS::LOGGER::ParseEvent( line ) );
+            m_events.push_back( std::move( PNS::LOGGER::ParseEvent( line ) ) );
         }
         else if ( cmd == wxT( "added" ) )
         {
-            PNS::ITEM* item = parseItemFromString( tokens );
-            m_commitState.m_addedItems.push_back( item );
+            m_parsed_items.push_back( std::move( parseItemFromString( tokens ) ) );
+            m_commitState.m_addedItems.push_back( m_parsed_items.back().get() );
         }
         else if ( cmd == wxT( "removed" ) )
         {

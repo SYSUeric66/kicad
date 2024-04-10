@@ -1,5 +1,5 @@
 ///////////////////////////////////////////////////////////////////////////
-// C++ code generated with wxFormBuilder (version 4.0.0-0-g0efcecf)
+// C++ code generated with wxFormBuilder (version 4.0.0-0-g0efcecf02)
 // http://www.wxformbuilder.org/
 //
 // PLEASE DO *NOT* EDIT THIS FILE!
@@ -22,6 +22,7 @@ class TEXT_CTRL_EVAL;
 #include <wx/textctrl.h>
 #include <wx/sizer.h>
 #include <wx/statbox.h>
+#include <wx/radiobut.h>
 #include <wx/radiobox.h>
 #include <wx/checkbox.h>
 #include <wx/choice.h>
@@ -29,7 +30,6 @@ class TEXT_CTRL_EVAL;
 #include <wx/bitmap.h>
 #include <wx/image.h>
 #include <wx/icon.h>
-#include <wx/radiobut.h>
 #include <wx/notebook.h>
 #include <wx/button.h>
 #include <wx/dialog.h>
@@ -66,7 +66,8 @@ class DIALOG_CREATE_ARRAY_BASE : public DIALOG_SHIM
 		wxStaticText* m_unitLabelOffsetY;
 		wxStaticText* m_labelStagger;
 		TEXT_CTRL_EVAL* m_entryStagger;
-		wxRadioBox* m_radioBoxGridStaggerType;
+		wxRadioButton* m_staggerRows;
+		wxRadioButton* m_staggerCols;
 		wxPanel* m_gridPadNumberingPanel;
 		wxBoxSizer* m_gridPadNumberingSizer;
 		wxRadioBox* m_radioBoxGridNumberingAxis;
@@ -92,14 +93,13 @@ class DIALOG_CREATE_ARRAY_BASE : public DIALOG_SHIM
 		wxTextCtrl* m_tcRefPosY;
 		wxStaticText* m_stRefPosYUnit;
 		wxRadioButton* m_radioBtnSetByPos;
-		wxRadioButton* m_radioBtnSetByRadius;
-		wxStaticText* m_stInfoItems1;
 		wxStaticText* m_labelCentreX;
 		wxTextCtrl* m_entryCentreX;
 		wxStaticText* m_unitLabelCentreX;
 		wxStaticText* m_labelCentreY;
 		wxTextCtrl* m_entryCentreY;
 		wxStaticText* m_unitLabelCentreY;
+		wxRadioButton* m_radioBtnSetByRadius;
 		wxStaticText* m_labelCircRadius;
 		wxTextCtrl* m_tcValueCircRadius;
 		wxStaticText* m_unitLabelCircRadius;

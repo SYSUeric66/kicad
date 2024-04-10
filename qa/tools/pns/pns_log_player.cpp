@@ -39,8 +39,6 @@ PNS_LOG_PLAYER::PNS_LOG_PLAYER()
 
 PNS_LOG_PLAYER::~PNS_LOG_PLAYER()
 {
-    if( m_debugDecorator )
-        delete m_debugDecorator;
 }
 
 void PNS_LOG_PLAYER::createRouter()
@@ -52,7 +50,9 @@ void PNS_LOG_PLAYER::createRouter()
     m_router->SetInterface( m_iface.get() );
     m_router->ClearWorld();
     m_router->SyncWorld();
-    m_router->LoadSettings( new PNS::ROUTING_SETTINGS( nullptr, "" ) );
+
+    m_routingSettings.reset( new PNS::ROUTING_SETTINGS( nullptr, "" ) );
+    m_router->LoadSettings( m_routingSettings.get() );
     m_router->Settings().SetMode( PNS::RM_Walkaround );
     m_router->Sizes().SetTrackWidth( 250000 );
 
@@ -83,11 +83,15 @@ const PNS_LOG_FILE::COMMIT_STATE PNS_LOG_PLAYER::GetRouterUpdatedItems()
     }
 
     // fixme: update the state with the head trace (not supported in current testsuite)
+    // Note: we own the head items (cloned inside GetUpdatedItems) - we need to delete them!
+    for( auto head : heads )
+        delete head;
 
     return state;
 }
 
-void PNS_LOG_PLAYER::ReplayLog( PNS_LOG_FILE* aLog, int aStartEventIndex, int aFrom, int aTo )
+void PNS_LOG_PLAYER::ReplayLog( PNS_LOG_FILE* aLog, int aStartEventIndex, int aFrom, int aTo,
+                                bool aUpdateExpectedResult )
 {
     m_board = aLog->GetBoard();
 
@@ -156,7 +160,7 @@ void PNS_LOG_PLAYER::ReplayLog( PNS_LOG_FILE* aLog, int aStartEventIndex, int aF
             m_debugDecorator->NewStage( "fix", 0, PNSLOGINFO );
             m_viewTracker->SetStage( m_debugDecorator->GetStageCount() - 1 );
             m_debugDecorator->Message( wxString::Format( "fix (%d, %d)", evt.p.x, evt.p.y ) );
-            bool rv = m_router->FixRoute( evt.p, ritem );
+            bool rv = m_router->FixRoute( evt.p, ritem, false, false );
             printf( "  fix -> (%d, %d) ret %d\n", evt.p.x, evt.p.y, rv ? 1 : 0 );
             break;
         }
@@ -250,7 +254,36 @@ void PNS_LOG_PLAYER::ReplayLog( PNS_LOG_FILE* aLog, int aStartEventIndex, int aF
 #endif
     }
 
+    wxASSERT_MSG( m_router->Mode() == aLog->GetMode(), "didn't set the router mode correctly?" );
 
+    if( aUpdateExpectedResult )
+    {
+        std::vector<PNS::ITEM*> added, removed, heads;
+        m_router->GetUpdatedItems( removed, added, heads );
+
+        std::set<KIID> removedKIIDs;
+
+        for( auto item : removed )
+        {
+            wxASSERT_MSG( item->Parent() != nullptr, "removed an item with no parent uuid?" );
+
+            if( item->Parent() )
+                removedKIIDs.insert( item->Parent()->m_Uuid );
+        }
+
+        std::vector<std::unique_ptr<PNS::ITEM>> myOwnedItems;
+        PNS_LOG_FILE::COMMIT_STATE routerCommitState;
+        routerCommitState.m_addedItems = added;
+        routerCommitState.m_removedIds = removedKIIDs;
+        routerCommitState.m_heads = heads;
+
+        for( PNS::ITEM* head : heads )
+            myOwnedItems.emplace_back( head );
+
+        aLog->SetExpectedResult( routerCommitState, std::move( myOwnedItems ) );
+
+        int test = 0;
+    }
 }
 
 
@@ -278,7 +311,8 @@ void PNS_LOG_PLAYER_KICAD_IFACE::HideItem( PNS::ITEM* aItem )
     m_viewTracker->HideItem( aItem );
 }
 
-void PNS_LOG_PLAYER_KICAD_IFACE::DisplayItem( const PNS::ITEM* aItem, int aClearance, bool aEdit, bool aIsHeadTrace )
+void PNS_LOG_PLAYER_KICAD_IFACE::DisplayItem( const PNS::ITEM* aItem, int aClearance, bool aEdit,
+                                              int aFlags )
 {
     //printf("DBG disp %p\n", aItem);
     m_viewTracker->DisplayItem( aItem );
@@ -320,17 +354,19 @@ void PNS_LOG_VIEW_TRACKER::SetStage( int aStage )
 void PNS_LOG_VIEW_TRACKER::HideItem( PNS::ITEM* aItem )
 {
     ENTRY ent;
-    ent.isHideOp = true;
-    ent.item = aItem;
-    m_vitems[m_currentStage].push_back( ent );
+    ent.m_isHideOp = true;
+    ent.m_item = aItem;
+    ent.m_ownedItem = nullptr; // I don't own it!
+    m_vitems[m_currentStage].push_back( std::move( ent ) );
 }
 
 void PNS_LOG_VIEW_TRACKER::DisplayItem( const PNS::ITEM* aItem )
 {
     ENTRY ent;
-    ent.isHideOp = false;
-    ent.item = aItem->Clone();
-    m_vitems[m_currentStage].push_back( ent );
+    ent.m_isHideOp = false;
+    ent.m_item = aItem->Clone();
+    ent.m_ownedItem.reset( ent.m_item ); //delete me when ENTRY is deleted
+    m_vitems[m_currentStage].push_back( std::move( ent ) );
     //printf("DBG disp cur %d cnt %d\n", m_currentStage, m_vitems[m_currentStage].size() );
 }
 

@@ -47,6 +47,7 @@
 #include <undo_redo_container.h>
 #include <units_provider.h>
 #include <origin_transforms.h>
+#include <ui_events.h>
 
 // Option for main frames
 #define KICAD_DEFAULT_DRAWFRAME_STYLE wxDEFAULT_FRAME_STYLE | wxWANTS_CHARS
@@ -91,8 +92,6 @@ class TOOL_INTERACTIVE;
 
 /// This is the handler functor for the update UI events
 typedef std::function< void( wxUpdateUIEvent& ) > UIUpdateHandler;
-
-wxDECLARE_EVENT( EDA_EVT_UNITS_CHANGED, wxCommandEvent );
 
 
 /**
@@ -600,6 +599,13 @@ public:
      * Update the UI in response to a change in the system colors.
      */
     virtual void HandleSystemColorChange();
+
+    /**
+     * Checks if this frame is ready to accept API commands.
+     * A frame might not accept commands if a long-running process is underway, a dialog is open,
+     * the user is interacting with a tool, etc.
+     */
+    virtual bool CanAcceptApiCommands() { return IsEnabled(); }
 
 protected:
     ///< Default style flags used for wxAUI toolbars.

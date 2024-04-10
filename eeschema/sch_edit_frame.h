@@ -4,7 +4,7 @@
  * Copyright (C) 2015 Jean-Pierre Charras, jp.charras wanadoo.fr
  * Copyright (C) 2008 Wayne Stambaugh <stambaughw@gmail.com>
  * Copyright (C) 2023 CERN (www.cern.ch)
- * Copyright (C) 2004-2023 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2004-2024 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -62,22 +62,7 @@ class DIALOG_SYMBOL_FIELDS_TABLE;
 class DIALOG_SCH_FIND;
 class RESCUER;
 class HIERARCHY_PANE;
-
-
-// @todo Move this to transform alone with all of the transform manipulation code.
-/// enum used in RotationMiroir()
-enum SYMBOL_ORIENTATION_T
-{
-    SYM_NORMAL,                     // Normal orientation, no rotation or mirror
-    SYM_ROTATE_CLOCKWISE,           // Rotate -90
-    SYM_ROTATE_COUNTERCLOCKWISE,    // Rotate +90
-    SYM_ORIENT_0,                   // No rotation and no mirror id SYM_NORMAL
-    SYM_ORIENT_90,                  // Rotate 90, no mirror
-    SYM_ORIENT_180,                 // Rotate 180, no mirror
-    SYM_ORIENT_270,                 // Rotate -90, no mirror
-    SYM_MIRROR_X = 0x100,           // Mirror around X axis
-    SYM_MIRROR_Y = 0x200            // Mirror around Y axis
-};
+class API_HANDLER_SCH;
 
 
 /// Schematic search type used by the socket link with Pcbnew
@@ -96,6 +81,7 @@ enum SCH_CLEANUP_FLAGS
 };
 
 
+wxDECLARE_EVENT( EDA_EVT_SCHEMATIC_CHANGING, wxCommandEvent );
 wxDECLARE_EVENT( EDA_EVT_SCHEMATIC_CHANGED, wxCommandEvent );
 
 
@@ -247,6 +233,13 @@ public:
      * Update the hierarchy navigation tree and history
      */
     void UpdateHierarchyNavigator();
+
+    /**
+     * Update the hierarchy navigation tree labels.
+     * No change for the tree, only the labels are updated, after editing a sheet
+     * name or a sheet number.
+     */
+    void UpdateLabelsHierarchyNavigator();
 
     /**
      * Update the hierarchy navigation tree selection (cross-probe from schematic to hierarchy
@@ -534,13 +527,13 @@ public:
     void OnAnnotate( wxCommandEvent& event );
 
     /**
-     * Verify that \a aSheet will not cause a recursion error in \a aHierarchy.
+     * Verify that \a aSheet will not cause a recursion error in \a aCurrentSheet.
      *
      * @param aSheet is the #SCH_SHEET object to test.
-     * @param aHierarchy is the #SCH_SHEET_PATH where \a aSheet is going to reside.
-     * @return true if \a aSheet will cause a recursion error in \a aHierarchy.
+     * @param aCurrentSheet is the #SCH_SHEET_PATH where \a aSheet is going to reside.
+     * @return true if \a aSheet will cause a recursion error in \a aCurrentSheet.
      */
-    bool CheckSheetForRecursion( SCH_SHEET* aSheet, SCH_SHEET_PATH* aHierarchy );
+    bool CheckSheetForRecursion( SCH_SHEET* aSheet, SCH_SHEET_PATH* aCurrentSheet );
 
     /**
      * Check \a aSchematicFileName for a potential file name case sensitivity clashes.
@@ -582,9 +575,12 @@ public:
      * this sheet need to have their annotation cleared i.e. when an existing item list is used.
      * it can happens when the edited sheet used an existing file, or becomes a new instance
      * of a already existing sheet.
+     * @param aUpdateHierarchyNavigator is an optional flag to indicate the sheet changes require
+     *                                  the hierarchy navigator panel to be updated.
      */
     bool EditSheetProperties( SCH_SHEET* aSheet, SCH_SHEET_PATH* aHierarchy,
-                              bool* aClearAnnotationNewItems );
+                              bool* aClearAnnotationNewItems,
+                              bool* aUpdateHierarchyNavigator = nullptr );
 
     void InitSheet( SCH_SHEET* aSheet, const wxString& aNewFilename );
 
@@ -625,14 +621,14 @@ public:
      * - Refresh the symbol library links.
      *
      * @param aSheet is the sheet to either append or load the schematic.
-     * @param aHierarchy is the current position in the schematic hierarchy used to test for
-     *                   possible file recursion issues.
+     * @param aCurrentSheet is the current position in the schematic hierarchy used to test for
+     *                      possible file recursion issues.
      * @param aFileName is the file name to load.  The file name is expected to have an absolute
      *                  path.
      *
      * @return True if the schematic was imported properly.
      */
-    bool LoadSheetFromFile( SCH_SHEET* aSheet, SCH_SHEET_PATH* aHierarchy,
+    bool LoadSheetFromFile( SCH_SHEET* aSheet, SCH_SHEET_PATH* aCurrentSheet,
                             const wxString& aFileName );
 
     /**
@@ -642,7 +638,7 @@ public:
      */
     void DeleteJunction( SCH_COMMIT* aCommit, SCH_ITEM* aItem );
 
-    void ConvertPart( SCH_SYMBOL* aSymbol );
+    void FlipBodyStyle( SCH_SYMBOL* aSymbol );
 
     void SelectUnit( SCH_SYMBOL* aSymbol, int aUnit );
 
@@ -877,6 +873,11 @@ public:
 
     void ToggleNetNavigator();
 
+    PLUGIN_ACTION_SCOPE PluginActionScope() const override
+    {
+        return PLUGIN_ACTION_SCOPE::SCHEMATIC;
+    }
+
     DECLARE_EVENT_TABLE()
 
 protected:
@@ -905,6 +906,8 @@ protected:
     void onCloseSymbolFieldsTableDialog( wxCommandEvent& aEvent );
 
     void unitsChangeRefresh() override;
+
+    void updateSelectionFilterVisbility() override;
 
 private:
     // Called when resizing the Hierarchy Navigator panel
@@ -1019,6 +1022,10 @@ private:
     bool m_highlightedConnChanged;
 
     std::vector<wxEvtHandler*> m_schematicChangeListeners;
+
+#ifdef KICAD_IPC_API
+    std::unique_ptr<API_HANDLER_SCH> m_apiHandler;
+#endif
 };
 
 

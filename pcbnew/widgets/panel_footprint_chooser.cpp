@@ -25,6 +25,7 @@
 
 #include <widgets/panel_footprint_chooser.h>
 #include <wx/button.h>
+#include <wx/clipbrd.h>
 #include <wx/panel.h>
 #include <wx/sizer.h>
 #include <wx/splitter.h>
@@ -40,19 +41,26 @@
 #include <widgets/wx_progress_reporters.h>
 #include <footprint_info_impl.h>
 #include <project_pcb.h>
+#include <kiface_base.h>
 
+// When a new footprint is selected, a custom event is sent, for instance to update
+// 3D viewer. So define a FP_SELECTION_EVENT event
+wxDEFINE_EVENT(FP_SELECTION_EVENT, wxCommandEvent);
 
 PANEL_FOOTPRINT_CHOOSER::PANEL_FOOTPRINT_CHOOSER( PCB_BASE_FRAME* aFrame, wxTopLevelWindow* aParent,
                                                   const wxArrayString& aFootprintHistoryList,
                                                   std::function<bool( LIB_TREE_NODE& )> aFilter,
-                                                  std::function<void()> aCloseHandler ) :
+                                                  std::function<void()> aAcceptHandler,
+                                                  std::function<void()> aEscapeHandler ) :
         wxPanel( aParent, wxID_ANY, wxDefaultPosition, wxDefaultSize ),
         m_hsplitter( nullptr ),
         m_vsplitter( nullptr ),
         m_frame( aFrame ),
         m_filter( std::move( aFilter ) ),
-        m_closeHandler( std::move( aCloseHandler ) )
+        m_acceptHandler( std::move( aAcceptHandler ) ),
+        m_escapeHandler( std::move( aEscapeHandler ) )
 {
+    m_CurrFootprint = nullptr;
     FP_LIB_TABLE*   fpTable = PROJECT_PCB::PcbFootprintLibs( &aFrame->Prj() );
 
     // Load footprint files:
@@ -88,7 +96,7 @@ PANEL_FOOTPRINT_CHOOSER::PANEL_FOOTPRINT_CHOOSER( PCB_BASE_FRAME* aFrame, wxTopL
                            historyInfos, false, true );
 
     if( historyInfos.size() )
-        adapter->SetPreselectNode( historyInfos[0]->GetLibId(), 0 );
+        adapter->SetPreselectNode( historyInfos[0]->GetLIB_ID(), 0 );
 
     adapter->SetFilter( &m_filter );
     adapter->AddLibraries( m_frame );
@@ -97,8 +105,7 @@ PANEL_FOOTPRINT_CHOOSER::PANEL_FOOTPRINT_CHOOSER( PCB_BASE_FRAME* aFrame, wxTopL
     // Construct the actual panel
     //
 
-    wxBoxSizer*   sizer = new wxBoxSizer( wxVERTICAL );
-    HTML_WINDOW*  details = nullptr;
+    wxBoxSizer* sizer = new wxBoxSizer( wxVERTICAL );
 
     m_vsplitter = new wxSplitterWindow( this, wxID_ANY, wxDefaultPosition, wxDefaultSize,
                                         wxSP_LIVE_UPDATE | wxSP_NOBORDER | wxSP_3DSASH );
@@ -114,8 +121,8 @@ PANEL_FOOTPRINT_CHOOSER::PANEL_FOOTPRINT_CHOOSER( PCB_BASE_FRAME* aFrame, wxTopL
     auto detailsSizer = new wxBoxSizer( wxVERTICAL );
     detailsPanel->SetSizer( detailsSizer );
 
-    details = new HTML_WINDOW( detailsPanel, wxID_ANY, wxDefaultPosition, wxDefaultSize );
-    detailsSizer->Add( details, 1, wxEXPAND, 5 );
+    m_details = new HTML_WINDOW( detailsPanel, wxID_ANY, wxDefaultPosition, wxDefaultSize );
+    detailsSizer->Add( m_details, 1, wxEXPAND, 5 );
     detailsPanel->Layout();
     detailsSizer->Fit( detailsPanel );
 
@@ -126,35 +133,77 @@ PANEL_FOOTPRINT_CHOOSER::PANEL_FOOTPRINT_CHOOSER( PCB_BASE_FRAME* aFrame, wxTopL
     sizer->Add( m_vsplitter, 1, wxEXPAND, 5 );
 
     m_tree = new LIB_TREE( m_hsplitter, wxT( "footprints" ), fpTable, m_adapter,
-                           LIB_TREE::FLAGS::ALL_WIDGETS, details );
+                           LIB_TREE::FLAGS::ALL_WIDGETS, m_details );
 
     m_hsplitter->SetSashGravity( 0.8 );
     m_hsplitter->SetMinimumPaneSize( 20 );
 
-    wxPanel*    rightPanel = new wxPanel( m_hsplitter );
-    wxBoxSizer* rightPanelSizer = new wxBoxSizer( wxVERTICAL );
+    m_RightPanel = new wxPanel( m_hsplitter );
+    m_RightPanelSizer = new wxBoxSizer( wxVERTICAL );
 
-    m_preview_ctrl = new FOOTPRINT_PREVIEW_WIDGET( rightPanel, m_frame->Kiway() );
+    m_preview_ctrl = new FOOTPRINT_PREVIEW_WIDGET( m_RightPanel, m_frame->Kiway() );
     m_preview_ctrl->SetUserUnits( m_frame->GetUserUnits() );
-    rightPanelSizer->Add( m_preview_ctrl, 1, wxEXPAND, 5 );
+    m_RightPanelSizer->Add( m_preview_ctrl, 1, wxEXPAND, 5 );
 
-    rightPanel->SetSizer( rightPanelSizer );
-    rightPanel->Layout();
-    rightPanelSizer->Fit( rightPanel );
+    m_RightPanel->SetSizer( m_RightPanelSizer );
+    m_RightPanel->Layout();
+    m_RightPanelSizer->Fit( m_RightPanel );
 
-    m_hsplitter->SplitVertically( m_tree, rightPanel );
+    m_hsplitter->SplitVertically( m_tree, m_RightPanel );
 
     m_dbl_click_timer = new wxTimer( this );
+    m_open_libs_timer = new wxTimer( this );
 
     SetSizer( sizer );
 
     m_adapter->FinishTreeInitialization();
 
     Bind( wxEVT_TIMER, &PANEL_FOOTPRINT_CHOOSER::onCloseTimer, this, m_dbl_click_timer->GetId() );
+    Bind( wxEVT_TIMER, &PANEL_FOOTPRINT_CHOOSER::onOpenLibsTimer, this, m_open_libs_timer->GetId() );
     Bind( EVT_LIBITEM_SELECTED, &PANEL_FOOTPRINT_CHOOSER::onFootprintSelected, this );
     Bind( EVT_LIBITEM_CHOSEN, &PANEL_FOOTPRINT_CHOOSER::onFootprintChosen, this );
 
+    m_details->Connect( wxEVT_CHAR_HOOK,
+                        wxKeyEventHandler( PANEL_FOOTPRINT_CHOOSER::OnDetailsCharHook ),
+                        nullptr, this );
+
+    Bind( wxEVT_CHAR_HOOK,
+            [&]( wxKeyEvent& aEvent )
+            {
+                if( aEvent.GetKeyCode() == WXK_ESCAPE )
+                {
+                    wxObject* eventSource = aEvent.GetEventObject();
+
+                    if( wxTextCtrl* textCtrl = dynamic_cast<wxTextCtrl*>( eventSource ) )
+                    {
+                        // First escape cancels search string value
+                        if( textCtrl->GetValue() == m_tree->GetSearchString()
+                                && !m_tree->GetSearchString().IsEmpty() )
+                        {
+                            m_tree->SetSearchString( wxEmptyString );
+                            return;
+                        }
+                    }
+
+                    m_escapeHandler();
+                }
+                else
+                {
+                    // aEvent.Skip() should be sufficient to allow the normal key events to be
+                    // generated (at least according to the wxWidgets documentation).  And yet,
+                    // here we are.
+                    aEvent.DoAllowNextEvent();
+
+                    aEvent.Skip();
+                }
+            } );
+
     Layout();
+
+    // Open the user's previously opened libraries on timer expiration.
+    // This is done on a timer because we need a gross hack to keep GTK from garbling the
+    // display. Must be longer than the search debounce timer.
+    m_open_libs_timer->StartOnce( 300 );
 }
 
 
@@ -164,9 +213,15 @@ PANEL_FOOTPRINT_CHOOSER::~PANEL_FOOTPRINT_CHOOSER()
     Unbind( EVT_LIBITEM_SELECTED, &PANEL_FOOTPRINT_CHOOSER::onFootprintSelected, this );
     Unbind( EVT_LIBITEM_CHOSEN, &PANEL_FOOTPRINT_CHOOSER::onFootprintChosen, this );
 
+    m_details->Disconnect( wxEVT_CHAR_HOOK,
+                           wxKeyEventHandler( PANEL_FOOTPRINT_CHOOSER::OnDetailsCharHook ),
+                           nullptr, this );
+
     // I am not sure the following two lines are necessary, but they will not hurt anyone
     m_dbl_click_timer->Stop();
+    m_open_libs_timer->Stop();
     delete m_dbl_click_timer;
+    delete m_open_libs_timer;
 
     PCBNEW_SETTINGS* cfg = nullptr;
     try
@@ -259,8 +314,15 @@ void PANEL_FOOTPRINT_CHOOSER::onCloseTimer( wxTimerEvent& aEvent )
     }
     else
     {
-        m_closeHandler();
+        m_acceptHandler();
     }
+}
+
+#include <footprint_preview_panel.h>
+void PANEL_FOOTPRINT_CHOOSER::onOpenLibsTimer( wxTimerEvent& aEvent )
+{
+    if( PCBNEW_SETTINGS* cfg = dynamic_cast<PCBNEW_SETTINGS*>( Kiface().KifaceSettings() ) )
+        m_adapter->OpenLibs( cfg->m_LibTree.open_libs );
 }
 
 
@@ -280,6 +342,14 @@ void PANEL_FOOTPRINT_CHOOSER::onFootprintSelected( wxCommandEvent& aEvent )
         m_preview_ctrl->ClearStatus();
         m_preview_ctrl->DisplayFootprint( lib_id );
     }
+
+    m_CurrFootprint = static_cast<FOOTPRINT_PREVIEW_PANEL*>(m_preview_ctrl->GetPreviewPanel())->GetCurrentFootprint();
+
+    // Send a FP_SELECTION_EVENT event after a footprint change
+    wxCommandEvent event( FP_SELECTION_EVENT, GetId() );
+    event.SetEventObject( this );
+
+    ProcessWindowEvent( event );
 }
 
 
@@ -299,3 +369,27 @@ void PANEL_FOOTPRINT_CHOOSER::onFootprintChosen( wxCommandEvent& aEvent )
         m_dbl_click_timer->StartOnce( PANEL_FOOTPRINT_CHOOSER::DblClickDelay );
     }
 }
+
+
+void PANEL_FOOTPRINT_CHOOSER::OnDetailsCharHook( wxKeyEvent& e )
+{
+    if( m_details && e.GetKeyCode() == 'C' && e.ControlDown() &&
+        !e.AltDown() && !e.ShiftDown() && !e.MetaDown() )
+    {
+        wxString txt = m_details->SelectionToText();
+        wxLogNull doNotLog; // disable logging of failed clipboard actions
+
+        if( wxTheClipboard->Open() )
+        {
+            wxTheClipboard->SetData( new wxTextDataObject( txt ) );
+            wxTheClipboard->Flush(); // Allow data to be available after closing KiCad
+            wxTheClipboard->Close();
+        }
+    }
+    else
+    {
+        e.Skip();
+    }
+}
+
+

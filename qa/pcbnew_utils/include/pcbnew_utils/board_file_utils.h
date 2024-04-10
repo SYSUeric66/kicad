@@ -31,6 +31,7 @@
 
 class BOARD;
 class BOARD_ITEM;
+class FOOTPRINT;
 
 /**
  * @file board_file_utils.h
@@ -47,9 +48,9 @@ std::string GetPcbnewTestDataDir();
  * Utility function to simply write a Board out to a file.
  *
  * Helps debug tests and utility programs by making it easy to quickly
- * write to disk without directly using the PCB_PLUGIN API.
+ * write to disk without directly using the PCB_IO_KICAD_SEXPR API.
  *
- * Note: The aBoard param is non-const because PCB_PLUGIN::Save demands it
+ * Note: The aBoard param is non-const because PCB_IO_KICAD_SEXPR::Save demands it
  * and I am not confident a const_cast will be a true assurance.
  *
  * @param aBoard    the board to write out
@@ -99,6 +100,9 @@ template <typename ITEM> std::unique_ptr<ITEM> ReadItemFromStream( std::istream&
  */
 std::unique_ptr<BOARD> ReadBoardFromFileOrStream( const std::string& aFilename,
                                                   std::istream& aFallback = std::cin );
+
+std::unique_ptr<FOOTPRINT> ReadFootprintFromFileOrStream( const std::string& aFilename,
+                                                          std::istream& aFallback = std::cin );
 
 } // namespace KI_TEST
 

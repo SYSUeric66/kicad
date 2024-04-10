@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2009 Jean-Pierre Charras, jaen-pierre.charras@gipsa-lab.inpg.com
- * Copyright (C) 1992-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2023 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -27,6 +27,7 @@
 #include <widgets/msgpanel.h>
 #include <bitmaps.h>
 #include <base_units.h>
+#include <eda_draw_frame.h>
 #include <erc_settings.h>
 #include <sch_marker.h>
 #include <schematic.h>
@@ -35,9 +36,7 @@
 #include <settings/settings_manager.h>
 #include <settings/color_settings.h>
 #include <erc_item.h>
-#include <schematic.h>
 #include <sch_screen.h>
-#include <sch_file_versions.h>
 
 /// Factor to convert the maker unit shape to internal units:
 #define SCALING_FACTOR schIUScale.mmToIU( 0.15 )
@@ -71,11 +70,25 @@ EDA_ITEM* SCH_MARKER::Clone() const
 
 void SCH_MARKER::SwapData( SCH_ITEM* aItem )
 {
+    SCH_ITEM::SwapFlags( aItem );
+
+    SCH_MARKER* item = static_cast<SCH_MARKER*>( aItem );
+
+    std::swap( m_isLegacyMarker, item->m_isLegacyMarker );
+    std::swap( m_Pos, item->m_Pos );
+
+    std::swap( m_markerType, item->m_markerType );
+    std::swap( m_excluded, item->m_excluded );
+    std::swap( m_rcItem, item->m_rcItem );
+
+    std::swap( m_scalingFactor, item->m_scalingFactor );
+    std::swap( m_shapeBoundingBox, item->m_shapeBoundingBox );
+
     std::swap( *((SCH_MARKER*) this), *((SCH_MARKER*) aItem ) );
 }
 
 
-wxString SCH_MARKER::Serialize() const
+wxString SCH_MARKER::SerializeToString() const
 {
     std::shared_ptr<ERC_ITEM> erc = std::static_pointer_cast<ERC_ITEM>( m_rcItem );
     wxString                  sheetSpecificPath, mainItemPath, auxItemPath;
@@ -96,7 +109,7 @@ wxString SCH_MARKER::Serialize() const
 }
 
 
-SCH_MARKER* SCH_MARKER::Deserialize( SCHEMATIC* schematic, const wxString& data )
+SCH_MARKER* SCH_MARKER::DeserializeFromString( SCHEMATIC* schematic, const wxString& data )
 {
     wxArrayString props = wxSplit( data, '|' );
     VECTOR2I      markerPos( (int) strtol( props[1].c_str(), nullptr, 10 ),
@@ -240,7 +253,8 @@ SEVERITY SCH_MARKER::GetSeverity() const
 }
 
 
-void SCH_MARKER::Print( const RENDER_SETTINGS* aSettings, const VECTOR2I& aOffset )
+void SCH_MARKER::Print( const SCH_RENDER_SETTINGS* aSettings, int aUnit, int aBodyStyle,
+                        const VECTOR2I& aOffset, bool aForceNoFill, bool aDimmed )
 {
     PrintMarker( aSettings, aOffset );
 }
@@ -260,7 +274,52 @@ const BOX2I SCH_MARKER::GetBoundingBox() const
 
 void SCH_MARKER::GetMsgPanelInfo( EDA_DRAW_FRAME* aFrame, std::vector<MSG_PANEL_ITEM>& aList )
 {
-    aList.emplace_back( _( "Electrical Rule Check Error" ), m_rcItem->GetErrorMessage() );
+    aList.emplace_back( _( "Type" ), _( "Marker" ) );
+    aList.emplace_back( _( "Violation" ), m_rcItem->GetErrorMessage() );
+
+    switch( GetSeverity() )
+    {
+    case RPT_SEVERITY_IGNORE:
+        aList.emplace_back( _( "Severity" ), _( "Ignore" ) );
+        break;
+    case RPT_SEVERITY_WARNING:
+        aList.emplace_back( _( "Severity" ), _( "Warning" ) );
+        break;
+    case RPT_SEVERITY_ERROR:
+        aList.emplace_back( _( "Severity" ), _( "Error" ) );
+        break;
+    default:
+        break;
+    }
+
+    if( GetMarkerType() == MARKER_DRAWING_SHEET )
+    {
+        aList.emplace_back( _( "Drawing Sheet" ), wxEmptyString );
+    }
+    else
+    {
+        wxString  mainText;
+        wxString  auxText;
+        EDA_ITEM* mainItem = nullptr;
+        EDA_ITEM* auxItem = nullptr;
+
+        if( m_rcItem->GetMainItemID() != niluuid )
+            mainItem = aFrame->GetItem( m_rcItem->GetMainItemID() );
+
+        if( m_rcItem->GetAuxItemID() != niluuid )
+            auxItem = aFrame->GetItem( m_rcItem->GetAuxItemID() );
+
+        if( mainItem )
+            mainText = mainItem->GetItemDescription( aFrame );
+
+        if( auxItem )
+            auxText = auxItem->GetItemDescription( aFrame );
+
+        aList.emplace_back( mainText, auxText );
+    }
+
+    if( IsExcluded() )
+        aList.emplace_back( _( "Excluded" ), m_comment );
 }
 
 
@@ -270,7 +329,7 @@ BITMAPS SCH_MARKER::GetMenuImage() const
 }
 
 
-void SCH_MARKER::Rotate( const VECTOR2I& aCenter )
+void SCH_MARKER::Rotate( const VECTOR2I& aCenter, bool aRotateCCW )
 {
     // Marker geometry isn't user-editable
 }

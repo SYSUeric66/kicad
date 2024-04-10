@@ -32,6 +32,7 @@
 #include <board.h>
 #include <board_design_settings.h>
 #include <pcb_group.h>
+#include <pcb_generator.h>
 #include <footprint.h>
 #include <font/font.h>
 
@@ -72,8 +73,8 @@ BOARD* BOARD_ITEM::GetBoard()
 
 bool BOARD_ITEM::IsLocked() const
 {
-    if( GetParentGroup() )
-        return GetParentGroup()->IsLocked();
+    if( GetParentGroup() && GetParentGroup()->IsLocked() )
+        return true;
 
     const BOARD* board = GetBoard();
 
@@ -327,7 +328,8 @@ static struct BOARD_ITEM_DESC
 
         propMgr.AddProperty( new PROPERTY<BOARD_ITEM, wxString>( _HKI( "Parent" ),
                      NO_SETTER( BOARD_ITEM, wxString ), &BOARD_ITEM::GetParentAsString ) )
-                .SetIsHiddenFromLibraryEditors();
+                .SetIsHiddenFromLibraryEditors()
+                .SetIsHiddenFromPropertiesManager();
 
         propMgr.AddProperty( new PROPERTY<BOARD_ITEM, int>( _HKI( "Position X" ),
                     &BOARD_ITEM::SetX, &BOARD_ITEM::GetX, PROPERTY_DISPLAY::PT_COORD,

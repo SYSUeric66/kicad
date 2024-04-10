@@ -113,8 +113,6 @@ set( PCBNEW_DIALOGS
     dialogs/dialog_layer_selection_base.cpp
     dialogs/dialog_move_exact.cpp
     dialogs/dialog_move_exact_base.cpp
-    dialogs/dialog_net_inspector.cpp
-    dialogs/dialog_net_inspector_base.cpp
     dialogs/dialog_import_netlist.cpp
     dialogs/dialog_import_netlist_base.cpp
     dialogs/dialog_non_copper_zones_properties.cpp
@@ -132,6 +130,10 @@ set( PCBNEW_DIALOGS
     dialogs/dialog_print_pcbnew.cpp
     dialogs/dialog_swap_layers.cpp
     dialogs/dialog_swap_layers_base.cpp
+    dialogs/dialog_table_properties.cpp
+    dialogs/dialog_table_properties_base.cpp
+    dialogs/dialog_tablecell_properties.cpp
+    dialogs/dialog_tablecell_properties_base.cpp
     dialogs/dialog_target_properties.cpp
     dialogs/dialog_target_properties_base.cpp
     dialogs/dialog_text_properties.cpp
@@ -271,6 +273,20 @@ set( PCBNEW_NETLIST_SRCS
     netlist_reader/netlist.cpp
     )
 
+set( ZONE_MANAGER_SRCS
+    zone_manager/board_edges_bounding_item.cpp
+    zone_manager/dialog_zone_manager.cpp
+    zone_manager/dialog_zone_manager_base.cpp
+    zone_manager/model_zones_overview_table.cpp
+    zone_manager/pane_zone_viewer.cpp
+    zone_manager/panel_zone_gal.cpp
+    zone_manager/panel_zone_properties.cpp
+    zone_manager/panel_zone_properties_base.cpp
+    zone_manager/zone_manager_preference.cpp
+    zone_manager/zone_painter.cpp
+    zone_manager/zones_container.cpp
+    )
+
 set( PCBNEW_CLASS_SRCS
     ${PCBNEW_DIALOGS}
     ${PCBNEW_EXPORTERS}
@@ -278,6 +294,7 @@ set( PCBNEW_CLASS_SRCS
     ${PCBNEW_DRC_SRCS}
     ${PCBNEW_IMPORT_GFX}
     ${PCBNEW_NETLIST_SRCS}
+    ${ZONE_MANAGER_SRCS}
     ${PCBNEW_BRDSTACKUP_MGR}
 
     autorouter/spread_footprints.cpp
@@ -333,7 +350,6 @@ set( PCBNEW_CLASS_SRCS
     tracks_cleaner.cpp
     undo_redo.cpp
     zone_filler.cpp
-    zones_functions_for_undo_redo.cpp
     edit_zone_helpers.cpp
 
     ratsnest/ratsnest.cpp
@@ -347,6 +363,7 @@ set( PCBNEW_CLASS_SRCS
     tools/drc_tool.cpp
     tools/edit_tool.cpp
     tools/edit_tool_move_fct.cpp
+        tools/pcb_edit_table_tool.cpp
     tools/global_edit_tool.cpp
     tools/group_tool.cpp
     tools/footprint_editor_control.cpp
@@ -378,6 +395,8 @@ set( PCBNEW_CLASS_SRCS
     widgets/pcb_properties_panel.cpp
     widgets/pcb_search_pane.cpp
     widgets/search_handlers.cpp
+    widgets/net_inspector_panel.cpp
+    widgets/pcb_net_inspector_panel.cpp
 
     )
 
@@ -405,6 +424,12 @@ set( PCBNEW_SCRIPTING_PYTHON_HELPERS
     python/scripting/pcbnew_utils_3d.cpp
     python/scripting/pcb_scripting_tool.cpp
     )
+
+if( KICAD_IPC_API )
+    set( PCBNEW_SRCS ${PCBNEW_SRCS}
+        api/api_handler_pcb.cpp
+        )
+endif()
 
 
 if( COMPILER_SUPPORTS_WARNINGS )
@@ -594,14 +619,14 @@ if( APPLE )
 endif()
 
 
-add_subdirectory( plugins/pcad )
-add_subdirectory( plugins/altium )
-add_subdirectory( plugins/cadstar )
-add_subdirectory( plugins/easyeda )
-add_subdirectory( plugins/easyedapro )
-add_subdirectory( plugins/fabmaster )
-add_subdirectory( plugins/ipc2581 )
-add_subdirectory( plugins/odb )
+add_subdirectory( pcb_io/pcad )
+add_subdirectory( pcb_io/altium )
+add_subdirectory( pcb_io/cadstar )
+add_subdirectory( pcb_io/easyeda )
+add_subdirectory( pcb_io/easyedapro )
+add_subdirectory( pcb_io/fabmaster )
+add_subdirectory( pcb_io/ipc2581 )
+add_subdirectory( pcb_io/odb )
 
 set( PCBNEW_IO_LIBRARIES pcad2kicadpcb altium2pcbnew cadstar2pcbnew easyeda easyedapro fabmaster ipc2581 odbpp CACHE INTERNAL "")
 
@@ -701,7 +726,6 @@ set( PCBNEW_KIFACE_LIBRARIES
     ${PCBNEW_EXTRA_LIBS}    # -lrt must follow Boost
     )
 
-
 target_link_libraries( pcbnew_kiface
     PRIVATE
         ${PCBNEW_KIFACE_LIBRARIES}
@@ -723,6 +747,9 @@ if( WIN32 )
     # Copy dynamic lib dependency to build dir to allow running directly
     add_custom_command( TARGET pcbnew POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_if_different "$<TARGET_FILE:kicad_3dsg>" "$<TARGET_FILE_DIR:pcbnew>"
+        )
+    add_custom_command( TARGET pcbnew POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different "$<TARGET_FILE:kiapi>" "$<TARGET_FILE_DIR:pcbnew>"
         )
 endif()
 

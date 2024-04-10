@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2004 Jean-Pierre Charras, jp.charras at wanadoo.fr
- * Copyright (C) 2004-2022 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2004-2024 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -265,7 +265,8 @@ void SCH_BUS_BUS_ENTRY::GetEndPoints( std::vector< DANGLING_END_ITEM >& aItemLis
 }
 
 
-void SCH_BUS_ENTRY_BASE::Print( const RENDER_SETTINGS* aSettings, const VECTOR2I& aOffset )
+void SCH_BUS_ENTRY_BASE::Print( const SCH_RENDER_SETTINGS* aSettings, int aUnit, int aBodyStyle,
+                                const VECTOR2I& aOffset, bool aForceNoFill, bool aDimmed )
 {
     wxDC*   DC = aSettings->GetPrintDC();
     COLOR4D color = ( GetBusEntryColor() == COLOR4D::UNSPECIFIED ) ?
@@ -305,15 +306,16 @@ void SCH_BUS_ENTRY_BASE::MirrorHorizontally( int aCenter )
 }
 
 
-void SCH_BUS_ENTRY_BASE::Rotate( const VECTOR2I& aCenter )
+void SCH_BUS_ENTRY_BASE::Rotate( const VECTOR2I& aCenter, bool aRotateCCW )
 {
-    RotatePoint( m_pos, aCenter, ANGLE_90 );
-    RotatePoint( &m_size.x, &m_size.y, ANGLE_90 );
+    RotatePoint( m_pos, aCenter, aRotateCCW ? ANGLE_270 : ANGLE_90 );
+    RotatePoint( &m_size.x, &m_size.y, aRotateCCW ? ANGLE_270 : ANGLE_90 );
 }
 
 
-bool SCH_BUS_WIRE_ENTRY::UpdateDanglingState( std::vector<DANGLING_END_ITEM>& aItemList,
-                                              const SCH_SHEET_PATH* aPath )
+bool SCH_BUS_WIRE_ENTRY::UpdateDanglingState( std::vector<DANGLING_END_ITEM>& aItemListByType,
+                                              std::vector<DANGLING_END_ITEM>& aItemListByPos,
+                                              const SCH_SHEET_PATH*           aPath )
 {
     bool previousStateStart = m_isDanglingStart;
     bool previousStateEnd = m_isDanglingEnd;
@@ -324,9 +326,9 @@ bool SCH_BUS_WIRE_ENTRY::UpdateDanglingState( std::vector<DANGLING_END_ITEM>& aI
     bool has_wire[2] = { false };
     bool has_bus[2] = { false };
 
-    for( unsigned ii = 0; ii < aItemList.size(); ii++ )
+    for( unsigned ii = 0; ii < aItemListByType.size(); ii++ )
     {
-        DANGLING_END_ITEM& item = aItemList[ii];
+        DANGLING_END_ITEM& item = aItemListByType[ii];
 
         if( item.GetItem() == this )
             continue;
@@ -344,7 +346,7 @@ bool SCH_BUS_WIRE_ENTRY::UpdateDanglingState( std::vector<DANGLING_END_ITEM>& aI
         case BUS_END:
         {
             // The bus has created 2 DANGLING_END_ITEMs, one per end.
-            DANGLING_END_ITEM& nextItem = aItemList[++ii];
+            DANGLING_END_ITEM& nextItem = aItemListByType[++ii];
 
             if( IsPointOnSegment( item.GetPosition(), nextItem.GetPosition(), m_pos ) )
                 has_bus[0] = true;
@@ -371,17 +373,19 @@ bool SCH_BUS_WIRE_ENTRY::UpdateDanglingState( std::vector<DANGLING_END_ITEM>& aI
 }
 
 
-bool SCH_BUS_BUS_ENTRY::UpdateDanglingState( std::vector<DANGLING_END_ITEM>& aItemList,
-                                             const SCH_SHEET_PATH* aPath )
+bool SCH_BUS_BUS_ENTRY::UpdateDanglingState( std::vector<DANGLING_END_ITEM>& aItemListByType,
+                                             std::vector<DANGLING_END_ITEM>& aItemListByPos,
+                                             const SCH_SHEET_PATH*           aPath )
 {
     bool previousStateStart = m_isDanglingStart;
     bool previousStateEnd = m_isDanglingEnd;
 
     m_isDanglingStart = m_isDanglingEnd = true;
 
-    for( unsigned ii = 0; ii < aItemList.size(); ii++ )
+    // TODO: filter using get_lower as we only use one item type
+    for( unsigned ii = 0; ii < aItemListByType.size(); ii++ )
     {
-        DANGLING_END_ITEM& item = aItemList[ii];
+        DANGLING_END_ITEM& item = aItemListByType[ii];
 
         if( item.GetItem() == this )
             continue;
@@ -391,7 +395,7 @@ bool SCH_BUS_BUS_ENTRY::UpdateDanglingState( std::vector<DANGLING_END_ITEM>& aIt
         case BUS_END:
         {
             // The bus has created 2 DANGLING_END_ITEMs, one per end.
-            DANGLING_END_ITEM& nextItem = aItemList[++ii];
+            DANGLING_END_ITEM& nextItem = aItemListByType[++ii];
 
             if( IsPointOnSegment( item.GetPosition(), nextItem.GetPosition(), m_pos ) )
                 m_isDanglingStart = false;
@@ -418,6 +422,25 @@ bool SCH_BUS_ENTRY_BASE::IsDangling() const
 std::vector<VECTOR2I> SCH_BUS_ENTRY_BASE::GetConnectionPoints() const
 {
     return { m_pos, GetEnd() };
+}
+
+
+bool SCH_BUS_ENTRY_BASE::HasConnectivityChanges( const SCH_ITEM* aItem,
+                                                 const SCH_SHEET_PATH* aInstance ) const
+{
+    // Do not compare to ourself.
+    if( aItem == this )
+        return false;
+
+    const SCH_BUS_ENTRY_BASE* busEntry = dynamic_cast<const SCH_BUS_ENTRY_BASE*>( aItem );
+
+    // Don't compare against a different SCH_ITEM.
+    wxCHECK( busEntry, false );
+
+    if( GetPosition() != busEntry->GetPosition() )
+        return true;
+
+    return GetEnd() != busEntry->GetEnd();
 }
 
 
@@ -468,21 +491,20 @@ bool SCH_BUS_ENTRY_BASE::HitTest( const BOX2I& aRect, bool aContained, int aAccu
 }
 
 
-void SCH_BUS_ENTRY_BASE::Plot( PLOTTER* aPlotter, bool aBackground,
-                               const SCH_PLOT_SETTINGS& aPlotSettings ) const
+void SCH_BUS_ENTRY_BASE::Plot( PLOTTER* aPlotter, bool aBackground, const SCH_PLOT_OPTS& aPlotOpts,
+                               int aUnit, int aBodyStyle, const VECTOR2I& aOffset, bool aDimmed )
 {
     if( aBackground )
         return;
 
-    auto* settings = static_cast<KIGFX::SCH_RENDER_SETTINGS*>( aPlotter->RenderSettings() );
+    SCH_RENDER_SETTINGS* renderSettings = getRenderSettings( aPlotter );
 
     COLOR4D color = ( GetBusEntryColor() == COLOR4D::UNSPECIFIED )
-                                    ? settings->GetLayerColor( m_layer )
-                                    : GetBusEntryColor();
+                            ? renderSettings->GetLayerColor( m_layer ) : GetBusEntryColor();
 
-    int penWidth = ( GetPenWidth() == 0 ) ? settings->GetDefaultPenWidth() : GetPenWidth();
+    int penWidth = ( GetPenWidth() == 0 ) ? renderSettings->GetDefaultPenWidth() : GetPenWidth();
 
-    penWidth = std::max( penWidth, settings->GetMinPenWidth() );
+    penWidth = std::max( penWidth, renderSettings->GetMinPenWidth() );
 
     aPlotter->SetCurrentLineWidth( penWidth );
     aPlotter->SetColor( color );

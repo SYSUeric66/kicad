@@ -32,12 +32,12 @@
 #include <pcb_edit_frame.h>
 #include <sch_edit_frame.h>
 
-#include <io_mgr.h>
-#include <sch_io_mgr.h>
+#include <sch_io/sch_io_mgr.h>
+#include <pcb_io/pcb_io_mgr.h>
 
-#include <plugins/easyedapro/easyedapro_import_utils.h>
-#include <plugins/easyedapro/easyedapro_parser.h>
-#include <plugins/common/plugin_common_choose_project.h>
+#include <io/easyedapro/easyedapro_import_utils.h>
+#include <io/easyedapro/easyedapro_parser.h>
+#include <io/common/plugin_common_choose_project.h>
 #include <dialogs/dialog_import_choose_project.h>
 
 
@@ -152,7 +152,7 @@ void IMPORT_PROJ_HELPER::ImportIndividualFile( KICAD_T aFT, int aImportedFileTyp
     ss << aImportedFileType << '\n' << TO_UTF8( appImportFile );
 
     for( const auto& [key, value] : m_properties )
-        ss << '\n' << key << '\n' << value;
+        ss << '\n' << key << '\n' << value.wx_str();
 
     std::string packet = ss.str();
     frame->Kiway().ExpressMail( frame_type, MAIL_IMPORT_FILE, packet, m_frame );
@@ -174,7 +174,7 @@ void IMPORT_PROJ_HELPER::EasyEDAProProjectHandler()
 
     if( fname.GetExt() == wxS( "epro" ) || fname.GetExt() == wxS( "zip" ) )
     {
-        nlohmann::json project = EASYEDAPRO::ReadProjectFile( fname.GetFullPath() );
+        nlohmann::json project = EASYEDAPRO::ReadProjectOrDeviceFile( fname.GetFullPath() );
 
         std::map<wxString, EASYEDAPRO::PRJ_SCHEMATIC> prjSchematics = project.at( "schematics" );
         std::map<wxString, EASYEDAPRO::PRJ_BOARD>     prjBoards = project.at( "boards" );
@@ -209,7 +209,7 @@ void IMPORT_PROJ_HELPER::ImportFiles( int aImportedSchFileType, int aImportedPcb
     m_properties.clear();
 
     if( aImportedSchFileType == SCH_IO_MGR::SCH_EASYEDAPRO
-        || aImportedPcbFileType == IO_MGR::EASYEDAPRO )
+        || aImportedPcbFileType == PCB_IO_MGR::EASYEDAPRO )
     {
         EasyEDAProProjectHandler();
     }

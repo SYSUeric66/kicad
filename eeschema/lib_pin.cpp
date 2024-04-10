@@ -3,7 +3,7 @@
  *
  * Copyright (C) 2016 Jean-Pierre Charras, jp.charras at wanadoo.fr
  * Copyright (C) 2015 Wayne Stambaugh <stambaughw@gmail.com>
- * Copyright (C) 1992-2023 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2024 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -72,7 +72,7 @@ const wxString LIB_PIN::GetCanonicalElectricalTypeName( ELECTRICAL_PINTYPE aType
 
 static int internalPinDecoSize( const RENDER_SETTINGS* aSettings, const LIB_PIN &aPin )
 {
-    const KIGFX::SCH_RENDER_SETTINGS* settings = static_cast<const KIGFX::SCH_RENDER_SETTINGS*>( aSettings );
+    const SCH_RENDER_SETTINGS* settings = static_cast<const SCH_RENDER_SETTINGS*>( aSettings );
 
     if( settings && settings->m_PinSymbolSize )
         return settings->m_PinSymbolSize;
@@ -85,7 +85,7 @@ static int internalPinDecoSize( const RENDER_SETTINGS* aSettings, const LIB_PIN 
 // marker
 static int externalPinDecoSize( const RENDER_SETTINGS* aSettings, const LIB_PIN &aPin )
 {
-    const KIGFX::SCH_RENDER_SETTINGS* settings = static_cast<const KIGFX::SCH_RENDER_SETTINGS*>( aSettings );
+    const SCH_RENDER_SETTINGS* settings = static_cast<const SCH_RENDER_SETTINGS*>( aSettings );
 
     if( settings && settings->m_PinSymbolSize )
         return settings->m_PinSymbolSize;
@@ -94,8 +94,8 @@ static int externalPinDecoSize( const RENDER_SETTINGS* aSettings, const LIB_PIN 
 }
 
 
-LIB_PIN::LIB_PIN( LIB_SYMBOL* aParent ) :
-        LIB_ITEM( LIB_PIN_T, aParent ),
+LIB_PIN::LIB_PIN( SCH_ITEM* aParent ) :
+        SCH_ITEM( aParent, LIB_PIN_T, 0, 0 ),
         m_orientation( PIN_ORIENTATION::PIN_RIGHT ),
         m_shape( GRAPHIC_PINSHAPE::LINE ),
         m_type( ELECTRICAL_PINTYPE::PT_UNSPECIFIED ),
@@ -121,11 +121,11 @@ LIB_PIN::LIB_PIN( LIB_SYMBOL* aParent ) :
 }
 
 
-LIB_PIN::LIB_PIN( LIB_SYMBOL* aParent, const wxString& aName, const wxString& aNumber,
+LIB_PIN::LIB_PIN( SCH_ITEM* aParent, const wxString& aName, const wxString& aNumber,
                   PIN_ORIENTATION aOrientation, ELECTRICAL_PINTYPE aPinType, int aLength,
-                  int aNameTextSize, int aNumTextSize, int aConvert, const VECTOR2I& aPos,
+                  int aNameTextSize, int aNumTextSize, int aBodyStyle, const VECTOR2I& aPos,
                   int aUnit ) :
-        LIB_ITEM( LIB_PIN_T, aParent ),
+        SCH_ITEM( aParent, LIB_PIN_T, aUnit, aBodyStyle ),
         m_position( aPos ),
         m_length( aLength ),
         m_orientation( aOrientation ),
@@ -137,8 +137,6 @@ LIB_PIN::LIB_PIN( LIB_SYMBOL* aParent, const wxString& aName, const wxString& aN
 {
     SetName( aName );
     SetNumber( aNumber );
-    SetUnit( aUnit );
-    SetConvert( aConvert );
 }
 
 
@@ -195,37 +193,32 @@ VECTOR2I LIB_PIN::GetPinRoot() const
 }
 
 
-void LIB_PIN::print( const RENDER_SETTINGS* aSettings, const VECTOR2I& aOffset, void* aData,
-                     const TRANSFORM& aTransform, bool aDimmed )
+void LIB_PIN::Print( const SCH_RENDER_SETTINGS* aSettings, int aUnit, int aBodyStyle,
+                     const VECTOR2I& aOffset, bool aForceNoFill, bool aDimmed )
 {
-    LIB_SYMBOL_OPTIONS* opts = (LIB_SYMBOL_OPTIONS*) aData;
-    bool                drawHiddenFields   = opts ? opts->draw_hidden_fields : false;
-    bool                showPinType        = opts ? opts->show_elec_type     : false;
-    bool                show_connect_point = opts ? opts->show_connect_point : false;
+    LIB_SYMBOL* part = dynamic_cast<LIB_SYMBOL*>( GetParentSymbol() );
 
-    LIB_SYMBOL* part = GetParent();
-
-    wxCHECK( part && opts, /* void */ );
+    wxCHECK( part && aSettings, /* void */ );
 
     /* Calculate pin orient taking in account the symbol orientation. */
-    PIN_ORIENTATION orient = PinDrawOrient( aTransform );
+    PIN_ORIENTATION orient = PinDrawOrient( aSettings->m_Transform );
 
     /* Calculate the pin position */
-    VECTOR2I pos1 = aTransform.TransformCoordinate( m_position ) + aOffset;
+    VECTOR2I pos1 = aSettings->TransformCoordinate( m_position ) + aOffset;
 
-    if( IsVisible() || drawHiddenFields )
+    if( IsVisible() || aSettings->m_ShowHiddenFields )
     {
         printPinSymbol( aSettings, pos1, orient, aDimmed );
 
         printPinTexts( aSettings, pos1, orient, part->GetPinNameOffset(),
-                       opts->force_draw_pin_text || part->ShowPinNumbers(),
-                       opts->force_draw_pin_text || part->ShowPinNames(),
+                       aSettings->m_ShowPinNumbers || part->GetShowPinNumbers(),
+                       aSettings->m_ShowPinNames || part->GetShowPinNames(),
                        aDimmed );
 
-        if( showPinType )
+        if( aSettings->m_ShowPinElectricalTypes )
             printPinElectricalTypeName( aSettings, pos1, orient, aDimmed );
 
-        if( show_connect_point
+        if( aSettings->m_ShowConnectionPoints
                 && m_type != ELECTRICAL_PINTYPE::PT_NC
                 && m_type != ELECTRICAL_PINTYPE::PT_NIC )
         {
@@ -249,7 +242,7 @@ void LIB_PIN::print( const RENDER_SETTINGS* aSettings, const VECTOR2I& aOffset, 
 }
 
 
-void LIB_PIN::printPinSymbol( const RENDER_SETTINGS* aSettings, const VECTOR2I& aPos,
+void LIB_PIN::printPinSymbol( const SCH_RENDER_SETTINGS* aSettings, const VECTOR2I& aPos,
                               PIN_ORIENTATION aOrient, bool aDimmed )
 {
     wxDC*   DC = aSettings->GetPrintDC();
@@ -621,13 +614,14 @@ void LIB_PIN::printPinElectricalTypeName( const RENDER_SETTINGS* aSettings, VECT
 }
 
 
-void LIB_PIN::PlotSymbol( PLOTTER *aPlotter, const VECTOR2I &aPosition,
-                          PIN_ORIENTATION aOrientation, bool aDimmed ) const
+void LIB_PIN::PlotPinType( PLOTTER *aPlotter, const VECTOR2I &aPosition,
+                           PIN_ORIENTATION aOrientation, bool aDimmed ) const
 {
-    int     MapX1, MapY1, x1, y1;
-    COLOR4D color = aPlotter->RenderSettings()->GetLayerColor( LAYER_PIN );
-    COLOR4D bg = aPlotter->RenderSettings()->GetBackgroundColor();
-    int     penWidth = GetEffectivePenWidth( aPlotter->RenderSettings() );
+    int                  MapX1, MapY1, x1, y1;
+    SCH_RENDER_SETTINGS* renderSettings = getRenderSettings( aPlotter );
+    COLOR4D              color = renderSettings->GetLayerColor( LAYER_PIN );
+    COLOR4D              bg = renderSettings->GetBackgroundColor();
+    int                  penWidth = GetEffectivePenWidth( renderSettings );
 
     if( bg == COLOR4D::UNSPECIFIED || !aPlotter->GetColorMode() )
         bg = COLOR4D::WHITE;
@@ -992,15 +986,18 @@ PIN_ORIENTATION LIB_PIN::PinDrawOrient( const TRANSFORM& aTransform ) const
 
 EDA_ITEM* LIB_PIN::Clone() const
 {
-    return new LIB_PIN( *this );
+    //return new LIB_PIN( *this );
+    SCH_ITEM* newPin = new LIB_PIN( *this );
+    wxASSERT( newPin->GetUnit() == m_unit && newPin->GetBodyStyle() == m_bodyStyle );
+    return newPin;
 }
 
 
-int LIB_PIN::compare( const LIB_ITEM& aOther, int aCompareFlags ) const
+int LIB_PIN::compare( const SCH_ITEM& aOther, int aCompareFlags ) const
 {
     wxASSERT( aOther.Type() == LIB_PIN_T );
 
-    int retv = LIB_ITEM::compare( aOther, aCompareFlags );
+    int retv = SCH_ITEM::compare( aOther, aCompareFlags );
 
     if( retv )
         return retv;
@@ -1009,7 +1006,7 @@ int LIB_PIN::compare( const LIB_ITEM& aOther, int aCompareFlags ) const
 
     // When comparing units, we do not compare the part numbers.  If everything else is
     // identical, then we can just renumber the parts for the inherited symbol.
-    if( !( aCompareFlags & COMPARE_FLAGS::UNIT ) && m_number != tmp->m_number )
+    if( !( aCompareFlags & SCH_ITEM::COMPARE_FLAGS::UNIT ) && m_number != tmp->m_number )
         return m_number.Cmp( tmp->m_number );
 
     int result = m_name.Cmp( tmp->m_name );
@@ -1096,28 +1093,22 @@ void LIB_PIN::ChangeLength( int aLength )
     }
 
     VECTOR2I offset = VECTOR2I( offsetX, offsetY );
-    Offset( offset );
+    Move( offset );
 
     m_length = aLength;
 }
 
-void LIB_PIN::Offset( const VECTOR2I& aOffset )
+void LIB_PIN::Move( const VECTOR2I& aOffset )
 {
     m_position += aOffset;
 }
 
 
-void LIB_PIN::MoveTo( const VECTOR2I& aNewPosition )
+void LIB_PIN::MirrorHorizontally( int aCenter )
 {
-    m_position = aNewPosition;
-}
-
-
-void LIB_PIN::MirrorHorizontal( const VECTOR2I& aCenter )
-{
-    m_position.x -= aCenter.x;
+    m_position.x -= aCenter;
     m_position.x *= -1;
-    m_position.x += aCenter.x;
+    m_position.x += aCenter;
 
     if( m_orientation == PIN_ORIENTATION::PIN_RIGHT )
         m_orientation = PIN_ORIENTATION::PIN_LEFT;
@@ -1126,11 +1117,11 @@ void LIB_PIN::MirrorHorizontal( const VECTOR2I& aCenter )
 }
 
 
-void LIB_PIN::MirrorVertical( const VECTOR2I& aCenter )
+void LIB_PIN::MirrorVertically( int aCenter )
 {
-    m_position.y -= aCenter.y;
+    m_position.y -= aCenter;
     m_position.y *= -1;
-    m_position.y += aCenter.y;
+    m_position.y += aCenter;
 
     if( m_orientation == PIN_ORIENTATION::PIN_UP )
         m_orientation = PIN_ORIENTATION::PIN_DOWN;
@@ -1168,25 +1159,30 @@ void LIB_PIN::Rotate( const VECTOR2I& aCenter, bool aRotateCCW )
 }
 
 
-void LIB_PIN::Plot( PLOTTER* aPlotter, bool aBackground, const VECTOR2I& aOffset,
-                    const TRANSFORM& aTransform, bool aDimmed ) const
+void LIB_PIN::Plot( PLOTTER* aPlotter, bool aBackground, const SCH_PLOT_OPTS& aPlotOpts,
+                    int aUnit, int aBodyStyle, const VECTOR2I& aOffset, bool aDimmed )
 {
-    if( !IsVisible() || aBackground )
+    if( aBackground )
         return;
 
-    PIN_ORIENTATION orient = PinDrawOrient( aTransform );
-    VECTOR2I pos = aTransform.TransformCoordinate( m_position ) + aOffset;
+    SCH_RENDER_SETTINGS* renderSettings = getRenderSettings( aPlotter );
 
-    PlotSymbol( aPlotter, pos, orient, aDimmed );
-    PlotPinTexts( aPlotter, pos, orient, GetParent()->GetPinNameOffset(),
-                  GetParent()->ShowPinNumbers(), GetParent()->ShowPinNames(),
-                  aDimmed );
+    if( !IsVisible() && !renderSettings->m_ShowHiddenPins )
+        return;
+
+    const SYMBOL*   part = GetParentSymbol();
+    PIN_ORIENTATION orient = PinDrawOrient( renderSettings->m_Transform );
+    VECTOR2I        pos = renderSettings->TransformCoordinate( m_position ) + aOffset;
+
+    PlotPinType( aPlotter, pos, orient, aDimmed );
+    PlotPinTexts( aPlotter, pos, orient, part->GetPinNameOffset(), part->GetShowPinNumbers(),
+                  part->GetShowPinNames(), aDimmed );
 }
 
 
 void LIB_PIN::GetMsgPanelInfo( EDA_DRAW_FRAME* aFrame, std::vector<MSG_PANEL_ITEM>& aList )
 {
-    LIB_ITEM::GetMsgPanelInfo( aFrame, aList );
+    getSymbolEditorMsgPanelInfo( aFrame, aList );
 
     aList.emplace_back( _( "Name" ), UnescapeString( GetShownName() ) );
     aList.emplace_back( _( "Number" ), GetShownNumber() );
@@ -1245,16 +1241,11 @@ void LIB_PIN::validateExtentsCache( KIFONT::FONT* aFont, int aSize, const wxStri
     aCache->m_Font = aFont;
     aCache->m_FontSize = aSize;
 
-    // Get maximum height including ascenders and descenders
-    static wxString hText = wxT( "Xg" );
-
     VECTOR2D fontSize( aSize, aSize );
     int      penWidth = GetPenSizeForNormal( aSize );
 
-    aCache->m_Extents.x = aFont->StringBoundaryLimits( aText, fontSize, penWidth, false, false,
-                                                       GetFontMetrics() ).x;
-    aCache->m_Extents.y = aFont->StringBoundaryLimits( hText, fontSize, penWidth, false, false,
-                                                       GetFontMetrics() ).y;
+    aCache->m_Extents = aFont->StringBoundaryLimits( aText, fontSize, penWidth, false, false,
+                                                       GetFontMetrics() );
 }
 
 
@@ -1284,14 +1275,14 @@ const BOX2I LIB_PIN::GetBoundingBox( bool aIncludeInvisiblePins, bool aIncludeNa
         includeType = false;
     }
 
-    if( GetParent() )
+    if( const SYMBOL* parentSymbol = GetParentSymbol() )
     {
-        if( GetParent()->ShowPinNames() )
-            pinNameOffset = GetParent()->GetPinNameOffset();
+        if( parentSymbol->GetShowPinNames() )
+            pinNameOffset = parentSymbol->GetPinNameOffset();
         else
             includeName = false;
 
-        if( !GetParent()->ShowPinNumbers() )
+        if( !parentSymbol->GetShowPinNumbers() )
             includeNumber = false;
     }
 
@@ -1326,16 +1317,12 @@ const BOX2I LIB_PIN::GetBoundingBox( bool aIncludeInvisiblePins, bool aIncludeNa
     if( m_shape == GRAPHIC_PINSHAPE::INVERTED || m_shape == GRAPHIC_PINSHAPE::INVERTED_CLOCK )
         minsizeV = std::max( TARGET_PIN_RADIUS, externalPinDecoSize( nullptr, *this ) );
 
-    // Attempt to mimic SCH_PAINTER's algorithm without actually knowing the schematic text
-    // offset ratio.
-    int PIN_TEXT_OFFSET = schIUScale.MilsToIU( 24 );
-
     // Calculate topLeft & bottomRight corner positions for the default pin orientation (PIN_RIGHT)
     if( pinNameOffset || !includeName )
     {
         // pin name is inside the body (or invisible)
         // pin number is above the line
-        begin.y = std::max( minsizeV, numberTextHeight + PIN_TEXT_OFFSET );
+        begin.y = std::max( minsizeV, numberTextHeight );
         begin.x = std::min( -typeTextLength, m_length - ( numberTextLength / 2 ) );
 
         end.x = m_length + nameTextLength;
@@ -1345,7 +1332,7 @@ const BOX2I LIB_PIN::GetBoundingBox( bool aIncludeInvisiblePins, bool aIncludeNa
     {
         // pin name is above pin line
         // pin number is below line
-        begin.y = std::max( minsizeV, nameTextHeight + PIN_TEXT_OFFSET );
+        begin.y = std::max( minsizeV, nameTextHeight );
         begin.x = -typeTextLength;
         begin.x = std::min( begin.x, ( m_length - numberTextLength ) / 2 );
         begin.x = std::min( begin.x, ( m_length - nameTextLength ) / 2 );
@@ -1353,7 +1340,7 @@ const BOX2I LIB_PIN::GetBoundingBox( bool aIncludeInvisiblePins, bool aIncludeNa
         end.x = m_length;
         end.x = std::max( end.x, ( m_length + nameTextLength ) / 2 );
         end.x = std::max( end.x, ( m_length + numberTextLength ) / 2 );
-        end.y = std::min( -minsizeV, -numberTextHeight - PIN_TEXT_OFFSET );
+        end.y = std::min( -minsizeV, -numberTextHeight );
     }
 
     // Now, calculate boundary box corners position for the actual pin orientation
@@ -1405,55 +1392,69 @@ BITMAPS LIB_PIN::GetMenuImage() const
 }
 
 
+wxString LIB_PIN::GetItemDescription( UNITS_PROVIDER* aUnitsProvider, ALT* aAlt ) const
+{
+    return getItemDescription( aAlt );
+}
+
+
 wxString LIB_PIN::GetItemDescription( UNITS_PROVIDER* aUnitsProvider ) const
+{
+    return getItemDescription( nullptr );
+}
+
+
+wxString LIB_PIN::getItemDescription( ALT* aAlt ) const
 {
     // This code previously checked "m_name.IsEmpty()" to choose the correct
     // formatting path, but that check fails if the pin is called "~" which is
     // the default for an empty pin name.  Instead we get the final display string
     // that will be shown and check if it's empty.
 
-    wxString shownName = UnescapeString( GetShownName() );
+    wxString name = UnescapeString( aAlt ? aAlt->m_Name : GetShownName() );
+    wxString electricalTypeName = ElectricalPinTypeGetText( aAlt ? aAlt->m_Type : m_type );
+    wxString pinShapeName = PinShapeGetText( aAlt ? aAlt->m_Shape : m_shape );
 
     if( IsVisible() )
     {
-        if ( !shownName.IsEmpty() )
+        if ( !name.IsEmpty() )
         {
             return wxString::Format( _( "Pin %s [%s, %s, %s]" ),
                                      GetShownNumber(),
-                                     shownName,
-                                     GetElectricalTypeName(),
-                                     PinShapeGetText( m_shape ) );
+                                     name,
+                                     electricalTypeName,
+                                     pinShapeName );
         }
         else
         {
             return wxString::Format( _( "Pin %s [%s, %s]" ),
                                      GetShownNumber(),
-                                     GetElectricalTypeName(),
-                                     PinShapeGetText( m_shape ) );
+                                     electricalTypeName,
+                                     pinShapeName );
         }
     }
     else
     {
-        if( !shownName.IsEmpty() )
+        if( !name.IsEmpty() )
         {
             return wxString::Format( _( "Hidden pin %s [%s, %s, %s]" ),
                                      GetShownNumber(),
-                                     shownName,
-                                     GetElectricalTypeName(),
-                                     PinShapeGetText( m_shape ) );
+                                     name,
+                                     electricalTypeName,
+                                     pinShapeName );
         }
         else
         {
             return wxString::Format( _( "Hidden pin %s [%s, %s]" ),
                                      GetShownNumber(),
-                                     GetElectricalTypeName(),
-                                     PinShapeGetText( m_shape ) );
+                                     electricalTypeName,
+                                     pinShapeName );
         }
     }
 }
 
 
-bool LIB_PIN::operator==( const LIB_ITEM& aOther ) const
+bool LIB_PIN::operator==( const SCH_ITEM& aOther ) const
 {
     if( aOther.Type() != LIB_PIN_T )
         return false;
@@ -1521,7 +1522,7 @@ bool LIB_PIN::operator==( const LIB_ITEM& aOther ) const
 }
 
 
-double LIB_PIN::Similarity( const LIB_ITEM& aOther ) const
+double LIB_PIN::Similarity( const SCH_ITEM& aOther ) const
 {
     if( aOther.m_Uuid == m_Uuid )
         return 1.0;
@@ -1603,7 +1604,7 @@ void LIB_PIN::Show( int nestLevel, std::ostream& os ) const
 void LIB_PIN::CalcEdit( const VECTOR2I& aPosition )
 {
     if( IsMoving() )
-        MoveTo( aPosition );
+        SetPosition( aPosition );
 }
 
 
@@ -1656,30 +1657,22 @@ static struct LIB_PIN_DESC
 
         PROPERTY_MANAGER& propMgr = PROPERTY_MANAGER::Instance();
         REGISTER_TYPE( LIB_PIN );
+        propMgr.AddTypeCast( new TYPE_CAST<LIB_PIN, SCH_ITEM> );
         propMgr.InheritsAfter( TYPE_HASH( LIB_PIN ), TYPE_HASH( SCH_ITEM ) );
 
         propMgr.AddProperty( new PROPERTY<LIB_PIN, wxString>( _HKI( "Pin Name" ),
                 &LIB_PIN::SetName, &LIB_PIN::GetName ) );
 
-        propMgr.AddProperty( new PROPERTY<LIB_PIN, int>( _HKI( "Name Text Size" ),
-                &LIB_PIN::SetNameTextSize, &LIB_PIN::GetNameTextSize, PROPERTY_DISPLAY::PT_SIZE ) );
-
         propMgr.AddProperty( new PROPERTY<LIB_PIN, wxString>( _HKI( "Pin Number" ),
                 &LIB_PIN::SetNumber, &LIB_PIN::GetNumber ) );
 
-        propMgr.AddProperty( new PROPERTY<LIB_PIN, int>( _HKI( "Number Text Size" ),
-                &LIB_PIN::SetNumberTextSize, &LIB_PIN::GetNumberTextSize,
-                PROPERTY_DISPLAY::PT_SIZE ) );
+        propMgr.AddProperty( new PROPERTY_ENUM<LIB_PIN, ELECTRICAL_PINTYPE>(
+                _HKI( "Electrical Type" ),
+                &LIB_PIN::SetType, &LIB_PIN::GetType ) );
 
-        propMgr.AddProperty( new PROPERTY<LIB_PIN, int>( _HKI( "Length" ),
-                &LIB_PIN::SetLength, &LIB_PIN::GetLength, PROPERTY_DISPLAY::PT_SIZE ) );
-
-        propMgr.AddProperty( new PROPERTY_ENUM<LIB_PIN,
-                                               ELECTRICAL_PINTYPE>( _HKI( "Electrical Type" ),
-                             &LIB_PIN::SetType, &LIB_PIN::GetType ) );
-
-        propMgr.AddProperty( new PROPERTY_ENUM<LIB_PIN, GRAPHIC_PINSHAPE>( _HKI( "Graphic Style" ),
-                             &LIB_PIN::SetShape, &LIB_PIN::GetShape ) );
+        propMgr.AddProperty( new PROPERTY_ENUM<LIB_PIN, GRAPHIC_PINSHAPE>(
+                _HKI( "Graphic Style" ),
+                &LIB_PIN::SetShape, &LIB_PIN::GetShape ) );
 
         propMgr.AddProperty( new PROPERTY<LIB_PIN, int>( _HKI( "Position X" ),
                 &LIB_PIN::SetX, &LIB_PIN::GetX, PROPERTY_DISPLAY::PT_COORD ) );
@@ -1688,7 +1681,22 @@ static struct LIB_PIN_DESC
                 &LIB_PIN::SetY, &LIB_PIN::GetY, PROPERTY_DISPLAY::PT_COORD ) );
 
         propMgr.AddProperty( new PROPERTY_ENUM<LIB_PIN, PIN_ORIENTATION>( _HKI( "Orientation" ),
-                             &LIB_PIN::SetOrientation, &LIB_PIN::GetOrientation ) );
+                &LIB_PIN::SetOrientation, &LIB_PIN::GetOrientation ) );
+
+        propMgr.AddProperty( new PROPERTY<LIB_PIN, int>( _HKI( "Length" ),
+                &LIB_PIN::SetLength, &LIB_PIN::GetLength,
+                PROPERTY_DISPLAY::PT_SIZE ) );
+
+        propMgr.AddProperty( new PROPERTY<LIB_PIN, int>( _HKI( "Name Text Size" ),
+                &LIB_PIN::SetNameTextSize, &LIB_PIN::GetNameTextSize,
+                PROPERTY_DISPLAY::PT_SIZE ) );
+
+        propMgr.AddProperty( new PROPERTY<LIB_PIN, int>( _HKI( "Number Text Size" ),
+                &LIB_PIN::SetNumberTextSize, &LIB_PIN::GetNumberTextSize,
+                PROPERTY_DISPLAY::PT_SIZE ) );
+
+        propMgr.AddProperty( new PROPERTY<LIB_PIN, bool>( _HKI( "Visible" ),
+                &LIB_PIN::SetVisible, &LIB_PIN::IsVisible ) );
     }
 } _LIB_PIN_DESC;
 

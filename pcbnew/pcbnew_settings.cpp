@@ -95,6 +95,9 @@ PCBNEW_SETTINGS::PCBNEW_SETTINGS()
     m_params.emplace_back( new PARAM<int>( "aui.right_panel_width",
             &m_AuiPanels.right_panel_width, -1 ) );
 
+    m_params.emplace_back( new PARAM<int>( "aui.net_inspector_width",
+            &m_AuiPanels.net_inspector_width, -1 ) );
+
     m_params.emplace_back( new PARAM<int>( "aui.properties_panel_width",
             &m_AuiPanels.properties_panel_width, -1 ) );
 
@@ -108,7 +111,7 @@ PCBNEW_SETTINGS::PCBNEW_SETTINGS()
             &m_AuiPanels.search_panel_width, -1 ) );
 
     m_params.emplace_back( new PARAM<int>( "aui.search_panel_dock_direction",
-            &m_AuiPanels.search_panel_dock_direction, 0 ) );
+            &m_AuiPanels.search_panel_dock_direction, 3 ) );
 
     m_params.emplace_back( new PARAM<int>( "aui.appearance_panel_tab",
             &m_AuiPanels.appearance_panel_tab, 0, 0, 2 ) );
@@ -124,6 +127,9 @@ PCBNEW_SETTINGS::PCBNEW_SETTINGS()
 
     m_params.emplace_back( new PARAM<bool>( "aui.show_search",
             &m_AuiPanels.show_search, false ) );
+
+    m_params.emplace_back( new PARAM<bool>( "aui.show_net_inspector",
+            &m_AuiPanels.show_net_inspector, false ) );        
 
     m_params.emplace_back( new PARAM<int>( "footprint_chooser.width",
             &m_FootprintChooser.width, -1 ) );
@@ -413,6 +419,12 @@ PCBNEW_SETTINGS::PCBNEW_SETTINGS()
     m_params.emplace_back( new PARAM<int>( "export_vrml.units",
             &m_ExportVrml.units, 1 ) );
 
+    m_params.emplace_back( new PARAM<bool>( "export_vrml.no_unspecified",
+            &m_ExportVrml.no_unspecified, false ) );
+
+    m_params.emplace_back( new PARAM<bool>( "export_vrml.no_dnp",
+            &m_ExportVrml.no_dnp, false ) );
+
     m_params.emplace_back( new PARAM<bool>( "export_vrml.copy_3d_models",
             &m_ExportVrml.copy_3d_models, false ) );
 
@@ -447,10 +459,10 @@ PCBNEW_SETTINGS::PCBNEW_SETTINGS()
             &m_ImportGraphics.group_items, true ) );
 
     m_params.emplace_back( new PARAM<bool>( "import_graphics.fix_discontinuities",
-            &m_ImportGraphics.fix_discontinuities, false ) );
+            &m_ImportGraphics.fix_discontinuities, true ) );
 
     m_params.emplace_back( new PARAM<double>( "import_graphics.tolerance",
-            &m_ImportGraphics.tolerance, 0.01, 0.0, 10.0 ) );
+            &m_ImportGraphics.tolerance, 1.0, 0.0, 10.0 ) );
 
     m_params.emplace_back( new PARAM<int>( "import_graphics.line_width_units",
             &m_ImportGraphics.dxf_line_width_units, 0 ) );
@@ -578,13 +590,6 @@ PCBNEW_SETTINGS::PCBNEW_SETTINGS()
             &m_Reannotate.exclude_list, "" ) );
     m_params.emplace_back( new PARAM<wxString>( "reannotate_dialog.annotate_report_file_name",
             &m_Reannotate.report_file_name, "" ) );
-
-    m_params.emplace_back( new PARAM<wxString>( "net_inspector_dialog.group_by_text",
-            &m_NetInspector.group_by_text, "" ) );
-    m_params.emplace_back( new PARAM<bool>( "net_inspector_dialog.group_by",
-            &m_NetInspector.group_by, false ) );
-    m_params.emplace_back( new PARAM<int>( "net_inspector_dialog.group_by_kind",
-            &m_NetInspector.group_by_kind, 0 ) );
 
     m_params.emplace_back( new PARAM_LAMBDA<nlohmann::json>( "action_plugins",
             [&]() -> nlohmann::json

@@ -24,6 +24,7 @@
 
 #include <cstdio>
 #include <memory>
+#include <mutex>
 #include <board.h>
 #include <board_connected_item.h>
 #include <pcbexpr_evaluator.h>
@@ -57,28 +58,32 @@ public:
         // in the ENUM_MAP: one for the canonical layer name and one for the user layer name.
         // We need to check against both.
 
-        wxPGChoices&                 layerMap = ENUM_MAP<PCB_LAYER_ID>::Instance().Choices();
-        const wxString&              layerName = b->AsString();
-        BOARD*                       board = static_cast<PCBEXPR_CONTEXT*>( aCtx )->GetBoard();
-        std::unique_lock<std::mutex> cacheLock( board->m_CachesMutex );
-        auto                         i = board->m_LayerExpressionCache.find( layerName );
-        LSET                         mask;
+        wxPGChoices&    layerMap = ENUM_MAP<PCB_LAYER_ID>::Instance().Choices();
+        const wxString& layerName = b->AsString();
+        BOARD*          board = static_cast<PCBEXPR_CONTEXT*>( aCtx )->GetBoard();
 
-        if( i == board->m_LayerExpressionCache.end() )
         {
-            for( unsigned ii = 0; ii < layerMap.GetCount(); ++ii )
-            {
-                wxPGChoiceEntry& entry = layerMap[ii];
+            std::shared_lock<std::shared_mutex> readLock( board->m_CachesMutex );
 
-                if( entry.GetText().Matches( layerName ) )
-                    mask.set( ToLAYER_ID( entry.GetValue() ) );
-            }
+            auto i = board->m_LayerExpressionCache.find( layerName );
 
-            board->m_LayerExpressionCache[ layerName ] = mask;
+            if( i != board->m_LayerExpressionCache.end() )
+                return i->second.Contains( m_layer );
         }
-        else
+
+        LSET mask;
+
+        for( unsigned ii = 0; ii < layerMap.GetCount(); ++ii )
         {
-            mask = i->second;
+            wxPGChoiceEntry& entry = layerMap[ii];
+
+            if( entry.GetText().Matches( layerName ) )
+                mask.set( ToLAYER_ID( entry.GetValue() ) );
+        }
+
+        {
+            std::unique_lock<std::shared_mutex> writeLock( board->m_CachesMutex );
+            board->m_LayerExpressionCache[ layerName ] = mask;
         }
 
         return mask.Contains( m_layer );
@@ -86,6 +91,39 @@ public:
 
 protected:
     PCB_LAYER_ID m_layer;
+};
+
+
+class PCBEXPR_PINTYPE_VALUE : public LIBEVAL::VALUE
+{
+public:
+    PCBEXPR_PINTYPE_VALUE( const wxString& aPinTypeName ) :
+            LIBEVAL::VALUE( aPinTypeName )
+    {};
+
+    bool EqualTo( LIBEVAL::CONTEXT* aCtx, const VALUE* b ) const override
+    {
+        const wxString& thisStr = AsString();
+        const wxString& otherStr = b->AsString();
+
+        if( thisStr.IsSameAs( otherStr, false ) )
+            return true;
+
+        // Handle cases where the netlist token is different from the EEschema token
+        if( thisStr == wxT( "tri_state" ) )
+            return otherStr.IsSameAs( wxT( "Tri-state" ), false );
+
+        if( thisStr == wxT( "power_in" ) )
+            return otherStr.IsSameAs( wxT( "Power input" ), false );
+
+        if( thisStr == wxT( "power_out" ) )
+            return otherStr.IsSameAs( wxT( "Power output" ), false );
+
+        if( thisStr == wxT( "no_connect" ) )
+            return otherStr.IsSameAs( wxT( "Unconnected" ), false );
+
+        return false;
+    }
 };
 
 
@@ -184,7 +222,9 @@ LIBEVAL::VALUE* PCBEXPR_VAR_REF::GetValue( LIBEVAL::CONTEXT* aCtx )
     else
     {
         if( m_type == LIBEVAL::VT_NUMERIC )
+        {
             return new LIBEVAL::VALUE( (double) item->Get<int>( it->second ) );
+        }
         else
         {
             wxString str;
@@ -192,7 +232,11 @@ LIBEVAL::VALUE* PCBEXPR_VAR_REF::GetValue( LIBEVAL::CONTEXT* aCtx )
             if( !m_isEnum )
             {
                 str = item->Get<wxString>( it->second );
-                return new LIBEVAL::VALUE( str );
+
+                if( it->second->Name() == wxT( "Pin Type" ) )
+                    return new PCBEXPR_PINTYPE_VALUE( str );
+                else
+                    return new LIBEVAL::VALUE( str );
             }
             else
             {
@@ -309,7 +353,7 @@ std::unique_ptr<LIBEVAL::VAR_REF> PCBEXPR_UCODE::CreateVarRef( const wxString& a
 
     if( aField.length() == 0 ) // return reference to base object
     {
-        return std::move( vref );
+        return vref;
     }
 
     wxString field( aField );
@@ -353,7 +397,7 @@ std::unique_ptr<LIBEVAL::VAR_REF> PCBEXPR_UCODE::CreateVarRef( const wxString& a
     if( vref->GetType() == LIBEVAL::VT_UNDEFINED )
         vref->SetType( LIBEVAL::VT_PARSE_ERROR );
 
-    return std::move( vref );
+    return vref;
 }
 
 

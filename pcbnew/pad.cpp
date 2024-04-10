@@ -3,7 +3,7 @@
  *
  * Copyright (C) 2018 Jean-Pierre Charras, jp.charras at wanadoo.fr
  * Copyright (C) 2012 SoftPLC Corporation, Dick Hollenbeck <dick@softplc.com>
- * Copyright (C) 1992-2023 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2024 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -50,9 +50,14 @@
 #include <pcb_painter.h>
 #include <properties/property_validators.h>
 #include <wx/log.h>
+#include <api/api_enums.h>
+#include <api/api_utils.h>
+#include <api/api_pcb_utils.h>
+#include <api/board/board_types.pb.h>
 
 #include <memory>
 #include <macros.h>
+#include <magic_enum.hpp>
 #include "kiface_base.h"
 #include "pcbnew_settings.h"
 
@@ -77,10 +82,6 @@ PAD::PAD( FOOTPRINT* parent ) :
     SetDrillShape( PAD_DRILL_SHAPE_CIRCLE );     // Default pad drill shape is a circle.
     m_attribute           = PAD_ATTRIB::PTH;     // Default pad type is plated through hole
     SetProperty( PAD_PROP::NONE );               // no special fabrication property
-    m_localClearance      = 0;
-    m_localSolderMaskMargin  = 0;
-    m_localSolderPasteMargin = 0;
-    m_localSolderPasteMarginRatio = 0.0;
 
     // Parameters for round rect only:
     m_roundedCornerScale = 0.25;                 // from IPC-7351C standard
@@ -135,6 +136,160 @@ PAD& PAD::operator=( const PAD &aOther )
     m_keepTopBottomLayer = aOther.m_keepTopBottomLayer;
 
     return *this;
+}
+
+
+void PAD::Serialize( google::protobuf::Any &aContainer ) const
+{
+    kiapi::board::types::Pad pad;
+
+    pad.mutable_id()->set_value( m_Uuid.AsStdString() );
+    kiapi::common::PackVector2( *pad.mutable_position(), GetPosition() );
+    pad.set_locked( IsLocked() ? kiapi::common::types::LockedState::LS_LOCKED
+                               : kiapi::common::types::LockedState::LS_UNLOCKED );
+    pad.mutable_net()->mutable_code()->set_value( GetNetCode() );
+    pad.mutable_net()->set_name( GetNetname() );
+
+    kiapi::board::types::PadStack* padstack = pad.mutable_pad_stack();
+    padstack->set_type( kiapi::board::types::PadStackType::PST_THROUGH );
+    padstack->set_start_layer(
+            ToProtoEnum<PCB_LAYER_ID, kiapi::board::types::BoardLayer>( m_layer ) );
+    padstack->set_end_layer(
+            ToProtoEnum<PCB_LAYER_ID, kiapi::board::types::BoardLayer>( FlipLayer( m_layer ) ) );
+    kiapi::common::PackVector2( *padstack->mutable_drill_diameter(),
+                                { GetDrillSizeX(), GetDrillSizeY() } );
+    padstack->mutable_angle()->set_value_degrees( GetOrientationDegrees() );
+
+    kiapi::board::types::PadStackLayer* stackLayer = padstack->add_layers();
+    kiapi::board::PackLayerSet( *stackLayer->mutable_layers(), GetLayerSet() );
+    kiapi::common::PackVector2( *stackLayer->mutable_size(),
+                                { GetSizeX(), GetSizeY() } );
+    stackLayer->set_shape(
+            ToProtoEnum<PAD_SHAPE, kiapi::board::types::PadStackShape>( GetShape() ) );
+
+    kiapi::board::types::UnconnectedLayerRemoval ulr;
+
+    if( m_removeUnconnectedLayer )
+    {
+        if( m_keepTopBottomLayer )
+            ulr = kiapi::board::types::UnconnectedLayerRemoval::ULR_REMOVE_EXCEPT_START_AND_END;
+        else
+            ulr = kiapi::board::types::UnconnectedLayerRemoval::ULR_REMOVE;
+    }
+    else
+    {
+        ulr = kiapi::board::types::UnconnectedLayerRemoval::ULR_KEEP;
+    }
+
+    padstack->set_unconnected_layer_removal( ulr );
+
+    kiapi::board::types::DesignRuleOverrides* overrides = pad.mutable_overrides();
+
+    if( GetLocalClearance().has_value() )
+        overrides->mutable_clearance()->set_value_nm( *GetLocalClearance() );
+
+    if( GetLocalSolderMaskMargin().has_value() )
+        overrides->mutable_solder_mask_margin()->set_value_nm( *GetLocalSolderMaskMargin() );
+
+    if( GetLocalSolderPasteMargin().has_value() )
+        overrides->mutable_solder_paste_margin()->set_value_nm( *GetLocalSolderPasteMargin() );
+
+    if( GetLocalSolderPasteMarginRatio().has_value() )
+        overrides->mutable_solder_paste_margin_ratio()->set_value( *GetLocalSolderPasteMarginRatio() );
+
+    overrides->set_zone_connection(
+            ToProtoEnum<ZONE_CONNECTION,
+                        kiapi::board::types::ZoneConnectionStyle>( GetLocalZoneConnection() ) );
+
+    kiapi::board::types::ThermalSpokeSettings* thermals = pad.mutable_thermal_spokes();
+
+    thermals->set_width( GetThermalSpokeWidth() );
+    thermals->set_gap( GetThermalGap() );
+    thermals->mutable_angle()->set_value_degrees( GetThermalSpokeAngleDegrees() );
+
+    aContainer.PackFrom( pad );
+}
+
+
+bool PAD::Deserialize( const google::protobuf::Any &aContainer )
+{
+    kiapi::board::types::Pad pad;
+
+    if( !aContainer.UnpackTo( &pad ) )
+        return false;
+
+    const_cast<KIID&>( m_Uuid ) = KIID( pad.id().value() );
+    SetPosition( kiapi::common::UnpackVector2( pad.position() ) );
+    SetNetCode( pad.net().code().value() );
+    SetLocked( pad.locked() == kiapi::common::types::LockedState::LS_LOCKED );
+
+    const kiapi::board::types::PadStack& padstack = pad.pad_stack();
+
+    SetLayer( FromProtoEnum<PCB_LAYER_ID, kiapi::board::types::BoardLayer>(
+            padstack.start_layer() ) );
+
+    SetDrillSize( kiapi::common::UnpackVector2( padstack.drill_diameter() ) );
+    SetOrientationDegrees( padstack.angle().value_degrees() );
+
+    // We don't yet support complex padstacks
+    if( padstack.layers_size() == 1 )
+    {
+        const kiapi::board::types::PadStackLayer& layer = padstack.layers( 0 );
+        SetSize( kiapi::common::UnpackVector2( layer.size() ) );
+        SetLayerSet( kiapi::board::UnpackLayerSet( layer.layers() ) );
+        SetShape( FromProtoEnum<PAD_SHAPE>( layer.shape() ) );
+    }
+
+    switch( padstack.unconnected_layer_removal() )
+    {
+    case kiapi::board::types::UnconnectedLayerRemoval::ULR_REMOVE:
+        m_removeUnconnectedLayer = true;
+        m_keepTopBottomLayer = false;
+        break;
+
+    case kiapi::board::types::UnconnectedLayerRemoval::ULR_REMOVE_EXCEPT_START_AND_END:
+        m_removeUnconnectedLayer = true;
+        m_keepTopBottomLayer = true;
+        break;
+
+    default:
+    case kiapi::board::types::UnconnectedLayerRemoval::ULR_KEEP:
+        m_removeUnconnectedLayer = false;
+        m_keepTopBottomLayer = false;
+        break;
+    }
+
+    const kiapi::board::types::DesignRuleOverrides& overrides = pad.overrides();
+
+    if( overrides.has_clearance() )
+        SetLocalClearance( overrides.clearance().value_nm() );
+    else
+        SetLocalClearance( std::nullopt );
+
+    if( overrides.has_solder_mask_margin() )
+        SetLocalSolderMaskMargin( overrides.solder_mask_margin().value_nm() );
+    else
+        SetLocalSolderMaskMargin( std::nullopt );
+
+    if( overrides.has_solder_paste_margin() )
+        SetLocalSolderPasteMargin( overrides.solder_paste_margin().value_nm() );
+    else
+        SetLocalSolderPasteMargin( std::nullopt );
+
+    if( overrides.has_solder_paste_margin_ratio() )
+        SetLocalSolderPasteMarginRatio( overrides.solder_paste_margin_ratio().value() );
+    else
+        SetLocalSolderPasteMarginRatio( std::nullopt );
+
+    SetLocalZoneConnection( FromProtoEnum<ZONE_CONNECTION>( overrides.zone_connection() ) );
+
+    const kiapi::board::types::ThermalSpokeSettings& thermals = pad.thermal_spokes();
+
+    SetThermalGap( thermals.gap() );
+    SetThermalSpokeWidth( thermals.width() );
+    SetThermalSpokeAngleDegrees( thermals.angle().value_degrees() );
+
+    return true;
 }
 
 
@@ -556,8 +711,8 @@ void PAD::BuildEffectiveShapes( PCB_LAYER_ID aLayer ) const
         break;
 
     default:
-        wxFAIL_MSG( wxT( "PAD::buildEffectiveShapes: Unsupported pad shape: " )
-                    + PAD_SHAPE_T_asString( effectiveShape ) );
+        wxFAIL_MSG( wxT( "PAD::buildEffectiveShapes: Unsupported pad shape: PAD_SHAPE::" )
+                    + wxString( std::string( magic_enum::enum_name( effectiveShape ) ) ) );
         break;
     }
 
@@ -649,10 +804,38 @@ const BOX2I PAD::GetBoundingBox() const
 
 void PAD::SetAttribute( PAD_ATTRIB aAttribute )
 {
-    m_attribute = aAttribute;
+    if( m_attribute != aAttribute )
+    {
+        m_attribute = aAttribute;
 
-    if( aAttribute == PAD_ATTRIB::SMD )
-        m_drill = VECTOR2I( 0, 0 );
+        switch( aAttribute )
+        {
+        case PAD_ATTRIB::PTH:
+            m_layerMask |= LSET::AllCuMask();
+            break;
+
+        case PAD_ATTRIB::SMD:
+        case PAD_ATTRIB::CONN:
+            if( m_layerMask.test( F_Cu ) )
+            {
+                m_layerMask &= ~LSET::AllCuMask();
+                m_layerMask.set( F_Cu );
+            }
+            else
+            {
+                m_layerMask &= ~LSET::AllCuMask();
+                m_layerMask.set( B_Cu );
+            }
+
+            m_drill = VECTOR2I( 0, 0 );
+            break;
+
+        case PAD_ATTRIB::NPTH:
+            m_number = wxEmptyString;
+            SetNetCode( NETINFO_LIST::UNCONNECTED );
+            break;
+        }
+    }
 
     SetDirty();
 }
@@ -805,26 +988,24 @@ bool PAD::IsOnCopperLayer() const
 }
 
 
-int PAD::GetLocalClearanceOverrides( wxString* aSource ) const
+std::optional<int> PAD::GetLocalClearance( wxString* aSource ) const
 {
-    // A pad can have specific clearance that overrides its NETCLASS clearance value
-    if( GetLocalClearance() )
-        return GetLocalClearance( aSource );
+    if( m_clearance.has_value() && aSource )
+        *aSource = _( "pad" );
 
-    // A footprint can have a specific clearance value
-    if( GetParentFootprint() && GetParentFootprint()->GetLocalClearance() )
-        return GetParentFootprint()->GetLocalClearance( aSource );
-
-    return 0;
+    return m_clearance;
 }
 
 
-int PAD::GetLocalClearance( wxString* aSource ) const
+std::optional<int> PAD::GetClearanceOverrides( wxString* aSource ) const
 {
-    if( aSource )
-        *aSource = _( "pad" );
+    if( m_clearance.has_value() )
+        return GetLocalClearance( aSource );
 
-    return m_localClearance;
+    if( FOOTPRINT* parentFootprint = GetParentFootprint() )
+        return parentFootprint->GetClearanceOverrides( aSource );
+
+    return std::optional<int>();
 }
 
 
@@ -862,35 +1043,32 @@ int PAD::GetSolderMaskExpansion() const
     if( ( m_layerMask & LSET::AllCuMask() ).none() )
         return 0;
 
-    int margin = m_localSolderMaskMargin;
+    std::optional<int> margin = m_solderMaskMargin;
 
-    if( FOOTPRINT* parentFootprint = GetParentFootprint() )
+    if( !margin.has_value() )
     {
-        if( margin == 0 )
-        {
-            if( parentFootprint->GetLocalSolderMaskMargin() )
-                margin = parentFootprint->GetLocalSolderMaskMargin();
-        }
-
-        if( margin == 0 )
-        {
-            const BOARD* brd = GetBoard();
-
-            if( brd )
-                margin = brd->GetDesignSettings().m_SolderMaskExpansion;
-        }
+        if( FOOTPRINT* parentFootprint = GetParentFootprint() )
+            margin = parentFootprint->GetLocalSolderMaskMargin();
     }
 
+    if( !margin.has_value() )
+    {
+        if( const BOARD* brd = GetBoard() )
+            margin = brd->GetDesignSettings().m_SolderMaskExpansion;
+    }
+
+    int marginValue = margin.value_or( 0 );
+
     // ensure mask have a size always >= 0
-    if( margin < 0 )
+    if( marginValue < 0 )
     {
         int minsize = -std::min( m_size.x, m_size.y ) / 2;
 
-        if( margin < minsize )
-            margin = minsize;
+        if( marginValue < minsize )
+            marginValue = minsize;
     }
 
-    return margin;
+    return marginValue;
 }
 
 
@@ -902,31 +1080,36 @@ VECTOR2I PAD::GetSolderPasteMargin() const
     if( ( m_layerMask & LSET::AllCuMask() ).none() )
         return VECTOR2I( 0, 0 );
 
-    int     margin = m_localSolderPasteMargin;
-    double  mratio = m_localSolderPasteMarginRatio;
+    std::optional<int>    margin = m_solderPasteMargin;
+    std::optional<double> mratio = m_solderPasteMarginRatio;
 
-    if( FOOTPRINT* parentFootprint = GetParentFootprint() )
+    if( !margin.has_value() )
     {
-        if( margin == 0 )
+        if( FOOTPRINT* parentFootprint = GetParentFootprint() )
             margin = parentFootprint->GetLocalSolderPasteMargin();
+    }
 
-        auto brd = GetBoard();
+    if( !margin.has_value() )
+    {
+        if( const BOARD* board = GetBoard() )
+            margin = board->GetDesignSettings().m_SolderPasteMargin;
+    }
 
-        if( margin == 0 && brd )
-            margin = brd->GetDesignSettings().m_SolderPasteMargin;
-
-        if( mratio == 0.0 )
+    if( !mratio.has_value() )
+    {
+        if( FOOTPRINT* parentFootprint = GetParentFootprint() )
             mratio = parentFootprint->GetLocalSolderPasteMarginRatio();
+    }
 
-        if( mratio == 0.0 && brd )
-        {
-            mratio = brd->GetDesignSettings().m_SolderPasteMarginRatio;
-        }
+    if( !mratio.has_value() )
+    {
+        if( const BOARD* board = GetBoard() )
+            mratio = board->GetDesignSettings().m_SolderPasteMarginRatio;
     }
 
     VECTOR2I pad_margin;
-    pad_margin.x = margin + KiROUND( m_size.x * mratio );
-    pad_margin.y = margin + KiROUND( m_size.y * mratio );
+    pad_margin.x = margin.value_or( 0 ) + KiROUND( m_size.x * mratio.value_or( 0 ) );
+    pad_margin.y = margin.value_or( 0 ) + KiROUND( m_size.y * mratio.value_or( 0 ) );
 
     // ensure mask have a size always >= 0
     if( m_padShape != PAD_SHAPE::CUSTOM )
@@ -942,12 +1125,23 @@ VECTOR2I PAD::GetSolderPasteMargin() const
 }
 
 
-ZONE_CONNECTION PAD::GetLocalZoneConnectionOverride( wxString* aSource ) const
+ZONE_CONNECTION PAD::GetZoneConnectionOverrides( wxString* aSource ) const
 {
-    if( m_zoneConnection != ZONE_CONNECTION::INHERITED && aSource )
-        *aSource = _( "pad" );
+    ZONE_CONNECTION connection = m_zoneConnection;
 
-    return m_zoneConnection;
+    if( connection != ZONE_CONNECTION::INHERITED )
+    {
+        if( aSource )
+            *aSource = _( "pad" );
+    }
+
+    if( connection == ZONE_CONNECTION::INHERITED )
+    {
+        if( FOOTPRINT* parentFootprint = GetParentFootprint() )
+            connection = parentFootprint->GetZoneConnectionOverrides( aSource );
+    }
+
+    return connection;
 }
 
 
@@ -1478,6 +1672,10 @@ void PAD::ImportSettingsFrom( const PAD& aMasterPad )
     SetAttribute( aMasterPad.GetAttribute() );
     SetProperty( aMasterPad.GetProperty() );
 
+    // Must be after setting attribute and layerSet
+    if( !CanHaveNumber() )
+        SetNumber( wxEmptyString );
+
     // I am not sure the m_LengthPadToDie should be imported, because this is a parameter
     // really specific to a given pad (JPC).
 #if 0
@@ -1487,10 +1685,10 @@ void PAD::ImportSettingsFrom( const PAD& aMasterPad )
     // The pad orientation, for historical reasons is the pad rotation + parent rotation.
     EDA_ANGLE pad_rot = aMasterPad.GetOrientation();
 
-    if( aMasterPad.GetParent() )
+    if( aMasterPad.GetParentFootprint() )
         pad_rot -= aMasterPad.GetParentFootprint()->GetOrientation();
 
-    if( GetParent() )
+    if( GetParentFootprint() )
         pad_rot += GetParentFootprint()->GetOrientation();
 
     SetOrientation( pad_rot );
@@ -1540,12 +1738,14 @@ void PAD::ImportSettingsFrom( const PAD& aMasterPad )
     SetLocalSolderPasteMargin( aMasterPad.GetLocalSolderPasteMargin() );
     SetLocalSolderPasteMarginRatio( aMasterPad.GetLocalSolderPasteMarginRatio() );
 
-    SetZoneConnection( aMasterPad.GetZoneConnection() );
+    SetLocalZoneConnection( aMasterPad.GetLocalZoneConnection() );
     SetThermalSpokeWidth( aMasterPad.GetThermalSpokeWidth() );
     SetThermalSpokeAngle( aMasterPad.GetThermalSpokeAngle() );
     SetThermalGap( aMasterPad.GetThermalGap() );
 
     SetCustomShapeInZoneOpt( aMasterPad.GetCustomShapeInZoneOpt() );
+
+    m_teardropParams = aMasterPad.m_teardropParams;
 
     // Add or remove custom pad shapes:
     ReplacePrimitives( aMasterPad.GetPrimitives() );
@@ -1678,7 +1878,7 @@ void PAD::TransformShapeToPolygon( SHAPE_POLY_SET& aBuffer, PCB_LAYER_ID aLayer,
 
     default:
         wxFAIL_MSG( wxT( "PAD::TransformShapeToPolygon no implementation for " )
-                    + PAD_SHAPE_T_asString( GetShape() ) );
+                    + wxString( std::string( magic_enum::enum_name( GetShape() ) ) ) );
         break;
     }
 }
@@ -1689,7 +1889,7 @@ bool PAD::operator==( const BOARD_ITEM& aOther ) const
     if( Type() != aOther.Type() )
         return false;
 
-    if( m_parent->m_Uuid != aOther.GetParent()->m_Uuid )
+    if( m_parent && aOther.GetParent() && m_parent->m_Uuid != aOther.GetParent()->m_Uuid )
         return false;
 
     const PAD& other = static_cast<const PAD&>( aOther );
@@ -1727,7 +1927,7 @@ bool PAD::operator==( const BOARD_ITEM& aOther ) const
     if( GetOrientation() != other.GetOrientation() )
         return false;
 
-    if( GetZoneConnection() != other.GetZoneConnection() )
+    if( GetLocalZoneConnection() != other.GetLocalZoneConnection() )
         return false;
 
     if( GetThermalSpokeWidth() != other.GetThermalSpokeWidth() )
@@ -1821,7 +2021,7 @@ double PAD::Similarity( const BOARD_ITEM& aOther ) const
     if( GetOrientation() != other.GetOrientation() )
         similarity *= 0.9;
 
-    if( GetZoneConnection() != other.GetZoneConnection() )
+    if( GetLocalZoneConnection() != other.GetLocalZoneConnection() )
         similarity *= 0.9;
 
     if( GetThermalSpokeWidth() != other.GetThermalSpokeWidth() )
@@ -1876,7 +2076,7 @@ static struct PAD_DESC
 
         ENUM_MAP<PAD_SHAPE>::Instance()
                 .Map( PAD_SHAPE::CIRCLE,           _HKI( "Circle" ) )
-                .Map( PAD_SHAPE::RECTANGLE,             _HKI( "Rectangle" ) )
+                .Map( PAD_SHAPE::RECTANGLE,        _HKI( "Rectangle" ) )
                 .Map( PAD_SHAPE::OVAL,             _HKI( "Oval" ) )
                 .Map( PAD_SHAPE::TRAPEZOID,        _HKI( "Trapezoid" ) )
                 .Map( PAD_SHAPE::ROUNDRECT,        _HKI( "Rounded rectangle" ) )
@@ -1946,7 +2146,7 @@ static struct PAD_DESC
                     &PAD::SetAttribute, &PAD::GetAttribute );
         propMgr.AddProperty( padType, groupPad );
 
-        auto shape = new PROPERTY_ENUM<PAD, PAD_SHAPE>( _HKI( "Shape" ),
+        auto shape = new PROPERTY_ENUM<PAD, PAD_SHAPE>( _HKI( "Pad Shape" ),
                     &PAD::SetShape, &PAD::GetShape );
         propMgr.AddProperty( shape, groupPad );
 
@@ -2013,25 +2213,30 @@ static struct PAD_DESC
 
         const wxString groupOverrides = _HKI( "Overrides" );
 
-        propMgr.AddProperty( new PROPERTY<PAD, int>( _HKI( "Clearance Override" ),
+        propMgr.AddProperty( new PROPERTY<PAD, std::optional<int>>(
+                    _HKI( "Clearance Override" ),
                     &PAD::SetLocalClearance, &PAD::GetLocalClearance,
                     PROPERTY_DISPLAY::PT_SIZE ), groupOverrides );
 
-        propMgr.AddProperty( new PROPERTY<PAD, int>( _HKI( "Soldermask Margin Override" ),
+        propMgr.AddProperty( new PROPERTY<PAD, std::optional<int>>(
+                    _HKI( "Soldermask Margin Override" ),
                     &PAD::SetLocalSolderMaskMargin, &PAD::GetLocalSolderMaskMargin,
                     PROPERTY_DISPLAY::PT_SIZE ), groupOverrides );
 
-        propMgr.AddProperty( new PROPERTY<PAD, int>( _HKI( "Solderpaste Margin Override" ),
+        propMgr.AddProperty( new PROPERTY<PAD, std::optional<int>>(
+                    _HKI( "Solderpaste Margin Override" ),
                     &PAD::SetLocalSolderPasteMargin, &PAD::GetLocalSolderPasteMargin,
                     PROPERTY_DISPLAY::PT_SIZE ), groupOverrides );
 
-        propMgr.AddProperty( new PROPERTY<PAD, double>( _HKI( "Solderpaste Margin Ratio Override" ),
-                    &PAD::SetLocalSolderPasteMarginRatio, &PAD::GetLocalSolderPasteMarginRatio ),
+        propMgr.AddProperty( new PROPERTY<PAD, std::optional<double>>(
+                    _HKI( "Solderpaste Margin Ratio Override" ),
+                    &PAD::SetLocalSolderPasteMarginRatio, &PAD::GetLocalSolderPasteMarginRatio,
+                    PROPERTY_DISPLAY::PT_RATIO ),
                     groupOverrides );
 
         propMgr.AddProperty( new PROPERTY_ENUM<PAD, ZONE_CONNECTION>(
                     _HKI( "Zone Connection Style" ),
-                    &PAD::SetZoneConnection, &PAD::GetZoneConnection ), groupOverrides );
+                    &PAD::SetLocalZoneConnection, &PAD::GetLocalZoneConnection ), groupOverrides );
 
         constexpr int minZoneWidth = pcbIUScale.mmToIU( ZONE_THICKNESS_MIN_VALUE_MM );
 

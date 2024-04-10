@@ -82,7 +82,7 @@ static struct IFACE : public KIFACE_BASE, public UNITS_PROVIDER
             UNITS_PROVIDER( pcbIUScale, EDA_UNITS::MILLIMETRES )
     {}
 
-    bool OnKifaceStart( PGM_BASE* aProgram, int aCtlBits ) override;
+    bool OnKifaceStart( PGM_BASE* aProgram, int aCtlBits, KIWAY* aKiway ) override;
 
     void Reset() override;
 
@@ -351,9 +351,6 @@ private:
 using namespace PCB;
 
 
-static PGM_BASE* process;
-
-
 KIFACE_BASE& Kiface() { return kiface; }
 
 
@@ -361,25 +358,8 @@ KIFACE_BASE& Kiface() { return kiface; }
 // KIFACE_GETTER will not have name mangling due to declaration in kiway.h.
 KIFACE_API KIFACE* KIFACE_GETTER( int* aKIFACEversion, int aKiwayVersion, PGM_BASE* aProgram )
 {
-    process = aProgram;
     return &kiface;
 }
-
-
-#if defined( BUILD_KIWAY_DLL )
-PGM_BASE& Pgm()
-{
-    wxASSERT( process );    // KIFACE_GETTER has already been called.
-    return *process;
-}
-
-
-// Similar to PGM_BASE& Pgm(), but return nullptr when a *.ki_face is run from a python script.
-PGM_BASE* PgmOrNull()
-{
-    return process;
-}
-#endif
 
 
 /// The global footprint library table.  This is not dynamically allocated because
@@ -393,7 +373,7 @@ FP_LIB_TABLE          GFootprintTable;
 FOOTPRINT_LIST_IMPL   GFootprintList;
 
 
-bool IFACE::OnKifaceStart( PGM_BASE* aProgram, int aCtlBits )
+bool IFACE::OnKifaceStart( PGM_BASE* aProgram, int aCtlBits, KIWAY* aKiway )
 {
     // This is process-level-initialization, not project-level-initialization of the DSO.
     // Do nothing in here pertinent to a project!
@@ -414,9 +394,23 @@ bool IFACE::OnKifaceStart( PGM_BASE* aProgram, int aCtlBits )
     start_common( aCtlBits );
 
     if( !loadGlobalLibTable() )
-        return false;
+    {
+        // we didnt get anywhere deregister the
+        aProgram->GetSettingsManager().FlushAndRelease(
+                aProgram->GetSettingsManager().GetAppSettings<CVPCB_SETTINGS>(), false );
 
-    m_jobHandler = std::make_unique<PCBNEW_JOBS_HANDLER>();
+        aProgram->GetSettingsManager().FlushAndRelease( KifaceSettings(), false );
+
+        aProgram->GetSettingsManager().FlushAndRelease(
+                aProgram->GetSettingsManager().GetAppSettings<FOOTPRINT_EDITOR_SETTINGS>(), false );
+
+        aProgram->GetSettingsManager().FlushAndRelease(
+                aProgram->GetSettingsManager().GetAppSettings<EDA_3D_VIEWER_SETTINGS>(), false );
+
+        return false;
+    }
+
+    m_jobHandler = std::make_unique<PCBNEW_JOBS_HANDLER>( aKiway );
 
     if( m_start_flags & KFCTL_CLI )
     {
@@ -504,26 +498,28 @@ void IFACE::SaveFileAs( const wxString& aProjectBasePath, const wxString& aSrcPr
 
     destFile.SetPath( destPath );
 
-    if( ext == KiCadPcbFileExtension || ext == KiCadPcbFileExtension + BackupFileSuffix )
+    if( ext == FILEEXT::KiCadPcbFileExtension
+        || ext == FILEEXT::KiCadPcbFileExtension + FILEEXT::BackupFileSuffix )
     {
         if( destFile.GetName() == aSrcProjectName )
             destFile.SetName( aNewProjectName );
 
         KiCopyFile( aSrcFilePath, destFile.GetFullPath(), aErrors );
     }
-    else if( ext == LegacyPcbFileExtension )
+    else if( ext == FILEEXT::LegacyPcbFileExtension )
     {
         if( destFile.GetName() == aSrcProjectName )
             destFile.SetName( aNewProjectName );
 
         KiCopyFile( aSrcFilePath, destFile.GetFullPath(), aErrors );
     }
-    else if( ext == LegacyFootprintLibPathExtension || ext == KiCadFootprintFileExtension )
+    else if( ext == FILEEXT::LegacyFootprintLibPathExtension
+             || ext == FILEEXT::KiCadFootprintFileExtension )
     {
         // Footprints are not project-specific.  Keep their source names.
         KiCopyFile( aSrcFilePath, destFile.GetFullPath(), aErrors );
     }
-    else if( ext == FootprintAssignmentFileExtension )
+    else if( ext == FILEEXT::FootprintAssignmentFileExtension )
     {
         // TODO
     }

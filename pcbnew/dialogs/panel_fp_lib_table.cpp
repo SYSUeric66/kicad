@@ -3,7 +3,7 @@
  *
  * Copyright (C) 2012 SoftPLC Corporation, Dick Hollenbeck <dick@softplc.com>
  * Copyright (C) 2013-2021 CERN
- * Copyright (C) 2012-2023 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2012-2024 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -39,7 +39,8 @@
 #include <wx/filedlg.h>
 
 #include <project.h>
-#include <3d_viewer/eda_3d_viewer_frame.h>      // for KICAD7_3DMODEL_DIR
+#include <env_vars.h>
+#include <3d_viewer/eda_3d_viewer_frame.h>
 #include <panel_fp_lib_table.h>
 #include <lib_id.h>
 #include <fp_lib_table.h>
@@ -80,7 +81,7 @@ struct SUPPORTED_FILE_TYPE
     wxString m_FileFilter;             ///< Filter used for file pickers if m_IsFile is true
     wxString m_FolderSearchExtension;  ///< In case of folders it stands for extensions of files stored inside
     bool     m_IsFile;                 ///< Whether the library is a folder or a file
-    IO_MGR::PCB_FILE_T m_Plugin;
+    PCB_IO_MGR::PCB_FILE_T m_Plugin;
 };
 
 // clang-format on
@@ -185,6 +186,27 @@ public:
     {
         m_rows = aTableToEdit.m_rows;
     }
+
+    void SetValue( int aRow, int aCol, const wxString &aValue ) override
+    {
+        wxCHECK( aRow < (int) size(), /* void */ );
+
+        LIB_TABLE_GRID::SetValue( aRow, aCol, aValue );
+
+        // If setting a filepath, attempt to auto-detect the format
+        if( aCol == COL_URI )
+        {
+            LIB_TABLE_ROW* row = at( (size_t) aRow );
+            wxString       fullURI = row->GetFullURI( true );
+
+            PCB_IO_MGR::PCB_FILE_T pluginType = PCB_IO_MGR::GuessPluginTypeFromLibPath( fullURI );
+
+            if( pluginType == PCB_IO_MGR::FILE_TYPE_NONE )
+                pluginType = PCB_IO_MGR::KICAD_SEXP;
+
+            SetValue( aRow, COL_TYPE, PCB_IO_MGR::ShowType( pluginType ) );
+        }
+    }
 };
 
 
@@ -210,9 +232,9 @@ protected:
             wxString        result = options;
             STRING_UTF8_MAP choices;
 
-            IO_MGR::PCB_FILE_T pi_type = IO_MGR::EnumFromStr( row->GetType() );
-            PLUGIN::RELEASER   pi( IO_MGR::PluginFind( pi_type ) );
-            pi->FootprintLibOptions( &choices );
+            PCB_IO_MGR::PCB_FILE_T pi_type = PCB_IO_MGR::EnumFromStr( row->GetType() );
+            IO_RELEASER<PCB_IO>    pi( PCB_IO_MGR::PluginFind( pi_type ) );
+            pi->GetLibraryOptions( &choices );
 
             DIALOG_PLUGIN_OPTIONS dlg( m_dialog, row->GetNickName(), choices, options, &result );
             dlg.ShowModal();
@@ -296,7 +318,7 @@ PANEL_FP_LIB_TABLE::PANEL_FP_LIB_TABLE( DIALOG_EDIT_LIBRARY_TABLES* aParent, PRO
     wxArrayString choices;
 
     for( auto& [fileType, desc] : m_supportedFpFiles )
-        choices.Add( IO_MGR::ShowType( fileType ) );
+        choices.Add( PCB_IO_MGR::ShowType( fileType ) );
 
 
     PCBNEW_SETTINGS* cfg = Pgm().GetSettingsManager().GetAppSettings<PCBNEW_SETTINGS>();
@@ -335,8 +357,8 @@ PANEL_FP_LIB_TABLE::PANEL_FP_LIB_TABLE( DIALOG_EDIT_LIBRARY_TABLES* aParent, PRO
                         {
                             auto* libTable = static_cast<FP_LIB_TABLE_GRID*>( grid->GetTable() );
                             auto* tableRow = static_cast<FP_LIB_TABLE_ROW*>( libTable->at( row ) );
-                            IO_MGR::PCB_FILE_T fileType = tableRow->GetFileType();
-                            const PLUGIN_FILE_DESC& pluginDesc = m_supportedFpFiles.at( fileType );
+                            PCB_IO_MGR::PCB_FILE_T fileType = tableRow->GetFileType();
+                            const IO_BASE::IO_FILE_DESC& pluginDesc = m_supportedFpFiles.at( fileType );
 
                             if( pluginDesc.m_IsFile )
                                 return pluginDesc.FileFilter();
@@ -432,7 +454,7 @@ PANEL_FP_LIB_TABLE::PANEL_FP_LIB_TABLE( DIALOG_EDIT_LIBRARY_TABLES* aParent, PRO
 
     for( auto& [type, desc] : m_supportedFpFiles )
     {
-        wxString entryStr = IO_MGR::ShowType( type );
+        wxString entryStr = PCB_IO_MGR::ShowType( type );
 
         if( desc.m_IsFile && !desc.m_FileExtensions.empty() )
         {
@@ -483,14 +505,14 @@ PANEL_FP_LIB_TABLE::~PANEL_FP_LIB_TABLE()
 
 void PANEL_FP_LIB_TABLE::populatePluginList()
 {
-    for( const auto& plugin : IO_MGR::PLUGIN_REGISTRY::Instance()->AllPlugins() )
+    for( const auto& plugin : PCB_IO_MGR::PLUGIN_REGISTRY::Instance()->AllPlugins() )
     {
-        PLUGIN::RELEASER pi( plugin.m_createFunc() );
+        IO_RELEASER<PCB_IO> pi( plugin.m_createFunc() );
 
         if( !pi )
             continue;
 
-        if( PLUGIN_FILE_DESC desc = pi->GetFootprintLibDesc() )
+        if( const IO_BASE::IO_FILE_DESC& desc = pi->GetLibraryDesc() )
             m_supportedFpFiles.emplace( plugin.m_type, desc );
     }
 }
@@ -520,7 +542,9 @@ bool PANEL_FP_LIB_TABLE::verifyTables()
                 else
                     msg = _( "A library table row path cell is empty." );
 
-                wxMessageDialog badCellDlg( this, msg, _( "Invalid Row Definition" ),
+                wxWindow* topLevelParent = wxGetTopLevelParent( this );
+
+                wxMessageDialog badCellDlg( topLevelParent, msg, _( "Invalid Row Definition" ),
                                             wxYES_NO | wxCENTER | wxICON_QUESTION | wxYES_DEFAULT );
                 badCellDlg.SetExtendedMessage( _( "Empty cells will result in all rows that are "
                                                   "invalid to be removed from the table." ) );
@@ -549,7 +573,9 @@ bool PANEL_FP_LIB_TABLE::verifyTables()
                 m_cur_grid->MakeCellVisible( r, 0 );
                 m_cur_grid->SetGridCursor( r, 1 );
 
-                wxMessageDialog errdlg( this, msg, _( "Library Nickname Error" ) );
+                wxWindow* topLevelParent = wxGetTopLevelParent( this );
+
+                wxMessageDialog errdlg( topLevelParent, msg, _( "Library Nickname Error" ) );
                 errdlg.ShowModal();
                 return false;
             }
@@ -595,7 +621,9 @@ bool PANEL_FP_LIB_TABLE::verifyTables()
                     m_cur_grid->MakeCellVisible( r2, 0 );
                     m_cur_grid->SetGridCursor( r2, 1 );
 
-                    wxMessageDialog errdlg( this, msg, _( "Library Nickname Error" ) );
+                    wxWindow* topLevelParent = wxGetTopLevelParent( this );
+
+                    wxMessageDialog errdlg( topLevelParent, msg, _( "Library Nickname Error" ) );
                     errdlg.ShowModal();
                     return false;
                 }
@@ -768,7 +796,7 @@ void PANEL_FP_LIB_TABLE::onMigrateLibraries( wxCommandEvent& event )
         selectedRows.push_back( m_cur_grid->GetGridCursorRow() );
 
     wxArrayInt rowsToMigrate;
-    wxString   kicadType = IO_MGR::ShowType( IO_MGR::KICAD_SEXP );
+    wxString   kicadType = PCB_IO_MGR::ShowType( PCB_IO_MGR::KICAD_SEXP );
     wxString   msg;
 
     for( int row : selectedRows )
@@ -812,12 +840,12 @@ void PANEL_FP_LIB_TABLE::onMigrateLibraries( wxCommandEvent& event )
         if( !legacyLib.Exists() )
         {
             msg.Printf( _( "Library '%s' not found." ), relPath );
-            DisplayErrorMessage( this, msg );
+            DisplayErrorMessage( wxGetTopLevelParent( this ), msg );
             continue;
         }
 
         wxFileName newLib( resolvedPath );
-        newLib.AppendDir( newLib.GetName() + "." + KiCadFootprintLibPathExtension );
+        newLib.AppendDir( newLib.GetName() + "." + FILEEXT::KiCadFootprintLibPathExtension );
         newLib.SetName( "" );
         newLib.ClearExt();
 
@@ -838,7 +866,7 @@ void PANEL_FP_LIB_TABLE::onMigrateLibraries( wxCommandEvent& event )
         wxString options = m_cur_grid->GetCellValue( row, COL_OPTIONS );
         std::unique_ptr<STRING_UTF8_MAP> props( LIB_TABLE::ParseOptions( options.ToStdString() ) );
 
-        if( convertLibrary( props.get(), legacyLib.GetFullPath(), newLib.GetFullPath() ) )
+        if( PCB_IO_MGR::ConvertLibrary( props.get(), legacyLib.GetFullPath(), newLib.GetFullPath() ) )
         {
             relPath = NormalizePath( newLib.GetFullPath(), &Pgm().GetLocalEnvVariables(),
                                      m_project );
@@ -854,48 +882,9 @@ void PANEL_FP_LIB_TABLE::onMigrateLibraries( wxCommandEvent& event )
         else
         {
             msg.Printf( _( "Failed to save footprint library file '%s'." ), newLib.GetFullPath() );
-            DisplayErrorMessage( this, msg );
+            DisplayErrorMessage( wxGetTopLevelParent( this ), msg );
         }
     }
-}
-
-
-bool PANEL_FP_LIB_TABLE::convertLibrary( STRING_UTF8_MAP* aOldFileProps,
-                                         const wxString& aOldFilePath,
-                                         const wxString& aNewFilePath)
-{
-    IO_MGR::PCB_FILE_T oldFileType = IO_MGR::GuessPluginTypeFromLibPath( aOldFilePath );
-
-    if( oldFileType == IO_MGR::FILE_TYPE_NONE )
-        return false;
-
-
-    PLUGIN::RELEASER oldFilePI( IO_MGR::PluginFind( oldFileType ) );
-    PLUGIN::RELEASER kicadPI( IO_MGR::PluginFind( IO_MGR::KICAD_SEXP ) );
-    wxArrayString fpNames;
-    wxFileName newFileName( aNewFilePath );
-
-    if( !newFileName.DirExists() && !wxFileName::Mkdir( aNewFilePath, wxS_DIR_DEFAULT ) )
-        return false;
-
-    try
-    {
-        bool bestEfforts = false; // throw on first error
-        oldFilePI->FootprintEnumerate( fpNames, aOldFilePath, bestEfforts, aOldFileProps );
-
-        for ( const wxString& fpName : fpNames )
-        {
-            std::unique_ptr<const FOOTPRINT> fp( oldFilePI->GetEnumeratedFootprint( aOldFilePath, fpName, aOldFileProps ) );
-            kicadPI->FootprintSave( aNewFilePath, fp.get() );
-        }
-
-    }
-    catch( ... )
-    {
-        return false;
-    }
-
-    return true;
 }
 
 
@@ -904,31 +893,31 @@ void PANEL_FP_LIB_TABLE::browseLibrariesHandler( wxCommandEvent& event )
     if( !m_cur_grid->CommitPendingChanges() )
         return;
 
-    IO_MGR::PCB_FILE_T fileType = IO_MGR::FILE_TYPE_NONE;
+    PCB_IO_MGR::PCB_FILE_T fileType = PCB_IO_MGR::FILE_TYPE_NONE;
 
     // We are bound both to the menu and button with this one handler
     // So we must set the file type based on it
     if( event.GetEventType() == wxEVT_BUTTON )
     {
         // Let's default to adding a kicad footprint file for just the footprint
-        fileType = IO_MGR::KICAD_SEXP;
+        fileType = PCB_IO_MGR::KICAD_SEXP;
     }
     else
     {
-        fileType = static_cast<IO_MGR::PCB_FILE_T>( event.GetId() );
+        fileType = static_cast<PCB_IO_MGR::PCB_FILE_T>( event.GetId() );
     }
 
-    if( fileType == IO_MGR::FILE_TYPE_NONE )
+    if( fileType == PCB_IO_MGR::FILE_TYPE_NONE )
     {
         wxLogWarning( wxT( "File type selection event received but could not find the file type "
                            "in the table" ) );
         return;
     }
 
-    const PLUGIN_FILE_DESC& fileDesc = m_supportedFpFiles.at( fileType );
+    const IO_BASE::IO_FILE_DESC& fileDesc = m_supportedFpFiles.at( fileType );
     PCBNEW_SETTINGS*        cfg = Pgm().GetSettingsManager().GetAppSettings<PCBNEW_SETTINGS>();
 
-    wxString title = wxString::Format( _( "Select %s Library" ), IO_MGR::ShowType( fileType ) );
+    wxString title = wxString::Format( _( "Select %s Library" ), PCB_IO_MGR::ShowType( fileType ) );
     wxString openDir = cfg->m_lastFootprintLibDir;
 
     if( m_cur_grid == m_project_grid )
@@ -936,9 +925,11 @@ void PANEL_FP_LIB_TABLE::browseLibrariesHandler( wxCommandEvent& event )
 
     wxArrayString files;
 
+    wxWindow* topLevelParent = wxGetTopLevelParent( this );
+
     if( fileDesc.m_IsFile )
     {
-        wxFileDialog dlg( this, title, openDir, wxEmptyString, fileDesc.FileFilter(),
+        wxFileDialog dlg( topLevelParent, title, openDir, wxEmptyString, fileDesc.FileFilter(),
                           wxFD_OPEN | wxFD_FILE_MUST_EXIST | wxFD_MULTIPLE );
 
         int result = dlg.ShowModal();
@@ -955,7 +946,7 @@ void PANEL_FP_LIB_TABLE::browseLibrariesHandler( wxCommandEvent& event )
     }
     else
     {
-        wxDirDialog dlg( nullptr, title, openDir,
+        wxDirDialog dlg( topLevelParent, title, openDir,
                          wxDD_DEFAULT_STYLE | wxDD_DIR_MUST_EXIST | wxDD_MULTIPLE );
 
         int result = dlg.ShowModal();
@@ -977,7 +968,7 @@ void PANEL_FP_LIB_TABLE::browseLibrariesHandler( wxCommandEvent& event )
     }
 
     // Drop the last directory if the path is a .pretty folder
-    if( cfg->m_lastFootprintLibDir.EndsWith( KiCadFootprintLibPathExtension ) )
+    if( cfg->m_lastFootprintLibDir.EndsWith( FILEEXT::KiCadFootprintLibPathExtension ) )
         cfg->m_lastFootprintLibDir = cfg->m_lastFootprintLibDir.BeforeLast( wxFileName::GetPathSeparator() );
 
     const ENV_VAR_MAP& envVars       = Pgm().GetLocalEnvVariables();
@@ -994,7 +985,8 @@ void PANEL_FP_LIB_TABLE::browseLibrariesHandler( wxCommandEvent& event )
         wxString   nickname = LIB_ID::FixIllegalChars( fn.GetName(), true );
         bool       doAdd    = true;
 
-        if( fileType == IO_MGR::KICAD_SEXP && fn.GetExt() != KiCadFootprintLibPathExtension )
+        if( fileType == PCB_IO_MGR::KICAD_SEXP
+            && fn.GetExt() != FILEEXT::KiCadFootprintLibPathExtension )
             nickname = LIB_ID::FixIllegalChars( fn.GetFullName(), true ).wx_str();
 
         if( cur_model()->ContainsNickname( nickname ) )
@@ -1002,7 +994,8 @@ void PANEL_FP_LIB_TABLE::browseLibrariesHandler( wxCommandEvent& event )
             if( !applyToAll )
             {
                 // The cancel button adds the library to the table anyway
-                addDuplicates = OKOrCancelDialog( this, warning, wxString::Format( msg, nickname ),
+                addDuplicates = OKOrCancelDialog( wxGetTopLevelParent( this ), warning,
+                                                  wxString::Format( msg, nickname ),
                                                   detailedMsg, _( "Skip" ), _( "Add Anyway" ),
                                                   &applyToAll ) == wxID_CANCEL;
             }
@@ -1016,7 +1009,7 @@ void PANEL_FP_LIB_TABLE::browseLibrariesHandler( wxCommandEvent& event )
 
             m_cur_grid->SetCellValue( last_row, COL_NICKNAME, nickname );
 
-            m_cur_grid->SetCellValue( last_row, COL_TYPE, IO_MGR::ShowType( fileType ) );
+            m_cur_grid->SetCellValue( last_row, COL_TYPE, PCB_IO_MGR::ShowType( fileType ) );
 
             // try to use path normalized to an environmental variable or project path
             wxString path = NormalizePath( filePath, &envVars, m_projectBasePath );
@@ -1131,8 +1124,9 @@ void PANEL_FP_LIB_TABLE::populateEnvironReadOnlyTable()
     // the current project.
     unique.insert( PROJECT_VAR_NAME );
     unique.insert( FP_LIB_TABLE::GlobalPathEnvVariableName() );
+
     // This special environment variable is used to locate 3d shapes
-    unique.insert( KICAD7_3DMODEL_DIR );
+    unique.insert( ENV_VAR::GetVersionedEnvVarName( wxS( "3DMODEL_DIR" ) ) );
 
     for( const wxString& evName : unique )
     {

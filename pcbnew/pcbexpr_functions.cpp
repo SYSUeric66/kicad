@@ -24,6 +24,7 @@
 
 #include <cstdio>
 #include <memory>
+#include <mutex>
 #include <wx/log.h>
 #include <board.h>
 #include <board_design_settings.h>
@@ -127,6 +128,8 @@ static void existsOnLayerFunc( LIBEVAL::CONTEXT* aCtx, void *self )
                         aCtx->ReportError( wxString::Format( _( "Unrecognized layer '%s'" ),
                                                              layerName ) );
                     }
+
+                    return 0.0;
                 }
                 else
                 {
@@ -135,32 +138,33 @@ static void existsOnLayerFunc( LIBEVAL::CONTEXT* aCtx, void *self )
                      */
 
                     BOARD* board = item->GetBoard();
-                    std::unique_lock<std::mutex> cacheLock( board->m_CachesMutex );
-                    auto i = board->m_LayerExpressionCache.find( layerName );
+
+                    {
+                        std::shared_lock<std::shared_mutex> readLock( board->m_CachesMutex );
+
+                        auto i = board->m_LayerExpressionCache.find( layerName );
+
+                        if( i != board->m_LayerExpressionCache.end() )
+                            return ( item->GetLayerSet() & i->second ).any() ? 1.0 : 0.0;
+                    }
+
                     LSET mask;
 
-                    if( i == board->m_LayerExpressionCache.end() )
+                    for( unsigned ii = 0; ii < layerMap.GetCount(); ++ii )
                     {
-                        for( unsigned ii = 0; ii < layerMap.GetCount(); ++ii )
-                        {
-                            wxPGChoiceEntry& entry = layerMap[ ii ];
+                        wxPGChoiceEntry& entry = layerMap[ ii ];
 
-                            if( entry.GetText().Matches( layerName ) )
-                                mask.set( ToLAYER_ID( entry.GetValue() ) );
-                        }
+                        if( entry.GetText().Matches( layerName ) )
+                            mask.set( ToLAYER_ID( entry.GetValue() ) );
+                    }
 
+                    {
+                        std::unique_lock<std::shared_mutex> writeLock( board->m_CachesMutex );
                         board->m_LayerExpressionCache[ layerName ] = mask;
                     }
-                    else
-                    {
-                        mask = i->second;
-                    }
 
-                    if( ( item->GetLayerSet() & mask ).any() )
-                        return 1.0;
+                    return ( item->GetLayerSet() & mask ).any() ? 1.0 : 0.0;
                 }
-
-                return 0.0;
             } );
 }
 
@@ -271,11 +275,12 @@ static void intersectsCourtyardFunc( LIBEVAL::CONTEXT* aCtx, void* self )
                 if( searchFootprints( board, arg->AsString(), context,
                         [&]( FOOTPRINT* fp )
                         {
-                            PTR_PTR_CACHE_KEY            key = { fp, item };
-                            std::unique_lock<std::mutex> cacheLock( board->m_CachesMutex );
+                            PTR_PTR_CACHE_KEY key = { fp, item };
 
                             if( ( item->GetFlags() & ROUTER_TRANSIENT ) == 0 )
                             {
+                                std::shared_lock<std::shared_mutex> readLock( board->m_CachesMutex );
+
                                 auto i = board->m_IntersectsCourtyardCache.find( key );
 
                                 if( i != board->m_IntersectsCourtyardCache.end() )
@@ -286,7 +291,10 @@ static void intersectsCourtyardFunc( LIBEVAL::CONTEXT* aCtx, void* self )
                                     || collidesWithCourtyard( item, itemShape, context, fp, B_Cu );
 
                             if( ( item->GetFlags() & ROUTER_TRANSIENT ) == 0 )
+                            {
+                                std::unique_lock<std::shared_mutex> cacheLock( board->m_CachesMutex );
                                 board->m_IntersectsCourtyardCache[ key ] = res;
+                            }
 
                             return res;
                         } ) )
@@ -331,11 +339,12 @@ static void intersectsFrontCourtyardFunc( LIBEVAL::CONTEXT* aCtx, void* self )
                 if( searchFootprints( board, arg->AsString(), context,
                         [&]( FOOTPRINT* fp )
                         {
-                            PTR_PTR_CACHE_KEY            key = { fp, item };
-                            std::unique_lock<std::mutex> cacheLock( board->m_CachesMutex );
+                            PTR_PTR_CACHE_KEY key = { fp, item };
 
                             if( ( item->GetFlags() & ROUTER_TRANSIENT ) == 0 )
                             {
+                                std::shared_lock<std::shared_mutex> readLock( board->m_CachesMutex );
+
                                 auto i = board->m_IntersectsFCourtyardCache.find( key );
 
                                 if( i != board->m_IntersectsFCourtyardCache.end() )
@@ -345,7 +354,10 @@ static void intersectsFrontCourtyardFunc( LIBEVAL::CONTEXT* aCtx, void* self )
                             bool res = collidesWithCourtyard( item, itemShape, context, fp, F_Cu );
 
                             if( ( item->GetFlags() & ROUTER_TRANSIENT ) == 0 )
+                            {
+                                std::unique_lock<std::shared_mutex> writeLock( board->m_CachesMutex );
                                 board->m_IntersectsFCourtyardCache[ key ] = res;
+                            }
 
                             return res;
                         } ) )
@@ -390,11 +402,12 @@ static void intersectsBackCourtyardFunc( LIBEVAL::CONTEXT* aCtx, void* self )
                 if( searchFootprints( board, arg->AsString(), context,
                         [&]( FOOTPRINT* fp )
                         {
-                            PTR_PTR_CACHE_KEY            key = { fp, item };
-                            std::unique_lock<std::mutex> cacheLock( board->m_CachesMutex );
+                            PTR_PTR_CACHE_KEY key = { fp, item };
 
                             if( ( item->GetFlags() & ROUTER_TRANSIENT ) == 0 )
                             {
+                                std::shared_lock<std::shared_mutex> readLock( board->m_CachesMutex );
+
                                 auto i = board->m_IntersectsBCourtyardCache.find( key );
 
                                 if( i != board->m_IntersectsBCourtyardCache.end() )
@@ -404,7 +417,10 @@ static void intersectsBackCourtyardFunc( LIBEVAL::CONTEXT* aCtx, void* self )
                             bool res = collidesWithCourtyard( item, itemShape, context, fp, B_Cu );
 
                             if( ( item->GetFlags() & ROUTER_TRANSIENT ) == 0 )
+                            {
+                                std::unique_lock<std::shared_mutex> writeLock( board->m_CachesMutex );
                                 board->m_IntersectsBCourtyardCache[ key ] = res;
+                            }
 
                             return res;
                         } ) )
@@ -648,9 +664,7 @@ static void intersectsAreaFunc( LIBEVAL::CONTEXT* aCtx, void* self )
                             if( !aArea->GetBoundingBox().Intersects( itemBBox ) )
                                 return false;
 
-                            std::unique_lock<std::mutex> cacheLock( board->m_CachesMutex );
-                            LSET                         testLayers;
-                            PTR_PTR_LAYER_CACHE_KEY      key;
+                            LSET testLayers;
 
                             if( aLayer != UNDEFINED_LAYER )
                                 testLayers.set( aLayer );
@@ -659,9 +673,11 @@ static void intersectsAreaFunc( LIBEVAL::CONTEXT* aCtx, void* self )
 
                             for( PCB_LAYER_ID layer : testLayers.UIOrder() )
                             {
+                                PTR_PTR_LAYER_CACHE_KEY key = { aArea, item, layer };
+
                                 if( ( item->GetFlags() & ROUTER_TRANSIENT ) == 0 )
                                 {
-                                    key = { aArea, item, layer };
+                                    std::shared_lock<std::shared_mutex> readLock( board->m_CachesMutex );
 
                                     auto i = board->m_IntersectsAreaCache.find( key );
 
@@ -672,7 +688,10 @@ static void intersectsAreaFunc( LIBEVAL::CONTEXT* aCtx, void* self )
                                 bool collides = collidesWithArea( item, context, aArea );
 
                                 if( ( item->GetFlags() & ROUTER_TRANSIENT ) == 0 )
+                                {
+                                    std::unique_lock<std::shared_mutex> writeLock( board->m_CachesMutex );
                                     board->m_IntersectsAreaCache[ key ] = collides;
+                                }
 
                                 if( collides )
                                     return true;
@@ -732,11 +751,12 @@ static void enclosedByAreaFunc( LIBEVAL::CONTEXT* aCtx, void* self )
                             if( !aArea->GetBoundingBox().Intersects( itemBBox ) )
                                 return false;
 
-                            std::unique_lock<std::mutex> cacheLock( board->m_CachesMutex );
-                            PTR_PTR_LAYER_CACHE_KEY      key = { aArea, item, layer };
+                            PTR_PTR_LAYER_CACHE_KEY key = { aArea, item, layer };
 
                             if( ( item->GetFlags() & ROUTER_TRANSIENT ) == 0 )
                             {
+                                std::shared_lock<std::shared_mutex> readLock( board->m_CachesMutex );
+
                                 auto i = board->m_EnclosedByAreaCache.find( key );
 
                                 if( i != board->m_EnclosedByAreaCache.end() )
@@ -763,7 +783,10 @@ static void enclosedByAreaFunc( LIBEVAL::CONTEXT* aCtx, void* self )
                             }
 
                             if( ( item->GetFlags() & ROUTER_TRANSIENT ) == 0 )
+                            {
+                                std::unique_lock<std::shared_mutex> writeLock( board->m_CachesMutex );
                                 board->m_EnclosedByAreaCache[ key ] = enclosedByArea;
+                            }
 
                             return enclosedByArea;
                         } ) )
@@ -850,7 +873,10 @@ static void memberOfSheetFunc( LIBEVAL::CONTEXT* aCtx, void* self )
     result->SetDeferredEval(
             [item, arg]() -> double
             {
-                FOOTPRINT* fp = item->GetParentFootprint();
+                FOOTPRINT* fp = dyn_cast<FOOTPRINT*>( item );
+
+                if( !fp )
+                    fp = item->GetParentFootprint();
 
                 if( !fp )
                     return 0.0;
@@ -859,7 +885,7 @@ static void memberOfSheetFunc( LIBEVAL::CONTEXT* aCtx, void* self )
                     return 1.0;
 
                 if( ( arg->AsString().Matches( wxT( "/" ) ) || arg->AsString().IsEmpty() )
-                    && fp->GetSheetname().IsEmpty() )
+                    && fp->GetSheetname() == wxT( "Root" ) )
                 {
                     return 1.0;
                 }
@@ -903,6 +929,12 @@ static void memberOfFootprintFunc( LIBEVAL::CONTEXT* aCtx, void* self )
                 {
                     if( parentFP->GetReference().Matches( arg->AsString() ) )
                         return 1.0;
+
+                    if( arg->AsString().Contains( ':' )
+                             && parentFP->GetFPIDAsString().Matches( arg->AsString() ) )
+                    {
+                        return 1.0;
+                    }
                 }
 
                 return 0.0;
@@ -937,7 +969,7 @@ static void isBlindBuriedViaFunc( LIBEVAL::CONTEXT* aCtx, void* self )
     aCtx->Push( result );
 
     if( item && item->Type() == PCB_VIA_T
-            && static_cast<PCB_VIA*>( item )->GetViaType() == VIATYPE::MICROVIA )
+            && static_cast<PCB_VIA*>( item )->GetViaType() == VIATYPE::BLIND_BURIED )
     {
         result->Set ( 1.0 );
     }

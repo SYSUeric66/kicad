@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2015 Jean-Pierre Charras, jp.charras at wanadoo.fr
- * Copyright (C) 1992-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2024 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -83,6 +83,7 @@ public:
     }
 
     bool operator ==( const SCH_SHEET_PIN* aPin ) const;
+    bool operator!=( const SCH_SHEET_PIN* aRhs ) const { return !( this == aRhs ); }
 
     static SHEET_SIDE GetOppositeSide( SHEET_SIDE aSide )
     {
@@ -104,7 +105,8 @@ public:
      */
     bool IsMovableFromAnchorPoint() const override { return true; }
 
-    void Print( const RENDER_SETTINGS* aSettings, const VECTOR2I& aOffset ) override;
+    void Print( const SCH_RENDER_SETTINGS* aSettings, int aUnit, int aBodyStyle,
+                const VECTOR2I& aOffset, bool aForceNoFill, bool aDimmed ) override;
 
     /**
      * Calculate the graphic shape (a polygon) associated to the text.
@@ -164,7 +166,7 @@ public:
 
     void MirrorVertically( int aCenter ) override;
     void MirrorHorizontally( int aCenter ) override;
-    void Rotate( const VECTOR2I& aCenter ) override;
+    void Rotate( const VECTOR2I& aCenter, bool aRotateCCW ) override;
 
     bool Matches( const EDA_SEARCH_DATA& aSearchData, void* aAuxData ) const override
     {
@@ -181,6 +183,9 @@ public:
     void GetEndPoints( std::vector< DANGLING_END_ITEM >& aItemList ) override;
 
     bool IsConnectable() const override { return true; }
+
+    bool HasConnectivityChanges( const SCH_ITEM* aItem,
+                                 const SCH_SHEET_PATH* aInstance = nullptr ) const override;
 
     wxString GetItemDescription( UNITS_PROVIDER* aUnitsProvider ) const override;
 

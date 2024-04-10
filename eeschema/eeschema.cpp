@@ -3,7 +3,7 @@
  *
  * Copyright (C) 2004 Jean-Pierre Charras, jaen-pierre.charras@gipsa-lab.inpg.com
  * Copyright (C) 2008 Wayne Stambaugh <stambaughw@gmail.com>
- * Copyright (C) 2004-2023 KiCad Developers, see change_log.txt for contributors.
+ * Copyright (C) 2004-2024 KiCad Developers, see change_log.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -39,6 +39,7 @@
 #include <symbol_lib_table.h>
 #include <dialogs/dialog_global_sym_lib_table_config.h>
 #include <dialogs/panel_grid_settings.h>
+#include <dialogs/panel_simulator_preferences.h>
 #include <dialogs/panel_sym_lib_table.h>
 #include <kiway.h>
 #include <settings/settings_manager.h>
@@ -117,7 +118,7 @@ static std::unique_ptr<SCHEMATIC> readSchematicFromFile( const std::string& aFil
 }
 
 
-bool generateSchematicNetlist( const wxString& aFilename, wxString& aNetlist )
+bool generateSchematicNetlist( const wxString& aFilename, std::string& aNetlist )
 {
     std::unique_ptr<SCHEMATIC> schematic = readSchematicFromFile( aFilename.ToStdString() );
     NETLIST_EXPORTER_KICAD exporter( schematic.get() );
@@ -139,7 +140,7 @@ static struct IFACE : public KIFACE_BASE, public UNITS_PROVIDER
             UNITS_PROVIDER( schIUScale, EDA_UNITS::MILLIMETRES )
     {}
 
-    bool OnKifaceStart( PGM_BASE* aProgram, int aCtlBits ) override;
+    bool OnKifaceStart( PGM_BASE* aProgram, int aCtlBits, KIWAY* aKiway ) override;
 
     void Reset() override;
 
@@ -294,6 +295,9 @@ static struct IFACE : public KIFACE_BASE, public UNITS_PROVIDER
         case PANEL_SCH_FIELD_NAME_TEMPLATES:
             return new PANEL_TEMPLATE_FIELDNAMES( aParent, nullptr );
 
+        case PANEL_SCH_SIMULATOR:
+            return new PANEL_SIMULATOR_PREFERENCES( aParent );
+
         default:
             return nullptr;
         }
@@ -343,8 +347,6 @@ private:
 
 using namespace SCH;
 
-static PGM_BASE* process;
-
 
 KIFACE_BASE& Kiface() { return kiface; }
 
@@ -353,27 +355,11 @@ KIFACE_BASE& Kiface() { return kiface; }
 // KIFACE_GETTER will not have name mangling due to declaration in kiway.h.
 KIFACE_API KIFACE* KIFACE_GETTER(  int* aKIFACEversion, int aKiwayVersion, PGM_BASE* aProgram )
 {
-    process = aProgram;
     return &kiface;
 }
 
 
-PGM_BASE& Pgm()
-{
-    wxASSERT( process );    // KIFACE_GETTER has already been called.
-    return *process;
-}
-
-
-// Similar to PGM_BASE& Pgm(), but return nullptr when a *.ki_face is run from
-// a python script or something else.
-PGM_BASE* PgmOrNull()
-{
-    return process;
-}
-
-
-bool IFACE::OnKifaceStart( PGM_BASE* aProgram, int aCtlBits )
+bool IFACE::OnKifaceStart( PGM_BASE* aProgram, int aCtlBits, KIWAY* aKiway )
 {
     // This is process-level-initialization, not project-level-initialization of the DSO.
     // Do nothing in here pertinent to a project!
@@ -381,7 +367,8 @@ bool IFACE::OnKifaceStart( PGM_BASE* aProgram, int aCtlBits )
 
     // Register the symbol editor settings as well because they share a KiFACE and need to be
     // loaded prior to use to avoid threading deadlocks
-    aProgram->GetSettingsManager().RegisterSettings( new SYMBOL_EDITOR_SETTINGS );
+    SYMBOL_EDITOR_SETTINGS* symSettings = new SYMBOL_EDITOR_SETTINGS();
+    aProgram->GetSettingsManager().RegisterSettings( symSettings ); // manager takes ownership
 
     // We intentionally register KifaceSettings after SYMBOL_EDITOR_SETTINGS
     // In legacy configs, many settings were in a single editor config nd the migration routine
@@ -392,9 +379,14 @@ bool IFACE::OnKifaceStart( PGM_BASE* aProgram, int aCtlBits )
     start_common( aCtlBits );
 
     if( !loadGlobalLibTable() )
+    {
+        // we didnt get anywhere deregister the settings
+        aProgram->GetSettingsManager().FlushAndRelease( symSettings, false );
+        aProgram->GetSettingsManager().FlushAndRelease( KifaceSettings(), false );
         return false;
+    }
 
-    m_jobHandler = std::make_unique<EESCHEMA_JOBS_HANDLER>();
+    m_jobHandler = std::make_unique<EESCHEMA_JOBS_HANDLER>( aKiway );
 
     if( m_start_flags & KFCTL_CLI )
     {
@@ -489,10 +481,10 @@ void IFACE::SaveFileAs( const wxString& aProjectBasePath, const wxString& aProje
 
     destFile.SetPath( destPath );
 
-    if( ext == LegacySchematicFileExtension ||
-        ext == LegacySchematicFileExtension + BackupFileSuffix ||
-        ext == KiCadSchematicFileExtension ||
-        ext == KiCadSchematicFileExtension + BackupFileSuffix )
+    if( ext == FILEEXT::LegacySchematicFileExtension
+        || ext == FILEEXT::LegacySchematicFileExtension + FILEEXT::BackupFileSuffix
+        || ext == FILEEXT::KiCadSchematicFileExtension
+        || ext == FILEEXT::KiCadSchematicFileExtension + FILEEXT::BackupFileSuffix )
     {
         if( destFile.GetName() == aProjectName )
         {
@@ -522,13 +514,14 @@ void IFACE::SaveFileAs( const wxString& aProjectBasePath, const wxString& aProje
 
         KiCopyFile( aSrcFilePath, destFile.GetFullPath(), aErrors );
     }
-    else if( ext == SchematicSymbolFileExtension )
+    else if( ext == FILEEXT::SchematicSymbolFileExtension )
     {
         // Symbols are not project-specific.  Keep their source names.
         KiCopyFile( aSrcFilePath, destFile.GetFullPath(), aErrors );
     }
-    else if( ext == LegacySymbolLibFileExtension || ext == LegacySymbolDocumentFileExtension ||
-             ext == KiCadSymbolLibFileExtension )
+    else if( ext == FILEEXT::LegacySymbolLibFileExtension
+             || ext == FILEEXT::LegacySymbolDocumentFileExtension
+             || ext == FILEEXT::KiCadSymbolLibFileExtension )
     {
         if( destFile.GetName() == aProjectName + wxS( "-cache" ) )
             destFile.SetName( aNewProjectName + wxS( "-cache" ) );
@@ -538,7 +531,7 @@ void IFACE::SaveFileAs( const wxString& aProjectBasePath, const wxString& aProje
 
         KiCopyFile( aSrcFilePath, destFile.GetFullPath(), aErrors );
     }
-    else if( ext == NetlistFileExtension )
+    else if( ext == FILEEXT::NetlistFileExtension )
     {
         bool success = false;
 

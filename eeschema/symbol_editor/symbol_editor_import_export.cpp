@@ -53,15 +53,12 @@ void SYMBOL_EDIT_FRAME::ImportSymbol()
 
     for( const SCH_IO_MGR::SCH_FILE_T& fileType : SCH_IO_MGR::SCH_FILE_T_vector )
     {
-        if( fileType == SCH_IO_MGR::SCH_KICAD || fileType == SCH_IO_MGR::SCH_LEGACY )
-            continue; // this is "Import non-KiCad schematic"
-
-        SCH_PLUGIN::SCH_PLUGIN_RELEASER pi( SCH_IO_MGR::FindPlugin( fileType ) );
+        IO_RELEASER<SCH_IO> pi( SCH_IO_MGR::FindPlugin( fileType ) );
 
         if( !pi )
             continue;
 
-        const PLUGIN_FILE_DESC& desc = pi->GetLibraryFileDesc();
+        const IO_BASE::IO_FILE_DESC& desc = pi->GetLibraryFileDesc();
 
         if( desc.m_FileExtensions.empty() )
             continue;
@@ -98,7 +95,7 @@ void SYMBOL_EDIT_FRAME::ImportSymbol()
         return;
     }
 
-    SCH_PLUGIN::SCH_PLUGIN_RELEASER pi( SCH_IO_MGR::FindPlugin( piType ) );
+    IO_RELEASER<SCH_IO> pi( SCH_IO_MGR::FindPlugin( piType ) );
 
     // TODO dialog to select the symbol to be imported if there is more than one
     try
@@ -156,10 +153,10 @@ void SYMBOL_EDIT_FRAME::ExportSymbol()
     wxFileName fn;
 
     fn.SetName( symbol->GetName().Lower() );
-    fn.SetExt( KiCadSymbolLibFileExtension );
+    fn.SetExt( FILEEXT::KiCadSymbolLibFileExtension );
 
     wxFileDialog dlg( this, _( "Export Symbol" ), m_mruPath, fn.GetFullName(),
-                      KiCadSymbolLibFileWildcard(), wxFD_SAVE );
+                      FILEEXT::KiCadSymbolLibFileWildcard(), wxFD_SAVE );
 
     if( dlg.ShowModal() == wxID_CANCEL )
         return;
@@ -173,7 +170,7 @@ void SYMBOL_EDIT_FRAME::ExportSymbol()
     if( pluginType == SCH_IO_MGR::SCH_FILE_UNKNOWN )
         pluginType = SCH_IO_MGR::SCH_KICAD;
 
-    SCH_PLUGIN::SCH_PLUGIN_RELEASER pi( SCH_IO_MGR::FindPlugin( pluginType ) );
+    IO_RELEASER<SCH_IO> pi( SCH_IO_MGR::FindPlugin( pluginType ) );
 
     if( fn.FileExists() )
     {
@@ -215,7 +212,7 @@ void SYMBOL_EDIT_FRAME::ExportSymbol()
     try
     {
         if( !fn.FileExists() )
-            pi->CreateSymbolLib( fn.GetFullPath() );
+            pi->CreateLibrary( fn.GetFullPath() );
 
         // The flattened symbol is most likely what the user would want.  As some point in
         // the future as more of the symbol library inheritance is implemented, this may have

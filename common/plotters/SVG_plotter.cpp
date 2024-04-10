@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2020 Jean-Pierre Charras, jp.charras at wanadoo.fr
- * Copyright (C) 1992-2023 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2024 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -167,11 +167,11 @@ SVG_PLOTTER::SVG_PLOTTER()
     m_graphics_changed = true;
     SetTextMode( PLOT_TEXT_MODE::STROKE );
     m_fillMode        = FILL_T::NO_FILL; // or FILLED_SHAPE or FILLED_WITH_BG_BODYCOLOR
-    m_pen_rgb_color   = 0;          // current color value (black)
-    m_brush_rgb_color = 0;          // current color value (black)
+    m_pen_rgb_color   = 0;               // current color value (black)
+    m_brush_rgb_color = 0;               // current color value with alpha(black)
     m_brush_alpha     = 1.0;
     m_dashed          = LINE_STYLE::SOLID;
-    m_precision       = 4;          // default: 4 digits in mantissa.
+    m_precision       = 4;               // default: 4 digits in mantissa.
 }
 
 
@@ -347,7 +347,7 @@ void SVG_PLOTTER::emitSetRGBColor( double r, double g, double b, double a )
     int blue    = (int) ( 255.0 * b );
     long rgb_color = (red << 16) | (green << 8) | blue;
 
-    if( m_pen_rgb_color != rgb_color )
+    if( m_pen_rgb_color != rgb_color || m_brush_alpha != a )
     {
         m_graphics_changed = true;
         m_pen_rgb_color = rgb_color;
@@ -816,6 +816,9 @@ void SVG_PLOTTER::Text( const VECTOR2I&        aPos,
     case GR_TEXT_H_ALIGN_CENTER: hjust = "middle"; break;
     case GR_TEXT_H_ALIGN_RIGHT:  hjust = "end";    break;
     case GR_TEXT_H_ALIGN_LEFT:   hjust = "start";  break;
+    case GR_TEXT_H_ALIGN_INDETERMINATE:
+        wxFAIL_MSG( wxT( "Indeterminate state legal only in dialogs." ) );
+        break;
     }
 
     switch( aV_justify )
@@ -823,6 +826,9 @@ void SVG_PLOTTER::Text( const VECTOR2I&        aPos,
     case GR_TEXT_V_ALIGN_CENTER: text_pos.y += aSize.y / 2; break;
     case GR_TEXT_V_ALIGN_TOP:    text_pos.y += aSize.y;     break;
     case GR_TEXT_V_ALIGN_BOTTOM:                            break;
+    case GR_TEXT_V_ALIGN_INDETERMINATE:
+        wxFAIL_MSG( wxT( "Indeterminate state legal only in dialogs." ) );
+        break;
     }
 
     VECTOR2I text_size;

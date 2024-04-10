@@ -38,8 +38,8 @@
 #include <symbol_tree_pane.h>
 #include <project/project_file.h>
 #include <widgets/lib_tree.h>
-#include <sch_plugins/legacy/sch_legacy_plugin.h>
-#include <sch_plugins/kicad/sch_sexpr_plugin.h>
+#include <sch_io/kicad_legacy/sch_io_kicad_legacy.h>
+#include <sch_io/kicad_sexpr/sch_io_kicad_sexpr.h>
 #include <dialogs/dialog_lib_new_symbol.h>
 #include <eda_list_dialog.h>
 #include <wx/clipbrd.h>
@@ -142,7 +142,7 @@ bool SYMBOL_EDIT_FRAME::saveCurrentSymbol()
 }
 
 
-bool SYMBOL_EDIT_FRAME::LoadSymbol( const LIB_ID& aLibId, int aUnit, int aConvert )
+bool SYMBOL_EDIT_FRAME::LoadSymbol( const LIB_ID& aLibId, int aUnit, int aBodyStyle )
 {
     LIB_ID libId = aLibId;
 
@@ -176,7 +176,7 @@ bool SYMBOL_EDIT_FRAME::LoadSymbol( const LIB_ID& aLibId, int aUnit, int aConver
     if( GetCurSymbol() && !IsSymbolFromSchematic()
             && GetCurSymbol()->GetLibId() == libId
             && GetUnit() == aUnit
-            && GetConvert() == aConvert )
+            && GetBodyStyle() == aBodyStyle )
     {
         return true;
     }
@@ -195,7 +195,7 @@ bool SYMBOL_EDIT_FRAME::LoadSymbol( const LIB_ID& aLibId, int aUnit, int aConver
 
     SelectActiveLibrary( libId.GetLibNickname() );
 
-    if( LoadSymbolFromCurrentLib( libId.GetLibItemName(), aUnit, aConvert ) )
+    if( LoadSymbolFromCurrentLib( libId.GetLibItemName(), aUnit, aBodyStyle ) )
     {
         m_treePane->GetLibTree()->SelectLibId( libId );
         m_treePane->GetLibTree()->ExpandLibId( libId );
@@ -219,7 +219,7 @@ void SYMBOL_EDIT_FRAME::centerItemIdleHandler( wxIdleEvent& aEvent )
 
 
 bool SYMBOL_EDIT_FRAME::LoadSymbolFromCurrentLib( const wxString& aAliasName, int aUnit,
-                                                  int aConvert )
+                                                  int aBodyStyle )
 {
     LIB_SYMBOL* alias = nullptr;
 
@@ -238,7 +238,7 @@ bool SYMBOL_EDIT_FRAME::LoadSymbolFromCurrentLib( const wxString& aAliasName, in
         return false;
     }
 
-    if( !alias || !LoadOneLibrarySymbolAux( alias, GetCurLib(), aUnit, aConvert ) )
+    if( !alias || !LoadOneLibrarySymbolAux( alias, GetCurLib(), aUnit, aBodyStyle ) )
         return false;
 
     // Enable synchronized pin edit mode for symbols with interchangeable units
@@ -246,7 +246,7 @@ bool SYMBOL_EDIT_FRAME::LoadSymbolFromCurrentLib( const wxString& aAliasName, in
 
     ClearUndoRedoList();
     m_toolManager->RunAction( ACTIONS::zoomFitScreen );
-    SetShowDeMorgan( GetCurSymbol()->Flatten()->HasConversion() );
+    SetShowDeMorgan( GetCurSymbol()->Flatten()->HasAlternateBodyStyle() );
 
     if( aUnit > 0 )
         RebuildSymbolUnitsList();
@@ -256,7 +256,7 @@ bool SYMBOL_EDIT_FRAME::LoadSymbolFromCurrentLib( const wxString& aAliasName, in
 
 
 bool SYMBOL_EDIT_FRAME::LoadOneLibrarySymbolAux( LIB_SYMBOL* aEntry, const wxString& aLibrary,
-                                                 int aUnit, int aConvert )
+                                                 int aUnit, int aBodyStyle )
 {
     bool rebuildMenuAndToolbar = false;
 
@@ -288,7 +288,7 @@ bool SYMBOL_EDIT_FRAME::LoadOneLibrarySymbolAux( LIB_SYMBOL* aEntry, const wxStr
     wxCHECK( lib_symbol, false );
 
     m_unit = aUnit > 0 ? aUnit : 1;
-    m_convert = aConvert > 0 ? aConvert : 1;
+    m_bodyStyle = aBodyStyle > 0 ? aBodyStyle : 1;
 
     // The buffered screen for the symbol
     SCH_SCREEN* symbol_screen = m_libMgr->GetScreen( lib_symbol->GetName(), aLibrary );
@@ -306,7 +306,7 @@ bool SYMBOL_EDIT_FRAME::LoadOneLibrarySymbolAux( LIB_SYMBOL* aEntry, const wxStr
 
     UpdateTitle();
     RebuildSymbolUnitsList();
-    SetShowDeMorgan( GetCurSymbol()->HasConversion() );
+    SetShowDeMorgan( GetCurSymbol()->HasAlternateBodyStyle() );
 
     ClearUndoRedoList();
 
@@ -384,7 +384,7 @@ void SYMBOL_EDIT_FRAME::CreateNewSymbol( const wxString& aInheritFrom )
             {
                 if( newName.IsEmpty() )
                 {
-                    wxMessageBox( _( "Symbol must have a newName." ) );
+                    wxMessageBox( _( "Symbol must have a name." ) );
                     return false;
                 }
 
@@ -445,7 +445,7 @@ void SYMBOL_EDIT_FRAME::CreateNewSymbol( const wxString& aInheritFrom )
         if( dlg.GetUnitCount() < 2 )
             new_symbol.LockUnits( false );
 
-        new_symbol.SetConversion( dlg.GetAlternateBodyStyle() );
+        new_symbol.SetHasAlternateBodyStyle( dlg.GetAlternateBodyStyle() );
     }
     else
     {
@@ -501,7 +501,7 @@ void SYMBOL_EDIT_FRAME::CreateNewSymbol( const wxString& aInheritFrom )
     if( !new_symbol.GetParent().lock() )
         SetShowDeMorgan( dlg.GetAlternateBodyStyle() );
     else
-        SetShowDeMorgan( new_symbol.HasConversion() );
+        SetShowDeMorgan( new_symbol.HasAlternateBodyStyle() );
 }
 
 
@@ -775,7 +775,7 @@ void SYMBOL_EDIT_FRAME::UpdateAfterSymbolProperties( wxString* aOldName )
     }
 
     RebuildSymbolUnitsList();
-    SetShowDeMorgan( GetCurSymbol()->Flatten()->HasConversion() );
+    SetShowDeMorgan( GetCurSymbol()->Flatten()->HasAlternateBodyStyle() );
     UpdateTitle();
 
     // N.B. The view needs to be rebuilt first as the Symbol Properties change may invalidate
@@ -853,7 +853,7 @@ void SYMBOL_EDIT_FRAME::CopySymbolToClipboard()
             continue;
 
         std::unique_ptr<LIB_SYMBOL> tmp = symbol->Flatten();
-        SCH_SEXPR_PLUGIN::FormatLibSymbol( tmp.get(), formatter );
+        SCH_IO_KICAD_SEXPR::FormatLibSymbol( tmp.get(), formatter );
     }
 
     wxLogNull doNotLog; // disable logging of failed clipboard actions
@@ -887,7 +887,7 @@ void SYMBOL_EDIT_FRAME::DuplicateSymbol( bool aFromClipboard )
 
         try
         {
-            newSymbols = SCH_SEXPR_PLUGIN::ParseLibSymbols( clipboardData, "Clipboard" );
+            newSymbols = SCH_IO_KICAD_SEXPR::ParseLibSymbols( clipboardData, "Clipboard" );
         }
         catch( IO_ERROR& e )
         {
@@ -921,7 +921,7 @@ void SYMBOL_EDIT_FRAME::DuplicateSymbol( bool aFromClipboard )
         ensureUniqueName( symbol, lib );
         m_libMgr->UpdateSymbol( symbol, lib );
 
-        LoadOneLibrarySymbolAux( symbol, lib, GetUnit(), GetConvert() );
+        LoadOneLibrarySymbolAux( symbol, lib, GetUnit(), GetBodyStyle() );
     }
 
     SyncLibraries( false );
@@ -1077,9 +1077,9 @@ bool SYMBOL_EDIT_FRAME::saveLibrary( const wxString& aLibrary, bool aNewFile )
             default_path = search->LastVisitedPath();
 
         fn.SetName( aLibrary );
-        fn.SetExt( KiCadSymbolLibFileExtension );
+        fn.SetExt( FILEEXT::KiCadSymbolLibFileExtension );
 
-        wxString wildcards = KiCadSymbolLibFileWildcard();
+        wxString wildcards = FILEEXT::KiCadSymbolLibFileWildcard();
 
         wxFileDialog dlg( this, wxString::Format( _( "Save Library '%s' As..." ), aLibrary ),
                           default_path, fn.GetFullName(), wildcards,
@@ -1096,7 +1096,7 @@ bool SYMBOL_EDIT_FRAME::saveLibrary( const wxString& aLibrary, bool aNewFile )
         prj.SetRString( PROJECT::SCH_LIB_PATH, fn.GetPath() );
 
         if( fn.GetExt().IsEmpty() )
-            fn.SetExt( KiCadSymbolLibFileExtension );
+            fn.SetExt( FILEEXT::KiCadSymbolLibFileExtension );
 
         type = saveAsHook.GetOption();
     }
@@ -1130,6 +1130,10 @@ bool SYMBOL_EDIT_FRAME::saveLibrary( const wxString& aLibrary, bool aNewFile )
     if( !aNewFile )
     {
         m_libMgr->ClearLibraryModified( aLibrary );
+
+        // Update the library modification time so that we don't reload based on the watcher
+        if( aLibrary == getTargetLib() )
+            SetSymModificationTime( fn.GetModificationTime() );
     }
     else
     {
@@ -1273,10 +1277,12 @@ void SYMBOL_EDIT_FRAME::UpdateSymbolMsgPanelInfo()
 
     AppendMsgPanel( _( "Unit" ), msg, 8 );
 
-    if( m_convert > 1 )
-        msg = _( "Convert" );
+    if( m_bodyStyle == BODY_STYLE::DEMORGAN )
+        msg = _( "Alternate" );
+    else if( m_bodyStyle == BODY_STYLE::BASE )
+        msg = _( "Standard" );
     else
-        msg = _( "Normal" );
+        msg = wxT( "?" );
 
     AppendMsgPanel( _( "Body" ), msg, 8 );
 

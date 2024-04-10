@@ -115,7 +115,7 @@ static wxFileName GetRescueLibraryFileName( SCHEMATIC* aSchematic )
 {
     wxFileName fn = aSchematic->GetFileName();
     fn.SetName( fn.GetName() + wxT( "-rescue" ) );
-    fn.SetExt( LegacySymbolLibFileExtension );
+    fn.SetExt( FILEEXT::LegacySymbolLibFileExtension );
     return fn;
 }
 
@@ -178,7 +178,7 @@ void RESCUE_CASE_CANDIDATE::FindRescues( RESCUER& aRescuer,
             RESCUE_CASE_CANDIDATE candidate( symbol_name, case_insensitive_matches[0]->GetName(),
                                              case_insensitive_matches[0],
                                              eachSymbol->GetUnit(),
-                                             eachSymbol->GetConvert() );
+                                             eachSymbol->GetBodyStyle() );
 
             candidate_map[symbol_name] = candidate;
         }
@@ -296,8 +296,7 @@ void RESCUE_CACHE_CANDIDATE::FindRescues( RESCUER& aRescuer,
 
             // Check if the symbol has already been rescued.
             RESCUE_CACHE_CANDIDATE candidate( symbol_name, symbol_name, cache_match, lib_match,
-                                              eachSymbol->GetUnit(),
-                                              eachSymbol->GetConvert() );
+                                              eachSymbol->GetUnit(), eachSymbol->GetBodyStyle() );
 
             candidate_map[symbol_name] = candidate;
         }
@@ -469,7 +468,7 @@ void RESCUE_SYMBOL_LIB_TABLE_CANDIDATE::FindRescues(
 
             RESCUE_SYMBOL_LIB_TABLE_CANDIDATE candidate( symbol_id, new_id, cache_match, lib_match,
                                                          eachSymbol->GetUnit(),
-                                                         eachSymbol->GetConvert() );
+                                                         eachSymbol->GetBodyStyle() );
 
             candidate_map[symbol_id] = candidate;
         }
@@ -822,7 +821,7 @@ void SYMBOL_LIB_TABLE_RESCUER::InvokeDialog( wxWindow* aParent, bool aAskShowAga
 
 void SYMBOL_LIB_TABLE_RESCUER::OpenRescueLibrary()
 {
-    (*m_properties)[ SCH_LEGACY_PLUGIN::PropBuffering ] = "";
+    (*m_properties)[ SCH_IO_KICAD_LEGACY::PropBuffering ] = "";
 
     wxFileName fn = GetRescueLibraryFileName( m_schematic );
 
@@ -833,7 +832,7 @@ void SYMBOL_LIB_TABLE_RESCUER::OpenRescueLibrary()
     if( row )
     {
         if( SCH_IO_MGR::EnumFromStr( row->GetType() ) == SCH_IO_MGR::SCH_KICAD )
-            fn.SetExt( KiCadSymbolLibFileExtension );
+            fn.SetExt( FILEEXT::KiCadSymbolLibFileExtension );
 
         std::vector<LIB_SYMBOL*> symbols;
 
@@ -858,11 +857,11 @@ bool SYMBOL_LIB_TABLE_RESCUER::WriteRescueLibrary( wxWindow *aParent )
     wxFileName fn = GetRescueLibraryFileName( m_schematic );
     SYMBOL_LIB_TABLE_ROW* row = PROJECT_SCH::SchSymbolLibTable( m_prj )->FindRow( fn.GetName() );
 
-    fn.SetExt( KiCadSymbolLibFileExtension );
+    fn.SetExt( FILEEXT::KiCadSymbolLibFileExtension );
 
     try
     {
-        SCH_PLUGIN::SCH_PLUGIN_RELEASER pi( SCH_IO_MGR::FindPlugin( SCH_IO_MGR::SCH_KICAD ) );
+        IO_RELEASER<SCH_IO> pi( SCH_IO_MGR::FindPlugin( SCH_IO_MGR::SCH_KICAD ) );
 
         for( const std::unique_ptr<LIB_SYMBOL>& symbol : m_rescueLibSymbols )
             pi->SaveSymbol( fn.GetFullPath(), new LIB_SYMBOL( *symbol.get() ), m_properties.get() );

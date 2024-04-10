@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2021 Andrew Lutsenko, anlutsenko at gmail dot com
- * Copyright (C) 1992-2023 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2024 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software: you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -65,7 +65,7 @@ PANEL_PACKAGES_VIEW::PANEL_PACKAGES_VIEW( wxWindow*                             
     m_splitter1->Connect( wxEVT_IDLE, wxIdleEventHandler( PANEL_PACKAGES_VIEW::SetSashOnIdle ),
                           NULL, this );
 
-    m_splitter1->SetPaneMinimums( 350, 450 );
+    m_splitter1->SetPaneMinimums( FromDIP( 350 ), FromDIP( 450 ) );
 
 #ifdef __WXGTK__
     // wxSearchCtrl vertical height is not calculated correctly on some GTK setups
@@ -106,7 +106,7 @@ PANEL_PACKAGES_VIEW::PANEL_PACKAGES_VIEW( wxWindow*                             
 PANEL_PACKAGES_VIEW::~PANEL_PACKAGES_VIEW()
 {
     m_splitter1->Disconnect( wxEVT_IDLE, wxIdleEventHandler( PANEL_PACKAGES_VIEW::SetSashOnIdle ),
-                          NULL, this );
+                             NULL, this );
 
     COMMON_SETTINGS* cfg = Pgm().GetCommonSettings();
     cfg->m_PackageManager.sash_pos = m_splitter1->GetSashPosition();
@@ -267,7 +267,7 @@ void PANEL_PACKAGES_VIEW::setPackageDetails( const PACKAGE_VIEW_DATA& aPackageDa
                 for( const std::pair<const std::string, wxString>& entry : contact.contact )
                 {
                     details << wxT( "<li>" );
-                    details << entry.first + wxT( ": " ) + format_entry( entry );
+                    details << entry.first << wxT( ": " ) + format_entry( entry );
                     details << wxT( "</li>" );
                 }
 
@@ -286,7 +286,7 @@ void PANEL_PACKAGES_VIEW::setPackageDetails( const PACKAGE_VIEW_DATA& aPackageDa
         for( const std::pair<const std::string, wxString>& entry : package.resources )
         {
             details << wxT( "<li>" );
-            details << entry.first + wxT( ": " );
+            details << entry.first << wxT( ": " );
             details << format_entry( entry ) + wxT( "</li>" );
         }
 
@@ -516,7 +516,8 @@ void PANEL_PACKAGES_VIEW::OnDownloadVersionClicked( wxCommandEvent& event )
     if( !ver_it->download_url )
     {
         wxMessageBox( _( "Package download url is not specified" ),
-                      _( "Error downloading package" ), wxICON_INFORMATION | wxOK, this );
+                      _( "Error downloading package" ), wxICON_INFORMATION | wxOK,
+                      wxGetTopLevelParent( this ) );
         return;
     }
 
@@ -525,7 +526,8 @@ void PANEL_PACKAGES_VIEW::OnDownloadVersionClicked( wxCommandEvent& event )
     SETTINGS_MANAGER& mgr = Pgm().GetSettingsManager();
     KICAD_SETTINGS*   app_settings = mgr.GetAppSettings<KICAD_SETTINGS>();
 
-    wxFileDialog dialog( this, _( "Save Package" ), app_settings->m_PcmLastDownloadDir,
+    wxWindow* topLevelParent = wxGetTopLevelParent( this );
+    wxFileDialog dialog( topLevelParent, _( "Save Package" ), app_settings->m_PcmLastDownloadDir,
                          wxString::Format( wxT( "%s_v%s.zip" ), package.identifier, version ),
                          wxT( "ZIP files (*.zip)|*.zip" ), wxFD_SAVE | wxFD_OVERWRITE_PROMPT );
 
@@ -558,7 +560,8 @@ void PANEL_PACKAGES_VIEW::OnDownloadVersionClicked( wxCommandEvent& event )
                 && wxMessageBox(
                            _( "Integrity of the downloaded package could not be verified, hash "
                               "does not match. Are you sure you want to keep this file?" ),
-                           _( "Keep downloaded file" ), wxICON_EXCLAMATION | wxYES_NO, this )
+                           _( "Keep downloaded file" ), wxICON_EXCLAMATION | wxYES_NO,
+                           wxGetTopLevelParent( this ) )
                            == wxNO )
             {
                 wxRemoveFile( path );
@@ -609,7 +612,8 @@ void PANEL_PACKAGES_VIEW::OnVersionActionClicked( wxCommandEvent& event )
     if( !ver_it->compatible
         && wxMessageBox( _( "This package version is incompatible with your KiCad version or "
                             "platform. Are you sure you want to install it anyway?" ),
-                         _( "Install package" ), wxICON_EXCLAMATION | wxYES_NO, this )
+                         _( "Install package" ), wxICON_EXCLAMATION | wxYES_NO,
+                         wxGetTopLevelParent( this ) )
                    == wxNO )
     {
         return;

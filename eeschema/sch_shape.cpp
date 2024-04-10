@@ -105,19 +105,16 @@ void SCH_SHAPE::MirrorVertically( int aCenter )
 }
 
 
-void SCH_SHAPE::Rotate( const VECTOR2I& aCenter )
+void SCH_SHAPE::Rotate( const VECTOR2I& aCenter, bool aRotateCCW )
 {
-    rotate( aCenter, ANGLE_90 );
+    rotate( aCenter, aRotateCCW ? ANGLE_270 : ANGLE_90 );
 }
 
 
-void SCH_SHAPE::Plot( PLOTTER* aPlotter, bool aBackground,
-                      const SCH_PLOT_SETTINGS& aPlotSettings ) const
+void SCH_SHAPE::Plot( PLOTTER* aPlotter, bool aBackground, const SCH_PLOT_OPTS& aPlotOpts,
+                      int aUnit, int aBodyStyle, const VECTOR2I& aOffset, bool aDimmed )
 {
-    int pen_size = GetPenWidth();
-
-    if( pen_size > 0 )
-        pen_size = std::max( pen_size, aPlotter->RenderSettings()->GetMinPenWidth() );
+    int pen_size = GetEffectivePenWidth( getRenderSettings( aPlotter ) );
 
     static std::vector<VECTOR2I> cornerList;
 
@@ -134,7 +131,7 @@ void SCH_SHAPE::Plot( PLOTTER* aPlotter, bool aBackground,
         if( !aPlotter->GetColorMode() )
             return;
 
-        if( m_fill == FILL_T::FILLED_WITH_COLOR && GetFillColor() != COLOR4D::UNSPECIFIED )
+        if( IsFilled() )
         {
             if( GetFillColor() != COLOR4D::UNSPECIFIED )
                 aPlotter->SetColor( GetFillColor() );
@@ -181,7 +178,7 @@ void SCH_SHAPE::Plot( PLOTTER* aPlotter, bool aBackground,
         switch( GetShape() )
         {
         case SHAPE_T::ARC:
-            aPlotter->Arc( GetStart(), GetArcMid(), GetEnd(), m_fill, pen_size );
+            aPlotter->Arc( GetStart(), GetArcMid(), GetEnd(), FILL_T::NO_FILL, pen_size );
             break;
 
         case SHAPE_T::CIRCLE:
@@ -227,7 +224,8 @@ int SCH_SHAPE::GetPenWidth() const
 }
 
 
-void SCH_SHAPE::PrintBackground( const RENDER_SETTINGS* aSettings, const VECTOR2I& aOffset )
+void SCH_SHAPE::PrintBackground( const SCH_RENDER_SETTINGS* aSettings, int aUnit, int aBodyStyle,
+                                 const VECTOR2I& aOffset, bool aDimmed )
 {
     wxDC*    DC = aSettings->GetPrintDC();
     COLOR4D  color;
@@ -289,13 +287,13 @@ void SCH_SHAPE::PrintBackground( const RENDER_SETTINGS* aSettings, const VECTOR2
     }
 
     delete[] buffer;
-
 }
 
 
-void SCH_SHAPE::Print( const RENDER_SETTINGS* aSettings, const VECTOR2I& aOffset )
+void SCH_SHAPE::Print( const SCH_RENDER_SETTINGS* aSettings, int aUnit, int aBodyStyle,
+                       const VECTOR2I& aOffset, bool aForceNoFill, bool aDimmed )
 {
-    int      penWidth = GetPenWidth();
+    int      penWidth = GetEffectivePenWidth( aSettings );
     wxDC*    DC = aSettings->GetPrintDC();
     COLOR4D  color = GetStroke().GetColor();
 
@@ -336,7 +334,7 @@ void SCH_SHAPE::Print( const RENDER_SETTINGS* aSettings, const VECTOR2I& aOffset
     else if( GetFillMode() == FILL_T::FILLED_WITH_COLOR )
         fillColor = GetFillColor();
 
-    if( fillColor != COLOR4D::UNSPECIFIED )
+    if( fillColor != COLOR4D::UNSPECIFIED && !aForceNoFill )
     {
         switch( GetShape() )
         {
@@ -363,10 +361,6 @@ void SCH_SHAPE::Print( const RENDER_SETTINGS* aSettings, const VECTOR2I& aOffset
         default:
             UNIMPLEMENTED_FOR( SHAPE_T_asString() );
         }
-    }
-    else
-    {
-        penWidth = std::max( penWidth, aSettings->GetMinPenWidth() );
     }
 
     if( penWidth > 0 )
@@ -470,6 +464,7 @@ BITMAPS SCH_SHAPE::GetMenuImage() const
     case SHAPE_T::CIRCLE:  return BITMAPS::add_circle;
     case SHAPE_T::RECTANGLE:    return BITMAPS::add_rectangle;
     case SHAPE_T::POLY:    return BITMAPS::add_graphical_segments;
+    case SHAPE_T::BEZIER:  return BITMAPS::add_bezier;
 
     default:
         UNIMPLEMENTED_FOR( SHAPE_T_asString() );
@@ -542,12 +537,12 @@ static struct SCH_SHAPE_DESC
         // On other shapes, these are duplicates of the Start properties.
         auto isPolygon =
                 []( INSPECTABLE* aItem ) -> bool
-        {
-            if( SCH_SHAPE* shape = dynamic_cast<SCH_SHAPE*>( aItem ) )
-                return shape->GetShape() == SHAPE_T::POLY;
+                {
+                    if( SCH_SHAPE* shape = dynamic_cast<SCH_SHAPE*>( aItem ) )
+                        return shape->GetShape() == SHAPE_T::POLY;
 
-            return false;
-        };
+                    return false;
+                };
 
         propMgr.OverrideAvailability( TYPE_HASH( SCH_SHAPE ), TYPE_HASH( SCH_ITEM ),
                                       _HKI( "Position X" ), isPolygon );

@@ -409,11 +409,17 @@ NODE::OPT_OBSTACLE NODE::CheckColliding( const ITEM_SET& aSet, int aKindMask )
 
 NODE::OPT_OBSTACLE NODE::CheckColliding( const ITEM* aItemA, int aKindMask )
 {
-    OBSTACLES obs;
     COLLISION_SEARCH_OPTIONS opts;
 
     opts.m_kindMask = aKindMask;
     opts.m_limitCount = 1;
+
+    return CheckColliding( aItemA, opts );
+}
+
+NODE::OPT_OBSTACLE NODE::CheckColliding( const ITEM* aItemA, const COLLISION_SEARCH_OPTIONS& aOpts )
+{
+    OBSTACLES obs;
 
     if( aItemA->Kind() == ITEM::LINE_T )
     {
@@ -428,7 +434,7 @@ NODE::OPT_OBSTACLE NODE::CheckColliding( const ITEM* aItemA, int aKindMask )
             // Disabling the cache will lead to slowness.
 
             const SEGMENT s( *line, l.CSegment( i ) );
-            n += QueryColliding( &s, obs, opts );
+            n += QueryColliding( &s, obs, aOpts );
 
             if( n )
                 return OPT_OBSTACLE( *obs.begin() );
@@ -436,13 +442,13 @@ NODE::OPT_OBSTACLE NODE::CheckColliding( const ITEM* aItemA, int aKindMask )
 
         if( line->EndsWithVia() )
         {
-            n += QueryColliding( &line->Via(), obs, opts );
+            n += QueryColliding( &line->Via(), obs, aOpts );
 
             if( n )
                 return OPT_OBSTACLE( *obs.begin() );
         }
     }
-    else if( QueryColliding( aItemA, obs, opts ) > 0 )
+    else if( QueryColliding( aItemA, obs, aOpts ) > 0 )
     {
         return OPT_OBSTACLE( *obs.begin() );
     }
@@ -525,7 +531,7 @@ void NODE::addSolid( SOLID* aSolid )
 }
 
 
-void NODE::Add( std::unique_ptr< SOLID >&& aSolid )
+void NODE::Add( std::unique_ptr< SOLID > aSolid )
 {
     aSolid->SetOwner( this );
     addSolid( aSolid.release() );
@@ -560,7 +566,7 @@ void NODE::addHole( HOLE* aHole )
 }
 
 
-void NODE::Add( std::unique_ptr< VIA >&& aVia )
+void NODE::Add( std::unique_ptr< VIA > aVia )
 {
     addVia( aVia.release() );
 }
@@ -654,7 +660,7 @@ void NODE::addSegment( SEGMENT* aSeg )
 }
 
 
-bool NODE::Add( std::unique_ptr< SEGMENT >&& aSegment, bool aAllowRedundant )
+bool NODE::Add( std::unique_ptr< SEGMENT > aSegment, bool aAllowRedundant )
 {
     if( aSegment->Seg().A == aSegment->Seg().B )
     {
@@ -683,7 +689,7 @@ void NODE::addArc( ARC* aArc )
 }
 
 
-bool NODE::Add( std::unique_ptr< ARC >&& aArc, bool aAllowRedundant )
+bool NODE::Add( std::unique_ptr< ARC > aArc, bool aAllowRedundant )
 {
     const SHAPE_ARC& arc = aArc->CArc();
 
@@ -835,7 +841,7 @@ void NODE::removeSolidIndex( SOLID* aSolid )
 }
 
 
-void NODE::Replace( ITEM* aOldItem, std::unique_ptr< ITEM >&& aNewItem )
+void NODE::Replace( ITEM* aOldItem, std::unique_ptr< ITEM > aNewItem )
 {
     Remove( aOldItem );
     add( aNewItem.release() );
@@ -1085,7 +1091,7 @@ const LINE NODE::AssembleLine( LINKED_ITEM* aSeg, int* aOriginSegmentIndex,
     if( aOriginSegmentIndex && *aOriginSegmentIndex >= pl.SegmentCount() )
         *aOriginSegmentIndex = pl.SegmentCount() - 1;
 
-    assert( pl.SegmentCount() != 0 );
+    wxASSERT_MSG( pl.SegmentCount() != 0, "assembled line should never be empty" );
 
     return pl;
 }

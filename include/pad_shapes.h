@@ -29,7 +29,7 @@
 /**
  * The set of pad shapes, used with PAD::{Set,Get}Shape()
  *
- * --> DO NOT REORDER, legacy_plugin is dependent on the integer values <--
+ * --> DO NOT REORDER, PCB_IO_KICAD_LEGACY is dependent on the integer values <--
  */
 enum class PAD_SHAPE : int
 {
@@ -43,22 +43,6 @@ enum class PAD_SHAPE : int
     CHAMFERED_RECT,
     CUSTOM            // A shape defined by user, using a set of basic shapes
                       // (thick segments, circles, arcs, polygons).
-};
-
-static inline std::string PAD_SHAPE_T_asString( PAD_SHAPE a )
-{
-    switch( a )
-    {
-    case PAD_SHAPE::CIRCLE:         return "PAD_SHAPE::CIRCLE";
-    case PAD_SHAPE::RECTANGLE:      return "PAD_SHAPE::RECT";
-    case PAD_SHAPE::OVAL:           return "PAD_SHAPE::OVAL";
-    case PAD_SHAPE::TRAPEZOID:      return "PAD_SHAPE::TRAPEZOID";
-    case PAD_SHAPE::ROUNDRECT:      return "PAD_SHAPE::ROUNDRECT";
-    case PAD_SHAPE::CHAMFERED_RECT: return "PAD_SHAPE::CHAMFERED_RECT";
-    case PAD_SHAPE::CUSTOM:         return "PAD_SHAPE::CUSTOM";
-    }
-
-    return "";  // Just to quiet GCC.
 };
 
 
@@ -79,13 +63,13 @@ enum PAD_DRILL_SHAPE_T
  */
 enum class PAD_ATTRIB
 {
-    PTH,     ///< Plated through hole pad
-    SMD,     ///< Smd pad, appears on the solder paste layer (default)
-    CONN,    ///< Like smd, does not appear on the solder paste layer (default)
-                        ///< note also has a special attribute in Gerber X files
-                        ///< Used for edgecard connectors for instance
-    NPTH,    ///< like PAD_PTH, but not plated
-                        ///< mechanical use only, no connection allowed
+    PTH,        ///< Plated through hole pad
+    SMD,        ///< Smd pad, appears on the solder paste layer (default)
+    CONN,       ///< Like smd, does not appear on the solder paste layer (default)
+                ///<   Note: also has a special attribute in Gerber X files
+                ///<   Used for edgecard connectors for instance
+    NPTH,       ///< like PAD_PTH, but not plated
+                ///<   mechanical use only, no connection allowed
 };
 
 

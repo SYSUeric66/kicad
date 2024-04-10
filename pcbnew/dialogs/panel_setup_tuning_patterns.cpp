@@ -69,7 +69,7 @@ bool PANEL_SETUP_TUNING_PATTERNS::TransferDataToWindow()
     m_dp_maxA.SetValue( m_dpSettings.m_maxAmplitude );
     m_dp_spacing.SetValue( m_dpSettings.m_spacing );
     m_dp_cornerCtrl->SetSelection( m_dpSettings.m_cornerStyle == PNS::MEANDER_STYLE_ROUND ? 1 : 0 );
-    m_dp_r.SetValue( 100 );
+    m_dp_r.SetValue( m_dpSettings.m_cornerRadiusPercentage );
     m_dp_singleSided->SetValue( m_dpSettings.m_singleSided );
 
     m_skew_minA.SetValue( m_skewSettings.m_minAmplitude );
@@ -97,8 +97,7 @@ bool PANEL_SETUP_TUNING_PATTERNS::TransferDataFromWindow()
     m_dpSettings.m_spacing = m_dp_spacing.GetIntValue();
     m_dpSettings.m_cornerStyle = m_dp_cornerCtrl->GetSelection() ? PNS::MEANDER_STYLE_ROUND
                                                                  : PNS::MEANDER_STYLE_CHAMFER;
-    // TODO: fix diff-pair meandering so we can use non-100% radii
-    m_dpSettings.m_cornerRadiusPercentage = 100;
+    m_dpSettings.m_cornerRadiusPercentage = m_dp_r.GetIntValue();
     m_dpSettings.m_singleSided = m_dp_singleSided->GetValue();
 
     m_skewSettings.m_minAmplitude = m_skew_minA.GetIntValue();
@@ -118,12 +117,12 @@ void PANEL_SETUP_TUNING_PATTERNS::ImportSettingsFrom( BOARD* aBoard )
     PNS::MEANDER_SETTINGS savedDPSettings = m_dpSettings;
     PNS::MEANDER_SETTINGS savedSkewSettings = m_skewSettings;
 
-    m_trackSettings = aBoard->GetDesignSettings().m_singleTrackMeanderSettings;
-    m_dpSettings = aBoard->GetDesignSettings().m_diffPairMeanderSettings;
-    m_skewSettings = aBoard->GetDesignSettings().m_skewMeanderSettings;
+    m_trackSettings = aBoard->GetDesignSettings().m_SingleTrackMeanderSettings;
+    m_dpSettings = aBoard->GetDesignSettings().m_DiffPairMeanderSettings;
+    m_skewSettings = aBoard->GetDesignSettings().m_SkewMeanderSettings;
     TransferDataToWindow();
 
-    m_trackSettings = savedTrackSettings;
-    m_dpSettings = savedDPSettings;
-    m_skewSettings = savedSkewSettings;
+    m_trackSettings = std::move( savedTrackSettings );
+    m_dpSettings = std::move( savedDPSettings );
+    m_skewSettings = std::move( savedSkewSettings );
 }

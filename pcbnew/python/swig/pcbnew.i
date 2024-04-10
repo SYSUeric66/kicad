@@ -76,6 +76,8 @@ class BASE_SET {};
 #include <exporters/gendrill_Excellon_writer.h>
 #include <exporters/gendrill_gerber_writer.h>
 #include <exporters/gerber_jobfile_writer.h>
+#include <pcb_io/pcb_io_mgr.h>
+#include <pcb_io/pcb_io.h>
 
 BOARD *GetBoard(); /* get current editor board */
 wxArrayString GetFootprintLibraries();
@@ -83,12 +85,8 @@ wxArrayString GetFootprints(const wxString& aNickName);
 %}
 
 
-// ignore RELEASER as nested classes are still unsupported by swig
-%ignore IO_MGR::RELEASER;
-%include <io_mgr.h>
-%{
-#include <io_mgr.h>
-%}
+%include <pcb_io/pcb_io_mgr.h>
+%include <pcb_io/pcb_io.h>
 
 
 /*
@@ -106,9 +104,9 @@ HANDLE_EXCEPTIONS(PLUGIN::FootprintEnumerate)
 HANDLE_EXCEPTIONS(PLUGIN::FootprintLoad)
 HANDLE_EXCEPTIONS(PLUGIN::FootprintSave)
 HANDLE_EXCEPTIONS(PLUGIN::FootprintDelete)
-%include <plugins/kicad/pcb_plugin.h>
+%include <pcb_io/kicad_sexpr/pcb_io_kicad_sexpr.h>
 %{
-#include <plugins/kicad/pcb_plugin.h>
+#include <pcb_io/kicad_sexpr/pcb_io_kicad_sexpr.h>
 %}
 
 

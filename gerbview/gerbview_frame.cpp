@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2018 Jean-Pierre Charras, jp.charras at wanadoo.fr
- * Copyright (C) 1992-2023 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2024 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software: you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -108,7 +108,11 @@ GERBVIEW_FRAME::GERBVIEW_FRAME( KIWAY* aKiway, wxWindow* aParent )
     wxIcon icon;
     wxIconBundle icon_bundle;
 
-    icon.CopyFromBitmap( KiBitmap( BITMAPS::icon_gerbview ) );
+    icon.CopyFromBitmap( KiBitmap( BITMAPS::icon_gerbview, 48 ) );
+    icon_bundle.AddIcon( icon );
+    icon.CopyFromBitmap( KiBitmap( BITMAPS::icon_gerbview, 128 ) );
+    icon_bundle.AddIcon( icon );
+    icon.CopyFromBitmap( KiBitmap( BITMAPS::icon_gerbview, 256 ) );
     icon_bundle.AddIcon( icon );
     icon.CopyFromBitmap( KiBitmap( BITMAPS::icon_gerbview_32 ) );
     icon_bundle.AddIcon( icon );
@@ -182,9 +186,9 @@ GERBVIEW_FRAME::GERBVIEW_FRAME( KIWAY* aKiway, wxWindow* aParent )
 
     // Drag and drop
     // Note that all gerber files are aliased as GerberFileExtension
-    m_acceptedExts.emplace( GerberFileExtension, &GERBVIEW_ACTIONS::loadGerbFiles );
-    m_acceptedExts.emplace( ArchiveFileExtension, &GERBVIEW_ACTIONS::loadZipFile );
-    m_acceptedExts.emplace( DrillFileExtension, &GERBVIEW_ACTIONS::loadGerbFiles );
+    m_acceptedExts.emplace( FILEEXT::GerberFileExtension, &GERBVIEW_ACTIONS::loadGerbFiles );
+    m_acceptedExts.emplace( FILEEXT::ArchiveFileExtension, &GERBVIEW_ACTIONS::loadZipFile );
+    m_acceptedExts.emplace( FILEEXT::DrillFileExtension, &GERBVIEW_ACTIONS::loadGerbFiles );
     DragAcceptFiles( true );
 
     GetToolManager()->RunAction( ACTIONS::zoomFitScreen );
@@ -194,7 +198,7 @@ GERBVIEW_FRAME::GERBVIEW_FRAME( KIWAY* aKiway, wxWindow* aParent )
 
     // Register a call to update the toolbar sizes. It can't be done immediately because
     // it seems to require some sizes calculated that aren't yet (at least on GTK).
-    CallAfter( [&]()
+    CallAfter( [this]()
                {
                    // Ensure the controls on the toolbars all are correctly sized
                     UpdateToolbarControlSizes();
@@ -269,9 +273,9 @@ bool GERBVIEW_FRAME::OpenProjectFiles( const std::vector<wxString>& aFileSet, in
         {
             wxString ext = wxFileName( aFileSet[i] ).GetExt().Lower();
 
-            if( ext == ArchiveFileExtension )
+            if( ext == FILEEXT::ArchiveFileExtension )
                 LoadZipArchiveFile( aFileSet[i] );
-            else if( ext == GerberJobFileExtension )
+            else if( ext == FILEEXT::GerberJobFileExtension )
                 LoadGerberJobFile( aFileSet[i] );
             else
             {
@@ -546,14 +550,23 @@ void GERBVIEW_FRAME::SortLayersByX2Attributes()
 
 void GERBVIEW_FRAME::RemapLayers( const std::unordered_map<int, int>& remapping )
 {
-    std::unordered_map<int, bool> oldVisibility;
-    LSET                          newVisibility;
+    // Save the visibility of each existing gerber layer, in order to be able
+    // to restore this visibility after layer reorder.
+    // Note: the visibility of other objects (D_CODE, negative objects ... )
+    // must be not modified
+    for( int currlayer = GERBER_DRAWLAYERS_COUNT-1; currlayer >= 0; --currlayer )
+    {
+        GERBER_FILE_IMAGE* gerber = GetImagesList()->GetGbrImage( currlayer );
 
-    for( const std::pair<const int, int>& entry : remapping )
-        oldVisibility[ entry.second ] = IsLayerVisible( entry.second );
+        if( gerber )
+        {
+            if( IsLayerVisible( currlayer ) )
+                gerber->SetFlags( CANDIDATE );
+            else
+                gerber->ClearFlags( CANDIDATE );
+        }
 
-    for( const std::pair<const int, int>& entry : remapping )
-        newVisibility.set( entry.first, oldVisibility[ entry.second ] );
+    }
 
     std::unordered_map<int, int> view_remapping;
 
@@ -565,9 +578,34 @@ void GERBVIEW_FRAME::RemapLayers( const std::unordered_map<int, int>& remapping 
 
     GetCanvas()->GetView()->ReorderLayerData( view_remapping );
 
+    // Restore visibility of gerber layers
+    LSET newVisibility = GetVisibleLayers();
+
+    for( int currlayer = GERBER_DRAWLAYERS_COUNT-1; currlayer >= 0; --currlayer )
+    {
+        GERBER_FILE_IMAGE* gerber = GetImagesList()->GetGbrImage( currlayer );
+
+        if( gerber )
+        {
+            if( gerber->HasFlag( CANDIDATE ) )
+                newVisibility.set( currlayer );
+            else
+                newVisibility.set( currlayer, false );
+
+            gerber->ClearFlags( CANDIDATE );
+        }
+    }
+
     SetVisibleLayers( newVisibility );
+
     ReFillLayerWidget();
     syncLayerBox( true );
+
+    // Reordering draw layers need updating the view items
+    GetCanvas()->GetView()->RecacheAllItems();
+    GetCanvas()->GetView()->MarkDirty();
+    GetCanvas()->GetView()->UpdateAllItems( KIGFX::ALL );
+
     GetCanvas()->Refresh();
 }
 

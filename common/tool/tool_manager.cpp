@@ -245,6 +245,9 @@ void TOOL_MANAGER::RegisterTool( TOOL_BASE* aTool )
     wxASSERT_MSG( m_toolTypes.find( typeid( *aTool ).name() ) == m_toolTypes.end(),
                   wxT( "Adding two tools of the same type may result in unexpected behavior.") );
 
+    wxLogTrace( kicadTraceToolStack, wxS( "TOOL_MANAGER::RegisterTool: Registering tool %s with ID %d" ),
+                aTool->GetName(), aTool->GetId() );
+
     m_toolOrder.push_back( aTool );
 
     TOOL_STATE* st = new TOOL_STATE( aTool );
@@ -299,7 +302,7 @@ bool TOOL_MANAGER::doRunAction( const std::string& aActionName, bool aNow, const
 
     doRunAction( *action, aNow, aParam, aCommit );
 
-    return false;
+    return true;
 }
 
 
@@ -359,7 +362,6 @@ bool TOOL_MANAGER::doRunAction( const TOOL_ACTION& aAction, bool aNow, const std
 
             while( synchronousControl == STS_RUNNING )
             {
-                wxMilliSleep( 50 );
                 wxYield();
             }
 
@@ -612,6 +614,10 @@ void TOOL_MANAGER::ResetTools( TOOL_BASE::RESET_REASON aReason )
     for( auto& state : m_toolState )
     {
         TOOL_BASE* tool = state.first;
+
+        wxLogTrace( kicadTraceToolStack, wxS( "TOOL_MANAGER::ResetTools: Resetting tool '%s'" ),
+                                             tool->GetName() );
+
         setActiveState( state.second );
         tool->Reset( aReason );
 
@@ -698,7 +704,7 @@ TOOL_EVENT* TOOL_MANAGER::ScheduleWait( TOOL_BASE* aTool, const TOOL_EVENT_LIST&
 {
     TOOL_STATE* st = m_toolState[aTool];
 
-    wxASSERT( !st->pendingWait ); // everything collapses on two KiYield() in a row
+    wxCHECK( !st->pendingWait, nullptr ); // everything collapses on two KiYield() in a row
 
     // indicate to the manager that we are going to sleep and we shall be
     // woken up when an event matching aConditions arrive
@@ -807,15 +813,12 @@ bool TOOL_MANAGER::dispatchInternal( TOOL_EVENT& aEvent )
                     // and transfer the previous view control settings to the new context
                     if( st->cofunc )
                     {
-                        auto vc = st->vcSettings;
+                        KIGFX::VC_SETTINGS viewControlSettings = st->vcSettings;
                         st->Push();
-                        st->vcSettings = vc;
+                        st->vcSettings = std::move( viewControlSettings );
                     }
 
                     st->cofunc = new COROUTINE<int, const TOOL_EVENT&>( std::move( func_copy ) );
-
-                    // as the state changes, the transition table has to be set up again
-                    st->transitions.clear();
 
                     wxLogTrace( kicadTraceToolStack,
                                 wxS( "TOOL_MANAGER::dispatchInternal - Running tool %s for event: %s" ),
@@ -938,8 +941,14 @@ void TOOL_MANAGER::DispatchContextMenu( const TOOL_EVENT& aEvent )
         if( wxWindow* frame = dynamic_cast<wxWindow*>( m_frame ) )
             frame->PopupMenu( menu.get() );
 
-        // If a menu is canceled then notify tool
-        if( menu->GetSelected() < 0 )
+        // Warp the cursor if a menu item was selected
+        if( menu->GetSelected() >= 0 )
+        {
+            if( m_viewControls && m_warpMouseAfterContextMenu )
+                m_viewControls->WarpMouseCursor( m_menuCursor, true, false );
+        }
+        // Otherwise notify the tool of a cancelled menu
+        else
         {
             TOOL_EVENT evt( TC_COMMAND, TA_CHOICE_MENU_CHOICE, -1 );
             evt.SetHasPosition( false );
@@ -994,12 +1003,6 @@ TOOL_MANAGER::ID_LIST::iterator TOOL_MANAGER::finishTool( TOOL_STATE* aState )
 
     if( aState == m_activeState )
         setActiveState( nullptr );
-
-    // Set transitions to be ready for future TOOL_EVENTs
-    TOOL_BASE* tool = aState->theTool;
-
-    if( tool->GetType() == INTERACTIVE )
-        static_cast<TOOL_INTERACTIVE*>( tool )->resetTransitions();
 
     return it;
 }

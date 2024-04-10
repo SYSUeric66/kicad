@@ -36,7 +36,7 @@ class SCH_TEXTBOX : public SCH_SHAPE, public EDA_TEXT
 {
 public:
     SCH_TEXTBOX( int aLineWidth = 0, FILL_T aFillType = FILL_T::NO_FILL,
-                 const wxString& aText = wxEmptyString );
+                 const wxString& aText = wxEmptyString, KICAD_T aType = SCH_TEXTBOX_T );
 
     SCH_TEXTBOX( const SCH_TEXTBOX& aText );
 
@@ -52,7 +52,17 @@ public:
         return wxT( "SCH_TEXTBOX" );
     }
 
-    int GetTextMargin() const;
+    int GetLegacyTextMargin() const;
+
+    void SetMarginLeft( int aLeft )     { m_marginLeft = aLeft; }
+    void SetMarginTop( int aTop )       { m_marginTop = aTop; }
+    void SetMarginRight( int aRight )   { m_marginRight = aRight; }
+    void SetMarginBottom( int aBottom ) { m_marginBottom = aBottom; }
+
+    int GetMarginLeft() const           { return m_marginLeft; }
+    int GetMarginTop() const            { return m_marginTop; }
+    int GetMarginRight() const          { return m_marginRight; }
+    int GetMarginBottom() const         { return m_marginBottom; }
 
     int GetSchTextSize() const { return GetTextWidth(); }
     void SetSchTextSize( int aSize ) { SetTextSize( VECTOR2I( aSize, aSize ) ); }
@@ -82,8 +92,6 @@ public:
     void SetExcludedFromSim( bool aExclude ) override { m_excludedFromSim = aExclude; }
     bool GetExcludedFromSim() const override { return m_excludedFromSim; }
 
-    void Print( const RENDER_SETTINGS* aSettings, const VECTOR2I& offset ) override;
-
     void SwapData( SCH_ITEM* aItem ) override;
 
     bool operator<( const SCH_ITEM& aItem ) const override;
@@ -96,7 +104,7 @@ public:
 
     void MirrorHorizontally( int aCenter ) override;
     void MirrorVertically( int aCenter ) override;
-    void Rotate( const VECTOR2I& aCenter ) override;
+    void Rotate( const VECTOR2I& aCenter, bool aRotateCCW ) override;
 
     virtual void Rotate90( bool aClockwise );
 
@@ -120,8 +128,11 @@ public:
 
     BITMAPS GetMenuImage() const override;
 
-    void Plot( PLOTTER* aPlotter, bool aBackground,
-               const SCH_PLOT_SETTINGS& aPlotSettings ) const override;
+    void Print( const SCH_RENDER_SETTINGS* aSettings, int aUnit, int aBodyStyle,
+                const VECTOR2I& offset, bool aForceNoFill, bool aDimmed ) override;
+
+    void Plot( PLOTTER* aPlotter, bool aBackground, const SCH_PLOT_OPTS& aPlotOpts,
+               int aUnit, int aBodyStyle, const VECTOR2I& aOffset, bool aDimmed ) override;
 
     EDA_ITEM* Clone() const override
     {
@@ -141,6 +152,10 @@ protected:
 
 protected:
     bool m_excludedFromSim;
+    int  m_marginLeft;
+    int  m_marginTop;
+    int  m_marginRight;
+    int  m_marginBottom;
 };
 
 

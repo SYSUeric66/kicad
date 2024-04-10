@@ -1,7 +1,7 @@
 /*
 * This program source code file is part of KiCad, a free EDA CAD application.
 *
-* Copyright (C) 2020-2023 KiCad Developers, see AUTHORS.txt for contributors.
+* Copyright (C) 2020-2024 KiCad Developers, see AUTHORS.txt for contributors.
 *
 * This program is free software; you can redistribute it and/or
 * modify it under the terms of the GNU General Public License
@@ -27,13 +27,14 @@
 #include <wx/aui/framemanager.h>
 
 #include <settings/app_settings.h>
-
+#include <sim/sim_preferences.h>
 
 using KIGFX::COLOR4D;
 
 
 extern const wxAuiPaneInfo& defaultNetNavigatorPaneInfo();
-extern const wxAuiPaneInfo& defaultPropertiesPaneInfo();
+extern const wxAuiPaneInfo& defaultPropertiesPaneInfo( wxWindow* aWindow );
+extern const wxAuiPaneInfo& defaultSchSelectionFilterPaneInfo( wxWindow* aWindow );
 
 
 
@@ -176,7 +177,6 @@ public:
         int  highlight_thickness;
         bool draw_selected_children;
         bool fill_shapes;
-        bool select_pin_selects_symbol;
     };
 
     struct PAGE_SETTINGS
@@ -250,6 +250,7 @@ public:
         double   hpgl_pen_size;
         int      hpgl_origin;
         bool     pdf_property_popups;
+        bool     pdf_metadata;
         bool     open_file_after_plot;
     };
 
@@ -278,13 +279,19 @@ public:
 
     struct SIMULATOR
     {
-        int plot_panel_width;
-        int plot_panel_height;
-        int signal_panel_height;
-        int cursors_panel_height;
-        int             measurements_panel_height;
-        bool white_background;
+        struct VIEW
+        {
+            int  plot_panel_width;
+            int  plot_panel_height;
+            int  signal_panel_height;
+            int  cursors_panel_height;
+            int  measurements_panel_height;
+            bool white_background;
+        };
+
+        VIEW            view;
         WINDOW_SETTINGS window;
+        SIM_PREFERENCES preferences;
     };
 
     struct FIND_REPLACE_EXTRA

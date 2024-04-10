@@ -1,7 +1,7 @@
 /*
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
- * Copyright (C) 2022 KiCad Developers.
+ * Copyright (C) 2022-2024 KiCad Developers.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -335,13 +335,13 @@ private:
         // a new fracture point, then we know that we are proceeding
         // in the wrong direction from the fracture and should
         // fall through to the next point
-        if( same_point( aPt, nz )
+        if( same_point( aPt, nz ) && same_point( aPt->next, nz->prev )
                 && aPt->y == aPt->next->y )
         {
             return nz->next;
         }
 
-        if( same_point( aPt, pz )
+        if( same_point( aPt, pz ) && same_point( aPt->next, pz->prev )
                 && aPt->y == aPt->next->y )
         {
             return pz->next;
@@ -399,14 +399,16 @@ private:
         const Vertex* p0 = aA;
         const Vertex* p = getNextOutlineVertex( p0 );
 
-        while( !same_point( p, aB ) && checked < total_pts && !( x_change && y_change ) )
+        while( !same_point( p, aB )             // We've reached the other inflection point
+                && !same_point( p, aA )         // We've gone around in a circle
+                && checked < total_pts          // Fail-safe for invalid lists
+                && !( x_change && y_change ) )  // We've found a substantial change in both directions
         {
             double diff_x = std::abs( p->x - p0->x );
             double diff_y = std::abs( p->y - p0->y );
 
-            // Floating point zeros can have a negative sign, so we need to
-            // ensure that only substantive diversions count for a direction
-            // change
+            // Check for a substantial change in the x or y direction
+            // This is measured by the set value of the minimum connection width
             if( diff_x > m_limit )
                 x_change = true;
 
@@ -420,7 +422,7 @@ private:
 
         wxCHECK_MSG( checked < total_pts, false, wxT( "Invalid polygon detected.  Missing points to check" ) );
 
-        if( !x_change || !y_change )
+        if( !same_point( p, aA ) && ( !x_change || !y_change ) )
             return false;
 
         p = getPrevOutlineVertex( p0 );
@@ -429,7 +431,10 @@ private:
         y_change = false;
         checked = 0;
 
-        while( !same_point( p, aB ) && checked < total_pts && !( x_change && y_change ) )
+        while( !same_point( p, aB )             // We've reached the other inflection point
+                && !same_point( p, aA )         // We've gone around in a circle
+                && checked < total_pts          // Fail-safe for invalid lists
+                && !( x_change && y_change ) )  // We've found a substantial change in both directions
         {
             double diff_x = std::abs( p->x - p0->x );
             double diff_y = std::abs( p->y - p0->y );
@@ -450,7 +455,7 @@ private:
 
         wxCHECK_MSG( checked < total_pts, false, wxT( "Invalid polygon detected.  Missing points to check" ) );
 
-        return ( x_change && y_change );
+        return ( same_point( p, aA ) || ( x_change && y_change ) );
     }
 
     /**
@@ -844,7 +849,7 @@ bool DRC_TEST_PROVIDER_CONNECTION_WIDTH::Run()
 
         while( status != std::future_status::ready )
         {
-            m_drcEngine->ReportProgress( static_cast<double>( done ) / total_effort );
+            reportProgress( done, total_effort );
             status = ret.wait_for( std::chrono::milliseconds( 250 ) );
         }
     }
@@ -864,7 +869,7 @@ bool DRC_TEST_PROVIDER_CONNECTION_WIDTH::Run()
 
         while( status != std::future_status::ready )
         {
-            m_drcEngine->ReportProgress( static_cast<double>( done ) / total_effort );
+            reportProgress( done, total_effort );
             status = ret.wait_for( std::chrono::milliseconds( 250 ) );
         }
     }

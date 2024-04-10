@@ -48,7 +48,8 @@ using KIGFX::RENDER_SETTINGS;
 class MARKER_BASE
 {
 public:
-    enum TYPEMARKER {
+    enum MARKER_T
+    {
         MARKER_UNSPEC,
         MARKER_ERC,
         MARKER_DRC,
@@ -59,7 +60,7 @@ public:
     };
 
     MARKER_BASE( int aScalingFactor, std::shared_ptr<RC_ITEM> aItem,
-                 TYPEMARKER aType = MARKER_UNSPEC );
+                 MARKER_T aType = MARKER_UNSPEC );
     virtual ~MARKER_BASE();
 
     /**
@@ -91,11 +92,17 @@ public:
     /**
      * Accessors to set/get marker type (DRC, ERC, or other)
      */
-    void SetMarkerType( enum TYPEMARKER aMarkerType ) { m_markerType = aMarkerType; }
-    enum TYPEMARKER GetMarkerType() const { return m_markerType; }
+    void SetMarkerType( enum MARKER_T aMarkerType ) { m_markerType = aMarkerType; }
+    enum MARKER_T GetMarkerType() const { return m_markerType; }
 
     bool IsExcluded() const { return m_excluded; }
-    void SetExcluded( bool aExcluded ) { m_excluded = aExcluded; }
+    void SetExcluded( bool aExcluded, const wxString& aComment = wxEmptyString )
+    {
+        m_excluded = aExcluded;
+        m_comment = aComment;
+    }
+
+    wxString GetComment() const { return m_comment; }
 
     virtual SEVERITY GetSeverity() const { return RPT_SEVERITY_UNDEFINED; }
 
@@ -125,18 +132,19 @@ protected:
     virtual KIGFX::COLOR4D getColor() const = 0;
 
 public:
-    VECTOR2I              m_Pos; ///< position of the marker
+    VECTOR2I            m_Pos;                 ///< position of the marker
 
 protected:
-    TYPEMARKER            m_markerType;          // The type of marker (useful to filter markers)
-    bool                  m_excluded;            // User has excluded this specific error
+    MARKER_T            m_markerType;          // The type of marker (useful to filter markers)
+    bool                m_excluded;            // User has excluded this specific error
+    wxString            m_comment;             // User-supplied comment (generally for exclusions)
     std::shared_ptr<RC_ITEM> m_rcItem;
 
-    int                   m_scalingFactor;       // Scaling factor to convert corners coordinates
-                                                 // to internal units coordinates
-    BOX2I                 m_shapeBoundingBox;    // Bounding box of the graphic symbol, relative
-                                                 // to the position of the shape, in marker shape
-                                                 // units
+    int                 m_scalingFactor;       // Scaling factor to convert corners coordinates
+                                               // to internal units coordinates
+    BOX2I               m_shapeBoundingBox;    // Bounding box of the graphic symbol, relative
+                                               // to the position of the shape, in marker shape
+                                               // units
 };
 
 

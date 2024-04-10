@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2019-2023 CERN
- * Copyright (C) 2019-2023 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2019-2024 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -22,9 +22,11 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA
  */
 
+#include "sch_sheet_path.h"
 #include <memory>
 
 #include <kiplatform/ui.h>
+#include <optional>
 #include <project_sch.h>
 #include <tools/sch_drawing_tools.h>
 #include <tools/sch_line_wire_bus_tool.h>
@@ -45,8 +47,11 @@
 #include <sch_bus_entry.h>
 #include <sch_text.h>
 #include <sch_textbox.h>
+#include <sch_table.h>
+#include <sch_tablecell.h>
 #include <sch_sheet.h>
 #include <sch_sheet_pin.h>
+#include <sch_label.h>
 #include <sch_bitmap.h>
 #include <schematic.h>
 #include <sch_commit.h>
@@ -56,7 +61,9 @@
 #include <dialogs/dialog_text_properties.h>
 #include <dialogs/dialog_wire_bus_properties.h>
 #include <dialogs/dialog_junction_props.h>
+#include <dialogs/dialog_table_properties.h>
 #include <import_gfx/dialog_import_gfx_sch.h>
+#include <sync_sheet_pin/sheet_synchronization_agent.h>
 #include <string_utils.h>
 #include <wildcards_and_files_ext.h>
 #include <wx/filedlg.h>
@@ -99,7 +106,7 @@ bool SCH_DRAWING_TOOLS::Init()
             };
 
     CONDITIONAL_MENU& ctxMenu = m_menu.GetMenu();
-    ctxMenu.AddItem( EE_ACTIONS::leaveSheet, belowRootSheetCondition, 2 );
+    ctxMenu.AddItem( EE_ACTIONS::leaveSheet, belowRootSheetCondition, 150 );
 
     return true;
 }
@@ -466,7 +473,8 @@ int SCH_DRAWING_TOOLS::PlaceSymbol( const TOOL_EVENT& aEvent )
                 }
             }
         }
-        else if( evt->IsAction( &ACTIONS::duplicate ) )
+        else if( evt->IsAction( &ACTIONS::duplicate )
+                 || evt->IsAction( &EE_ACTIONS::repeatDrawItem ) )
         {
             if( symbol )
             {
@@ -724,6 +732,21 @@ int SCH_DRAWING_TOOLS::PlaceImage( const TOOL_EVENT& aEvent )
 
             m_menu.ShowContextMenu( m_selectionTool->GetSelection() );
         }
+        else if( evt->IsAction( &ACTIONS::duplicate )
+                 || evt->IsAction( &EE_ACTIONS::repeatDrawItem ) )
+        {
+            if( image )
+            {
+                // This doesn't really make sense; we'll just end up dragging a stack of
+                // objects so we ignore the duplicate and just carry on.
+                wxBell();
+                continue;
+            }
+
+            // Exit.  The duplicate will run in its own loop.
+            m_frame->PopTool( aEvent );
+            break;
+        }
         else if( image && ( evt->IsAction( &ACTIONS::refreshPreview ) || evt->IsMotion() ) )
         {
             image->SetPosition( cursorPos );
@@ -758,7 +781,7 @@ int SCH_DRAWING_TOOLS::PlaceImage( const TOOL_EVENT& aEvent )
 }
 
 
-int SCH_DRAWING_TOOLS::SchImportGraphics( const TOOL_EVENT& aEvent )
+int SCH_DRAWING_TOOLS::ImportGraphics( const TOOL_EVENT& aEvent )
 {
     if( m_inDrawingTool )
         return 0;
@@ -1089,11 +1112,13 @@ int SCH_DRAWING_TOOLS::SingleClickPlace( const TOOL_EVENT& aEvent )
             {
                 SCH_BUS_ENTRY_BASE* busItem = static_cast<SCH_BUS_ENTRY_BASE*>( previewItem );
 
-                // The bus entries only rotate in one direction
-                if( evt->IsAction( &EE_ACTIONS::rotateCW )
-                        || evt->IsAction( &EE_ACTIONS::rotateCCW ) )
+                if( evt->IsAction( &EE_ACTIONS::rotateCW ) )
                 {
-                    busItem->Rotate( busItem->GetPosition() );
+                    busItem->Rotate( busItem->GetPosition(), false );
+                }
+                else if( evt->IsAction( &EE_ACTIONS::rotateCCW ) )
+                {
+                    busItem->Rotate( busItem->GetPosition(), true );
                 }
                 else if( evt->IsAction( &EE_ACTIONS::mirrorV ) )
                 {
@@ -1174,6 +1199,24 @@ SCH_LINE* SCH_DRAWING_TOOLS::findWire( const VECTOR2I& aPosition )
 }
 
 
+wxString SCH_DRAWING_TOOLS::findWireLabelDriverName( SCH_LINE* aWire )
+{
+    wxASSERT( aWire->IsWire() );
+
+    SCH_SHEET_PATH sheetPath = m_frame->GetCurrentSheet();
+
+    if( SCH_CONNECTION* wireConnection = aWire->Connection( &sheetPath ) )
+    {
+        SCH_ITEM* wireDriver = wireConnection->Driver();
+
+        if( wireDriver && wireDriver->IsType( { SCH_LABEL_T, SCH_GLOBAL_LABEL_T } ) )
+            return wireConnection->LocalName();
+    }
+
+    return wxEmptyString;
+}
+
+
 SCH_TEXT* SCH_DRAWING_TOOLS::createNewText( const VECTOR2I& aPosition, int aType )
 {
     SCHEMATIC*          schematic = getModel<SCHEMATIC>();
@@ -1193,7 +1236,7 @@ SCH_TEXT* SCH_DRAWING_TOOLS::createNewText( const VECTOR2I& aPosition, int aType
         textItem = labelItem;
 
         if( SCH_LINE* wire = findWire( aPosition ) )
-            netName = wire->GetNetname( m_frame->GetCurrentSheet() );
+            netName = findWireLabelDriverName( wire );
 
         break;
 
@@ -1221,7 +1264,7 @@ SCH_TEXT* SCH_DRAWING_TOOLS::createNewText( const VECTOR2I& aPosition, int aType
         textItem = labelItem;
 
         if( SCH_LINE* wire = findWire( aPosition ) )
-            netName = wire->GetNetname( m_frame->GetCurrentSheet() );
+            netName = findWireLabelDriverName( wire );
 
         break;
 
@@ -1232,8 +1275,11 @@ SCH_TEXT* SCH_DRAWING_TOOLS::createNewText( const VECTOR2I& aPosition, int aType
 
     textItem->SetParent( schematic );
 
+    textItem->SetTextSize( VECTOR2I( settings.m_DefaultTextSize, settings.m_DefaultTextSize ) );
+
     if( aType != LAYER_NETCLASS_REFS )
     {
+        // Must be after SetTextSize()
         textItem->SetBold( m_lastTextBold );
         textItem->SetItalic( m_lastTextItalic );
     }
@@ -1249,7 +1295,6 @@ SCH_TEXT* SCH_DRAWING_TOOLS::createNewText( const VECTOR2I& aPosition, int aType
         textItem->SetTextAngle( m_lastTextAngle );
     }
 
-    textItem->SetTextSize( VECTOR2I( settings.m_DefaultTextSize, settings.m_DefaultTextSize ) );
     textItem->SetFlags( IS_NEW | IS_MOVING );
 
     if( !labelItem )
@@ -1272,7 +1317,7 @@ SCH_TEXT* SCH_DRAWING_TOOLS::createNewText( const VECTOR2I& aPosition, int aType
     {
         DIALOG_LABEL_PROPERTIES dlg( m_frame, static_cast<SCH_LABEL_BASE*>( textItem ) );
 
-        // Must be quasi modal for syntax help
+        // QuasiModal required for syntax help and Scintilla auto-complete
         if( dlg.ShowQuasiModal() != wxID_OK )
         {
             delete labelItem;
@@ -1318,35 +1363,14 @@ SCH_TEXT* SCH_DRAWING_TOOLS::createNewText( const VECTOR2I& aPosition, int aType
     return textItem;
 }
 
-
-SCH_HIERLABEL* SCH_DRAWING_TOOLS::importHierLabel( SCH_SHEET* aSheet )
-{
-    if( !aSheet->GetScreen() )
-        return nullptr;
-
-    for( EDA_ITEM* item : aSheet->GetScreen()->Items().OfType( SCH_HIER_LABEL_T ) )
-    {
-        SCH_HIERLABEL* label = static_cast<SCH_HIERLABEL*>( item );
-
-        /* A global label has been found: check if there a corresponding sheet label. */
-        if( !aSheet->HasPin( label->GetText() ) )
-            return label;
-    }
-
-    return nullptr;
-}
-
-
-SCH_SHEET_PIN* SCH_DRAWING_TOOLS::createNewSheetPin( SCH_SHEET* aSheet, SCH_HIERLABEL* aLabel,
-                                                     const VECTOR2I& aPosition )
+SCH_SHEET_PIN* SCH_DRAWING_TOOLS::createNewSheetPin( SCH_SHEET* aSheet, const VECTOR2I& aPosition )
 {
     SCHEMATIC_SETTINGS& settings = aSheet->Schematic()->Settings();
     SCH_SHEET_PIN*      pin = new SCH_SHEET_PIN( aSheet );
 
     pin->SetFlags( IS_NEW | IS_MOVING );
-    pin->SetText( aLabel->GetText() );
+    pin->SetText( std::to_string( aSheet->GetPins().size() + 1 ) );
     pin->SetTextSize( VECTOR2I( settings.m_DefaultTextSize, settings.m_DefaultTextSize ) );
-    pin->SetShape( aLabel->GetShape() );
     pin->SetPosition( aPosition );
     pin->ClearSelected();
 
@@ -1376,7 +1400,7 @@ int SCH_DRAWING_TOOLS::TwoClickPlace( const TOOL_EVENT& aEvent )
     bool isHierLabel   = aEvent.IsAction( &EE_ACTIONS::placeHierLabel );
     bool isClassLabel  = aEvent.IsAction( &EE_ACTIONS::placeClassLabel );
     bool isNetLabel    = aEvent.IsAction( &EE_ACTIONS::placeLabel );
-    bool isSheetPin    = aEvent.IsAction( &EE_ACTIONS::importSheetPin );
+    bool isSheetPin    = aEvent.IsAction( &EE_ACTIONS::placeSheetPin );
 
     GRID_HELPER_GRIDS snapGrid = isText ? GRID_TEXT : GRID_CONNECTABLE;
 
@@ -1521,7 +1545,29 @@ int SCH_DRAWING_TOOLS::TwoClickPlace( const TOOL_EVENT& aEvent )
                 }
                 else if( isHierLabel )
                 {
-                    item = createNewText( cursorPos, LAYER_HIERLABEL );
+                    if( m_dialogSyncSheetPin && m_dialogSyncSheetPin->GetPlacementTemplate() )
+                    {
+                        auto pin = static_cast<SCH_HIERLABEL*>(
+                                m_dialogSyncSheetPin->GetPlacementTemplate() );
+                        SCH_HIERLABEL* label = new SCH_HIERLABEL( cursorPos );
+                        SCHEMATIC*     schematic = getModel<SCHEMATIC>();
+                        label->SetText( pin->GetText() );
+                        label->SetShape( pin->GetShape() );
+                        label->SetAutoRotateOnPlacement( m_lastAutoLabelRotateOnPlacement );
+                        label->SetParent( schematic );
+                        label->SetBold( m_lastTextBold );
+                        label->SetItalic( m_lastTextItalic );
+                        label->SetSpinStyle( m_lastTextOrientation );
+                        label->SetTextSize( VECTOR2I( schematic->Settings().m_DefaultTextSize,
+                                                      schematic->Settings().m_DefaultTextSize ) );
+                        label->SetFlags( IS_NEW | IS_MOVING );
+                        item = label;
+                    }
+                    else
+                    {
+                        item = createNewText( cursorPos, LAYER_HIERLABEL );
+                    }
+
                     description = _( "Add Hierarchical Label" );
                 }
                 else if( isNetLabel )
@@ -1558,22 +1604,16 @@ int SCH_DRAWING_TOOLS::TwoClickPlace( const TOOL_EVENT& aEvent )
                     }
                     else
                     {
-                        SCH_HIERLABEL* label = importHierLabel( sheet );
+                        item = createNewSheetPin( sheet, cursorPos );
 
-                        if( !label )
+                        if( m_dialogSyncSheetPin && m_dialogSyncSheetPin->GetPlacementTemplate() )
                         {
-                            m_statusPopup = std::make_unique<STATUS_TEXT_POPUP>( m_frame );
-                            m_statusPopup->SetText( _( "No new hierarchical labels found." ) );
-                            m_statusPopup->Move( KIPLATFORM::UI::GetMousePosition()
-                                                 + wxPoint( 20, 20 ) );
-                            m_statusPopup->PopupFor( 2000 );
-                            item = nullptr;
-
-                            m_frame->PopTool( aEvent );
-                            break;
+                            auto label = static_cast<SCH_HIERLABEL*>(
+                                    m_dialogSyncSheetPin->GetPlacementTemplate() );
+                            auto pin = static_cast<SCH_HIERLABEL*>( item );
+                            pin->SetText( label->GetText() );
+                            pin->SetShape( label->GetShape() );
                         }
-
-                        item = createNewSheetPin( sheet, label, cursorPos );
                     }
 
                     description = _( "Add Sheet Pin" );
@@ -1601,10 +1641,7 @@ int SCH_DRAWING_TOOLS::TwoClickPlace( const TOOL_EVENT& aEvent )
                     item->SetFlags( IS_NEW | IS_MOVING );
                     item->AutoplaceFields( nullptr, false /* aManual */ );
                     updatePreview();
-
-                    if( item->Type() != SCH_SHEET_PIN_T )
-                        m_selectionTool->AddItemToSel( item );
-
+                    m_selectionTool->AddItemToSel( item );
                     m_toolMgr->PostAction( ACTIONS::refreshPreview );
 
                     // update the cursor so it looks correct before another event
@@ -1639,27 +1676,25 @@ int SCH_DRAWING_TOOLS::TwoClickPlace( const TOOL_EVENT& aEvent )
 
                 commit.Push( description );
 
-                item = nullptr;
                 m_view->ClearPreview();
+
+                if( m_dialogSyncSheetPin && m_dialogSyncSheetPin->GetPlacementTemplate() )
+                {
+                    m_dialogSyncSheetPin->EndPlaceItem( item );
+                    m_dialogSyncSheetPin->Show( true );
+                    break;
+                }
+                else
+                {
+                    item = nullptr;
+                }
 
                 if( isSheetPin )
                 {
-                    SCH_HIERLABEL* label = importHierLabel( sheet );
-
-                    if( !label )
-                    {
-                        m_statusPopup = std::make_unique<STATUS_TEXT_POPUP>( m_frame );
-                        m_statusPopup->SetText( _( "No new hierarchical labels found." ) );
-                        m_statusPopup->Move( KIPLATFORM::UI::GetMousePosition()
-                                             + wxPoint( 20, 20 ) );
-                        m_statusPopup->PopupFor( 2000 );
-                        item = nullptr;
-
-                        m_frame->PopTool( aEvent );
-                        break;
-                    }
-
-                    item = createNewSheetPin( sheet, label, cursorPos );
+                    item = createNewSheetPin( sheet, cursorPos );
+                    item->SetPosition( cursorPos );
+                    m_selectionTool->ClearSelection();
+                    m_selectionTool->AddItemToSel( item );
                 }
             }
         }
@@ -1685,6 +1720,21 @@ int SCH_DRAWING_TOOLS::TwoClickPlace( const TOOL_EVENT& aEvent )
             {
                 item = nullptr;
             }
+        }
+        else if( evt->IsAction( &ACTIONS::duplicate )
+                 || evt->IsAction( &EE_ACTIONS::repeatDrawItem ) )
+        {
+            if( item )
+            {
+                // This doesn't really make sense; we'll just end up dragging a stack of
+                // objects so we ignore the duplicate and just carry on.
+                wxBell();
+                continue;
+            }
+
+            // Exit.  The duplicate will run in its own loop.
+            m_frame->PopTool( aEvent );
+            break;
         }
         else if( item && ( evt->IsAction( &ACTIONS::refreshPreview ) || evt->IsMotion() ) )
         {
@@ -1714,6 +1764,13 @@ int SCH_DRAWING_TOOLS::TwoClickPlace( const TOOL_EVENT& aEvent )
     controls->CaptureCursor( false );
     controls->ForceCursorPosition( false );
     m_frame->GetCanvas()->SetCurrentCursor( KICURSOR::ARROW );
+
+    if( m_dialogSyncSheetPin && m_dialogSyncSheetPin->GetPlacementTemplate() )
+    {
+        m_dialogSyncSheetPin->EndPlaceItem( nullptr );
+        m_dialogSyncSheetPin->Show( true );
+    }
+
     return 0;
 }
 
@@ -1831,10 +1888,13 @@ int SCH_DRAWING_TOOLS::DrawShape( const TOOL_EVENT& aEvent )
             {
                 SCH_TEXTBOX* textbox = new SCH_TEXTBOX( 0, m_lastTextboxFillStyle );
 
-                textbox->SetBold( m_lastTextBold );
-                textbox->SetItalic( m_lastTextItalic );
                 textbox->SetTextSize( VECTOR2I( sch_settings.m_DefaultTextSize,
                                                 sch_settings.m_DefaultTextSize ) );
+
+                // Must come after SetTextSize()
+                textbox->SetBold( m_lastTextBold );
+                textbox->SetItalic( m_lastTextItalic );
+
                 textbox->SetTextAngle( m_lastTextboxAngle );
                 textbox->SetHorizJustify( m_lastTextboxHJustify );
                 textbox->SetVertJustify( m_lastTextboxVJustify );
@@ -1864,10 +1924,10 @@ int SCH_DRAWING_TOOLS::DrawShape( const TOOL_EVENT& aEvent )
         else if( item && ( evt->IsClick( BUT_LEFT )
                         || evt->IsDblClick( BUT_LEFT )
                         || isSyntheticClick
-                        || evt->IsAction( &EE_ACTIONS::finishDrawing ) ) )
+                        || evt->IsAction( &ACTIONS::finishInteractive ) ) )
         {
             if( evt->IsDblClick( BUT_LEFT )
-                    || evt->IsAction( &EE_ACTIONS::finishDrawing )
+                    || evt->IsAction( &ACTIONS::finishInteractive )
                     || !item->ContinueEdit( cursorPos ) )
             {
                 item->EndEdit();
@@ -1916,6 +1976,21 @@ int SCH_DRAWING_TOOLS::DrawShape( const TOOL_EVENT& aEvent )
                 m_toolMgr->PostAction( ACTIONS::activatePointEditor );
             }
         }
+        else if( evt->IsAction( &ACTIONS::duplicate )
+                 || evt->IsAction( &EE_ACTIONS::repeatDrawItem ) )
+        {
+            if( item )
+            {
+                // This doesn't really make sense; we'll just end up dragging a stack of
+                // objects so we ignore the duplicate and just carry on.
+                wxBell();
+                continue;
+            }
+
+            // Exit.  The duplicate will run in its own loop.
+            m_frame->PopTool( aEvent );
+            break;
+        }
         else if( item && ( evt->IsAction( &ACTIONS::refreshPreview ) || evt->IsMotion() ) )
         {
             item->CalcEdit( cursorPos );
@@ -1947,6 +2022,246 @@ int SCH_DRAWING_TOOLS::DrawShape( const TOOL_EVENT& aEvent )
         // Enable autopanning and cursor capture only when there is a shape being drawn
         getViewControls()->SetAutoPan( item != nullptr );
         getViewControls()->CaptureCursor( item != nullptr );
+    }
+
+    getViewControls()->SetAutoPan( false );
+    getViewControls()->CaptureCursor( false );
+    m_frame->GetCanvas()->SetCurrentCursor( KICURSOR::ARROW );
+    return 0;
+}
+
+
+void SCH_DRAWING_TOOLS::initSharedInstancePageNumbers( const SCH_SHEET_PATH& aAddedSheet )
+{
+    SCH_SHEET_LIST fullHierarchy = m_frame->Schematic().GetFullHierarchy();
+    SCH_SHEET_LIST instances = fullHierarchy.FindAllSheetsForScreen( aAddedSheet.LastScreen() );
+
+    long pageNo;
+    long addedSheetPageNo;
+
+    if( aAddedSheet.GetPageNumber().ToLong( &addedSheetPageNo ) )
+        pageNo = addedSheetPageNo + 1;
+    else
+        pageNo = (signed)( fullHierarchy.size() - instances.size() + 1 );
+
+    for( SCH_SHEET_PATH& sheet : instances )
+    {
+        if( sheet == aAddedSheet )
+            continue;
+
+        sheet.SetPageNumber( wxString::Format( wxS( "%ld" ), pageNo++ ) );
+    }
+}
+
+
+int SCH_DRAWING_TOOLS::DrawTable( const TOOL_EVENT& aEvent )
+{
+    SCHEMATIC* schematic = getModel<SCHEMATIC>();
+    SCH_TABLE* table = nullptr;
+
+    if( m_inDrawingTool )
+        return 0;
+
+    REENTRANCY_GUARD guard( &m_inDrawingTool );
+
+    KIGFX::VIEW_CONTROLS* controls = getViewControls();
+    EE_GRID_HELPER        grid( m_toolMgr );
+    VECTOR2I              cursorPos;
+
+    // We might be running as the same shape in another co-routine.  Make sure that one
+    // gets whacked.
+    m_toolMgr->DeactivateTool();
+
+    m_toolMgr->RunAction( EE_ACTIONS::clearSelection );
+
+    m_frame->PushTool( aEvent );
+
+    auto setCursor =
+            [&]()
+            {
+                m_frame->GetCanvas()->SetCurrentCursor( KICURSOR::PENCIL );
+            };
+
+    auto cleanup =
+            [&] ()
+            {
+                m_toolMgr->RunAction( EE_ACTIONS::clearSelection );
+                m_view->ClearPreview();
+                delete table;
+                table = nullptr;
+            };
+
+    Activate();
+
+    // Must be done after Activate() so that it gets set into the correct context
+    getViewControls()->ShowCursor( true );
+
+    // Set initial cursor
+    setCursor();
+
+    if( aEvent.HasPosition() )
+        m_toolMgr->PrimeTool( aEvent.Position() );
+
+    // Main loop: keep receiving events
+    while( TOOL_EVENT* evt = Wait() )
+    {
+        setCursor();
+        grid.SetSnap( !evt->Modifier( MD_SHIFT ) );
+        grid.SetUseGrid( getView()->GetGAL()->GetGridSnapping() && !evt->DisableGridSnapping() );
+
+        cursorPos = grid.Align( controls->GetMousePosition(), GRID_HELPER_GRIDS::GRID_GRAPHICS );
+        controls->ForceCursorPosition( true, cursorPos );
+
+        // The tool hotkey is interpreted as a click when drawing
+        bool isSyntheticClick = table && evt->IsActivate() && evt->HasPosition()
+                                && evt->Matches( aEvent );
+
+        if( evt->IsCancelInteractive() || ( table && evt->IsAction( &ACTIONS::undo ) ) )
+        {
+            if( table )
+            {
+                cleanup();
+            }
+            else
+            {
+                m_frame->PopTool( aEvent );
+                break;
+            }
+        }
+        else if( evt->IsActivate() && !isSyntheticClick )
+        {
+            if( table && evt->IsMoveTool() )
+            {
+                // we're already drawing our own item; ignore the move tool
+                evt->SetPassEvent( false );
+                continue;
+            }
+
+            if( table )
+                cleanup();
+
+            if( evt->IsPointEditor() )
+            {
+                // don't exit (the point editor runs in the background)
+            }
+            else if( evt->IsMoveTool() )
+            {
+                // leave ourselves on the stack so we come back after the move
+                break;
+            }
+            else
+            {
+                m_frame->PopTool( aEvent );
+                break;
+            }
+        }
+        else if( evt->IsClick( BUT_LEFT ) && !table )
+        {
+            m_toolMgr->RunAction( EE_ACTIONS::clearSelection );
+
+            table = new SCH_TABLE( 0 );
+            table->SetColCount( 1 );
+            table->AddCell( new SCH_TABLECELL() );
+
+            table->SetParent( schematic );
+            table->SetFlags( IS_NEW );
+            table->SetPosition( cursorPos );
+
+            m_view->ClearPreview();
+            m_view->AddToPreview( table->Clone() );
+        }
+        else if( table && (   evt->IsClick( BUT_LEFT )
+                           || evt->IsDblClick( BUT_LEFT )
+                           || isSyntheticClick
+                           || evt->IsAction( &EE_ACTIONS::finishInteractive ) ) )
+        {
+            table->ClearEditFlags();
+            table->SetFlags( IS_NEW );
+            table->Normalize();
+
+            DIALOG_TABLE_PROPERTIES dlg( m_frame, table );
+
+            // QuasiModal required for Scintilla auto-complete
+            if( dlg.ShowQuasiModal() == wxID_OK )
+            {
+                SCH_COMMIT commit( m_toolMgr );
+                commit.Add( table, m_frame->GetScreen() );
+                commit.Push( _( "Draw Table" ) );
+
+                m_selectionTool->AddItemToSel( table );
+                m_toolMgr->PostAction( ACTIONS::activatePointEditor );
+            }
+            else
+            {
+                delete table;
+            }
+
+            table = nullptr;
+            m_view->ClearPreview();
+        }
+        else if( table && ( evt->IsAction( &ACTIONS::refreshPreview ) || evt->IsMotion() ) )
+        {
+            VECTOR2I gridSize = grid.GetGridSize( grid.GetItemGrid( table ) );
+            int      fontSize = schematic->Settings().m_DefaultTextSize;
+            VECTOR2I origin( table->GetPosition() );
+            VECTOR2I requestedSize( cursorPos - origin );
+
+            int colCount = std::max( 1, requestedSize.x / ( fontSize * 15 ) );
+            int rowCount = std::max( 1, requestedSize.y / ( fontSize * 2  ) );
+
+            VECTOR2I cellSize( std::max( gridSize.x * 5, requestedSize.x / colCount ),
+                               std::max( gridSize.y * 2, requestedSize.y / rowCount ) );
+
+            cellSize.x = KiROUND( (double) cellSize.x / gridSize.x ) * gridSize.x;
+            cellSize.y = KiROUND( (double) cellSize.y / gridSize.y ) * gridSize.y;
+
+            table->ClearCells();
+            table->SetColCount( colCount );
+
+            for( int col = 0; col < colCount; ++col )
+                table->SetColWidth( col, cellSize.x );
+
+            for( int row = 0; row < rowCount; ++row )
+            {
+                table->SetRowHeight( row, cellSize.y );
+
+                for( int col = 0; col < colCount; ++col )
+                {
+                    SCH_TABLECELL* cell = new SCH_TABLECELL();
+                    cell->SetPosition( origin + VECTOR2I( col * cellSize.x, row * cellSize.y ) );
+                    cell->SetEnd( cell->GetPosition() + cellSize );
+                    table->AddCell( cell );
+                }
+            }
+
+            m_view->ClearPreview();
+            m_view->AddToPreview( table->Clone() );
+            m_frame->SetMsgPanel( table );
+        }
+        else if( evt->IsDblClick( BUT_LEFT ) && !table )
+        {
+            m_toolMgr->RunAction( EE_ACTIONS::properties );
+        }
+        else if( evt->IsClick( BUT_RIGHT ) )
+        {
+            // Warp after context menu only if dragging...
+            if( !table )
+                m_toolMgr->VetoContextMenuMouseWarp();
+
+            m_menu.ShowContextMenu( m_selectionTool->GetSelection() );
+        }
+        else if( table && evt->IsAction( &ACTIONS::redo ) )
+        {
+            wxBell();
+        }
+        else
+        {
+            evt->SetPassEvent();
+        }
+
+        // Enable autopanning and cursor capture only when there is a shape being drawn
+        getViewControls()->SetAutoPan( table != nullptr );
+        getViewControls()->CaptureCursor( table != nullptr );
     }
 
     getViewControls()->SetAutoPan( false );
@@ -2088,7 +2403,7 @@ int SCH_DRAWING_TOOLS::DrawSheet( const TOOL_EVENT& aEvent )
             sheet->SetBorderColor( cfg->m_Drawing.default_sheet_border_color );
             sheet->SetBackgroundColor( cfg->m_Drawing.default_sheet_background_color );
             sheet->GetFields()[ SHEETNAME ].SetText( "Untitled Sheet" );
-            sheet->GetFields()[ SHEETFILENAME ].SetText( "untitled." + KiCadSchematicFileExtension );
+            sheet->GetFields()[ SHEETFILENAME ].SetText( "untitled." + FILEEXT::KiCadSchematicFileExtension );
             sizeSheet( sheet, cursorPos );
 
             m_view->ClearPreview();
@@ -2097,7 +2412,7 @@ int SCH_DRAWING_TOOLS::DrawSheet( const TOOL_EVENT& aEvent )
         else if( sheet && ( evt->IsClick( BUT_LEFT )
                          || evt->IsDblClick( BUT_LEFT )
                          || isSyntheticClick
-                         || evt->IsAction( &EE_ACTIONS::finishSheet ) ) )
+                         || evt->IsAction( &ACTIONS::finishInteractive ) ) )
         {
             getViewControls()->SetAutoPan( false );
             getViewControls()->CaptureCursor( false );
@@ -2113,6 +2428,10 @@ int SCH_DRAWING_TOOLS::DrawSheet( const TOOL_EVENT& aEvent )
                 commit.Add( sheet, m_frame->GetScreen() );
                 commit.Push( "Draw Sheet" );
 
+                SCH_SHEET_PATH newPath = m_frame->GetCurrentSheet();
+                newPath.push_back( sheet );
+                initSharedInstancePageNumbers( newPath );
+
                 m_frame->UpdateHierarchyNavigator();
                 m_selectionTool->AddItemToSel( sheet );
             }
@@ -2123,6 +2442,21 @@ int SCH_DRAWING_TOOLS::DrawSheet( const TOOL_EVENT& aEvent )
             }
 
             sheet = nullptr;
+        }
+        else if( evt->IsAction( &ACTIONS::duplicate )
+                 || evt->IsAction( &EE_ACTIONS::repeatDrawItem ) )
+        {
+            if( sheet )
+            {
+                // This doesn't really make sense; we'll just end up dragging a stack of
+                // objects so we ignore the duplicate and just carry on.
+                wxBell();
+                continue;
+            }
+
+            // Exit.  The duplicate will run in its own loop.
+            m_frame->PopTool( aEvent );
+            break;
         }
         else if( sheet && ( evt->IsAction( &ACTIONS::refreshPreview ) || evt->IsMotion() ) )
         {
@@ -2174,6 +2508,142 @@ void SCH_DRAWING_TOOLS::sizeSheet( SCH_SHEET* aSheet, const VECTOR2I& aPos )
 }
 
 
+int SCH_DRAWING_TOOLS::doSyncSheetsPins( std::list<SCH_SHEET_PATH> sheetPaths )
+{
+    if( !sheetPaths.size() )
+        return 0;
+
+    m_dialogSyncSheetPin = std::make_unique<DIALOG_SYNC_SHEET_PINS>(
+            m_frame, std::move( sheetPaths ),
+            std::make_shared<SHEET_SYNCHRONIZATION_AGENT>(
+                    [&]( EDA_ITEM* aItem, SCH_SHEET_PATH aPath,
+                         SHEET_SYNCHRONIZATION_AGENT::MODIFICATION const& aModify )
+                    {
+                        SCH_COMMIT commit( m_toolMgr );
+
+                        if( auto pin = dynamic_cast<SCH_SHEET_PIN*>( aItem ) )
+                        {
+                            commit.Modify( pin->GetParent(), aPath.LastScreen() );
+                            aModify();
+                            commit.Push( _( "Modify sheet pin" ) );
+                        }
+                        else
+                        {
+                            commit.Modify( aItem, aPath.LastScreen() );
+                            aModify();
+                            commit.Push( _( "Modify schematic item" ) );
+                        }
+
+                        updateItem( aItem, true );
+                        m_frame->OnModify();
+                    },
+                    [&]( EDA_ITEM* aItem, SCH_SHEET_PATH aPath )
+                    {
+                        m_frame->GetToolManager()->RunAction<SCH_SHEET_PATH*>(
+                                EE_ACTIONS::changeSheet, &aPath );
+                        EE_SELECTION_TOOL* selectionTool = m_toolMgr->GetTool<EE_SELECTION_TOOL>();
+                        selectionTool->UnbrightenItem( aItem );
+                        selectionTool->AddItemToSel( aItem, true );
+                        m_toolMgr->RunAction( ACTIONS::doDelete );
+                    },
+                    [&]( SCH_SHEET* aItem, SCH_SHEET_PATH aPath,
+                         SHEET_SYNCHRONIZATION_AGENT::SHEET_SYNCHRONIZATION_PLACEMENT aOp,
+                         EDA_ITEM*                                                    aTemplate )
+                    {
+                        switch( aOp )
+                        {
+                        case SHEET_SYNCHRONIZATION_AGENT::PLACE_HIERLABEL:
+                        {
+                            SCH_SHEET* sheet = static_cast<SCH_SHEET*>( aItem );
+                            m_dialogSyncSheetPin->Hide();
+                            m_dialogSyncSheetPin->BeginPlaceItem(
+                                    sheet, DIALOG_SYNC_SHEET_PINS::PlaceItemKind::HIERLABEL,
+                                    aTemplate );
+                            m_frame->GetToolManager()->RunAction<SCH_SHEET_PATH*>(
+                                    EE_ACTIONS::changeSheet, &aPath );
+                            m_toolMgr->RunAction( EE_ACTIONS::placeHierLabel );
+                            break;
+                        }
+                        case SHEET_SYNCHRONIZATION_AGENT::PLACE_SHEET_PIN:
+                        {
+                            SCH_SHEET* sheet = static_cast<SCH_SHEET*>( aItem );
+                            m_dialogSyncSheetPin->Hide();
+                            m_dialogSyncSheetPin->BeginPlaceItem(
+                                    sheet, DIALOG_SYNC_SHEET_PINS::PlaceItemKind::SHEET_PIN,
+                                    aTemplate );
+                            m_frame->GetToolManager()->RunAction<SCH_SHEET_PATH*>(
+                                    EE_ACTIONS::changeSheet, &aPath );
+                            m_toolMgr->GetTool<EE_SELECTION_TOOL>()->SyncSelection( {}, nullptr,
+                                                                                    { sheet } );
+                            m_toolMgr->RunAction( EE_ACTIONS::placeSheetPin );
+                            break;
+                        }
+                        }
+                    },
+                    m_toolMgr, m_frame ) );
+    m_dialogSyncSheetPin->Show( true );
+    return 0;
+}
+
+
+int SCH_DRAWING_TOOLS::SyncSheetsPins( const TOOL_EVENT& aEvent )
+{
+    SCH_SHEET* sheet = dynamic_cast<SCH_SHEET*>( m_selectionTool->GetSelection().Front() );
+
+    if( !sheet )
+    {
+        VECTOR2I cursorPos =  getViewControls()->GetMousePosition();
+
+        if( EDA_ITEM* i = nullptr; static_cast<void>(m_selectionTool->SelectPoint( cursorPos, { SCH_SHEET_T }, &i ) ) , i != nullptr )
+        {
+            sheet = dynamic_cast<SCH_SHEET*>( i );
+        }
+    }
+
+    if ( sheet )
+    {
+        SCH_SHEET_PATH current = m_frame->GetCurrentSheet();
+        current.push_back( sheet );
+        return doSyncSheetsPins( { current } );
+    }
+
+    return 0;
+}
+
+
+int SCH_DRAWING_TOOLS::SyncAllSheetsPins( const TOOL_EVENT& aEvent )
+{
+    static const std::function<void( std::list<SCH_SHEET_PATH>&, SCH_SCREEN*,
+                                     std::set<SCH_SCREEN*>&, SCH_SHEET_PATH const& )>
+            getSheetChildren = []( std::list<SCH_SHEET_PATH>& aPaths, SCH_SCREEN* aScene,
+                                   std::set<SCH_SCREEN*>& aVisited, SCH_SHEET_PATH const& aCurPath )
+    {
+        if( ! aScene || aVisited.find(aScene) != aVisited.end() )
+            return ;
+
+        std::vector<SCH_ITEM*> sheetChildren;
+        aScene->GetSheets( &sheetChildren );
+        aVisited.insert( aScene );
+
+        for( SCH_ITEM* child : sheetChildren )
+        {
+            SCH_SHEET_PATH cp = aCurPath;
+            SCH_SHEET* sheet = static_cast<SCH_SHEET*>( child );
+            cp.push_back( sheet );
+            aPaths.push_back( cp );
+            getSheetChildren( aPaths, sheet->GetScreen(), aVisited, cp );
+        }
+    };
+
+    std::list<SCH_SHEET_PATH> sheetPaths;
+    std::set<SCH_SCREEN*> visited;
+    SCH_SHEET_PATH current;
+    current.push_back( &m_frame->Schematic().Root() );
+    getSheetChildren( sheetPaths, m_frame->Schematic().Root().GetScreen(), visited, current );
+    return doSyncSheetsPins( std::move( sheetPaths ) );
+}
+
+
 void SCH_DRAWING_TOOLS::setTransitions()
 {
     Go( &SCH_DRAWING_TOOLS::PlaceSymbol,         EE_ACTIONS::placeSymbol.MakeEvent() );
@@ -2186,12 +2656,15 @@ void SCH_DRAWING_TOOLS::setTransitions()
     Go( &SCH_DRAWING_TOOLS::TwoClickPlace,       EE_ACTIONS::placeHierLabel.MakeEvent() );
     Go( &SCH_DRAWING_TOOLS::TwoClickPlace,       EE_ACTIONS::placeGlobalLabel.MakeEvent() );
     Go( &SCH_DRAWING_TOOLS::DrawSheet,           EE_ACTIONS::drawSheet.MakeEvent() );
-    Go( &SCH_DRAWING_TOOLS::TwoClickPlace,       EE_ACTIONS::importSheetPin.MakeEvent() );
+    Go( &SCH_DRAWING_TOOLS::TwoClickPlace,       EE_ACTIONS::placeSheetPin.MakeEvent() );
     Go( &SCH_DRAWING_TOOLS::TwoClickPlace,       EE_ACTIONS::placeSchematicText.MakeEvent() );
     Go( &SCH_DRAWING_TOOLS::DrawShape,           EE_ACTIONS::drawRectangle.MakeEvent() );
     Go( &SCH_DRAWING_TOOLS::DrawShape,           EE_ACTIONS::drawCircle.MakeEvent() );
     Go( &SCH_DRAWING_TOOLS::DrawShape,           EE_ACTIONS::drawArc.MakeEvent() );
     Go( &SCH_DRAWING_TOOLS::DrawShape,           EE_ACTIONS::drawTextBox.MakeEvent() );
+    Go( &SCH_DRAWING_TOOLS::DrawTable,           EE_ACTIONS::drawTable.MakeEvent() );
     Go( &SCH_DRAWING_TOOLS::PlaceImage,          EE_ACTIONS::placeImage.MakeEvent() );
-    Go( &SCH_DRAWING_TOOLS::SchImportGraphics,   EE_ACTIONS::schImportGraphics.MakeEvent() );
+    Go( &SCH_DRAWING_TOOLS::ImportGraphics,      EE_ACTIONS::importGraphics.MakeEvent() );
+    Go( &SCH_DRAWING_TOOLS::SyncSheetsPins,      EE_ACTIONS::syncSheetPins.MakeEvent() );
+    Go( &SCH_DRAWING_TOOLS::SyncAllSheetsPins,   EE_ACTIONS::syncAllSheetsPins.MakeEvent() );
 }

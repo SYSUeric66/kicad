@@ -28,6 +28,87 @@
 
 namespace PNS {
 
+const long long int MEANDER_SETTINGS::DEFAULT_TOLERANCE( pcbIUScale.mmToIU( 0.1 ) );
+const long long int MEANDER_SETTINGS::LENGTH_UNCONSTRAINED( 1000000 * pcbIUScale.IU_PER_MM );
+
+
+MEANDER_SETTINGS::MEANDER_SETTINGS()
+{
+    m_minAmplitude = 200000;
+    m_maxAmplitude = 1000000;
+    m_step = 50000;
+    m_lenPadToDie = 0;
+    m_spacing = 600000;
+    SetTargetLength( LENGTH_UNCONSTRAINED );
+    SetTargetSkew( 0 );
+    m_overrideCustomRules = false;
+    m_cornerStyle = MEANDER_STYLE_ROUND;
+    m_cornerRadiusPercentage = 80;
+    m_singleSided = false;
+    m_initialSide = MEANDER_SIDE_LEFT;
+    m_lengthTolerance = 0;
+    m_keepEndpoints = false;
+}
+
+
+void MEANDER_SETTINGS::SetTargetLength( long long int aOpt )
+{
+    m_targetLength.SetOpt( aOpt );
+
+    if( aOpt == std::numeric_limits<long long int>::max() )
+    {
+        m_targetLength.SetMin( 0 );
+        m_targetLength.SetMax( aOpt );
+    }
+    else
+    {
+        m_targetLength.SetMin( aOpt - DEFAULT_TOLERANCE );
+        m_targetLength.SetMax( aOpt + DEFAULT_TOLERANCE );
+    }
+}
+
+
+void MEANDER_SETTINGS::SetTargetLength( const MINOPTMAX<int>& aConstraint )
+{
+    SetTargetLength( aConstraint.Opt() );
+
+    if( aConstraint.HasMin() )
+        m_targetLength.SetMin( aConstraint.Min() );
+
+    if( aConstraint.HasMax() )
+        m_targetLength.SetMax( aConstraint.Max() );
+}
+
+
+void MEANDER_SETTINGS::SetTargetSkew( int aOpt )
+{
+    m_targetSkew.SetOpt( aOpt );
+
+    if( aOpt == std::numeric_limits<int>::max() )
+    {
+        m_targetSkew.SetMin( 0 );
+        m_targetSkew.SetMax( aOpt );
+    }
+    else
+    {
+        m_targetSkew.SetMin( aOpt - DEFAULT_TOLERANCE );
+        m_targetSkew.SetMax( aOpt + DEFAULT_TOLERANCE );
+    }
+}
+
+
+void MEANDER_SETTINGS::SetTargetSkew( const MINOPTMAX<int>& aConstraint )
+{
+    SetTargetSkew( aConstraint.Opt() );
+
+    if( aConstraint.HasMin() )
+        m_targetSkew.SetMin( aConstraint.Min() );
+
+    if( aConstraint.HasMax() )
+        m_targetSkew.SetMax( aConstraint.Max() );
+}
+
+
 const MEANDER_SETTINGS& MEANDER_SHAPE::Settings() const
 {
     return m_placer->MeanderSettings();
@@ -203,12 +284,15 @@ int MEANDER_SHAPE::MinAmplitude() const
 {
     int minAmplitude = Settings().m_minAmplitude;
 
-    // DP meanders don't really support smaller amplitudes
-    minAmplitude = std::max( minAmplitude, std::abs( m_baselineOffset ) * 2 );
-
-    // The path length won't be correct with very small arcs
     if( m_placer->MeanderSettings().m_cornerStyle == MEANDER_STYLE_ROUND )
-        minAmplitude = std::max( minAmplitude, m_width + std::abs( m_baselineOffset ) * 2 );
+    {
+        minAmplitude = std::max( minAmplitude, std::abs( m_baselineOffset ) + m_width );
+    }
+    else
+    {
+        int correction = m_width * tan( 1 - tan( DEG2RAD( 22.5 ) ) );
+        minAmplitude = std::max( minAmplitude, std::abs( m_baselineOffset ) + correction );
+    }
 
     return minAmplitude;
 }
@@ -216,15 +300,28 @@ int MEANDER_SHAPE::MinAmplitude() const
 
 int MEANDER_SHAPE::cornerRadius() const
 {
+    if( m_amplitude == 0 )
+        return 0;
+
+    int minCr = 0;
+
+    if( m_placer->MeanderSettings().m_cornerStyle == MEANDER_STYLE_ROUND )
+        minCr = std::abs( m_baselineOffset ) + m_width / 2;
+    else
+        minCr = std::abs( m_baselineOffset ) + m_width / 2 * ( 1 - tan( DEG2RAD( 22.5 ) ) );
+
+    int maxCr1 = ( m_amplitude + std::abs( m_baselineOffset ) ) / 2;
+    int maxCr2 = spacing() / 2;
+    int maxCr = std::min( maxCr1, maxCr2 );
+
+    wxCHECK2_MSG( maxCr >= minCr, return maxCr,
+                  wxString::Format( "cornerRadius %d < %d amp %d spc %d w %d off %d", maxCr, minCr,
+                                    m_amplitude, spacing(), m_width, m_baselineOffset ) );
+
     int rPercent = Settings().m_cornerRadiusPercentage;
     int optCr = static_cast<int>( static_cast<SEG::ecoord>( spacing() ) * rPercent / 200 );
-    int minCr = std::abs( m_baselineOffset );
-    int maxCr = std::min( m_amplitude / 2, spacing() / 2 );
 
-    if( maxCr > minCr )
-        return std::clamp( optCr, minCr, maxCr );
-    else
-        return maxCr;
+    return std::clamp( optCr, minCr, maxCr );
 }
 
 
@@ -254,7 +351,9 @@ SHAPE_LINE_CHAIN MEANDER_SHAPE::makeMiterShape( const VECTOR2D& aP, const VECTOR
     }
 
     VECTOR2D dir_u( aDir );
-    VECTOR2D dir_v( aDir.Perpendicular( ) );
+    VECTOR2D dir_v( aDir.Perpendicular() );
+
+    VECTOR2D endPoint = aP + dir_u + dir_v * ( aSide ? -1.0 : 1.0 );
     VECTOR2D p = aP;
     lc.Append( ( int ) p.x, ( int ) p.y );
 
@@ -263,9 +362,11 @@ SHAPE_LINE_CHAIN MEANDER_SHAPE::makeMiterShape( const VECTOR2D& aP, const VECTOR
     {
     case MEANDER_STYLE_ROUND:
     {
-        VECTOR2D center = aP + dir_v * ( aSide ? -1.0 : 1.0 );
+        VECTOR2I arcEnd( (int) endPoint.x, (int) endPoint.y );
 
-        lc.Append( SHAPE_ARC( center, aP, ( aSide ? -ANGLE_90 : ANGLE_90 ) ) );
+        SHAPE_ARC arc;
+        arc.ConstructFromStartEndAngle( aP, arcEnd, ( aSide ? -ANGLE_90 : ANGLE_90 ) );
+        lc.Append( arc );
         break;
     }
 
@@ -275,7 +376,7 @@ SHAPE_LINE_CHAIN MEANDER_SHAPE::makeMiterShape( const VECTOR2D& aP, const VECTOR
         double correction = 0;
 
         if( m_dual && radius > m_meanCornerRadius )
-            correction = (double)( -2 * abs(m_baselineOffset) ) * tan( 22.5 * M_PI / 180.0 );
+            correction = (double) ( -2 * abs( m_baselineOffset ) ) * tan( DEG2RAD( 22.5 ) );
 
         VECTOR2D dir_cu = dir_u.Resize( correction );
         VECTOR2D dir_cv = dir_v.Resize( correction );
@@ -284,15 +385,15 @@ SHAPE_LINE_CHAIN MEANDER_SHAPE::makeMiterShape( const VECTOR2D& aP, const VECTOR
         lc.Append( ( int ) p.x, ( int ) p.y );
         p = aP + dir_u + (dir_v + dir_cv) * ( aSide ? -1.0 : 1.0 );
         lc.Append( ( int ) p.x, ( int ) p.y );
+
+        p = endPoint;
+        lc.Append( (int) p.x, (int) p.y );
         break;
     }
 
     default:
         break;
     }
-
-    p = aP + dir_u + dir_v * ( aSide ? -1.0 : 1.0 );
-    lc.Append( ( int ) p.x, ( int ) p.y );
 
     return lc;
 }
@@ -369,8 +470,8 @@ SHAPE_LINE_CHAIN MEANDER_SHAPE::genMeanderShape( const VECTOR2D& aP, const VECTO
     VECTOR2D dir_u_b( aDir.Resize( offset ) );
     VECTOR2D dir_v_b( dir_u_b.Perpendicular() );
 
-    if( 2 * cr > amplitude )
-        cr = amplitude / 2;
+    if( 2 * cr > amplitude + std::abs( offset ) )
+        cr = ( amplitude + std::abs( offset ) ) / 2;
 
     if( 2 * cr > spc )
         cr = spc / 2;

@@ -44,25 +44,36 @@ using namespace std::placeholders;
 
 BOARD_COMMIT::BOARD_COMMIT( TOOL_BASE* aTool ) :
         m_toolMgr( aTool->GetManager() ),
-        m_isBoardEditor( false )
+        m_isBoardEditor( false ),
+        m_isFootprintEditor( false )
 {
     if( PCB_TOOL_BASE* pcb_tool = dynamic_cast<PCB_TOOL_BASE*>( aTool ) )
+    {
         m_isBoardEditor = pcb_tool->IsBoardEditor();
+        m_isFootprintEditor = pcb_tool->IsFootprintEditor();
+    }
 }
 
 
 BOARD_COMMIT::BOARD_COMMIT( EDA_DRAW_FRAME* aFrame ) :
         m_toolMgr( aFrame->GetToolManager() ),
-        m_isBoardEditor( aFrame->IsType( FRAME_PCB_EDITOR ) )
+        m_isBoardEditor( aFrame->IsType( FRAME_PCB_EDITOR ) ),
+        m_isFootprintEditor( aFrame->IsType( FRAME_FOOTPRINT_EDITOR ) )
 {
 }
 
 
 BOARD_COMMIT::BOARD_COMMIT( TOOL_MANAGER* aMgr ) :
-    m_toolMgr( aMgr ),
-    m_isBoardEditor( false )
+        m_toolMgr( aMgr ),
+        m_isBoardEditor( false ),
+        m_isFootprintEditor( false )
 {
+    EDA_DRAW_FRAME* frame = dynamic_cast<EDA_DRAW_FRAME*>( aMgr->GetToolHolder() );
 
+    if( frame && frame->IsType( FRAME_PCB_EDITOR ) )
+        m_isBoardEditor = true;
+    else if( frame && frame->IsType( FRAME_FOOTPRINT_EDITOR ) )
+        m_isFootprintEditor = true;
 }
 
 
@@ -78,13 +89,16 @@ COMMIT& BOARD_COMMIT::Stage( EDA_ITEM* aItem, CHANGE_TYPE aChangeType, BASE_SCRE
 
     // Many operations (move, rotate, etc.) are applied directly to a group's children, so they
     // must be staged as well.
-    if( PCB_GROUP* group = dynamic_cast<PCB_GROUP*>( aItem ) )
+    if( aChangeType == CHT_MODIFY )
     {
-        group->RunOnChildren(
-                [&]( BOARD_ITEM* child )
-                {
-                    Stage( child, aChangeType );
-                } );
+        if( PCB_GROUP* group = dynamic_cast<PCB_GROUP*>( aItem ) )
+        {
+            group->RunOnChildren(
+                    [&]( BOARD_ITEM* child )
+                    {
+                        Stage( child, aChangeType );
+                    } );
+        }
     }
 
     return COMMIT::Stage( aItem, aChangeType );
@@ -159,6 +173,7 @@ void BOARD_COMMIT::Push( const wxString& aMessage, int aCommitFlags )
     bool                     autofillZones = false;
     std::vector<BOARD_ITEM*> staleTeardropPadsAndVias;
     std::set<PCB_TRACK*>     staleTeardropTracks;
+    PCB_GROUP*               addedGroup = nullptr;
 
     if( Empty() )
         return;
@@ -258,7 +273,14 @@ void BOARD_COMMIT::Push( const wxString& aMessage, int aCommitFlags )
 
             if( !( changeFlags & CHT_DONE ) )
             {
-                if( FOOTPRINT* parentFP = boardItem->GetParentFootprint() )
+                if( m_isFootprintEditor )
+                {
+                    FOOTPRINT* parentFP = board->GetFirstFootprint();
+                    wxCHECK2_MSG( parentFP, continue, "Commit thinks this is footprint editor, but "
+                                                      "there is no first footprint!" );
+                    parentFP->Add( boardItem );
+                }
+                else if( FOOTPRINT* parentFP = boardItem->GetParentFootprint() )
                 {
                     parentFP->Add( boardItem );
                 }
@@ -269,7 +291,10 @@ void BOARD_COMMIT::Push( const wxString& aMessage, int aCommitFlags )
                 }
             }
 
-            if( autofillZones && boardItem->Type() != PCB_MARKER_T )
+            if( boardItem->Type() == PCB_GROUP_T )
+                addedGroup = static_cast<PCB_GROUP*>( boardItem );
+
+            if( m_isBoardEditor && autofillZones && boardItem->Type() != PCB_MARKER_T )
                 dirtyIntersectingZones( boardItem, changeType );
 
             if( view && boardItem->Type() != PCB_NETINFO_T )
@@ -299,7 +324,7 @@ void BOARD_COMMIT::Push( const wxString& aMessage, int aCommitFlags )
             if( parentFP && !( parentFP->GetFlags() & STRUCT_DELETED ) )
                 ent.m_parent = parentFP->m_Uuid;
 
-            if( autofillZones )
+            if( m_isBoardEditor && autofillZones && boardItem->Type() != PCB_MARKER_T )
                 dirtyIntersectingZones( boardItem, changeType );
 
             switch( boardItem->Type() )
@@ -313,7 +338,8 @@ void BOARD_COMMIT::Push( const wxString& aMessage, int aCommitFlags )
             case PCB_SHAPE_T:            // a shape (normally not on copper layers)
             case PCB_REFERENCE_IMAGE_T:  // a bitmap on an associated layer
             case PCB_GENERATOR_T:        // a generator on a layer
-            case PCB_TEXTBOX_T:          // a wrapped text on a layer
+            case PCB_TEXTBOX_T:          // a line-wrapped (and optionally bordered) text item
+            case PCB_TABLE_T:            // rows and columns of tablecells
             case PCB_TRACE_T:            // a track segment (segment on a copper layer)
             case PCB_ARC_T:              // an arced track segment (segment on a copper layer)
             case PCB_VIA_T:              // a via (like track segment on a copper layer)
@@ -374,8 +400,37 @@ void BOARD_COMMIT::Push( const wxString& aMessage, int aCommitFlags )
                 break;
             }
 
+            // The item has been removed from the board; it is now owned by undo/redo.
+            boardItem->SetFlags( UR_TRANSIENT );
+
             break;
         }
+
+        case CHT_UNGROUP:
+            if( PCB_GROUP* group = boardItem->GetParentGroup() )
+            {
+                if( !( aCommitFlags & SKIP_UNDO ) )
+                {
+                    ITEM_PICKER itemWrapper( nullptr, boardItem, UNDO_REDO::UNGROUP );
+                    itemWrapper.SetGroupId( group->m_Uuid );
+                    undoList.PushItem( itemWrapper );
+                }
+
+                group->RemoveItem( boardItem );
+            }
+
+            break;
+
+        case CHT_GROUP:
+            if( addedGroup )
+            {
+                addedGroup->AddItem( boardItem );
+
+                if( !( aCommitFlags & SKIP_UNDO ) )
+                    undoList.PushItem( ITEM_PICKER( nullptr, boardItem, UNDO_REDO::REGROUP ) );
+            }
+
+            break;
 
         case CHT_MODIFY:
         {
@@ -397,7 +452,7 @@ void BOARD_COMMIT::Push( const wxString& aMessage, int aCommitFlags )
                 connectivity->Update( boardItem );
             }
 
-            if( m_isBoardEditor && autofillZones )
+            if( m_isBoardEditor && autofillZones && boardItem->Type() != PCB_MARKER_T )
             {
                 dirtyIntersectingZones( boardItemCopy, changeType );   // before
                 dirtyIntersectingZones( boardItem, changeType );       // after
@@ -421,16 +476,15 @@ void BOARD_COMMIT::Push( const wxString& aMessage, int aCommitFlags )
         }
 
         boardItem->ClearEditFlags();
+        boardItem->RunOnDescendants(
+                [&]( BOARD_ITEM* item )
+                {
+                    item->ClearEditFlags();
+                } );
     }
 
-    if( bulkAddedItems.size() > 0 )
-        board->FinalizeBulkAdd( bulkAddedItems );
-
-    if( bulkRemovedItems.size() > 0 )
-        board->FinalizeBulkRemove( bulkRemovedItems );
-
-    if( itemsChanged.size() > 0 )
-        board->OnItemsChanged( itemsChanged );
+    if( bulkAddedItems.size() > 0 || bulkRemovedItems.size() > 0 || itemsChanged.size() > 0 )
+        board->OnItemsCompositeUpdate( bulkAddedItems, bulkRemovedItems, itemsChanged );
 
     if( m_isBoardEditor )
     {
@@ -530,22 +584,24 @@ void BOARD_COMMIT::Push( const wxString& aMessage, int aCommitFlags )
 
 EDA_ITEM* BOARD_COMMIT::parentObject( EDA_ITEM* aItem ) const
 {
-    if( BOARD_ITEM* boardItem = dynamic_cast<BOARD_ITEM*>( aItem ) )
-    {
-        if( FOOTPRINT* parentFP = boardItem->GetParentFootprint() )
-            return parentFP;
-    }
-
     return aItem;
 }
 
 
 EDA_ITEM* BOARD_COMMIT::makeImage( EDA_ITEM* aItem ) const
 {
+    return MakeImage( aItem );
+}
+
+
+EDA_ITEM* BOARD_COMMIT::MakeImage( EDA_ITEM* aItem )
+{
     EDA_ITEM* clone = aItem->Clone();
 
     if( BOARD_ITEM* board_item = dynamic_cast<BOARD_ITEM*>( clone ) )
         board_item->SetParentGroup( nullptr );
+
+    clone->SetFlags( UR_TRANSIENT );
 
     return clone;
 }
@@ -576,6 +632,14 @@ void BOARD_COMMIT::Revert()
         switch( changeType )
         {
         case CHT_ADD:
+            // Items are auto-added to the parent group by BOARD_ITEM::Duplicate(), not when
+            // the commit is pushed.
+            if( PCB_GROUP* parentGroup = boardItem->GetParentGroup() )
+            {
+                if( GetStatus( parentGroup ) == 0 )
+                    parentGroup->RemoveItem( boardItem );
+            }
+
             if( !( changeFlags & CHT_DONE ) )
                 break;
 
@@ -633,7 +697,6 @@ void BOARD_COMMIT::Revert()
 
             view->Add( boardItem );
             connectivity->Add( boardItem );
-            board->OnItemChanged( boardItem );
             itemsChanged.push_back( boardItem );
 
             delete ent.m_copy;
@@ -648,14 +711,8 @@ void BOARD_COMMIT::Revert()
         boardItem->ClearEditFlags();
     }
 
-    if( bulkAddedItems.size() > 0 )
-        board->FinalizeBulkAdd( bulkAddedItems );
-
-    if( bulkRemovedItems.size() > 0 )
-        board->FinalizeBulkRemove( bulkRemovedItems );
-
-    if( itemsChanged.size() > 0 )
-        board->OnItemsChanged( itemsChanged );
+    if( bulkAddedItems.size() > 0 || bulkRemovedItems.size() > 0 || itemsChanged.size() > 0 )
+        board->OnItemsCompositeUpdate( bulkAddedItems, bulkRemovedItems, itemsChanged );
 
     if( m_isBoardEditor )
     {

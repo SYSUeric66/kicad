@@ -3,7 +3,7 @@
  *
  * Copyright (C) 2004 Jean-Pierre Charras, jp.charras at wanadoo.fr
  * Copyright (C) 2008 Wayne Stambaugh <stambaughw@gmail.com>
- * Copyright (C) 2004-2022 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2004-2024 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -80,6 +80,13 @@ HIERARCHY_PANE::HIERARCHY_PANE( SCH_EDIT_FRAME* aParent ) :
     SetSizer( sizer );
     m_tree = new HIERARCHY_TREE( this );
 
+#ifdef __WXMAC__
+    // HiDPI-aware API; will be generally available in wxWidgets 3.4
+    wxVector<wxBitmapBundle> images;
+    images.push_back( KiBitmapBundle( BITMAPS::tree_nosel ) );
+    images.push_back( KiBitmapBundle( BITMAPS::tree_sel ) );
+    m_tree->SetImages( images );
+#else
     // Make an image list containing small icons
     // All icons are expected having the same size.
     wxBitmap tree_nosel_bm( KiBitmap( BITMAPS::tree_nosel ) );
@@ -90,8 +97,9 @@ HIERARCHY_PANE::HIERARCHY_PANE( SCH_EDIT_FRAME* aParent ) :
     imageList->Add( KiBitmap( BITMAPS::tree_sel ) );
 
     m_tree->AssignImageList( imageList );
+#endif
 
-    sizer->Add( m_tree, 1, wxEXPAND, wxBORDER_NONE, 0 );
+    sizer->Add( m_tree, 1, wxEXPAND, wxBORDER_NONE );
 
     m_events_bound = false;
 
@@ -100,7 +108,9 @@ HIERARCHY_PANE::HIERARCHY_PANE( SCH_EDIT_FRAME* aParent ) :
     // Enable selection events
     Bind( wxEVT_TREE_ITEM_ACTIVATED, &HIERARCHY_PANE::onSelectSheetPath, this );
     Bind( wxEVT_TREE_SEL_CHANGED, &HIERARCHY_PANE::onSelectSheetPath, this );
-    Bind( wxEVT_TREE_ITEM_RIGHT_CLICK, &HIERARCHY_PANE::onRightClick, this );
+    Bind( wxEVT_TREE_ITEM_RIGHT_CLICK, &HIERARCHY_PANE::onTreeItemRightClick, this );
+    Bind( wxEVT_CHAR_HOOK, &HIERARCHY_PANE::onCharHook, this );
+    m_tree->Bind( wxEVT_RIGHT_UP, &HIERARCHY_PANE::onRightClick, this );
 
     m_events_bound = true;
 }
@@ -110,7 +120,9 @@ HIERARCHY_PANE::~HIERARCHY_PANE()
 {
     Unbind( wxEVT_TREE_ITEM_ACTIVATED, &HIERARCHY_PANE::onSelectSheetPath, this );
     Unbind( wxEVT_TREE_SEL_CHANGED, &HIERARCHY_PANE::onSelectSheetPath, this );
-    Unbind( wxEVT_TREE_ITEM_RIGHT_CLICK, &HIERARCHY_PANE::onRightClick, this );
+    Unbind( wxEVT_TREE_ITEM_RIGHT_CLICK, &HIERARCHY_PANE::onTreeItemRightClick, this );
+    Unbind( wxEVT_CHAR_HOOK, &HIERARCHY_PANE::onCharHook, this );
+    m_tree->Unbind( wxEVT_RIGHT_UP, &HIERARCHY_PANE::onRightClick, this );
 }
 
 
@@ -146,12 +158,10 @@ void HIERARCHY_PANE::UpdateHierarchySelection()
         // Disable selection events
         Unbind( wxEVT_TREE_ITEM_ACTIVATED, &HIERARCHY_PANE::onSelectSheetPath, this );
         Unbind( wxEVT_TREE_SEL_CHANGED, &HIERARCHY_PANE::onSelectSheetPath, this );
-        Unbind( wxEVT_TREE_ITEM_RIGHT_CLICK, &HIERARCHY_PANE::onRightClick, this );
+        Unbind( wxEVT_TREE_ITEM_RIGHT_CLICK, &HIERARCHY_PANE::onTreeItemRightClick, this );
 
         m_events_bound = false;
     }
-
-    bool sheetSelected = false;
 
     std::function<void( const wxTreeItemId& )> recursiveDescent =
             [&]( const wxTreeItemId& id )
@@ -162,19 +172,20 @@ void HIERARCHY_PANE::UpdateHierarchySelection()
 
                 if( itemData->m_SheetPath == m_frame->GetCurrentSheet() )
                 {
-                    m_tree->EnsureVisible( id );
+                    wxTreeItemId parent = m_tree->GetItemParent( id );
+
+                    if( parent.IsOk() && !m_tree->IsExpanded( parent ) )
+                        m_tree->Expand( parent );
+
+                    if( !m_tree->IsVisible( id ) )
+                        m_tree->EnsureVisible( id );
+
                     m_tree->SetItemBold( id, true );
+                    m_tree->SetFocusedItem( id );
                 }
                 else
                 {
                     m_tree->SetItemBold( id, false );
-                }
-
-                if( itemData->m_SheetPath.Last()->IsSelected() )
-                {
-                    m_tree->EnsureVisible( id );
-                    m_tree->SelectItem( id );
-                    sheetSelected = true;
                 }
 
                 wxTreeItemIdValue cookie;
@@ -189,15 +200,12 @@ void HIERARCHY_PANE::UpdateHierarchySelection()
 
     recursiveDescent( m_tree->GetRootItem() );
 
-    if( !sheetSelected && m_tree->GetSelection() )
-        m_tree->SelectItem( m_tree->GetSelection(), false );
-
     if( eventsWereBound )
     {
         // Enable selection events
         Bind( wxEVT_TREE_ITEM_ACTIVATED, &HIERARCHY_PANE::onSelectSheetPath, this );
         Bind( wxEVT_TREE_SEL_CHANGED, &HIERARCHY_PANE::onSelectSheetPath, this );
-        Bind( wxEVT_TREE_ITEM_RIGHT_CLICK, &HIERARCHY_PANE::onRightClick, this );
+        Bind( wxEVT_TREE_ITEM_RIGHT_CLICK, &HIERARCHY_PANE::onTreeItemRightClick, this );
 
         m_events_bound = true;
     }
@@ -215,10 +223,35 @@ void HIERARCHY_PANE::UpdateHierarchyTree()
         // Disable selection events
         Unbind( wxEVT_TREE_ITEM_ACTIVATED, &HIERARCHY_PANE::onSelectSheetPath, this );
         Unbind( wxEVT_TREE_SEL_CHANGED, &HIERARCHY_PANE::onSelectSheetPath, this );
-        Unbind( wxEVT_TREE_ITEM_RIGHT_CLICK, &HIERARCHY_PANE::onRightClick, this );
+        Unbind( wxEVT_TREE_ITEM_RIGHT_CLICK, &HIERARCHY_PANE::onTreeItemRightClick, this );
 
         m_events_bound = false;
     }
+
+    std::set<SCH_SHEET_PATH> expandedNodes;
+
+    std::function<void( const wxTreeItemId& )> getExpandedNodes =
+            [&]( const wxTreeItemId& id )
+            {
+                wxCHECK_RET( id.IsOk(), wxT( "Invalid tree item" ) );
+
+                TREE_ITEM_DATA* itemData = static_cast<TREE_ITEM_DATA*>( m_tree->GetItemData( id ) );
+
+                if( m_tree->IsExpanded( id ) )
+                    expandedNodes.emplace( itemData->m_SheetPath );
+
+                wxTreeItemIdValue cookie;
+                wxTreeItemId      child = m_tree->GetFirstChild( id, cookie );
+
+                while( child.IsOk() )
+                {
+                    getExpandedNodes( child );
+                    child = m_tree->GetNextChild( id, cookie );
+                }
+            };
+
+    if( !m_tree->IsEmpty() )
+        getExpandedNodes( m_tree->GetRootItem() );
 
     m_list.clear();
     m_list.push_back( &m_frame->Schematic().Root() );
@@ -231,14 +264,42 @@ void HIERARCHY_PANE::UpdateHierarchyTree()
     buildHierarchyTree( &m_list, root );
     UpdateHierarchySelection();
 
-    m_tree->ExpandAll();
+    if( !expandedNodes.empty() )
+    {
+        std::function<void( const wxTreeItemId& )> expandNodes =
+                [&]( const wxTreeItemId& id )
+                {
+                    wxCHECK_RET( id.IsOk(), wxT( "Invalid tree item" ) );
+
+                    TREE_ITEM_DATA* itemData =
+                            static_cast<TREE_ITEM_DATA*>( m_tree->GetItemData( id ) );
+
+                    if( expandedNodes.find( itemData->m_SheetPath ) != expandedNodes.end() )
+                        m_tree->Expand( id );
+
+                    wxTreeItemIdValue cookie;
+                    wxTreeItemId      child = m_tree->GetFirstChild( id, cookie );
+
+                    while( child.IsOk() )
+                    {
+                        expandNodes( child );
+                        child = m_tree->GetNextChild( id, cookie );
+                    }
+                };
+
+        expandNodes( m_tree->GetRootItem() );
+    }
+    else if( m_tree->ItemHasChildren( root ) )
+    {
+        m_tree->Expand( root );
+    }
 
     if( eventsWereBound )
     {
         // Enable selection events
         Bind( wxEVT_TREE_ITEM_ACTIVATED, &HIERARCHY_PANE::onSelectSheetPath, this );
         Bind( wxEVT_TREE_SEL_CHANGED, &HIERARCHY_PANE::onSelectSheetPath, this );
-        Bind( wxEVT_TREE_ITEM_RIGHT_CLICK, &HIERARCHY_PANE::onRightClick, this );
+        Bind( wxEVT_TREE_ITEM_RIGHT_CLICK, &HIERARCHY_PANE::onTreeItemRightClick, this );
 
         m_events_bound = true;
     }
@@ -250,18 +311,6 @@ void HIERARCHY_PANE::UpdateHierarchyTree()
 void HIERARCHY_PANE::onSelectSheetPath( wxTreeEvent& aEvent )
 {
     wxTreeItemId  itemSel = m_tree->GetSelection();
-    TREE_ITEM_DATA* itemData = static_cast<TREE_ITEM_DATA*>( m_tree->GetItemData( itemSel ) );
-
-    SetCursor( wxCURSOR_ARROWWAIT );
-    m_frame->GetToolManager()->RunAction<SCH_SHEET_PATH*>( EE_ACTIONS::changeSheet,
-                                                           &itemData->m_SheetPath );
-    SetCursor( wxCURSOR_ARROW );
-}
-
-
-void HIERARCHY_PANE::onRightClick( wxTreeEvent& aEvent )
-{
-    wxTreeItemId  itemSel = m_tree->GetFocusedItem();
 
     if( !itemSel.IsOk() )
         return;
@@ -271,11 +320,89 @@ void HIERARCHY_PANE::onRightClick( wxTreeEvent& aEvent )
     if( !itemData )
         return;
 
-    wxMenu ctxMenu;
+    SetCursor( wxCURSOR_ARROWWAIT );
+    m_frame->GetToolManager()->RunAction<SCH_SHEET_PATH*>( EE_ACTIONS::changeSheet,
+                                                           &itemData->m_SheetPath );
+    SetCursor( wxCURSOR_ARROW );
+}
 
-    ctxMenu.Append( 1, _( "Edit Page Number" ) );
 
-    if( GetPopupMenuSelectionFromUser( ctxMenu ) == 1 )
+void HIERARCHY_PANE::UpdateLabelsHierarchyTree()
+{
+    // Update the labels of the hierarchical tree of the schematic.
+    // Must be called only for an up to date tree, to update displayed labels after
+    // a sheet name or a sheet number change.
+
+    std::function<void( const wxTreeItemId& )> updateLabel =
+            [&]( const wxTreeItemId& id )
+            {
+                TREE_ITEM_DATA* itemData = static_cast<TREE_ITEM_DATA*>( m_tree->GetItemData( id ) );
+                SCH_SHEET* sheet = itemData->m_SheetPath.Last();
+                wxString sheetNameLabel =
+                        formatPageString( sheet->GetFields()[SHEETNAME].GetShownText( false ),
+                                          itemData->m_SheetPath.GetPageNumber() );
+
+                if( m_tree->GetItemText( id ) != sheetNameLabel )
+                    m_tree->SetItemText( id, sheetNameLabel );
+            };
+
+    wxTreeItemId rootId  = m_tree->GetRootItem();
+    updateLabel( rootId );
+
+    std::function<void( const wxTreeItemId& )> recursiveDescent =
+            [&]( const wxTreeItemId& id )
+            {
+                wxCHECK_RET( id.IsOk(), wxT( "Invalid tree item" ) );
+                wxTreeItemIdValue cookie;
+                wxTreeItemId      child = m_tree->GetFirstChild( id, cookie );
+
+                while( child.IsOk() )
+                {
+                    updateLabel( child );
+                    recursiveDescent( child );
+                    child = m_tree->GetNextChild( id, cookie );
+                }
+            };
+
+    recursiveDescent( rootId );
+}
+
+
+void HIERARCHY_PANE::onTreeItemRightClick( wxTreeEvent& aEvent )
+{
+    onRightClick( aEvent.GetItem() );
+}
+
+
+void HIERARCHY_PANE::onRightClick( wxMouseEvent& aEvent )
+{
+    onRightClick( wxTreeItemId() );
+}
+
+
+void HIERARCHY_PANE::onRightClick( wxTreeItemId aItem )
+{
+    wxMenu          ctxMenu;
+    TREE_ITEM_DATA* itemData = nullptr;
+
+    if( !aItem.IsOk() )
+        aItem = m_tree->GetSelection();
+
+    if( aItem.IsOk() )
+        itemData = static_cast<TREE_ITEM_DATA*>( m_tree->GetItemData( aItem ) );
+
+    if( itemData )
+    {
+        ctxMenu.Append( 1, _( "Edit Page Number" ) );
+        ctxMenu.AppendSeparator();
+    }
+
+    ctxMenu.Append( 2, ACTIONS::expandAll.GetMenuItem() );
+    ctxMenu.Append( 3, ACTIONS::collapseAll.GetMenuItem() );
+
+    switch( GetPopupMenuSelectionFromUser( ctxMenu ) )
+    {
+    case 1:
     {
         wxString msg;
         wxString sheetPath = itemData->m_SheetPath.PathHumanReadable( false, true );
@@ -306,7 +433,47 @@ void HIERARCHY_PANE::onRightClick( wxTreeEvent& aEvent )
             }
 
             m_frame->OnModify();
+
+            UpdateLabelsHierarchyTree();
         }
+
+        break;
+    }
+    case 2:
+        m_tree->ExpandAll();
+        break;
+
+    case 3:
+        m_tree->CollapseAll();
+        break;
+    }
+}
+
+
+void HIERARCHY_PANE::onCharHook( wxKeyEvent& aKeyStroke )
+{
+    int hotkey = aKeyStroke.GetKeyCode();
+
+    if( aKeyStroke.GetModifiers() & wxMOD_CONTROL )
+        hotkey += MD_CTRL;
+
+    if( aKeyStroke.GetModifiers() & wxMOD_ALT )
+        hotkey += MD_ALT;
+
+    if( aKeyStroke.GetModifiers() & wxMOD_SHIFT )
+        hotkey += MD_SHIFT;
+
+    if( hotkey == ACTIONS::expandAll.GetHotKey()
+        || hotkey == ACTIONS::expandAll.GetHotKeyAlt() )
+    {
+        m_tree->ExpandAll();
+        return;
+    }
+    else if( hotkey == ACTIONS::collapseAll.GetHotKey()
+             || hotkey == ACTIONS::collapseAll.GetHotKeyAlt() )
+    {
+        m_tree->CollapseAll();
+        return;
     }
 }
 

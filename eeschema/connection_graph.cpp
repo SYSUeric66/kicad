@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2018 CERN
- * Copyright (C) 2021-2023 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2021-2024 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * @author Jon Evans <jon@craftyjon.com>
  *
@@ -107,8 +107,8 @@ bool CONNECTION_SUBGRAPH::ResolveDrivers( bool aCheckMultipleDrivers )
                 SCH_PIN* pa = static_cast<SCH_PIN*>( a );
                 SCH_PIN* pb = static_cast<SCH_PIN*>( b );
 
-                bool aPower = pa->GetLibPin()->GetParent()->IsPower();
-                bool bPower = pb->GetLibPin()->GetParent()->IsPower();
+                bool aPower = pa->GetLibPin()->GetParentSymbol()->IsPower();
+                bool bPower = pb->GetLibPin()->GetParentSymbol()->IsPower();
 
                 if( aPower && !bPower )
                     return true;
@@ -146,9 +146,13 @@ bool CONNECTION_SUBGRAPH::ResolveDrivers( bool aCheckMultipleDrivers )
     {
         PRIORITY item_priority = GetDriverPriority( item );
 
-        if( item_priority == PRIORITY::PIN
-                && !static_cast<SCH_PIN*>( item )->GetParentSymbol()->IsInNetlist() )
-            continue;
+        if( item_priority == PRIORITY::PIN )
+        {
+            SCH_PIN* pin = static_cast<SCH_PIN*>( item );
+
+            if( !static_cast<SCH_SYMBOL*>( pin->GetParentSymbol() )->IsInNetlist() )
+                continue;
+        }
 
         if( item_priority >= PRIORITY::HIER_LABEL )
             strong_drivers.insert( item );
@@ -224,7 +228,8 @@ bool CONNECTION_SUBGRAPH::ResolveDrivers( bool aCheckMultipleDrivers )
 }
 
 
-void CONNECTION_SUBGRAPH::getAllConnectedItems( std::set<std::pair<SCH_SHEET_PATH, SCH_ITEM*>>& aItems,
+void CONNECTION_SUBGRAPH::getAllConnectedItems( std::set<std::pair<SCH_SHEET_PATH,
+                                                SCH_ITEM*>>& aItems,
                                                 std::set<CONNECTION_SUBGRAPH*>& aSubgraphs )
 {
     CONNECTION_SUBGRAPH* sg = this;
@@ -499,7 +504,7 @@ CONNECTION_SUBGRAPH::PRIORITY CONNECTION_SUBGRAPH::GetDriverPriority( SCH_ITEM* 
     case SCH_PIN_T:
     {
         SCH_PIN* sch_pin = static_cast<SCH_PIN*>( aDriver );
-        SCH_SYMBOL* sym = sch_pin->GetParentSymbol();
+        const SCH_SYMBOL* sym = static_cast<SCH_SYMBOL*>( sch_pin->GetParentSymbol() );
 
         if( sch_pin->IsGlobalPower() )
             return PRIORITY::POWER_PIN;
@@ -642,7 +647,7 @@ void CONNECTION_GRAPH::Recalculate( const SCH_SHEET_LIST& aSheetList, bool aUnco
                 if( symbol->GetUnit() != new_unit )
                     symbolsChanged.push_back( { symbol, symbol->GetUnit() } );
 
-                symbol->UpdateUnit( new_unit );
+                symbol->SetUnit( new_unit );
             }
         }
 
@@ -655,7 +660,7 @@ void CONNECTION_GRAPH::Recalculate( const SCH_SHEET_LIST& aSheetList, bool aUnco
 
         // Restore the m_unit member variables where we had to change them
         for( const auto& [ symbol, originalUnit ] : symbolsChanged )
-            symbol->UpdateUnit( originalUnit );
+            symbol->SetUnit( originalUnit );
     }
 
     // Restore the danlging states of items in the current SCH_SCREEN to match the current
@@ -733,11 +738,37 @@ std::set<std::pair<SCH_SHEET_PATH, SCH_ITEM*>> CONNECTION_GRAPH::ExtractAffected
         }
 
         alg::delete_matching( m_items, item );
+
+        if( item->Type() == SCH_SYMBOL_T )
+        {
+            SCH_SYMBOL* symbol = static_cast<SCH_SYMBOL*>( item );
+
+            for( SCH_PIN* pin : symbol->GetPins( &sg->m_sheet ) )
+                alg::delete_matching( m_items, pin );
+        }
     }
 
     removeSubgraphs( subgraphs );
 
     return retvals;
+}
+
+
+void CONNECTION_GRAPH::RemoveItem( SCH_ITEM* aItem )
+{
+    auto it = m_item_to_subgraph_map.find( aItem );
+
+    if( it == m_item_to_subgraph_map.end() )
+        return;
+
+    CONNECTION_SUBGRAPH* subgraph = it->second;
+
+    while(subgraph->m_absorbed_by )
+        subgraph = subgraph->m_absorbed_by;
+
+    subgraph->RemoveItem( aItem );
+    alg::delete_matching( m_items, aItem );
+    m_item_to_subgraph_map.erase( it );
 }
 
 
@@ -1370,8 +1401,8 @@ void CONNECTION_GRAPH::generateBusAliasMembers()
                 CONNECTION_SUBGRAPH* new_sg = new CONNECTION_SUBGRAPH( this );
 
                 // This connection cannot form a part of the item because the item is not, itself
-                // connected to this subgraph.  It exists as part of a virtual item that may be connected
-                // to other items but is not in the schematic.
+                // connected to this subgraph.  It exists as part of a virtual item that may be
+                // connected to other items but is not in the schematic.
                 SCH_CONNECTION* new_conn = new SCH_CONNECTION( item, subgraph->m_sheet );
                 new_conn->SetGraph( this );
                 new_conn->SetName( name );
@@ -1399,7 +1430,8 @@ void CONNECTION_GRAPH::generateBusAliasMembers()
         }
     }
 
-    std::copy( new_subgraphs.begin(), new_subgraphs.end(), std::back_inserter( m_driver_subgraphs ) );
+    std::copy( new_subgraphs.begin(), new_subgraphs.end(),
+               std::back_inserter( m_driver_subgraphs ) );
 }
 
 void CONNECTION_GRAPH::generateGlobalPowerPinSubGraphs()
@@ -1416,7 +1448,7 @@ void CONNECTION_GRAPH::generateGlobalPowerPinSubGraphs()
         SCH_SHEET_PATH sheet = it.first;
         SCH_PIN*       pin   = it.second;
 
-        if( !pin->ConnectedItems( sheet ).empty() && !pin->GetLibPin()->GetParent()->IsPower() )
+        if( !pin->ConnectedItems( sheet ).empty() && !pin->GetLibPin()->GetParentSymbol()->IsPower() )
         {
             // ERC will warn about this: user has wired up an invisible pin
             continue;
@@ -1431,8 +1463,8 @@ void CONNECTION_GRAPH::generateGlobalPowerPinSubGraphs()
         // Proper modern power symbols get their net name from the value field
         // in the symbol, but we support legacy non-power symbols with global
         // power connections based on invisible, power-in, pin's names.
-        if( pin->GetLibPin()->GetParent()->IsPower() )
-            connection->SetName( pin->GetParentSymbol()->GetValueFieldText( true, &sheet, false ) );
+        if( pin->GetLibPin()->GetParentSymbol()->IsPower() )
+            connection->SetName( pin->GetParentSymbol()->GetValue( true, &sheet, false ) );
         else
             connection->SetName( pin->GetShownName() );
 
@@ -1780,7 +1812,7 @@ void CONNECTION_GRAPH::processSubGraphs()
                         subgraph->m_bus_neighbors[member].insert( candidate );
                         candidate->m_bus_parents[member].insert( subgraph );
                     }
-                    else
+                    else if( connection->Type() == candidate->m_driver_connection->Type() )
                     {
                         wxLogTrace( ConnTrace, wxS( "%lu (%s) absorbs neighbor %lu (%s)" ),
                                     subgraph->m_code, connection->Name(),
@@ -2039,7 +2071,6 @@ void CONNECTION_GRAPH::buildConnectionGraph( std::function<void( SCH_ITEM* )>* a
         }
     }
 
-
     auto updateItemConnectionsTask =
             [&]( CONNECTION_SUBGRAPH* subgraph ) -> size_t
             {
@@ -2159,9 +2190,6 @@ void CONNECTION_GRAPH::buildConnectionGraph( std::function<void( SCH_ITEM* )>* a
                         break;
                     }
                 }
-
-                if( netclass.IsEmpty() )
-                    return;
 
                 if( !driverSubgraph )
                     driverSubgraph = subgraphs.front();
@@ -2921,6 +2949,11 @@ int CONNECTION_GRAPH::RunERC()
         }
     }
 
+    if( settings.IsTestEnabled( ERCE_SINGLE_GLOBAL_LABEL ) )
+    {
+        error_count += ercCheckSingleGlobalLabel();
+    }
+
     return error_count;
 }
 
@@ -3060,6 +3093,7 @@ bool CONNECTION_GRAPH::ercCheckBusToNetConflicts( const CONNECTION_SUBGRAPH* aSu
     if( net_item && bus_item )
     {
         std::shared_ptr<ERC_ITEM> ercItem = ERC_ITEM::Create( ERCE_BUS_TO_NET_CONFLICT );
+        ercItem->SetSheetSpecificPath( sheet );
         ercItem->SetItems( net_item, bus_item );
 
         SCH_MARKER* marker = new SCH_MARKER( ercItem, net_item->GetPosition() );
@@ -3127,6 +3161,7 @@ bool CONNECTION_GRAPH::ercCheckBusToBusConflicts( const CONNECTION_SUBGRAPH* aSu
         if( !match )
         {
             std::shared_ptr<ERC_ITEM> ercItem = ERC_ITEM::Create( ERCE_BUS_TO_BUS_CONFLICT );
+            ercItem->SetSheetSpecificPath( sheet );
             ercItem->SetItems( label, port );
 
             SCH_MARKER* marker = new SCH_MARKER( ercItem, label->GetPosition() );
@@ -3230,6 +3265,7 @@ bool CONNECTION_GRAPH::ercCheckBusToBusEntryConflicts( const CONNECTION_SUBGRAPH
                                          UnescapeString( netName ),
                                          UnescapeString( bus_name ) );
         std::shared_ptr<ERC_ITEM> ercItem = ERC_ITEM::Create( ERCE_BUS_ENTRY_CONFLICT );
+        ercItem->SetSheetSpecificPath( sheet );
         ercItem->SetItems( bus_entry, bus_wire );
         ercItem->SetErrorMessage( msg );
 
@@ -3243,7 +3279,6 @@ bool CONNECTION_GRAPH::ercCheckBusToBusEntryConflicts( const CONNECTION_SUBGRAPH
 }
 
 
-// TODO(JE) Check sheet pins here too?
 bool CONNECTION_GRAPH::ercCheckNoConnects( const CONNECTION_SUBGRAPH* aSubgraph )
 {
     ERC_SETTINGS&         settings = m_schematic->ErcSettings();
@@ -3313,9 +3348,29 @@ bool CONNECTION_GRAPH::ercCheckNoConnects( const CONNECTION_SUBGRAPH* aSubgraph 
 
     if( aSubgraph->m_no_connect != nullptr )
     {
+        // Special case: If the subgraph being checked consists of only a hier port/pin and
+        // a no-connect, we don't issue a "no-connect connected" warning just because
+        // connections exist on the sheet on the other side of the link.
+        VECTOR2I noConnectPos = aSubgraph->m_no_connect->GetPosition();
+
+        for( SCH_SHEET_PIN* hierPin : aSubgraph->m_hier_pins )
+        {
+            if( hierPin->GetPosition() == noConnectPos )
+                return true;
+        }
+
+        for( SCH_HIERLABEL* hierLabel : aSubgraph->m_hier_ports )
+        {
+            if( hierLabel->GetPosition() == noConnectPos )
+                return true;
+        }
+
         if( unique_pins.size() > 1 && settings.IsTestEnabled( ERCE_NOCONNECT_CONNECTED ) )
         {
             std::shared_ptr<ERC_ITEM> ercItem = ERC_ITEM::Create( ERCE_NOCONNECT_CONNECTED );
+            ercItem->SetSheetSpecificPath( sheet );
+            ercItem->SetItemsSheetPaths( sheet );
+
             VECTOR2I pos;
 
             if( pin )
@@ -3340,6 +3395,8 @@ bool CONNECTION_GRAPH::ercCheckNoConnects( const CONNECTION_SUBGRAPH* aSubgraph 
         {
             std::shared_ptr<ERC_ITEM> ercItem = ERC_ITEM::Create( ERCE_NOCONNECT_NOT_CONNECTED );
             ercItem->SetItems( aSubgraph->m_no_connect );
+            ercItem->SetSheetSpecificPath( sheet );
+            ercItem->SetItemsSheetPaths( sheet );
 
             SCH_MARKER* marker = new SCH_MARKER( ercItem, aSubgraph->m_no_connect->GetPosition() );
             screen->Append( marker );
@@ -3361,11 +3418,11 @@ bool CONNECTION_GRAPH::ercCheckNoConnects( const CONNECTION_SUBGRAPH* aSubgraph 
             {
             case SCH_PIN_T:
             {
-                // Stacked pins do not count as other connections but non-stacked pins do
-                if( !has_other_connections && !pins.empty() )
-                {
-                    SCH_PIN* test_pin = static_cast<SCH_PIN*>( item );
+                SCH_PIN* test_pin = static_cast<SCH_PIN*>( item );
 
+                // Stacked pins do not count as other connections but non-stacked pins do
+                if( !has_other_connections && !pins.empty() && !test_pin->GetParentSymbol()->IsPower() )
+                {
                     for( SCH_PIN* other_pin  : pins )
                     {
                         if( !test_pin->IsStacked( other_pin ) )
@@ -3395,7 +3452,11 @@ bool CONNECTION_GRAPH::ercCheckNoConnects( const CONNECTION_SUBGRAPH* aSubgraph 
         // But if there is a power pin, it might be connected elsewhere
         for( SCH_PIN* test_pin : pins )
         {
-            if( test_pin->GetType() == ELECTRICAL_PINTYPE::PT_POWER_IN )
+            // Prefer the pin is part of a real component rather than some stray power symbol
+            // Or else we may fail walking connected components to a power symbol pin since we reject
+            // starting at a power symbol
+            if( test_pin->GetType() == ELECTRICAL_PINTYPE::PT_POWER_IN
+                && !test_pin->IsGlobalPower() )
             {
                 pin = test_pin;
                 break;
@@ -3407,8 +3468,8 @@ bool CONNECTION_GRAPH::ercCheckNoConnects( const CONNECTION_SUBGRAPH* aSubgraph 
         // We want to throw unconnected errors for power symbols even if they are connected to other
         // net items by name, because usually failing to connect them graphically is a mistake
         if( pin && !has_other_connections
-                && pin->IsGlobalPower()
-                && !pin->GetLibPin()->GetParent()->IsPower() )
+                && !pin->IsGlobalPower()
+                && !pin->GetLibPin()->GetParentSymbol()->IsPower() )
         {
             wxString name = pin->Connection( &sheet )->Name();
             wxString local_name = pin->Connection( &sheet )->Name( true );
@@ -3427,6 +3488,8 @@ bool CONNECTION_GRAPH::ercCheckNoConnects( const CONNECTION_SUBGRAPH* aSubgraph 
                 && settings.IsTestEnabled( ERCE_PIN_NOT_CONNECTED ) )
         {
             std::shared_ptr<ERC_ITEM> ercItem = ERC_ITEM::Create( ERCE_PIN_NOT_CONNECTED );
+            ercItem->SetSheetSpecificPath( sheet );
+            ercItem->SetItemsSheetPaths( sheet );
             ercItem->SetItems( pin );
 
             SCH_MARKER* marker = new SCH_MARKER( ercItem, pin->GetTransformedPosition() );
@@ -3445,11 +3508,13 @@ bool CONNECTION_GRAPH::ercCheckNoConnects( const CONNECTION_SUBGRAPH* aSubgraph 
                 // We only apply this test to power symbols, because other symbols have
                 // pins that are meant to be dangling, but the power symbols have pins
                 // that are *not* meant to be dangling.
-                if( testPin->GetLibPin()->GetParent()->IsPower()
+                if( testPin->GetLibPin()->GetParentSymbol()->IsPower()
                     && testPin->ConnectedItems( sheet ).empty()
                     && settings.IsTestEnabled( ERCE_PIN_NOT_CONNECTED ) )
                 {
                     std::shared_ptr<ERC_ITEM> ercItem = ERC_ITEM::Create( ERCE_PIN_NOT_CONNECTED );
+                    ercItem->SetSheetSpecificPath( sheet );
+                    ercItem->SetItemsSheetPaths( sheet );
                     ercItem->SetItems( testPin );
 
                     SCH_MARKER* marker = new SCH_MARKER( ercItem,
@@ -3471,6 +3536,7 @@ bool CONNECTION_GRAPH::ercCheckFloatingWires( const CONNECTION_SUBGRAPH* aSubgra
     if( aSubgraph->m_driver )
         return true;
 
+    const SCH_SHEET_PATH& sheet = aSubgraph->m_sheet;
     std::vector<SCH_ITEM*> wires;
 
     // We've gotten this far, so we know we have no valid driver.  All we need to do is check
@@ -3488,6 +3554,7 @@ bool CONNECTION_GRAPH::ercCheckFloatingWires( const CONNECTION_SUBGRAPH* aSubgra
         SCH_SCREEN* screen = aSubgraph->m_sheet.LastScreen();
 
         std::shared_ptr<ERC_ITEM> ercItem = ERC_ITEM::Create( ERCE_WIRE_DANGLING );
+        ercItem->SetSheetSpecificPath( sheet );
         ercItem->SetItems( wires[0],
                            wires.size() > 1 ? wires[1] : nullptr,
                            wires.size() > 2 ? wires[2] : nullptr,
@@ -3519,6 +3586,7 @@ bool CONNECTION_GRAPH::ercCheckLabels( const CONNECTION_SUBGRAPH* aSubgraph )
     if( aSubgraph->m_driver_connection->IsBus() )
         return true;
 
+    const SCH_SHEET_PATH& sheet = aSubgraph->m_sheet;
     ERC_SETTINGS& settings = m_schematic->ErcSettings();
     bool          ok       = true;
     int           pinCount = 0;
@@ -3543,6 +3611,7 @@ bool CONNECTION_GRAPH::ercCheckLabels( const CONNECTION_SUBGRAPH* aSubgraph )
         if( settings.IsTestEnabled( errCode ) )
         {
             std::shared_ptr<ERC_ITEM> ercItem = ERC_ITEM::Create( errCode );
+            ercItem->SetSheetSpecificPath( sheet );
             ercItem->SetItems( aText );
 
             SCH_MARKER* marker = new SCH_MARKER( ercItem, aText->GetPosition() );
@@ -3583,6 +3652,33 @@ bool CONNECTION_GRAPH::ercCheckLabels( const CONNECTION_SUBGRAPH* aSubgraph )
 
     if( label_map.empty() )
         return true;
+
+    // No-connects on net neighbors will be noticed before, but to notice them on bus parents we
+    // need to walk the graph
+    for( auto pair : aSubgraph->m_bus_parents )
+    {
+        for( CONNECTION_SUBGRAPH* busParent : pair.second )
+        {
+            if( busParent->m_no_connect )
+            {
+                has_nc = true;
+                break;
+            }
+
+            CONNECTION_SUBGRAPH* hp = busParent->m_hier_parent;
+
+            while( hp )
+            {
+                if( hp->m_no_connect )
+                {
+                    has_nc = true;
+                    break;
+                }
+
+                hp = hp->m_hier_parent;
+            }
+        }
+    }
 
     wxString netName = GetResolvedSubgraphName( aSubgraph );
 
@@ -3650,6 +3746,56 @@ bool CONNECTION_GRAPH::ercCheckLabels( const CONNECTION_SUBGRAPH* aSubgraph )
 }
 
 
+int CONNECTION_GRAPH::ercCheckSingleGlobalLabel()
+{
+    int errors = 0;
+
+    std::map<wxString, std::tuple<int, const SCH_ITEM*, SCH_SHEET_PATH>> labelData;
+
+    for( const SCH_SHEET_PATH& sheet : m_sheetList )
+    {
+        for( SCH_ITEM* item : sheet.LastScreen()->Items().OfType( SCH_GLOBAL_LABEL_T ) )
+        {
+            SCH_TEXT* labelText = static_cast<SCH_TEXT*>( item );
+            wxString  resolvedLabelText =
+                    EscapeString( labelText->GetShownText( &sheet, false ), CTX_NETNAME );
+
+            if( labelData.find( resolvedLabelText ) == labelData.end() )
+            {
+                labelData[resolvedLabelText] = { 1, item, sheet };
+            }
+            else
+            {
+                std::get<0>( labelData[resolvedLabelText] ) += 1;
+                std::get<1>( labelData[resolvedLabelText] ) = nullptr;
+                std::get<2>( labelData[resolvedLabelText] ) = sheet;
+            }
+        }
+    }
+
+    for( const auto& label : labelData )
+    {
+        if( std::get<0>( label.second ) == 1 )
+        {
+            const SCH_SHEET_PATH& sheet = std::get<2>( label.second );
+            const SCH_ITEM*       item = std::get<1>( label.second );
+
+            std::shared_ptr<ERC_ITEM> ercItem = ERC_ITEM::Create( ERCE_SINGLE_GLOBAL_LABEL );
+            ercItem->SetItems( std::get<1>( label.second ) );
+            ercItem->SetSheetSpecificPath( sheet );
+            ercItem->SetItemsSheetPaths( sheet );
+
+            SCH_MARKER* marker = new SCH_MARKER( ercItem, item->GetPosition() );
+            sheet.LastScreen()->Append( marker );
+
+            errors++;
+        }
+    }
+
+    return errors;
+}
+
+
 int CONNECTION_GRAPH::ercCheckHierSheets()
 {
     int errors = 0;
@@ -3677,6 +3823,8 @@ int CONNECTION_GRAPH::ercCheckHierSheets()
                 {
                     std::shared_ptr<ERC_ITEM> ercItem = ERC_ITEM::Create( ERCE_PIN_NOT_CONNECTED );
                     ercItem->SetItems( pin );
+                    ercItem->SetSheetSpecificPath( sheet );
+                    ercItem->SetItemsSheetPaths( sheet );
 
                     SCH_MARKER* marker = new SCH_MARKER( ercItem, pin->GetPosition() );
                     sheet.LastScreen()->Append( marker );

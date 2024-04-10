@@ -38,7 +38,7 @@
 #include <widgets/app_progress_dialog.h>
 
 #include <symbol_library.h>
-#include <sch_plugins/legacy/sch_legacy_plugin.h>
+#include <sch_io/kicad_legacy/sch_io_kicad_legacy.h>
 
 #include <wx/log.h>
 #include <wx/progdlg.h>
@@ -81,7 +81,7 @@ void SYMBOL_LIB::Save( bool aSaveDocFile )
     STRING_UTF8_MAP props;
 
     if( !aSaveDocFile )
-        props[ SCH_LEGACY_PLUGIN::PropNoDocFile ] = "";
+        props[ SCH_IO_KICAD_LEGACY::PropNoDocFile ] = "";
 
     m_plugin->SaveLibrary( fileName.GetFullPath(), &props );
     isModified = false;
@@ -95,7 +95,7 @@ void SYMBOL_LIB::Create( const wxString& aFileName )
     if( !aFileName.IsEmpty() )
         tmpFileName = aFileName;
 
-    m_plugin->CreateSymbolLib( tmpFileName, m_properties.get() );
+    m_plugin->CreateLibrary( tmpFileName, m_properties.get() );
 }
 
 
@@ -111,28 +111,28 @@ void SYMBOL_LIB::SetPluginType( SCH_IO_MGR::SCH_FILE_T aPluginType )
 
 bool SYMBOL_LIB::IsCache() const
 {
-    return m_properties->Exists( SCH_LEGACY_PLUGIN::PropNoDocFile );
+    return m_properties->Exists( SCH_IO_KICAD_LEGACY::PropNoDocFile );
 }
 
 
 void SYMBOL_LIB::SetCache()
 {
-    (*m_properties)[ SCH_LEGACY_PLUGIN::PropNoDocFile ] = "";
+    (*m_properties)[ SCH_IO_KICAD_LEGACY::PropNoDocFile ] = "";
 }
 
 
 bool SYMBOL_LIB::IsBuffering() const
 {
-    return m_properties->Exists( SCH_LEGACY_PLUGIN::PropBuffering );
+    return m_properties->Exists( SCH_IO_KICAD_LEGACY::PropBuffering );
 }
 
 
 void SYMBOL_LIB::EnableBuffering( bool aEnable )
 {
     if( aEnable )
-        (*m_properties)[ SCH_LEGACY_PLUGIN::PropBuffering ] = "";
+        (*m_properties)[ SCH_IO_KICAD_LEGACY::PropBuffering ] = "";
     else
-        m_properties->Clear( SCH_LEGACY_PLUGIN::PropBuffering );
+        m_properties->Clear( SCH_IO_KICAD_LEGACY::PropBuffering );
 }
 
 
@@ -488,7 +488,7 @@ const wxString SYMBOL_LIBS::CacheName( const wxString& aFullProjectFilename )
     wxFileName  name = aFullProjectFilename;
 
     name.SetName( name.GetName() + "-cache" );
-    name.SetExt( LegacySymbolLibFileExtension );
+    name.SetExt( FILEEXT::LegacySymbolLibFileExtension );
 
     if( name.FileExists() )
         return name.GetFullPath();
@@ -536,7 +536,7 @@ void SYMBOL_LIBS::LoadAllLibraries( PROJECT* aProject, bool aShowProgress )
             // lib_names[] does not store the file extension. Set it.
             // Remember lib_names[i] can contain a '.' in name, so using a wxFileName
             // before adding the extension can create incorrect full filename
-            wxString fullname = lib_names[i] + "." + LegacySymbolLibFileExtension;
+            wxString fullname = lib_names[i] + "." + FILEEXT::LegacySymbolLibFileExtension;
             // Now the full name is set, we can use a wxFileName.
             wxFileName fn( fullname );
 

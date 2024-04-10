@@ -27,10 +27,12 @@
 #include <memory>
 
 #include <advanced_config.h>
+#include <api/api_plugin_manager.h>
 #include <bitmaps.h>
 #include <board.h>
 #include <board_design_settings.h>
 #include <kiface_base.h>
+#include <kiplatform/ui.h>
 #include <macros.h>
 #include <pcb_edit_frame.h>
 #include <pcb_layer_box_selector.h>
@@ -48,6 +50,7 @@
 #include <tools/pcb_selection_tool.h>
 #include <widgets/appearance_controls.h>
 #include <widgets/pcb_properties_panel.h>
+#include <widgets/net_inspector_panel.h>
 #include <widgets/pcb_search_pane.h>
 #include <widgets/wx_aui_utils.h>
 #include <wx/wupdlock.h>
@@ -279,12 +282,27 @@ void PCB_EDIT_FRAME::ReCreateHToolbar()
     m_mainToolBar->AddScaledSeparator( this );
     m_mainToolBar->Add( PCB_ACTIONS::showEeschema );
 
-    // Access to the scripting console
-    if( SCRIPTING::IsWxAvailable() )
+    // Add SWIG and API plugins
+    bool scriptingAvailable = SCRIPTING::IsWxAvailable();
+#ifdef KICAD_IPC_API
+    bool haveApiPlugins = Pgm().GetCommonSettings()->m_Api.enable_server &&
+            !Pgm().GetPluginManager().GetActionsForScope( PLUGIN_ACTION_SCOPE::PCB ).empty();
+#else
+    bool haveApiPlugins = false;
+#endif
+
+    if( scriptingAvailable || haveApiPlugins )
     {
         m_mainToolBar->AddScaledSeparator( this );
-        m_mainToolBar->Add( PCB_ACTIONS::showPythonConsole, ACTION_TOOLBAR::TOGGLE );
-        AddActionPluginTools();
+
+        if( scriptingAvailable )
+        {
+            m_mainToolBar->Add( PCB_ACTIONS::showPythonConsole, ACTION_TOOLBAR::TOGGLE );
+            AddActionPluginTools();
+        }
+
+        if( haveApiPlugins )
+            addApiPluginTools();
     }
 
     // after adding the buttons to the toolbar, must call Realize() to reflect the changes
@@ -356,7 +374,7 @@ void PCB_EDIT_FRAME::ReCreateOptToolbar()
     // Tools to show/hide toolbars:
     m_optionsToolBar->AddScaledSeparator( this );
     m_optionsToolBar->Add( PCB_ACTIONS::showLayersManager,    ACTION_TOOLBAR::TOGGLE );
-    m_optionsToolBar->Add( PCB_ACTIONS::showProperties,       ACTION_TOOLBAR::TOGGLE );
+    m_optionsToolBar->Add( PCB_ACTIONS::showProperties, ACTION_TOOLBAR::TOGGLE );
 
     PCB_SELECTION_TOOL*          selTool = m_toolManager->GetTool<PCB_SELECTION_TOOL>();
     std::unique_ptr<ACTION_MENU> gridMenu = std::make_unique<ACTION_MENU>( false, selTool );
@@ -416,7 +434,8 @@ void PCB_EDIT_FRAME::ReCreateVToolbar()
     if( !tuneGroup )
     {
         tuneGroup = new ACTION_GROUP( "group.pcbTune",
-                                      { &PCB_ACTIONS::tuneLength,
+                                      { &PCB_ACTIONS::tuneSingleTrack,
+                                        &PCB_ACTIONS::tuneDiffPair,
                                         &PCB_ACTIONS::tuneSkew } );
     }
 
@@ -440,6 +459,7 @@ void PCB_EDIT_FRAME::ReCreateVToolbar()
     m_drawToolBar->Add( PCB_ACTIONS::placeReferenceImage,  ACTION_TOOLBAR::TOGGLE );
     m_drawToolBar->Add( PCB_ACTIONS::placeText,            ACTION_TOOLBAR::TOGGLE );
     m_drawToolBar->Add( PCB_ACTIONS::drawTextBox,          ACTION_TOOLBAR::TOGGLE );
+    m_drawToolBar->Add( PCB_ACTIONS::drawTable,            ACTION_TOOLBAR::TOGGLE );
     m_drawToolBar->AddGroup( dimensionGroup,               ACTION_TOOLBAR::TOGGLE );
     m_drawToolBar->Add( ACTIONS::deleteTool,               ACTION_TOOLBAR::TOGGLE );
 
@@ -524,7 +544,7 @@ void PCB_EDIT_FRAME::ReCreateAuxiliaryToolbar()
         m_SelTrackWidthBox = new wxChoice( m_auxiliaryToolBar, ID_AUX_TOOLBAR_PCB_TRACK_WIDTH,
                                            wxDefaultPosition, wxDefaultSize, 0, nullptr );
 
-    UpdateTrackWidthSelectBox( m_SelTrackWidthBox );
+    UpdateTrackWidthSelectBox( m_SelTrackWidthBox, true, true );
     m_auxiliaryToolBar->AddControl( m_SelTrackWidthBox );
     m_SelTrackWidthBox->SetToolTip( _( "Select the default width for new tracks. Note that this "
                                        "width can be overridden by the board minimum width, or by "
@@ -545,7 +565,7 @@ void PCB_EDIT_FRAME::ReCreateAuxiliaryToolbar()
         m_SelViaSizeBox = new wxChoice( m_auxiliaryToolBar, ID_AUX_TOOLBAR_PCB_VIA_SIZE,
                                         wxDefaultPosition, wxDefaultSize, 0, nullptr );
 
-    UpdateViaSizeSelectBox( m_SelViaSizeBox );
+    UpdateViaSizeSelectBox( m_SelViaSizeBox, true, true );
     m_auxiliaryToolBar->AddControl( m_SelViaSizeBox );
 
     m_auxiliaryToolBar->AddScaledSeparator( this );
@@ -640,7 +660,8 @@ static wxString ComboBoxUnits( EDA_UNITS aUnits, double aValue, bool aIncludeLab
 }
 
 
-void PCB_EDIT_FRAME::UpdateTrackWidthSelectBox( wxChoice* aTrackWidthSelectBox, bool aEdit )
+void PCB_EDIT_FRAME::UpdateTrackWidthSelectBox( wxChoice* aTrackWidthSelectBox, bool aShowNetclass,
+                                                bool aShowEdit )
 {
     if( aTrackWidthSelectBox == nullptr )
         return;
@@ -654,7 +675,8 @@ void PCB_EDIT_FRAME::UpdateTrackWidthSelectBox( wxChoice* aTrackWidthSelectBox, 
 
     aTrackWidthSelectBox->Clear();
 
-    aTrackWidthSelectBox->Append( _( "Track: use netclass width" ) );
+    if( aShowNetclass )
+        aTrackWidthSelectBox->Append( _( "Track: use netclass width" ) );
 
     for( unsigned ii = 1; ii < GetDesignSettings().m_TrackWidthList.size(); ii++ )
     {
@@ -666,7 +688,7 @@ void PCB_EDIT_FRAME::UpdateTrackWidthSelectBox( wxChoice* aTrackWidthSelectBox, 
         aTrackWidthSelectBox->Append( msg );
     }
 
-    if( aEdit )
+    if( aShowEdit )
     {
         aTrackWidthSelectBox->Append( wxT( "---" ) );
         aTrackWidthSelectBox->Append( _( "Edit Pre-defined Sizes..." ) );
@@ -679,7 +701,8 @@ void PCB_EDIT_FRAME::UpdateTrackWidthSelectBox( wxChoice* aTrackWidthSelectBox, 
 }
 
 
-void PCB_EDIT_FRAME::UpdateViaSizeSelectBox( wxChoice* aViaSizeSelectBox, bool aEdit )
+void PCB_EDIT_FRAME::UpdateViaSizeSelectBox( wxChoice* aViaSizeSelectBox, bool aShowNetclass,
+                                             bool aShowEdit )
 {
     if( aViaSizeSelectBox == nullptr )
         return;
@@ -706,7 +729,8 @@ void PCB_EDIT_FRAME::UpdateViaSizeSelectBox( wxChoice* aViaSizeSelectBox, bool a
             secondaryUnit = EDA_UNITS::MILS;
     }
 
-    aViaSizeSelectBox->Append( _( "Via: use netclass sizes" ) );
+    if( aShowNetclass )
+        aViaSizeSelectBox->Append( _( "Via: use netclass sizes" ) );
 
     for( unsigned ii = 1; ii < GetDesignSettings().m_ViasDimensionsList.size(); ii++ )
     {
@@ -734,7 +758,7 @@ void PCB_EDIT_FRAME::UpdateViaSizeSelectBox( wxChoice* aViaSizeSelectBox, bool a
         aViaSizeSelectBox->Append( msg );
     }
 
-    if( aEdit )
+    if( aShowEdit )
     {
         aViaSizeSelectBox->Append( wxT( "---" ) );
         aViaSizeSelectBox->Append( _( "Edit Pre-defined Sizes..." ) );
@@ -779,6 +803,30 @@ void PCB_EDIT_FRAME::ToggleLayersManager()
     else
     {
         settings->m_AuiPanels.right_panel_width = m_appearancePanel->GetSize().x;
+        m_auimgr.Update();
+    }
+}
+
+
+void PCB_EDIT_FRAME::ToggleNetInspector()
+{
+    PCBNEW_SETTINGS* settings          = GetPcbNewSettings();
+    wxAuiPaneInfo&   netInspectorPanel = m_auimgr.GetPane( NetInspectorPanelName() );
+
+    m_show_net_inspector = !m_show_net_inspector;
+
+    netInspectorPanel.Show( m_show_net_inspector );
+
+    if( m_show_net_inspector )
+    {
+        SetAuiPaneSize( m_auimgr, netInspectorPanel, settings->m_AuiPanels.net_inspector_width,
+                        -1 );
+        m_netInspectorPanel->OnShowPanel();
+    }
+    else
+    {
+        m_netInspectorPanel->SaveSettings();
+        settings->m_AuiPanels.net_inspector_width = m_netInspectorPanel->GetSize().x;
         m_auimgr.Update();
     }
 }

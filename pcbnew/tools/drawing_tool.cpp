@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2014-2017 CERN
- * Copyright (C) 2018-2023 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2018-2024 KiCad Developers, see AUTHORS.txt for contributors.
  * @author Maciej Suminski <maciej.suminski@cern.ch>
  *
  * This program is free software; you can redistribute it and/or
@@ -25,6 +25,7 @@
 
 #include "drawing_tool.h"
 #include "geometry/shape_rect.h"
+#include "dialog_table_properties.h"
 
 #include <pgm_base.h>
 #include <settings/settings_manager.h>
@@ -66,6 +67,8 @@
 #include <pcb_reference_image.h>
 #include <pcb_text.h>
 #include <pcb_textbox.h>
+#include <pcb_table.h>
+#include <pcb_tablecell.h>
 #include <pcb_dimension.h>
 #include <pcbnew_id.h>
 #include <preview_items/arc_assistant.h>
@@ -300,8 +303,6 @@ void DRAWING_TOOL::Reset( RESET_REASON aReason )
     m_textAttrs.m_Mirrored = IsBackLayer( m_layer );
     m_textAttrs.m_Halign = GR_TEXT_H_ALIGN_LEFT;
     m_textAttrs.m_Valign = GR_TEXT_V_ALIGN_TOP;
-
-    m_statusPopup = std::make_unique<STATUS_MIN_MAX_POPUP>( m_frame );
 
     UpdateStatusBar();
 }
@@ -564,6 +565,7 @@ int DRAWING_TOOL::PlaceReferenceImage( const TOOL_EVENT& aEvent )
     }
 
     m_frame->PushTool( aEvent );
+
     auto setCursor =
             [&]()
             {
@@ -798,6 +800,15 @@ int DRAWING_TOOL::PlaceText( const TOOL_EVENT& aEvent )
     SCOPED_DRAW_MODE             scopedDrawMode( m_mode, MODE::TEXT );
     PCB_GRID_HELPER              grid( m_toolMgr, m_frame->GetMagneticItemsSettings() );
 
+    auto setCursor =
+            [&]()
+            {
+                if( text )
+                    m_frame->GetCanvas()->SetCurrentCursor( KICURSOR::MOVING );
+                else
+                    m_frame->GetCanvas()->SetCurrentCursor( KICURSOR::TEXT );
+            };
+
     auto cleanup =
             [&]()
             {
@@ -808,15 +819,6 @@ int DRAWING_TOOL::PlaceText( const TOOL_EVENT& aEvent )
                 m_controls->CaptureCursor( false );
                 delete text;
                 text = nullptr;
-            };
-
-    auto setCursor =
-            [&]()
-            {
-                if( text )
-                    m_frame->GetCanvas()->SetCurrentCursor( KICURSOR::MOVING );
-                else
-                    m_frame->GetCanvas()->SetCurrentCursor( KICURSOR::TEXT );
             };
 
     m_toolMgr->RunAction( PCB_ACTIONS::selectionClear );
@@ -884,6 +886,9 @@ int DRAWING_TOOL::PlaceText( const TOOL_EVENT& aEvent )
         }
         else if( evt->IsClick( BUT_RIGHT ) )
         {
+            if( !text )
+                m_toolMgr->VetoContextMenuMouseWarp();
+
             m_menu.ShowContextMenu( selection() );
         }
         else if( evt->IsClick( BUT_LEFT ) )
@@ -1021,6 +1026,226 @@ int DRAWING_TOOL::PlaceText( const TOOL_EVENT& aEvent )
     if( selection().Empty() )
         m_frame->SetMsgPanel( board() );
 
+    return 0;
+}
+
+
+int DRAWING_TOOL::DrawTable( const TOOL_EVENT& aEvent )
+{
+    if( m_inDrawingTool )
+        return 0;
+
+    REENTRANCY_GUARD guard( &m_inDrawingTool );
+
+    PCB_TABLE*                   table = nullptr;
+    const BOARD_DESIGN_SETTINGS& bds = m_frame->GetDesignSettings();
+    BOARD_COMMIT                 commit( m_frame );
+    PCB_GRID_HELPER              grid( m_toolMgr, m_frame->GetMagneticItemsSettings() );
+
+    // We might be running as the same shape in another co-routine.  Make sure that one
+    // gets whacked.
+    m_toolMgr->DeactivateTool();
+
+    auto setCursor =
+            [&]()
+            {
+                if( table )
+                    m_frame->GetCanvas()->SetCurrentCursor( KICURSOR::MOVING );
+                else
+                    m_frame->GetCanvas()->SetCurrentCursor( KICURSOR::PENCIL );
+            };
+
+    auto cleanup =
+            [&] ()
+            {
+                m_toolMgr->RunAction( PCB_ACTIONS::selectionClear );
+                m_controls->ForceCursorPosition( false );
+                m_controls->ShowCursor( true );
+                m_controls->SetAutoPan( false );
+                m_controls->CaptureCursor( false );
+                delete table;
+                table = nullptr;
+            };
+
+    m_toolMgr->RunAction( PCB_ACTIONS::selectionClear );
+
+    m_frame->PushTool( aEvent );
+
+    Activate();
+    // Must be done after Activate() so that it gets set into the correct context
+    getViewControls()->ShowCursor( true );
+    m_controls->ForceCursorPosition( false );
+    // Set initial cursor
+    setCursor();
+
+    if( aEvent.HasPosition() )
+        m_toolMgr->PrimeTool( aEvent.Position() );
+
+    // Main loop: keep receiving events
+    while( TOOL_EVENT* evt = Wait() )
+    {
+        setCursor();
+        grid.SetSnap( !evt->Modifier( MD_SHIFT ) );
+        grid.SetUseGrid( getView()->GetGAL()->GetGridSnapping() && !evt->DisableGridSnapping() );
+        VECTOR2I cursorPos =
+                GetClampedCoords( grid.BestSnapAnchor( m_controls->GetMousePosition(),
+                                                       m_frame->GetActiveLayer(), GRID_TEXT ),
+                                  COORDS_PADDING );
+        m_controls->ForceCursorPosition( true, cursorPos );
+
+        if( evt->IsCancelInteractive() || ( table && evt->IsAction( &ACTIONS::undo ) ) )
+        {
+            if( table )
+            {
+                cleanup();
+            }
+            else
+            {
+                m_frame->PopTool( aEvent );
+                break;
+            }
+        }
+        else if( evt->IsActivate() )
+        {
+            if( table )
+                cleanup();
+
+            if( evt->IsMoveTool() )
+            {
+                // leave ourselves on the stack so we come back after the move
+                break;
+            }
+            else
+            {
+                m_frame->PopTool( aEvent );
+                break;
+            }
+        }
+        else if( evt->IsClick( BUT_RIGHT ) )
+        {
+            // Warp after context menu only if dragging...
+            if( !table )
+                m_toolMgr->VetoContextMenuMouseWarp();
+
+            m_menu.ShowContextMenu( selection() );
+        }
+        else if( evt->IsClick( BUT_LEFT ) )
+        {
+            if( !table )
+            {
+                m_toolMgr->RunAction( PCB_ACTIONS::selectionClear );
+
+                PCB_LAYER_ID layer = m_frame->GetActiveLayer();
+
+                table = new PCB_TABLE( m_frame->GetModel(), bds.GetLineThickness( layer ) );
+                table->SetLayer( layer );
+                table->SetColCount( 1 );
+                table->AddCell( new PCB_TABLECELL( table ) );
+
+                table->SetLayer( layer );
+                table->SetPosition( cursorPos );
+
+                if( !m_view->IsLayerVisible( layer ) )
+                {
+                    m_frame->GetAppearancePanel()->SetLayerVisible( layer, true );
+                    m_frame->GetCanvas()->Refresh();
+                }
+
+                m_toolMgr->RunAction<EDA_ITEM*>( PCB_ACTIONS::selectItem, table );
+                m_view->Update( &selection() );
+
+                // update the cursor so it looks correct before another event
+                setCursor();
+            }
+            else
+            {
+                m_toolMgr->RunAction( PCB_ACTIONS::selectionClear );
+
+                table->ClearFlags();
+                table->Normalize();
+
+                DIALOG_TABLE_PROPERTIES dlg( m_frame, table );
+
+                // QuasiModal required for Scintilla auto-complete
+                if( dlg.ShowQuasiModal() == wxID_OK )
+                {
+                    commit.Add( table, m_frame->GetScreen() );
+                    commit.Push( _( "Draw Table" ) );
+
+                    m_toolMgr->RunAction<EDA_ITEM*>( PCB_ACTIONS::selectItem, table );
+                    m_toolMgr->PostAction( ACTIONS::activatePointEditor );
+                }
+                else
+                {
+                    delete table;
+                }
+
+                table = nullptr;
+            }
+        }
+        else if( table && ( evt->IsAction( &ACTIONS::refreshPreview ) || evt->IsMotion() ) )
+        {
+            VECTOR2I fontSize = bds.GetTextSize( table->GetLayer() );
+            VECTOR2I gridSize = grid.GetGridSize( grid.GetItemGrid( table ) );
+            VECTOR2I origin( table->GetPosition() );
+            VECTOR2I requestedSize( cursorPos - origin );
+
+            int colCount = std::max( 1, requestedSize.x / ( fontSize.x * 15 ) );
+            int rowCount = std::max( 1, requestedSize.y / ( fontSize.y * 3  ) );
+
+            VECTOR2I cellSize( std::max( fontSize.x * 5, requestedSize.x / colCount ),
+                               std::max( fontSize.y * 3, requestedSize.y / rowCount ) );
+
+            cellSize.x = KiROUND( (double) cellSize.x / gridSize.x ) * gridSize.x;
+            cellSize.y = KiROUND( (double) cellSize.y / gridSize.y ) * gridSize.y;
+
+            table->ClearCells();
+            table->SetColCount( colCount );
+
+            for( int col = 0; col < colCount; ++col )
+                table->SetColWidth( col, cellSize.x );
+
+            for( int row = 0; row < rowCount; ++row )
+            {
+                table->SetRowHeight( row, cellSize.y );
+
+                for( int col = 0; col < colCount; ++col )
+                {
+                    PCB_TABLECELL* cell = new PCB_TABLECELL( table );
+                    cell->SetPosition( origin + VECTOR2I( col * cellSize.x, row * cellSize.y ) );
+                    cell->SetEnd( cell->GetPosition() + cellSize );
+                    table->AddCell( cell );
+                }
+            }
+
+            selection().SetReferencePoint( cursorPos );
+            m_view->Update( &selection() );
+            m_frame->SetMsgPanel( table );
+        }
+        else if( table && evt->IsAction( &PCB_ACTIONS::properties ) )
+        {
+            frame()->OnEditItemRequest( table );
+            m_view->Update( &selection() );
+            frame()->SetMsgPanel( table );
+        }
+        else if( table && (   ZONE_FILLER_TOOL::IsZoneFillAction( evt )
+                          || evt->IsAction( &ACTIONS::redo ) ) )
+        {
+            wxBell();
+        }
+        else
+        {
+            evt->SetPassEvent();
+        }
+
+        // Enable autopanning and cursor capture only when there is a shape being drawn
+        getViewControls()->SetAutoPan( table != nullptr );
+        getViewControls()->CaptureCursor( table != nullptr );
+    }
+
+    getViewControls()->SetAutoPan( false );
+    getViewControls()->CaptureCursor( false );
+    m_frame->GetCanvas()->SetCurrentCursor( KICURSOR::ARROW );
     return 0;
 }
 
@@ -1181,6 +1406,9 @@ int DRAWING_TOOL::DrawDimension( const TOOL_EVENT& aEvent )
         }
         else if( evt->IsClick( BUT_RIGHT ) )
         {
+            if( !dimension )
+                m_toolMgr->VetoContextMenuMouseWarp();
+
             m_menu.ShowContextMenu( selection() );
         }
         else if( evt->IsClick( BUT_LEFT ) || evt->IsDblClick( BUT_LEFT ) )
@@ -1506,14 +1734,14 @@ int DRAWING_TOOL::PlaceImportedGraphics( const TOOL_EVENT& aEvent )
     std::vector<BOARD_ITEM*> selectedItems;     // the group, or newItems if no group
     PCB_SELECTION            preview;
     BOARD_COMMIT             commit( m_frame );
+    PCB_GROUP*               group = nullptr;
     PICKED_ITEMS_LIST        groupUndoList;
     PCB_LAYER_ID             layer = F_Cu;
 
-    PCB_GROUP* group = dlg.ShouldGroupItems() ? new PCB_GROUP( m_frame->GetModel() )
-                                              : nullptr;
-
-    if( group )
+    if( dlg.ShouldGroupItems() )
     {
+        group = new PCB_GROUP( m_frame->GetModel() );
+
         newItems.push_back( group );
         selectedItems.push_back( group );
         preview.Add( group );
@@ -1544,41 +1772,49 @@ int DRAWING_TOOL::PlaceImportedGraphics( const TOOL_EVENT& aEvent )
         BOARD_ITEM* item = dynamic_cast<BOARD_ITEM*>( ptr.release() );
         wxCHECK2( item, continue );
 
+        newItems.push_back( item );
+
         if( group )
+        {
             group->AddItem( item );
+            groupUndoList.PushItem( ITEM_PICKER( nullptr, item, UNDO_REDO::REGROUP ) );
+        }
         else
         {
-            newItems.push_back( item );
             selectedItems.push_back( item );
         }
-
-        groupUndoList.PushItem( ITEM_PICKER( nullptr, item, UNDO_REDO::REGROUP ) );
 
         layer = item->GetLayer();
 
         preview.Add( item );
     }
 
-    if( !dlg.IsPlacementInteractive() )
-    {
-        for( BOARD_ITEM* item : newItems )
-            commit.Add( item );
-
-        commit.Push( _( "Import Graphics" ) );
-
-        if( groupUndoList.GetCount() > 0 )
-            m_frame->AppendCopyToUndoList( groupUndoList, UNDO_REDO::REGROUP );
-
-        return 0;
-    }
-
-    m_view->Add( &preview );
-
     // Clear the current selection then select the drawings so that edit tools work on them
     m_toolMgr->RunAction( PCB_ACTIONS::selectionClear );
 
     EDA_ITEMS selItems( selectedItems.begin(), selectedItems.end() );
     m_toolMgr->RunAction<EDA_ITEMS*>( PCB_ACTIONS::selectItems, &selItems );
+
+    if( !dlg.IsPlacementInteractive() )
+    {
+        for( BOARD_ITEM* item : newItems )
+            commit.Add( item );
+
+        if( groupUndoList.GetCount() > 0 )
+            commit.Stage( groupUndoList );
+
+        commit.Push( _( "Import Graphics" ) );
+
+        return 0;
+    }
+
+    if( !m_view->IsLayerVisible( layer ) )
+    {
+        m_frame->GetAppearancePanel()->SetLayerVisible( layer, true );
+        m_frame->GetCanvas()->Refresh();
+    }
+
+    m_view->Add( &preview );
 
     m_frame->PushTool( aEvent );
 
@@ -1653,10 +1889,10 @@ int DRAWING_TOOL::PlaceImportedGraphics( const TOOL_EVENT& aEvent )
             for( BOARD_ITEM* item : newItems )
                 commit.Add( item );
 
-            commit.Push( _( "Import Graphics" ) );
-
             if( groupUndoList.GetCount() > 0 )
-                m_frame->AppendCopyToUndoList( groupUndoList, UNDO_REDO::REGROUP );
+                commit.Stage( groupUndoList );
+
+            commit.Push( _( "Import Graphics" ) );
 
             break;   // This is a one-shot command, not a tool
         }
@@ -1892,7 +2128,7 @@ bool DRAWING_TOOL::drawShape( const TOOL_EVENT& aTool, PCB_SHAPE** aGraphic,
                 COORDS_PADDING );
         m_controls->ForceCursorPosition( true, cursorPos );
 
-        if( evt->IsCancelInteractive() )
+        if( evt->IsCancelInteractive() || ( started && evt->IsAction( &ACTIONS::undo ) ) )
         {
             cleanup();
 
@@ -1970,6 +2206,9 @@ bool DRAWING_TOOL::drawShape( const TOOL_EVENT& aTool, PCB_SHAPE** aGraphic,
         }
         else if( evt->IsClick( BUT_RIGHT ) )
         {
+            if( !graphic )
+                m_toolMgr->VetoContextMenuMouseWarp();
+
             m_menu.ShowContextMenu( selection() );
         }
         else if( evt->IsClick( BUT_LEFT ) || evt->IsDblClick( BUT_LEFT ) )
@@ -2081,8 +2320,7 @@ bool DRAWING_TOOL::drawShape( const TOOL_EVENT& aTool, PCB_SHAPE** aGraphic,
             m_view->Update( &m_preview );
             m_view->Update( &twoPointAsst );
         }
-        else if( started && (   evt->IsAction( &ACTIONS::undo )
-                             || evt->IsAction( &PCB_ACTIONS::doDelete )
+        else if( started && (   evt->IsAction( &PCB_ACTIONS::doDelete )
                              || evt->IsAction( &PCB_ACTIONS::deleteLastPoint ) ) )
         {
             if( aCommittedGraphics && !aCommittedGraphics->empty() )
@@ -2107,6 +2345,7 @@ bool DRAWING_TOOL::drawShape( const TOOL_EVENT& aTool, PCB_SHAPE** aGraphic,
             else
             {
                 cleanup();
+                break;
             }
         }
         else if( graphic && evt->IsAction( &PCB_ACTIONS::incWidth ) )
@@ -2405,6 +2644,9 @@ bool DRAWING_TOOL::drawArc( const TOOL_EVENT& aTool, PCB_SHAPE** aGraphic,
         }
         else if( evt->IsClick( BUT_RIGHT ) )
         {
+            if( !graphic )
+                m_toolMgr->VetoContextMenuMouseWarp();
+
             m_menu.ShowContextMenu( selection() );
         }
         else if( evt->IsAction( &PCB_ACTIONS::incWidth ) )
@@ -2657,6 +2899,9 @@ int DRAWING_TOOL::DrawZone( const TOOL_EVENT& aEvent )
         }
         else if( evt->IsClick( BUT_RIGHT ) )
         {
+            if( !started )
+                m_toolMgr->VetoContextMenuMouseWarp();
+
             m_menu.ShowContextMenu( selection() );
         }
         // events that lock in nodes
@@ -2793,7 +3038,12 @@ int DRAWING_TOOL::DrawVia( const TOOL_EVENT& aEvent )
                 for( FOOTPRINT* footprint : aFrame->GetBoard()->Footprints() )
                 {
                     for( PAD* pad : footprint->Pads() )
-                        m_worstClearance = std::max( m_worstClearance, pad->GetLocalClearance() );
+                    {
+                        std::optional<int> padOverride = pad->GetClearanceOverrides( nullptr );
+
+                        if( padOverride.has_value() )
+                            m_worstClearance = std::max( m_worstClearance, padOverride.value() );
+                    }
                 }
             }
             catch( PARSE_ERROR& )
@@ -3205,8 +3455,8 @@ int DRAWING_TOOL::DrawVia( const TOOL_EVENT& aEvent )
 
             aCommit.Add( via );
 
-            // If the user explicitly disables snap (using shift), then don't break the tracks into
-            // a chevron.  This will prevent PNS from being able to connect the via and track but
+            // If the user explicitly disables snap (using shift), then don't break the tracks.
+            // This will prevent PNS from being able to connect the via and track but
             // it is explicitly requested by the user
             if( track && m_gridHelper.GetSnap() )
             {
@@ -3214,107 +3464,11 @@ int DRAWING_TOOL::DrawVia( const TOOL_EVENT& aEvent )
                 VECTOR2I trackEnd = track->GetEnd();
                 SEG      trackSeg( trackStart, trackEnd );
 
-                OPT_VECTOR2I joint1;
-                OPT_VECTOR2I joint2;
-
-                auto insertChevron =
-                        [&]()
-                        {
-                            if( ( trackStart - *joint1 ).SquaredEuclideanNorm()
-                                    > ( trackStart - *joint2 ).SquaredEuclideanNorm() )
-                            {
-                                std::swap( joint1, joint2 );
-                            }
-
-                            aCommit.Modify( track );
-                            track->SetStart( trackStart );
-                            track->SetEnd( *joint1 );
-
-                            if( *joint1 != viaPos )
-                            {
-                                PCB_TRACK* newTrack = dynamic_cast<PCB_TRACK*>( track->Clone() );
-                                wxCHECK( newTrack, /* void */ );
-                                const_cast<KIID&>( newTrack->m_Uuid ) = KIID();
-
-                                newTrack->SetStart( *joint1 );
-                                newTrack->SetEnd( viaPos );
-                                aCommit.Add( newTrack );
-                            }
-
-                            if( *joint2 != viaPos )
-                            {
-                                PCB_TRACK* newTrack = dynamic_cast<PCB_TRACK*>( track->Clone() );
-                                wxCHECK( newTrack, /* void */ );
-                                const_cast<KIID&>( newTrack->m_Uuid ) = KIID();
-
-                                newTrack->SetStart( viaPos );
-                                newTrack->SetEnd( *joint2 );
-                                aCommit.Add( newTrack );
-                            }
-
-                            PCB_TRACK* newTrack = dynamic_cast<PCB_TRACK*>( track->Clone() );
-                            wxCHECK( newTrack, /* void */ );
-                            const_cast<KIID&>( newTrack->m_Uuid ) = KIID();
-
-                            newTrack->SetStart( *joint2 );
-                            newTrack->SetEnd( trackEnd );
-                            aCommit.Add( newTrack );
-                        };
-
                 if( viaPos == trackStart || viaPos == trackEnd )
                     return true;
 
-                if( trackStart.x == trackEnd.x )
-                {
-                    VECTOR2I splitPt = trackSeg.NearestPoint( viaPos );
-
-                    if( splitPt.x != viaPos.x
-                            && abs( splitPt.x - viaPos.x ) < abs( splitPt.y - trackStart.y  )
-                            && abs( splitPt.x - viaPos.x ) < abs( splitPt.y - trackEnd.y ) )
-                    {
-                        int offset = abs( splitPt.x - viaPos.x );
-
-                        joint1 = VECTOR2I( splitPt.x, splitPt.y - offset );
-                        joint2 = VECTOR2I( splitPt.x, splitPt.y + offset );
-
-                        insertChevron();
-                        return true;
-                    }
-                }
-                else if( trackStart.y == trackEnd.y )
-                {
-                    VECTOR2I splitPt = trackSeg.NearestPoint( viaPos );
-
-                    if( splitPt.y != viaPos.y
-                            && abs( trackStart.y - viaPos.y ) < abs( trackStart.x - viaPos.x )
-                            && abs( trackEnd.y - viaPos.y ) < abs( trackEnd.x - viaPos.x ) )
-                    {
-                        int offset = abs( splitPt.y - viaPos.y );
-
-                        joint1 = VECTOR2I( splitPt.x - offset, splitPt.y );
-                        joint2 = VECTOR2I( splitPt.x + offset, splitPt.y );
-
-                        insertChevron();
-                        return true;
-                    }
-                }
-                else if( abs( trackStart.y - trackEnd.y ) == abs( trackStart.x - trackEnd.x ) )
-                {
-                    SEG horiz( VECTOR2I( -INT_MAX, viaPos.y ), VECTOR2I( INT_MAX, viaPos.y ) );
-                    SEG vert( VECTOR2I( viaPos.x, -INT_MAX ), VECTOR2I( viaPos.x, INT_MAX ) );
-
-                    if( track->GetBoundingBox().Contains( viaPos ) )
-                    {
-                        joint1 = trackSeg.Intersect( horiz, true, true );
-                        joint2 = trackSeg.Intersect( vert, true, true );
-
-                        if( !joint1 || !joint2 )
-                            return false;
-
-                        insertChevron();
-                        return true;
-                    }
-                }
+                if( !trackSeg.Contains( viaPos ) )
+                    return true;
 
                 aCommit.Modify( track );
                 track->SetStart( trackStart );
@@ -3431,12 +3585,14 @@ void DRAWING_TOOL::setTransitions()
     Go( &DRAWING_TOOL::DrawVia,               PCB_ACTIONS::drawVia.MakeEvent() );
     Go( &DRAWING_TOOL::PlaceReferenceImage,   PCB_ACTIONS::placeReferenceImage.MakeEvent() );
     Go( &DRAWING_TOOL::PlaceText,             PCB_ACTIONS::placeText.MakeEvent() );
+    Go( &DRAWING_TOOL::DrawTable,             PCB_ACTIONS::drawTable.MakeEvent() );
     Go( &DRAWING_TOOL::DrawRectangle,         PCB_ACTIONS::drawTextBox.MakeEvent() );
     Go( &DRAWING_TOOL::PlaceImportedGraphics, PCB_ACTIONS::placeImportedGraphics.MakeEvent() );
     Go( &DRAWING_TOOL::SetAnchor,             PCB_ACTIONS::setAnchor.MakeEvent() );
 
     Go( &DRAWING_TOOL::ToggleHV45Mode,        PCB_ACTIONS::toggleHV45Mode.MakeEvent() );
 
-    Go( &DRAWING_TOOL::PlaceTuningPattern,    PCB_ACTIONS::tuneLength.MakeEvent() );
+    Go( &DRAWING_TOOL::PlaceTuningPattern,    PCB_ACTIONS::tuneSingleTrack.MakeEvent() );
+    Go( &DRAWING_TOOL::PlaceTuningPattern,    PCB_ACTIONS::tuneDiffPair.MakeEvent() );
     Go( &DRAWING_TOOL::PlaceTuningPattern,    PCB_ACTIONS::tuneSkew.MakeEvent() );
 }

@@ -88,17 +88,16 @@ void SYMBOL_DIFF_WIDGET::DisplayDiff( LIB_SYMBOL* aSchSymbol, LIB_SYMBOL* aLibSy
         m_previewItem = aSchSymbol;
 
         // For symbols having a De Morgan body style, use the first style
-        auto settings =
-                static_cast<KIGFX::SCH_RENDER_SETTINGS*>( view->GetPainter()->GetSettings() );
+        auto settings = static_cast<SCH_RENDER_SETTINGS*>( view->GetPainter()->GetSettings() );
 
         settings->m_ShowUnit = ( m_previewItem->IsMulti() && !aUnit ) ? 1 : aUnit;
-        settings->m_ShowConvert = ( m_previewItem->HasConversion() && !aConvert ) ? 1 : aConvert;
+        settings->m_ShowBodyStyle = ( m_previewItem->HasAlternateBodyStyle() && !aConvert ) ? 1 : aConvert;
 
         view->Add( m_previewItem );
 
         // Get the symbol size, in internal units
         m_itemBBox = m_previewItem->GetUnitBoundingBox( settings->m_ShowUnit,
-                                                        settings->m_ShowConvert );
+                                                        settings->m_ShowBodyStyle );
 
         // Calculate the draw scale to fit the drawing area
         fitOnDrawArea();
@@ -134,7 +133,7 @@ void SYMBOL_DIFF_WIDGET::onSlider( wxScrollEvent& aEvent )
         m_previewItem->SetForcedTransparency( val );
         view->Update( m_previewItem );
 
-        for( LIB_ITEM& child : m_previewItem->GetDrawItems() )
+        for( SCH_ITEM& child : m_previewItem->GetDrawItems() )
         {
             child.SetForcedTransparency( val );
             view->Update( &child );
@@ -153,7 +152,7 @@ void SYMBOL_DIFF_WIDGET::onSlider( wxScrollEvent& aEvent )
         m_libraryItem->SetForcedTransparency( val );
         view->Update( m_libraryItem );
 
-        for( LIB_ITEM& child : m_libraryItem->GetDrawItems() )
+        for( SCH_ITEM& child : m_libraryItem->GetDrawItems() )
         {
             child.SetForcedTransparency( val );
             view->Update( &child );

@@ -2,7 +2,7 @@
  * KiRouter - a push-and-(sometimes-)shove PCB router
  *
  * Copyright (C) 2013-2014 CERN
- * Copyright (C) 2016-2023 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2016-2024 KiCad Developers, see AUTHORS.txt for contributors.
  * Author: Tomasz Wlostowski <tomasz.wlostowski@cern.ch>
  *
  * This program is free software: you can redistribute it and/or modify it
@@ -23,15 +23,12 @@
 #include <memory>
 #include <vector>
 
-#include <view/view.h>
-#include <view/view_group.h>
 #include <gal/graphics_abstraction_layer.h>
 
 #include <advanced_config.h>
 #include <settings/settings_manager.h>
 
 #include <pcb_painter.h>
-#include <pcbnew_settings.h>
 #include <pad.h>
 #include <zone.h>
 
@@ -51,6 +48,7 @@
 #include "pns_meander_placer.h"
 #include "pns_meander_skew_placer.h"
 #include "pns_dp_meander_placer.h"
+#include "router_preview_item.h"
 
 namespace PNS {
 
@@ -122,32 +120,14 @@ bool ROUTER::RoutingInProgress() const
 }
 
 
-const ITEM_SET ROUTER::QueryHoverItems( const VECTOR2I& aP, bool aUseClearance )
+const ITEM_SET ROUTER::QueryHoverItems( const VECTOR2I& aP, int aSlopRadius )
 {
-    NODE* node = nullptr;
-    int   clearance = 0;
-
-    if( m_state == IDLE || m_placer == nullptr )
-    {
-        node = m_world.get();
-        clearance = 0;
-    }
-    else if( m_mode == PNS_MODE_ROUTE_SINGLE )
-    {
-        node = m_placer->CurrentNode();
-        clearance = m_sizes.Clearance() + m_sizes.TrackWidth() / 2;
-    }
-    else if( m_mode == PNS_MODE_ROUTE_DIFF_PAIR )
-    {
-        node = m_placer->CurrentNode();
-        clearance = m_sizes.Clearance() + m_sizes.DiffPairWidth() / 2;
-    }
-
+    NODE*         node = m_placer ? m_placer->CurrentNode() : m_world.get();
     PNS::ITEM_SET ret;
 
     wxCHECK( node, ret );
 
-    if( aUseClearance )
+    if( aSlopRadius > 0 )
     {
         NODE::OBSTACLES          obs;
         SEGMENT                  test( SEG( aP, aP ), nullptr );
@@ -157,7 +137,7 @@ const ITEM_SET ROUTER::QueryHoverItems( const VECTOR2I& aP, bool aUseClearance )
         test.SetLayers( LAYER_RANGE::All() );
 
         opts.m_differentNetsOnly = false;
-        opts.m_overrideClearance = clearance;
+        opts.m_overrideClearance = aSlopRadius;
 
         node->QueryColliding( &test, obs, opts );
 
@@ -460,6 +440,8 @@ bool ROUTER::StartRouting( const VECTOR2I& aP, ITEM* aStartItem, int aLayer )
     else
     {
         m_state = IDLE;
+        m_placer.reset();
+
         return false;
     }
 }
@@ -577,7 +559,12 @@ bool ROUTER::Finish()
 
     // If we've made it, fix the route and we're done
     if( moveResultPoint == otherEnd && otherEndLayers.Overlaps( GetCurrentLayer() ) )
-        return FixRoute( otherEnd, otherEndItem, false );
+    {
+        bool forceFinish = false;
+        bool allowViolations = false;
+
+        return FixRoute( otherEnd, otherEndItem, forceFinish, allowViolations );
+    }
 
     return false;
 }
@@ -757,7 +744,7 @@ bool ROUTER::movePlacing( const VECTOR2I& aP, ITEM* aEndItem )
         const LINE* l = static_cast<const LINE*>( item );
         int clearance = GetRuleResolver()->Clearance( item, nullptr );
 
-        m_iface->DisplayItem( l, clearance, false, true );
+        m_iface->DisplayItem( l, clearance, false, PNS_HEAD_TRACE );
 
         if( l->EndsWithVia() )
         {
@@ -774,7 +761,7 @@ bool ROUTER::movePlacing( const VECTOR2I& aP, ITEM* aEndItem )
                     clearance = excessHoleClearance;
             }
 
-            m_iface->DisplayItem( &l->Via(), clearance, false, true );
+            m_iface->DisplayItem( &l->Via(), clearance, false, PNS_HEAD_TRACE );
         }
     }
 
@@ -868,7 +855,7 @@ void ROUTER::CommitRouting( NODE* aNode )
 }
 
 
-bool ROUTER::FixRoute( const VECTOR2I& aP, ITEM* aEndItem, bool aForceFinish )
+bool ROUTER::FixRoute( const VECTOR2I& aP, ITEM* aEndItem, bool aForceFinish, bool aForceCommit )
 {
     bool rv = false;
 
@@ -883,7 +870,7 @@ bool ROUTER::FixRoute( const VECTOR2I& aP, ITEM* aEndItem, bool aForceFinish )
 
     case DRAG_SEGMENT:
     case DRAG_COMPONENT:
-        rv = m_dragger->FixRoute();
+        rv = m_dragger->FixRoute( aForceCommit );
         break;
 
     default:
@@ -1054,13 +1041,20 @@ void ROUTER::SetInterface( ROUTER_IFACE *aIface )
 }
 
 
-void ROUTER::BreakSegment( ITEM *aItem, const VECTOR2I& aP )
+void ROUTER::BreakSegmentOrArc( ITEM *aItem, const VECTOR2I& aP )
 {
     NODE *node = m_world->Branch();
 
     LINE_PLACER placer( this );
 
-    if( placer.SplitAdjacentSegments( node, aItem, aP ) )
+    bool ret = false;
+
+    if( aItem->OfKind( ITEM::SEGMENT_T ) )
+        ret = placer.SplitAdjacentSegments( node, aItem, aP );
+    else if( aItem->OfKind( ITEM::ARC_T ) )
+        ret = placer.SplitAdjacentArcs( node, aItem, aP );
+
+    if( ret )
     {
         CommitRouting( node );
     }

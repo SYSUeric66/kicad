@@ -39,25 +39,25 @@
 
 DIALOG_TRACK_VIA_PROPERTIES::DIALOG_TRACK_VIA_PROPERTIES( PCB_BASE_FRAME* aParent,
                                                           const PCB_SELECTION& aItems ) :
-    DIALOG_TRACK_VIA_PROPERTIES_BASE( aParent ),
-    m_frame( aParent ),
-    m_items( aItems ),
-    m_trackStartX( aParent, m_TrackStartXLabel, m_TrackStartXCtrl, nullptr ),
-    m_trackStartY( aParent, m_TrackStartYLabel, m_TrackStartYCtrl, m_TrackStartYUnit ),
-    m_trackEndX( aParent, m_TrackEndXLabel, m_TrackEndXCtrl, nullptr ),
-    m_trackEndY( aParent, m_TrackEndYLabel, m_TrackEndYCtrl, m_TrackEndYUnit ),
-    m_trackWidth( aParent, m_TrackWidthLabel, m_TrackWidthCtrl, m_TrackWidthUnit ),
-    m_viaX( aParent, m_ViaXLabel, m_ViaXCtrl, nullptr ),
-    m_viaY( aParent, m_ViaYLabel, m_ViaYCtrl, m_ViaYUnit ),
-    m_viaDiameter( aParent, m_ViaDiameterLabel, m_ViaDiameterCtrl, m_ViaDiameterUnit ),
-    m_viaDrill( aParent, m_ViaDrillLabel, m_ViaDrillCtrl, m_ViaDrillUnit ),
-    m_teardropHDPercent( aParent, m_stHDRatio, m_tcHDRatio, m_stHDRatioUnits ),
-    m_teardropLenPercent( aParent, m_stLenPercentLabel, m_tcLenPercent, m_stLenPercentUnits ),
-    m_teardropMaxLen( aParent, m_stMaxLen, m_tcTdMaxLen, m_stMaxLenUnits ),
-    m_teardropHeightPercent( aParent, m_stHeightPercentLabel, m_tcHeightPercent, m_stHeightPercentUnits ),
-    m_teardropMaxHeight( aParent, m_stMaxHeight, m_tcMaxHeight, m_stMaxHeightUnits ),
-    m_tracks( false ),
-    m_vias( false )
+        DIALOG_TRACK_VIA_PROPERTIES_BASE( aParent ),
+        m_frame( aParent ),
+        m_items( aItems ),
+        m_trackStartX( aParent, m_TrackStartXLabel, m_TrackStartXCtrl, nullptr ),
+        m_trackStartY( aParent, m_TrackStartYLabel, m_TrackStartYCtrl, m_TrackStartYUnit ),
+        m_trackEndX( aParent, m_TrackEndXLabel, m_TrackEndXCtrl, nullptr ),
+        m_trackEndY( aParent, m_TrackEndYLabel, m_TrackEndYCtrl, m_TrackEndYUnit ),
+        m_trackWidth( aParent, m_TrackWidthLabel, m_TrackWidthCtrl, m_TrackWidthUnit ),
+        m_viaX( aParent, m_ViaXLabel, m_ViaXCtrl, nullptr ),
+        m_viaY( aParent, m_ViaYLabel, m_ViaYCtrl, m_ViaYUnit ),
+        m_viaDiameter( aParent, m_ViaDiameterLabel, m_ViaDiameterCtrl, m_ViaDiameterUnit ),
+        m_viaDrill( aParent, m_ViaDrillLabel, m_ViaDrillCtrl, m_ViaDrillUnit ),
+        m_teardropHDPercent( aParent, m_stHDRatio, m_tcHDRatio, m_stHDRatioUnits ),
+        m_teardropLenPercent( aParent, m_stLenPercentLabel, m_tcLenPercent, nullptr ),
+        m_teardropMaxLen( aParent, m_stMaxLen, m_tcTdMaxLen, m_stMaxLenUnits ),
+        m_teardropWidthPercent( aParent, m_stWidthPercentLabel, m_tcWidthPercent, nullptr ),
+        m_teardropMaxWidth( aParent, m_stMaxWidthLabel, m_tcMaxWidth, m_stMaxWidthUnits ),
+        m_tracks( false ),
+        m_vias( false )
 {
     m_useCalculatedSize = true;
 
@@ -70,7 +70,7 @@ DIALOG_TRACK_VIA_PROPERTIES::DIALOG_TRACK_VIA_PROPERTIES( PCB_BASE_FRAME* aParen
 
     m_teardropHDPercent.SetUnits( EDA_UNITS::PERCENT );
     m_teardropLenPercent.SetUnits( EDA_UNITS::PERCENT );
-    m_teardropHeightPercent.SetUnits( EDA_UNITS::PERCENT );
+    m_teardropWidthPercent.SetUnits( EDA_UNITS::PERCENT );
 
     m_minTrackWidthHint->SetFont( KIUI::GetInfoFont( this ).Italic() );
 
@@ -101,8 +101,6 @@ DIALOG_TRACK_VIA_PROPERTIES::DIALOG_TRACK_VIA_PROPERTIES( PCB_BASE_FRAME* aParen
 
     bool nets = false;
     int  net = 0;
-    bool tracksMatchNetclassValues = true;
-    bool viasMatchNetclassValues = true;
     bool hasLocked = false;
     bool hasUnlocked = false;
 
@@ -153,7 +151,6 @@ DIALOG_TRACK_VIA_PROPERTIES::DIALOG_TRACK_VIA_PROPERTIES( PCB_BASE_FRAME* aParen
                     m_trackEndX.SetValue( t->GetEnd().x );
                     m_trackEndY.SetValue( t->GetEnd().y );
                     m_trackWidth.SetValue( t->GetWidth() );
-                    m_trackDesignRules->SetValue( false );
                     track_selection_layer = t->GetLayer();
                     m_tracks = true;
                 }
@@ -176,16 +173,6 @@ DIALOG_TRACK_VIA_PROPERTIES::DIALOG_TRACK_VIA_PROPERTIES( PCB_BASE_FRAME* aParen
 
                     if( track_selection_layer != t->GetLayer() )
                         track_selection_layer = UNDEFINED_LAYER;
-                }
-
-                if( tracksMatchNetclassValues )
-                {
-                    MINOPTMAX<int> constraint = t->GetWidthConstraint();
-
-                    if( constraint.HasOpt() )
-                        tracksMatchNetclassValues &= constraint.Opt() == t->GetWidth();
-                    else if( constraint.Min() > 0 )
-                        tracksMatchNetclassValues &= constraint.Min() == t->GetWidth();
                 }
 
                 if( t->IsLocked() )
@@ -216,9 +203,9 @@ DIALOG_TRACK_VIA_PROPERTIES::DIALOG_TRACK_VIA_PROPERTIES( PCB_BASE_FRAME* aParen
                     m_cbTeardrops->SetValue( v->GetTeardropParams().m_Enabled );
                     m_cbTeardropsUseNextTrack->SetValue( v->GetTeardropParams().m_AllowUseTwoTracks );
                     m_teardropMaxLen.SetValue( v->GetTeardropParams().m_TdMaxLen );
-                    m_teardropMaxHeight.SetValue( v->GetTeardropParams().m_TdMaxWidth );
+                    m_teardropMaxWidth.SetValue( v->GetTeardropParams().m_TdMaxWidth );
                     m_teardropLenPercent.SetDoubleValue( v->GetTeardropParams().m_BestLengthRatio*100.0 );
-                    m_teardropHeightPercent.SetDoubleValue( v->GetTeardropParams().m_BestWidthRatio*100.0 );
+                    m_teardropWidthPercent.SetDoubleValue( v->GetTeardropParams().m_BestWidthRatio*100.0 );
                     m_teardropHDPercent.SetDoubleValue( v->GetTeardropParams().m_WidthtoSizeFilterRatio*100.0 );
                     m_curvedEdges->SetValue( v->GetTeardropParams().IsCurved() );
                     m_curvePointsCtrl->SetValue( v->GetTeardropParams().m_CurveSegCount );
@@ -266,14 +253,14 @@ DIALOG_TRACK_VIA_PROPERTIES::DIALOG_TRACK_VIA_PROPERTIES( PCB_BASE_FRAME* aParen
                     if( m_teardropMaxLen.GetValue() != v->GetTeardropParams().m_TdMaxLen )
                         m_teardropMaxLen.SetValue( INDETERMINATE_STATE );
 
-                    if( m_teardropMaxHeight.GetValue() != v->GetTeardropParams().m_TdMaxWidth )
-                        m_teardropMaxHeight.SetValue( INDETERMINATE_STATE );
+                    if( m_teardropMaxWidth.GetValue() != v->GetTeardropParams().m_TdMaxWidth )
+                        m_teardropMaxWidth.SetValue( INDETERMINATE_STATE );
 
                     if( m_teardropLenPercent.GetDoubleValue() != v->GetTeardropParams().m_BestLengthRatio *100.0 )
                         m_teardropLenPercent.SetValue( INDETERMINATE_STATE );
 
-                    if( m_teardropHeightPercent.GetDoubleValue() != v->GetTeardropParams().m_BestWidthRatio *100.0 )
-                        m_teardropHeightPercent.SetValue( INDETERMINATE_STATE );
+                    if( m_teardropWidthPercent.GetDoubleValue() != v->GetTeardropParams().m_BestWidthRatio *100.0 )
+                        m_teardropWidthPercent.SetValue( INDETERMINATE_STATE );
 
                     if( m_teardropHDPercent.GetDoubleValue() != v->GetTeardropParams().m_WidthtoSizeFilterRatio*100.0 )
                         m_teardropHDPercent.SetValue( INDETERMINATE_STATE );
@@ -283,23 +270,6 @@ DIALOG_TRACK_VIA_PROPERTIES::DIALOG_TRACK_VIA_PROPERTIES( PCB_BASE_FRAME* aParen
                         m_curvedEdges->Set3StateValue( wxCHK_UNDETERMINED );
                         m_curvePointsCtrl->SetValue( 5 );
                     }
-                }
-
-                if( viasMatchNetclassValues )
-                {
-                    MINOPTMAX<int> constraint = v->GetWidthConstraint();
-
-                    if( constraint.HasOpt() )
-                        viasMatchNetclassValues &= constraint.Opt() == v->GetWidth();
-                    else if( constraint.Min() > 0 )
-                        viasMatchNetclassValues &= constraint.Min() == v->GetWidth();
-
-                    constraint = v->GetDrillConstraint();
-
-                    if( constraint.HasOpt() )
-                        viasMatchNetclassValues &= constraint.Opt() == v->GetDrillValue();
-                    else if( constraint.Min() > 0 )
-                        viasMatchNetclassValues &= constraint.Min() == v->GetDrillValue();
                 }
 
                 if( v->IsLocked() )
@@ -376,41 +346,27 @@ DIALOG_TRACK_VIA_PROPERTIES::DIALOG_TRACK_VIA_PROPERTIES( PCB_BASE_FRAME* aParen
             m_netSelector->Disable();
         }
 
-        m_DesignRuleViasUnit->SetLabel( EDA_UNIT_UTILS::GetLabel( m_frame->GetUserUnits() ) );
+        int viaSelection = wxNOT_FOUND;
 
-        if( viasMatchNetclassValues )
+        // 0 is the netclass place-holder
+        for( unsigned ii = 1; ii < aParent->GetDesignSettings().m_ViasDimensionsList.size(); ii++ )
         {
-            m_viaDesignRules->SetValue( true );
+            VIA_DIMENSION* viaDimension = &aParent->GetDesignSettings().m_ViasDimensionsList[ii];
+            wxString       msg = m_frame->StringFromValue( viaDimension->m_Diameter )
+                                    + wxT( " / " )
+                                    + m_frame->StringFromValue( viaDimension->m_Drill );
+            m_predefinedViaSizesCtrl->Append( msg, viaDimension );
 
-            m_DesignRuleVias->Enable( false );
-            m_DesignRuleViasCtrl->Enable( false );
-            m_DesignRuleViasUnit->Enable( false );
-            m_viaDiameter.Enable( false );
-            m_viaDrill.Enable( false );
-        }
-        else
-        {
-            int viaSelection = wxNOT_FOUND;
-
-            // 0 is the netclass place-holder
-            for( unsigned ii = 1; ii < aParent->GetDesignSettings().m_ViasDimensionsList.size(); ii++ )
+            if( viaSelection == wxNOT_FOUND
+                && m_viaDiameter.GetValue() == viaDimension->m_Diameter
+                && m_viaDrill.GetValue() == viaDimension->m_Drill )
             {
-                VIA_DIMENSION* viaDimension = &aParent->GetDesignSettings().m_ViasDimensionsList[ii];
-                wxString       msg = m_frame->StringFromValue( viaDimension->m_Diameter )
-                                        + wxT( " / " )
-                                        + m_frame->StringFromValue( viaDimension->m_Drill );
-                m_DesignRuleViasCtrl->Append( msg, viaDimension );
-
-                if( viaSelection == wxNOT_FOUND
-                    && m_viaDiameter.GetValue() == viaDimension->m_Diameter
-                    && m_viaDrill.GetValue() == viaDimension->m_Drill )
-                {
-                    viaSelection = ii - 1;
-                }
+                viaSelection = ii - 1;
             }
-
-            m_DesignRuleViasCtrl->SetSelection( viaSelection );
         }
+
+        m_predefinedViaSizesCtrl->SetSelection( viaSelection );
+        m_predefinedViaSizesUnits->SetLabel( EDA_UNIT_UTILS::GetLabel( m_frame->GetUserUnits() ) );
 
         m_ViaTypeChoice->Enable();
 
@@ -436,34 +392,21 @@ DIALOG_TRACK_VIA_PROPERTIES::DIALOG_TRACK_VIA_PROPERTIES( PCB_BASE_FRAME* aParen
 
     if( m_tracks )
     {
-        m_DesignRuleWidthsUnits->SetLabel( EDA_UNIT_UTILS::GetLabel( m_frame->GetUserUnits() ) );
+        int widthSelection = wxNOT_FOUND;
 
-        if( tracksMatchNetclassValues )
+        // 0 is the netclass place-holder
+        for( unsigned ii = 1; ii < aParent->GetDesignSettings().m_TrackWidthList.size(); ii++ )
         {
-            m_trackDesignRules->SetValue( true );
+            int      width = aParent->GetDesignSettings().m_TrackWidthList[ii];
+            wxString msg = m_frame->StringFromValue( width );
+            m_predefinedTrackWidthsCtrl->Append( msg );
 
-            m_DesignRuleWidths->Enable( false );
-            m_DesignRuleWidthsCtrl->Enable( false );
-            m_DesignRuleWidthsUnits->Enable( false );
-            m_trackWidth.Enable( false );
+            if( widthSelection == wxNOT_FOUND && m_trackWidth.GetValue() == width )
+                widthSelection = ii - 1;
         }
-        else
-        {
-            int widthSelection = wxNOT_FOUND;
 
-            // 0 is the netclass place-holder
-            for( unsigned ii = 1; ii < aParent->GetDesignSettings().m_TrackWidthList.size(); ii++ )
-            {
-                int      width = aParent->GetDesignSettings().m_TrackWidthList[ii];
-                wxString msg = m_frame->StringFromValue( width );
-                m_DesignRuleWidthsCtrl->Append( msg );
-
-                if( widthSelection == wxNOT_FOUND && m_trackWidth.GetValue() == width )
-                    widthSelection = ii - 1;
-            }
-
-            m_DesignRuleWidthsCtrl->SetSelection( widthSelection );
-        }
+        m_predefinedTrackWidthsCtrl->SetSelection( widthSelection );
+        m_predefinedTrackWidthsUnits->SetLabel( EDA_UNIT_UTILS::GetLabel( m_frame->GetUserUnits() ) );
     }
     else
     {
@@ -504,9 +447,9 @@ void DIALOG_TRACK_VIA_PROPERTIES::onUnitsChanged( wxCommandEvent& aEvent )
 {
     if( m_vias )
     {
-        int viaSel = m_DesignRuleViasCtrl->GetSelection();
+        int viaSel = m_predefinedViaSizesCtrl->GetSelection();
 
-        m_DesignRuleViasCtrl->Clear();
+        m_predefinedViaSizesCtrl->Clear();
 
         // 0 is the netclass place-holder
         for( unsigned ii = 1; ii < m_frame->GetDesignSettings().m_ViasDimensionsList.size(); ii++ )
@@ -515,29 +458,29 @@ void DIALOG_TRACK_VIA_PROPERTIES::onUnitsChanged( wxCommandEvent& aEvent )
             wxString       msg = m_frame->StringFromValue( viaDimension->m_Diameter )
                                     + wxT( " / " )
                                     + m_frame->StringFromValue( viaDimension->m_Drill );
-            m_DesignRuleViasCtrl->Append( msg, viaDimension );
+            m_predefinedViaSizesCtrl->Append( msg, viaDimension );
         }
 
-        m_DesignRuleViasCtrl->SetSelection( viaSel );
-        m_DesignRuleViasUnit->SetLabel( EDA_UNIT_UTILS::GetLabel( m_frame->GetUserUnits() ) );
+        m_predefinedViaSizesCtrl->SetSelection( viaSel );
+        m_predefinedViaSizesUnits->SetLabel( EDA_UNIT_UTILS::GetLabel( m_frame->GetUserUnits() ) );
     }
 
     if( m_tracks )
     {
-        int trackSel = m_DesignRuleWidthsCtrl->GetSelection();
+        int trackSel = m_predefinedTrackWidthsCtrl->GetSelection();
 
-        m_DesignRuleWidthsCtrl->Clear();
+        m_predefinedTrackWidthsCtrl->Clear();
 
         // 0 is the netclass place-holder
         for( unsigned ii = 1; ii < m_frame->GetDesignSettings().m_TrackWidthList.size(); ii++ )
         {
             int      width = m_frame->GetDesignSettings().m_TrackWidthList[ii];
             wxString msg = m_frame->StringFromValue( width );
-            m_DesignRuleWidthsCtrl->Append( msg );
+            m_predefinedTrackWidthsCtrl->Append( msg );
         }
 
-        m_DesignRuleWidthsCtrl->SetSelection( trackSel );
-        m_DesignRuleWidthsUnits->SetLabel( EDA_UNIT_UTILS::GetLabel( m_frame->GetUserUnits() ) );
+        m_predefinedTrackWidthsCtrl->SetSelection( trackSel );
+        m_predefinedTrackWidthsUnits->SetLabel( EDA_UNIT_UTILS::GetLabel( m_frame->GetUserUnits() ) );
     }
 
     aEvent.Skip();
@@ -651,19 +594,8 @@ bool DIALOG_TRACK_VIA_PROPERTIES::TransferDataFromWindow()
                 if( !m_trackEndY.IsIndeterminate() )
                     t->SetEnd( VECTOR2I( t->GetEnd().x, m_trackEndY.GetIntValue() ) );
 
-                if( m_trackDesignRules->IsChecked() )
-                {
-                    MINOPTMAX<int> constraint = t->GetWidthConstraint();
-
-                    if( constraint.HasOpt() )
-                        t->SetWidth( constraint.Opt() );
-                    else if( constraint.Min() > 0 )
-                        t->SetWidth( constraint.Min() );
-                }
-                else if( !m_trackWidth.IsIndeterminate() )
-                {
+                if( !m_trackWidth.IsIndeterminate() )
                     t->SetWidth( m_trackWidth.GetIntValue() );
-                }
 
                 int layer = m_TrackLayerCtrl->GetLayerSelection();
 
@@ -734,30 +666,11 @@ bool DIALOG_TRACK_VIA_PROPERTIES::TransferDataFromWindow()
 
                 v->SanitizeLayers();
 
-                if( m_viaDesignRules->IsChecked() )
-                {
-                    MINOPTMAX<int> constraint = v->GetWidthConstraint();
+                if( !m_viaDiameter.IsIndeterminate() )
+                    v->SetWidth( m_viaDiameter.GetIntValue() );
 
-                    if( constraint.HasOpt() )
-                        v->SetWidth( constraint.Opt() );
-                    else if( constraint.Min() > 0 )
-                        v->SetWidth( constraint.Min() );
-
-                    constraint = v->GetDrillConstraint();
-
-                    if( constraint.HasOpt() )
-                        v->SetDrill( constraint.Opt() );
-                    else if( constraint.Min() > 0 )
-                        v->SetDrill( constraint.Min() );
-                }
-                else
-                {
-                    if( !m_viaDiameter.IsIndeterminate() )
-                        v->SetWidth( m_viaDiameter.GetIntValue() );
-
-                    if( !m_viaDrill.IsIndeterminate() )
-                        v->SetDrill( m_viaDrill.GetIntValue() );
-                }
+                if( !m_viaDrill.IsIndeterminate() )
+                    v->SetDrill( m_viaDrill.GetIntValue() );
 
                 TEARDROP_PARAMETERS* targetParams = &v->GetTeardropParams();
 
@@ -770,14 +683,15 @@ bool DIALOG_TRACK_VIA_PROPERTIES::TransferDataFromWindow()
                 if( !m_teardropMaxLen.IsIndeterminate() )
                     targetParams->m_TdMaxLen = m_teardropMaxLen.GetIntValue();
 
-                if( !m_teardropMaxHeight.IsIndeterminate() )
-                    targetParams->m_TdMaxWidth = m_teardropMaxHeight.GetIntValue();
+                if( !m_teardropMaxWidth.IsIndeterminate() )
+                    targetParams->m_TdMaxWidth = m_teardropMaxWidth.GetIntValue();
 
                 if( !m_teardropLenPercent.IsIndeterminate() )
                     targetParams->m_BestLengthRatio = m_teardropLenPercent.GetDoubleValue() / 100.0;
 
-                if( !m_teardropHeightPercent.IsIndeterminate() )
-                    targetParams->m_BestWidthRatio = m_teardropHeightPercent.GetDoubleValue() / 100.0;
+                if( !m_teardropWidthPercent.IsIndeterminate() )
+                    targetParams->m_BestWidthRatio =
+                            m_teardropWidthPercent.GetDoubleValue() / 100.0;
 
                 if( !m_teardropHDPercent.IsIndeterminate() )
                     targetParams->m_WidthtoSizeFilterRatio = m_teardropHDPercent.GetDoubleValue() / 100.0;
@@ -802,7 +716,7 @@ bool DIALOG_TRACK_VIA_PROPERTIES::TransferDataFromWindow()
         }
     }
 
-    commit.Push( _( "Edit track/via properties" ) );
+    commit.Push( _( "Edit Track/Via Properties" ) );
 
     // Pushing the commit will have updated the connectivity so we can now test to see if we
     // need to update any pad nets.
@@ -867,7 +781,7 @@ bool DIALOG_TRACK_VIA_PROPERTIES::TransferDataFromWindow()
             pad->SetNetCode( newNetCode );
         }
 
-        commit.Push( _( "Updating nets" ) );
+        commit.Push( _( "Update Nets" ) );
     }
 
     return true;
@@ -890,41 +804,16 @@ void DIALOG_TRACK_VIA_PROPERTIES::onViaNotFreeClicked( wxCommandEvent& aEvent )
 }
 
 
-void DIALOG_TRACK_VIA_PROPERTIES::onTrackNetclassCheck( wxCommandEvent& aEvent )
-{
-    bool enableNC = aEvent.IsChecked();
-
-    m_DesignRuleWidths->Enable( !enableNC );
-    m_DesignRuleWidthsCtrl->Enable( !enableNC );
-    m_DesignRuleWidthsUnits->Enable( !enableNC );
-
-    m_trackWidth.Enable( !enableNC );
-}
-
-
 void DIALOG_TRACK_VIA_PROPERTIES::onWidthSelect( wxCommandEvent& aEvent )
 {
-    m_TrackWidthCtrl->ChangeValue( m_DesignRuleWidthsCtrl->GetStringSelection() );
+    m_TrackWidthCtrl->ChangeValue( m_predefinedTrackWidthsCtrl->GetStringSelection() );
     m_TrackWidthCtrl->SelectAll();
 }
 
 
 void DIALOG_TRACK_VIA_PROPERTIES::onWidthEdit( wxCommandEvent& aEvent )
 {
-    m_DesignRuleWidthsCtrl->SetStringSelection( m_TrackWidthCtrl->GetValue() );
-}
-
-
-void DIALOG_TRACK_VIA_PROPERTIES::onViaNetclassCheck( wxCommandEvent& aEvent )
-{
-    bool enableNC = aEvent.IsChecked();
-
-    m_DesignRuleVias->Enable( !enableNC );
-    m_DesignRuleViasCtrl->Enable( !enableNC );
-    m_DesignRuleViasUnit->Enable( !enableNC );
-
-    m_viaDiameter.Enable( !enableNC );
-    m_viaDrill.Enable( !enableNC );
+    m_predefinedTrackWidthsCtrl->SetStringSelection( m_TrackWidthCtrl->GetValue() );
 }
 
 
@@ -956,7 +845,7 @@ int DIALOG_TRACK_VIA_PROPERTIES::getLayerDepth()
 
 void DIALOG_TRACK_VIA_PROPERTIES::onViaEdit( wxCommandEvent& aEvent )
 {
-    m_DesignRuleViasCtrl->SetSelection( wxNOT_FOUND );
+    m_predefinedViaSizesCtrl->SetSelection( wxNOT_FOUND );
 
     if( m_vias )
     {

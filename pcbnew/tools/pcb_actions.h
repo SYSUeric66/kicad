@@ -200,6 +200,7 @@ public:
     static TOOL_ACTION placeReferenceImage;
     static TOOL_ACTION placeText;
     static TOOL_ACTION drawTextBox;
+    static TOOL_ACTION drawTable;
     static TOOL_ACTION spacingIncrease;
     static TOOL_ACTION spacingDecrease;
     static TOOL_ACTION amplIncrease;
@@ -244,7 +245,8 @@ public:
     /// Activation of the Push and Shove router (differential pair mode)
     static TOOL_ACTION routeDiffPair;
 
-    static TOOL_ACTION tuneLength;
+    static TOOL_ACTION tuneSingleTrack;
+    static TOOL_ACTION tuneDiffPair;
     static TOOL_ACTION tuneSkew;
 
     static TOOL_ACTION routerUndoLastSegment;
@@ -397,7 +399,6 @@ public:
     static TOOL_ACTION zoneDuplicate;
 
     /// Scripting Actions
-    static TOOL_ACTION pluginsReload;
     static TOOL_ACTION pluginsShowFolder;
 
     // Global edit tool
@@ -429,14 +430,15 @@ public:
     static TOOL_ACTION generateD356File;
     static TOOL_ACTION generateBOM;
 
-    static TOOL_ACTION listNets;
     static TOOL_ACTION runDRC;
 
     static TOOL_ACTION editFpInFpEditor;
     static TOOL_ACTION editLibFpInFpEditor;
 
     static TOOL_ACTION showLayersManager;
+    static TOOL_ACTION showNetInspector;
     static TOOL_ACTION showPythonConsole;
+    static TOOL_ACTION zonesManager;
 
     // Module editor tools
 
@@ -450,11 +452,6 @@ public:
     // Create a new footprint using the Footprint Wizard
     static TOOL_ACTION createFootprint;
 
-    // We don't use ACTION::save here because we need to distinguish between saving to
-    // the library and saving to the board (which have different tooltips and icons).
-    static TOOL_ACTION saveToBoard;
-    static TOOL_ACTION saveToLibrary;
-
     static TOOL_ACTION editFootprint;
     static TOOL_ACTION duplicateFootprint;
     static TOOL_ACTION renameFootprint;
@@ -464,6 +461,7 @@ public:
     static TOOL_ACTION pasteFootprint;
     static TOOL_ACTION importFootprint;
     static TOOL_ACTION exportFootprint;
+    static TOOL_ACTION openWithTextEditor;
 
     static TOOL_ACTION footprintProperties;
     static TOOL_ACTION defaultPadProperties;

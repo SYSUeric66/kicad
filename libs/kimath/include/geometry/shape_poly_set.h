@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2015-2019 CERN
- * Copyright (C) 2021-2023 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2021-2024 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * @author Tomasz Wlostowski <tomasz.wlostowski@cern.ch>
  * @author Alejandro García Montoro <alejandro.garciamontoro@gmail.com>
@@ -28,10 +28,12 @@
 #ifndef __SHAPE_POLY_SET_H
 #define __SHAPE_POLY_SET_H
 
+#include <atomic>
 #include <cstdio>
 #include <deque>                        // for deque
 #include <iosfwd>                       // for string, stringstream
 #include <memory>
+#include <mutex>
 #include <set>                          // for set
 #include <stdexcept>                    // for out_of_range
 #include <stdlib.h>                     // for abs
@@ -120,6 +122,18 @@ public:
             virtual size_t GetPointCount() const override { return 3; }
             virtual size_t GetSegmentCount() const override { return 3; }
 
+            double Area() const
+            {
+                VECTOR2I& aa = parent->m_vertices[a];
+                VECTOR2I& bb = parent->m_vertices[b];
+                VECTOR2I& cc = parent->m_vertices[c];
+
+                VECTOR2D ba = bb - aa;
+                VECTOR2D cb = cc - bb;
+
+                return std::abs( cb.Cross( ba ) * 0.5 );
+            }
+
             int                   a;
             int                   b;
             int                   c;
@@ -138,7 +152,7 @@ public:
 
         void GetTriangle( int index, VECTOR2I& a, VECTOR2I& b, VECTOR2I& c ) const
         {
-            auto tri = m_triangles[ index ];
+            auto& tri = m_triangles[ index ];
             a = m_vertices[ tri.a ];
             b = m_vertices[ tri.b ];
             c = m_vertices[ tri.c ];
@@ -158,8 +172,23 @@ public:
         int GetSourceOutlineIndex() const { return m_sourceOutline; }
         void SetSourceOutlineIndex( int aIndex ) { m_sourceOutline = aIndex; }
 
-        std::deque<TRI>& Triangles() { return m_triangles; }
         const std::deque<TRI>& Triangles() const { return m_triangles; }
+        void SetTriangles( const std::deque<TRI>& aTriangles )
+        {
+            m_triangles.resize( aTriangles.size() );
+
+            for( size_t ii = 0; ii < aTriangles.size(); ii++ )
+            {
+                m_triangles[ii] = aTriangles[ii];
+                m_triangles[ii].parent = this;
+            }
+        }
+
+        const std::deque<VECTOR2I>& Vertices() const { return m_vertices; }
+        void SetVertices( const std::deque<VECTOR2I>& aVertices )
+        {
+            m_vertices = aVertices;
+        }
 
         size_t GetVertexCount() const
         {
@@ -517,7 +546,10 @@ public:
      * But not good for Gerbview (1e7 = 10cm), however using a partition is not useful.
      * @param aSimplify = force the algorithm to simplify the POLY_SET before triangulating
      */
-    void CacheTriangulation( bool aPartition = true, bool aSimplify = false );
+    virtual void CacheTriangulation( bool aPartition = true, bool aSimplify = false )
+    {
+        cacheTriangulation( aPartition, aSimplify, nullptr );
+    }
     bool IsTriangulationUpToDate() const;
 
     MD5_HASH GetHash() const;
@@ -1079,6 +1111,14 @@ public:
     void Simplify( POLYGON_MODE aFastMode );
 
     /**
+     * Simplifies the lines in the polyset.  This checks intermediate points to see if they are
+     * collinear with their neighbors, and removes them if they are.
+     *
+     * @param aMaxError is the maximum error to allow when simplifying the lines.
+     */
+    void SimplifyOutlines( int aMaxError = 0 );
+
+    /**
      * Convert a self-intersecting polygon to one (or more) non self-intersecting polygon(s).
      *
      * Removes null segments.
@@ -1428,6 +1468,10 @@ public:
         aBuffer.Append( *this );
     }
 
+protected:
+    void cacheTriangulation( bool aPartition, bool aSimplify,
+                             std::vector<std::unique_ptr<TRIANGULATED_POLYGON>>* aHintData );
+
 private:
     enum DROP_TRIANGULATION_FLAG { SINGLETON };
 
@@ -1526,11 +1570,14 @@ private:
 
     MD5_HASH checksum() const;
 
-private:
+protected:
     std::vector<POLYGON>                               m_polys;
     std::vector<std::unique_ptr<TRIANGULATED_POLYGON>> m_triangulatedPolys;
 
-    bool     m_triangulationValid = false;
+    std::atomic<bool> m_triangulationValid = false;
+    std::mutex  m_triangulationMutex;
+
+private:
     MD5_HASH m_hash;
 };
 

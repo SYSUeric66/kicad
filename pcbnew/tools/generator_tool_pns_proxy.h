@@ -30,6 +30,13 @@
 class BOARD_ITEM;
 
 
+struct GENERATOR_PNS_CHANGES
+{
+    std::set<BOARD_ITEM*> addedItems;
+    std::set<BOARD_ITEM*> removedItems;
+};
+
+
 /**
  * A proxy class to allow access to the PNS router from the generator tool.
  */
@@ -42,9 +49,8 @@ public:
     /// @copydoc TOOL_INTERACTIVE::Reset()
     void Reset( RESET_REASON aReason ) override;
 
-    void                         ClearRouterCommit();
-    const std::set<BOARD_ITEM*>& GetRouterCommitAddedItems();
-    const std::set<BOARD_ITEM*>& GetRouterCommitRemovedItems();
+    void                                      ClearRouterChanges();
+    const std::vector<GENERATOR_PNS_CHANGES>& GetRouterChanges();
 };
 
 #endif // GENERATOR_TOOL_PNS_PROXY_H

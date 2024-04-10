@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2015 Jean-Pierre Charras, jp.charras at wanadoo.fr
- * Copyright (C) 1992-2023 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2024 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -117,6 +117,9 @@ public:
     FOOTPRINT& operator=( const FOOTPRINT& aOther );
     FOOTPRINT& operator=( FOOTPRINT&& aOther );
 
+    void Serialize( google::protobuf::Any &aContainer ) const override;
+    bool Deserialize( const google::protobuf::Any &aContainer ) override;
+
     static inline bool ClassOf( const EDA_ITEM* aItem )
     {
         return aItem && aItem->Type() == PCB_FOOTPRINT_T;
@@ -228,7 +231,11 @@ public:
     }
 
     const LIB_ID& GetFPID() const { return m_fpid; }
-    void SetFPID( const LIB_ID& aFPID ) { m_fpid = aFPID; }
+    void          SetFPID( const LIB_ID& aFPID )
+    {
+        m_fpid = aFPID;
+        Footprint().SetText( aFPID.Format() );
+    }
 
     wxString GetFPIDAsString() const { return m_fpid.Format(); }
     void SetFPIDAsString( const wxString& aFPID ) { m_fpid.Parse( aFPID ); }
@@ -251,28 +258,20 @@ public:
     wxString GetFilters() const { return m_filters; }
     void SetFilters( const wxString& aFilters ) { m_filters = aFilters; }
 
-    int GetLocalSolderMaskMargin() const { return m_localSolderMaskMargin; }
-    void SetLocalSolderMaskMargin( int aMargin ) { m_localSolderMaskMargin = aMargin; }
+    std::optional<int> GetLocalClearance() const                 { return m_clearance; }
+    void SetLocalClearance( std::optional<int> aClearance )      { m_clearance = aClearance; }
 
-    int GetLocalClearance() const { return m_localClearance; }
-    void SetLocalClearance( int aClearance ) { m_localClearance = aClearance; }
+    std::optional<int> GetLocalSolderMaskMargin() const          { return m_solderMaskMargin; }
+    void SetLocalSolderMaskMargin( std::optional<int> aMargin )  { m_solderMaskMargin = aMargin; }
 
-    int GetLocalClearance( wxString* aSource ) const
-    {
-        if( aSource )
-            *aSource = wxString::Format( _( "footprint %s" ), GetReference() );
+    std::optional<int> GetLocalSolderPasteMargin() const         { return m_solderPasteMargin; }
+    void SetLocalSolderPasteMargin( std::optional<int> aMargin ) { m_solderPasteMargin = aMargin; }
 
-        return m_localClearance;
-    }
+    std::optional<double> GetLocalSolderPasteMarginRatio() const { return m_solderPasteMarginRatio; }
+    void SetLocalSolderPasteMarginRatio( std::optional<double> aRatio ) { m_solderPasteMarginRatio = aRatio; }
 
-    int GetLocalSolderPasteMargin() const { return m_localSolderPasteMargin; }
-    void SetLocalSolderPasteMargin( int aMargin ) { m_localSolderPasteMargin = aMargin; }
-
-    double GetLocalSolderPasteMarginRatio() const { return m_localSolderPasteMarginRatio; }
-    void SetLocalSolderPasteMarginRatio( double aRatio ) { m_localSolderPasteMarginRatio = aRatio; }
-
-    void SetZoneConnection( ZONE_CONNECTION aType ) { m_zoneConnection = aType; }
-    ZONE_CONNECTION GetZoneConnection() const { return m_zoneConnection; }
+    void SetLocalZoneConnection( ZONE_CONNECTION aType )         { m_zoneConnection = aType; }
+    ZONE_CONNECTION GetLocalZoneConnection() const               { return m_zoneConnection; }
 
     int GetAttributes() const { return m_attributes; }
     void SetAttributes( int aAttributes ) { m_attributes = aAttributes; }
@@ -290,6 +289,33 @@ public:
         }
 
         return false;
+    }
+
+    std::optional<int> GetLocalClearance( wxString* aSource ) const
+    {
+        if( m_clearance.has_value() && aSource )
+            *aSource = wxString::Format( _( "footprint %s" ), GetReference() );
+
+        return m_clearance;
+    }
+
+    /**
+     * Return any local clearance overrides set in the "classic" (ie: pre-rule) system.
+     *
+     * @param aSource [out] optionally reports the source as a user-readable string.
+     * @return the clearance in internal units.
+     */
+    std::optional<int> GetClearanceOverrides( wxString* aSource ) const
+    {
+        return GetLocalClearance( aSource );
+    }
+
+    ZONE_CONNECTION GetZoneConnectionOverrides( wxString* aSource ) const
+    {
+        if( m_zoneConnection != ZONE_CONNECTION::INHERITED && aSource )
+            *aSource = wxString::Format( _( "footprint %s" ), GetReference() );
+
+        return m_zoneConnection;
     }
 
     /**
@@ -349,6 +375,12 @@ public:
      * @return true if the footprint is flipped, i.e. on the back side of the board
      */
     bool IsFlipped() const { return GetLayer() == B_Cu; }
+
+    /**
+     * Use instead of IsFlipped() when you also need to account for unsided footprints (those
+     * purely on user-layers, etc.).
+     */
+    PCB_LAYER_ID GetSide() const;
 
     /**
      * @copydoc BOARD_ITEM::IsOnLayer
@@ -773,6 +805,12 @@ public:
     unsigned GetUniquePadCount( INCLUDE_NPTH_T aIncludeNPTH = INCLUDE_NPTH_T(INCLUDE_NPTH) ) const;
 
     /**
+     * Return the names of the unique, non-blank pads.
+     */
+    std::set<wxString>
+    GetUniquePadNumbers( INCLUDE_NPTH_T aIncludeNPTH = INCLUDE_NPTH_T(INCLUDE_NPTH) ) const;
+
+    /**
      * Return the next available pad number in the footprint.
      *
      * @param aFillSequenceGaps true if the numbering should "fill in" gaps in the sequence,
@@ -831,7 +869,8 @@ public:
     void RunOnChildren( const std::function<void (BOARD_ITEM*)>& aFunction ) const override;
 
     ///< @copydoc BOARD_ITEM::RunOnDescendants
-    void RunOnDescendants( const std::function<void( BOARD_ITEM* )>& aFunction ) const override;
+    void RunOnDescendants( const std::function<void( BOARD_ITEM* )>& aFunction,
+                           int aDepth = 0 ) const override;
 
     virtual void ViewGetLayers( int aLayers[], int& aCount ) const override;
 
@@ -984,11 +1023,13 @@ private:
     // A pad group is a comma-separated list of pad numbers.
     std::vector<wxString> m_netTiePadGroups;
 
-    ZONE_CONNECTION m_zoneConnection;
-    int             m_localClearance;
-    int             m_localSolderMaskMargin;       // Solder mask margin
-    int             m_localSolderPasteMargin;      // Solder paste margin absolute value
-    double          m_localSolderPasteMarginRatio; // Solder mask margin ratio value of pad size
+    // Optional overrides
+    ZONE_CONNECTION       m_zoneConnection;
+    std::optional<int>    m_clearance;
+    std::optional<int>    m_solderMaskMargin;       // Solder mask margin
+    std::optional<int>    m_solderPasteMargin;      // Solder paste margin absolute value
+    std::optional<double> m_solderPasteMarginRatio; // Solder mask margin ratio of pad size
+                                                    // The final margin is the sum of these 2 values
 
     wxString        m_libDescription;    // File name and path for documentation file.
     wxString        m_keywords;          // Search keywords to find footprint in library.

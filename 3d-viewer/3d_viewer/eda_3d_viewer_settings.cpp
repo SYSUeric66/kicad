@@ -339,7 +339,7 @@ EDA_3D_VIEWER_SETTINGS::EDA_3D_VIEWER_SETTINGS() :
     m_params.emplace_back( new PARAM<bool>( "render.show_footprints_not_in_posfile",
                                             &m_Render.show_footprints_not_in_posfile, true ) );
     m_params.emplace_back( new PARAM<bool>( "render.show_footprints_dnp",
-                                            &m_Render.show_footprints_dnp, true ) );
+                                            &m_Render.show_footprints_dnp, false ) );
     m_params.emplace_back( new PARAM<bool>( "render.show_silkscreen_top",
                                             &m_Render.show_silkscreen_top, true ) );
     m_params.emplace_back( new PARAM<bool>( "render.show_silkscreen_bottom",
@@ -377,6 +377,8 @@ EDA_3D_VIEWER_SETTINGS::EDA_3D_VIEWER_SETTINGS() :
     m_params.emplace_back( new PARAM<int>( "camera.projection_mode",
                                            &m_Camera.projection_mode, 1 ) );
 
+    m_params.emplace_back( new PARAM<bool>( "use_stackup_colors",
+                                            &m_UseStackupColors, true ) );
     m_params.emplace_back( new PARAM_LAYER_PRESET_3D( "layer_presets",
                                                       &m_LayerPresets ) );
     m_params.emplace_back( new PARAM<wxString>( "current_layer_preset",

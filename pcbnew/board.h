@@ -35,7 +35,7 @@
 #include <pcb_plot_params.h>
 #include <title_block.h>
 #include <tools/pcb_selection.h>
-#include <mutex>
+#include <shared_mutex>
 #include <list>
 
 class BOARD_DESIGN_SETTINGS;
@@ -252,6 +252,11 @@ public:
     virtual void OnBoardItemsChanged( BOARD& aBoard, std::vector<BOARD_ITEM*>& aBoardItem ) { }
     virtual void OnBoardHighlightNetChanged( BOARD& aBoard ) { }
     virtual void OnBoardRatsnestChanged( BOARD& aBoard ) { }
+    virtual void OnBoardCompositeUpdate( BOARD& aBoard, std::vector<BOARD_ITEM*>& aAddedItems,
+                                         std::vector<BOARD_ITEM*>& aRemovedItems,
+                                         std::vector<BOARD_ITEM*>& aDeletedItems )
+    {
+    }
 };
 
 /**
@@ -312,23 +317,24 @@ public:
 
     const wxString &GetFileName() const { return m_fileName; }
 
-    TRACKS& Tracks() { return m_tracks; }
     const TRACKS& Tracks() const { return m_tracks; }
 
-    FOOTPRINTS& Footprints() { return m_footprints; }
     const FOOTPRINTS& Footprints() const { return m_footprints; }
 
-    DRAWINGS& Drawings() { return m_drawings; }
     const DRAWINGS& Drawings() const { return m_drawings; }
 
-    ZONES& Zones() { return m_zones; }
     const ZONES& Zones() const { return m_zones; }
 
-    GENERATORS&       Generators() { return m_generators; }
     const GENERATORS& Generators() const { return m_generators; }
 
-    MARKERS& Markers() { return m_markers; }
     const MARKERS& Markers() const { return m_markers; }
+
+    // SWIG requires non-const accessors for some reason to make the custom iterators in board.i
+    // work.  It would be good to remove this if we can figure out how to fix that.
+#ifdef SWIG
+    DRAWINGS& Drawings() { return m_drawings; }
+    TRACKS& Tracks() { return m_tracks; }
+#endif
 
     const BOARD_ITEM_SET GetItemSet();
 
@@ -340,7 +346,6 @@ public:
      *   - If a group specifies a name, it must be unique
      *   - The graph of groups containing subgroups must be cyclic.
      */
-    GROUPS& Groups() { return m_groups; }
     const GROUPS& Groups() const { return m_groups; }
 
     const std::vector<BOARD_CONNECTED_ITEM*> AllConnectedItems();
@@ -388,6 +393,19 @@ public:
 
     ///< @copydoc BOARD_ITEM_CONTAINER::Remove()
     void Remove( BOARD_ITEM* aBoardItem, REMOVE_MODE aMode = REMOVE_MODE::NORMAL ) override;
+
+    /**
+     * An efficient way to remove all items of a certain type from the board.
+     * Because of how items are stored, this method has some limitations in order to preserve
+     * performance: tracks, vias, and arcs are all removed together by PCB_TRACE_T, and all graphics
+     * and text object types are removed together by PCB_SHAPE_T.  If you need something more
+     * granular than that, use BOARD::Remove.
+     * @param aTypes is a list of one or more types to remove, or leave default to remove all
+     */
+    void RemoveAll( std::initializer_list<KICAD_T> aTypes = { PCB_NETINFO_T, PCB_MARKER_T,
+                                                              PCB_GROUP_T, PCB_ZONE_T,
+                                                              PCB_GENERATOR_T, PCB_FOOTPRINT_T,
+                                                              PCB_TRACE_T, PCB_SHAPE_T } );
 
     /**
      * Must be used if Add() is used using a BULK_x ADD_MODE to generate a change event for
@@ -476,6 +494,11 @@ public:
      *                       The former is used on board load; the later after a DRC.
      */
     std::vector<PCB_MARKER*> ResolveDRCExclusions( bool aCreateMarkers );
+
+    /**
+     * Scan existing markers and record data from any that are Excluded.
+     */
+    void RecordDRCExclusions();
 
     /**
      * Update the visibility flags on the current unconnected ratsnest lines.
@@ -637,10 +660,6 @@ public:
      */
     BOARD_DESIGN_SETTINGS& GetDesignSettings() const;
 
-    const ZONE_SETTINGS& GetZoneSettings() const override;
-
-    void SetZoneSettings( const ZONE_SETTINGS& aSettings ) override;
-
     // Tented vias are vias covered by solder mask. So because the solder mask is a negative
     // layer, tented vias are NOT plotted on solder mask layers
     bool GetTentVias() const            { return !m_plotOptions.GetPlotViaOnMaskLayer(); }
@@ -679,11 +698,15 @@ public:
      * @param aAllowUseArcsInPolygons = an optional option to allow adding arcs in
      *  SHAPE_LINE_CHAIN polylines/polygons when building outlines from aShapeList
      *  This is mainly for export to STEP files
+     * @param aIncludeNPTHAsOutlines = an optional option to include NPTH pad holes
+     * in board outlines. These holes can be seen like holes created by closed shapes
+     * drawn on edge cut layer inside the board main outline.
      * @return true if success, false if a contour is not valid
      */
     bool GetBoardPolygonOutlines( SHAPE_POLY_SET& aOutlines,
                                   OUTLINE_ERROR_HANDLER* aErrorHandler = nullptr,
-                                  bool aAllowUseArcsInPolygons = false );
+                                  bool aAllowUseArcsInPolygons = false,
+                                  bool aIncludeNPTHAsOutlines = false );
 
     /**
      * @return a epsilon value that is the max distance between 2 points to see them
@@ -1128,14 +1151,17 @@ public:
      * the clearances from board design settings as well as embedded clearances in footprints,
      * pads and zones.  Includes electrical, physical, hole and edge clearances.
     */
-    int GetMaxClearanceValue() const;
+    int GetMaxClearanceValue() const
+    {
+        return m_maxClearanceValue;
+    };
 
     /**
      * Map all nets in the given board to nets with the same name (if any) in the destination
-     * board.  This allows us to share layouts which came from the same hierarchical sheet in
-     * the schematic.
+     * board.  If there are missing nets in the destination board, they will be created.
+     *
      */
-    void MapNets( const BOARD* aDestBoard );
+    void MapNets( BOARD* aDestBoard );
 
     void SanitizeNetcodes();
 
@@ -1171,6 +1197,14 @@ public:
       * been modified in some way.
       */
     void OnItemsChanged( std::vector<BOARD_ITEM*>& aItems );
+
+    /**
+      * Notify the board and its listeners that items on the board have
+      * been modified in a composite operations
+      */
+    void OnItemsCompositeUpdate( std::vector<BOARD_ITEM*>& aAddedItems,
+                                 std::vector<BOARD_ITEM*>& aRemovedItems,
+                                 std::vector<BOARD_ITEM*>& aChangedItems );
 
     /**
      * Notify the board and its listeners that the ratsnest has been recomputed.
@@ -1222,7 +1256,7 @@ public:
     };
 
     // ------------ Run-time caches -------------
-    std::mutex                                            m_CachesMutex;
+    mutable std::shared_mutex                             m_CachesMutex;
     std::unordered_map<PTR_PTR_CACHE_KEY, bool>           m_IntersectsCourtyardCache;
     std::unordered_map<PTR_PTR_CACHE_KEY, bool>           m_IntersectsFCourtyardCache;
     std::unordered_map<PTR_PTR_CACHE_KEY, bool>           m_IntersectsBCourtyardCache;
@@ -1255,6 +1289,9 @@ private:
             ( l->*aFunc )( std::forward<Args>( args )... );
     }
 
+
+    void UpdateMaxClearanceCache();
+
     friend class PCB_EDIT_FRAME;
 
 
@@ -1266,6 +1303,8 @@ private:
     int                 m_timeStamp;                // actually a modification counter
 
     wxString            m_fileName;
+
+    // These containers only have const accessors and must only be modified by Add()/Remove()
     MARKERS             m_markers;
     DRAWINGS            m_drawings;
     FOOTPRINTS          m_footprints;
@@ -1273,6 +1312,9 @@ private:
     GROUPS              m_groups;
     ZONES               m_zones;
     GENERATORS          m_generators;
+
+    // Cache for fast access to items in the containers above by KIID, including children
+    std::unordered_map<KIID, BOARD_ITEM*> m_itemByIdCache;
 
     LAYER               m_layers[PCB_LAYER_ID_COUNT];
 
@@ -1308,6 +1350,9 @@ private:
      * properties).  If this flag is set, then auto-teardrop-generation will be disabled.
      */
     bool                         m_legacyTeardrops = false;
+
+    bool                         m_skipMaxClearanceCacheUpdate;
+    int                          m_maxClearanceValue;  // cached value
 
     NETINFO_LIST                 m_NetInfo;         // net info list (name, design constraints...
 

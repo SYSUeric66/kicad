@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2019 Jean-Pierre Charras, jp.charras at wanadoo.fr
- * Copyright (C) 2022-2023 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2022-2024 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software: you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -647,6 +647,16 @@ void GERBER_PLOTTER::writeApertureList()
             std::vector<VECTOR2I> corners;
             VECTOR2I half_size( tool.m_Size.x/2-tool.m_Radius, tool.m_Size.y/2-tool.m_Radius );
 
+            // Ensure half_size.x and half_size.y > minimal value to avoid shapes
+            // with null size (especially the rectangle with coordinates corners)
+            // Because the minimal value for a non nul Gerber coord in 10nm
+            // in format 4.5, use 10 nm as minimal value.
+            // (Even in 4.6 format, use 10 nm, because gerber viewers can have
+            // a internal unit bigger than 1 nm)
+            const int min_size_value = 10;
+            half_size.x = std::max( half_size.x, min_size_value );
+            half_size.y = std::max( half_size.y, min_size_value );
+
             corners.emplace_back( -half_size.x, -half_size.y );
             corners.emplace_back( half_size.x, -half_size.y );
             corners.emplace_back( half_size.x, half_size.y );
@@ -812,7 +822,8 @@ void GERBER_PLOTTER::Rect( const VECTOR2I& p1, const VECTOR2I& p2, FILL_T fill, 
 
 void GERBER_PLOTTER::Circle( const VECTOR2I& aCenter, int aDiameter, FILL_T aFill, int aWidth )
 {
-    Arc( aCenter, ANGLE_0, ANGLE_360, aDiameter / 2, aFill, aWidth );
+    Arc( aCenter, ANGLE_0, ANGLE_180, aDiameter / 2, aFill, aWidth );
+    Arc( aCenter, ANGLE_180, ANGLE_180, aDiameter / 2, aFill, aWidth );
 }
 
 
@@ -822,10 +833,21 @@ void GERBER_PLOTTER::Arc( const VECTOR2D& aCenter, const EDA_ANGLE& aStartAngle,
 {
     SetCurrentLineWidth( aWidth );
 
-    EDA_ANGLE endAngle = aStartAngle + aAngle;
+    double arcLength = std::abs( aRadius * aAngle.AsRadians() );
 
-    // aFill is not used here.
-    plotArc( aCenter, aStartAngle, endAngle, aRadius, false );
+    if( arcLength < 100 || std::abs( aAngle.AsDegrees() ) < 0.1 )
+    {
+        // Prevent plotting very short arcs as full circles, especially with 4.5 mm precision.
+        // Also reduce the risk of integer overflow issues.
+        polyArc( aCenter, aStartAngle, aAngle, aRadius, aFill, aWidth );
+    }
+    else
+    {
+        EDA_ANGLE endAngle = aStartAngle + aAngle;
+
+        // aFill is not used here.
+        plotArc( aCenter, aStartAngle, endAngle, aRadius, false );
+    }
 }
 
 
@@ -868,19 +890,19 @@ void GERBER_PLOTTER::plotArc( const SHAPE_ARC& aArc, bool aPlotInRegion )
 
 
 void GERBER_PLOTTER::plotArc( const VECTOR2I& aCenter, const EDA_ANGLE& aStartAngle,
-                              const EDA_ANGLE& aEndAngle, int aRadius, bool aPlotInRegion )
+                              const EDA_ANGLE& aEndAngle, double aRadius, bool aPlotInRegion )
 {
     VECTOR2I start, end;
-    start.x = aCenter.x + KiROUND( aRadius * aStartAngle.Cos() );
-    start.y = aCenter.y + KiROUND( aRadius * aStartAngle.Sin() );
+    start.x = KiROUND( aCenter.x + aRadius * aStartAngle.Cos() );
+    start.y = KiROUND( aCenter.y + aRadius * aStartAngle.Sin() );
 
     if( !aPlotInRegion )
         MoveTo( start );
     else
         LineTo( start );
 
-    end.x = aCenter.x + KiROUND( aRadius * aEndAngle.Cos() );
-    end.y = aCenter.y + KiROUND( aRadius * aEndAngle.Sin() );
+    end.x = KiROUND( aCenter.x + aRadius * aEndAngle.Cos() );
+    end.y = KiROUND( aCenter.y + aRadius * aEndAngle.Sin() );
     VECTOR2D devEnd = userToDeviceCoordinates( end );
     // devRelCenter is the position on arc center relative to the arc start, in Gerber coord.
     VECTOR2D devRelCenter = userToDeviceCoordinates( aCenter ) - userToDeviceCoordinates( start );
@@ -976,7 +998,7 @@ void GERBER_PLOTTER::PlotPolyAsRegion( const SHAPE_LINE_CHAIN& aPoly, FILL_T aFi
 {
     // plot a filled polygon using Gerber region, therefore adding X2 attributes
     // to the solid polygon
-    if( aWidth )
+    if( aWidth || aFill == FILL_T::NO_FILL )
         PlotPoly( aPoly, FILL_T::NO_FILL, aWidth, aGbrMetadata );
 
     if( aFill != FILL_T::NO_FILL )
@@ -1034,7 +1056,7 @@ void GERBER_PLOTTER::PlotPoly( const SHAPE_LINE_CHAIN& aPoly, FILL_T aFill, int 
         fputs( "G37*\n", m_outputFile );
     }
 
-    if( aWidth > 0 )    // Draw the polyline/polygon outline
+    if( aWidth > 0 || aFill == FILL_T::NO_FILL )    // Draw the polyline/polygon outline
     {
         SetCurrentLineWidth( aWidth, gbr_metadata );
 
@@ -1102,7 +1124,7 @@ void GERBER_PLOTTER::PlotPoly( const std::vector<VECTOR2I>& aCornerList, FILL_T 
         fputs( "G37*\n", m_outputFile );
     }
 
-    if( aWidth > 0 )    // Draw the polyline/polygon outline
+    if( aWidth > 0 || aFill == FILL_T::NO_FILL )    // Draw the polyline/polygon outline
     {
         SetCurrentLineWidth( aWidth, gbr_metadata );
 

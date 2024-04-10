@@ -3,7 +3,7 @@
  *
  * Copyright (C) 2013 Jean-Pierre Charras, jp.charras at wanadoo.fr
  * Copyright (C) 2013 Wayne Stambaugh <stambaughw@gmail.com>
- * Copyright (C) 1992-2023 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2024 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -502,11 +502,29 @@ bool DIALOG_LABEL_PROPERTIES::TransferDataFromWindow()
         const wxString& fieldText = field.GetText();
 
         if( fieldName.IsEmpty() && fieldText.IsEmpty() )
+        {
+            // delete empty, unnamed fields
             m_fields->erase( m_fields->begin() + ii );
+        }
         else if( fieldName == wxT( "Netclass" ) && fieldText.IsEmpty() )
-            m_fields->erase( m_fields->begin() + ii );
+        {
+            // delete empty Netclass fields if there are other Netclass fields present
+            int netclassFieldCount = 0;
+
+            for( int jj = 0; jj < m_fields->GetNumberRows(); ++jj )
+            {
+                if( m_fields->at( jj ).GetCanonicalName() == wxT( "Netclass" ) )
+                    netclassFieldCount++;
+            }
+
+            if( netclassFieldCount > 1 )
+                m_fields->erase( m_fields->begin() + ii );
+        }
         else if( fieldName.IsEmpty() )
+        {
+            // give non-empty, unnamed fields a name
             field.SetName( _( "untitled" ) );
+        }
     }
 
     m_currentLabel->SetFields( *m_fields );
@@ -535,20 +553,8 @@ bool DIALOG_LABEL_PROPERTIES::TransferDataFromWindow()
     else if( m_currentLabel->GetTextWidth() != m_textSize.GetValue() )
         m_currentLabel->SetTextSize( VECTOR2I( m_textSize.GetValue(), m_textSize.GetValue() ) );
 
-    if( m_bold->IsChecked() != m_currentLabel->IsBold() )
-    {
-        if( m_bold->IsChecked() )
-        {
-            m_currentLabel->SetBold( true );
-            m_currentLabel->SetTextThickness( GetPenSizeForBold( m_currentLabel->GetTextWidth() ) );
-        }
-        else
-        {
-            m_currentLabel->SetBold( false );
-            m_currentLabel->SetTextThickness( 0 ); // Use default pen width
-        }
-    }
-
+    // Must come after SetTextSize()
+    m_currentLabel->SetBold( m_bold->IsChecked() );
     m_currentLabel->SetItalic( m_italic->IsChecked() );
 
     m_currentLabel->SetTextColor( m_textColorSwatch->GetSwatchColor() );
@@ -581,7 +587,7 @@ bool DIALOG_LABEL_PROPERTIES::TransferDataFromWindow()
         m_currentLabel->AutoAutoplaceFields( m_Parent->GetScreen() );
 
     if( !commit.Empty() )
-        commit.Push( _( "Edit Label" ), SKIP_CONNECTIVITY );
+        commit.Push( _( "Edit Label Properties" ) );
 
     return true;
 }
@@ -676,6 +682,8 @@ void DIALOG_LABEL_PROPERTIES::OnDeleteField( wxCommandEvent& event )
 
     for( int row : selectedRows )
     {
+        //avoids an assert if we deselect early here
+        m_grid->DeselectRow( row );
         m_fields->erase( m_fields->begin() + row );
 
         // notify the grid

@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2020 Jon Evans <jon@craftyjon.com>
- * Copyright (C) 2020-2022 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2020-2023 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software: you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -22,11 +22,12 @@
 #include <fstream>
 #include <sstream>
 
+#include <env_vars.h>
 #include <paths.h>
 #include <search_stack.h>
 #include <settings/settings_manager.h>
 #include <settings/common_settings.h>
-#include <settings/json_settings_internals.h>
+#include <settings/json_settings.h>
 #include <settings/parameters.h>
 #include <systemdirsappend.h>
 #include <trace_helpers.h>
@@ -36,14 +37,7 @@
 
 
 ///! The following environment variables will never be migrated from a previous version
-const std::set<wxString> envVarBlacklist =
-        {
-            wxT( "KICAD7_SYMBOL_DIR" ),
-            wxT( "KICAD7_FOOTPRINT_DIR" ),
-            wxT( "KICAD7_TEMPLATES_DIR" ),
-            wxT( "KICAD7_3DMODEL_DIR" )
-        };
-
+const wxRegEx versionedEnvVarRegex( wxS( "KICAD[0-9]+_[A-Z0-9_]+(_DIR)?" ) );
 
 ///! Update the schema version whenever a migration is required
 const int commonSchemaVersion = 3;
@@ -59,7 +53,8 @@ COMMON_SETTINGS::COMMON_SETTINGS() :
         m_System(),
         m_DoNotShowAgain(),
         m_NetclassPanel(),
-        m_PackageManager()
+        m_PackageManager(),
+        m_Api()
 {
     /*
      * Automatic dark mode detection works fine on Mac.
@@ -104,6 +99,9 @@ COMMON_SETTINGS::COMMON_SETTINGS() :
 
     m_params.emplace_back( new PARAM<int>( "appearance.toolbar_icon_size",
             &m_Appearance.toolbar_icon_size, 24, 16, 64 ) );
+
+    m_params.emplace_back( new PARAM<bool>( "appearance.grid_striping",
+            &m_Appearance.grid_striping, false ) );
 
     m_params.emplace_back( new PARAM<bool>( "auto_backup.enabled", &m_Backup.enabled, true ) );
 
@@ -151,15 +149,16 @@ COMMON_SETTINGS::COMMON_SETTINGS() :
                         if( var.GetDefinedInSettings() )
                         {
                             wxLogTrace( traceEnvVars,
-                                        wxS( "COMMON_SETTINGS: Env var %s was overridden externally, " )
-                                        "saving previously-loaded value %s",
+                                        wxS( "COMMON_SETTINGS: Env var %s was overridden "
+                                             "externally, saving previously-loaded value %s" ),
                                         var.GetKey(), var.GetSettingsValue() );
                             value = var.GetSettingsValue();
                         }
                         else
                         {
                             wxLogTrace( traceEnvVars,
-                                        wxS( "COMMON_SETTINGS: Env var %s skipping save (external)" ),
+                                        wxS( "COMMON_SETTINGS: Env var %s skipping save "
+                                             "(external)" ),
                                         var.GetKey() );
                             continue;
                         }
@@ -170,7 +169,7 @@ COMMON_SETTINGS::COMMON_SETTINGS() :
                                 var.GetKey(), value);
 
                     std::string key( var.GetKey().ToUTF8() );
-                    ret[key] = value;
+                    ret[ std::move( key ) ] = value;
                 }
 
                 return ret;
@@ -189,7 +188,8 @@ COMMON_SETTINGS::COMMON_SETTINGS() :
                     {
                         if( m_Env.vars[key].GetDefinedExternally() )
                         {
-                            wxLogTrace( traceEnvVars, wxS( "COMMON_SETTINGS: %s is defined externally" ),
+                            wxLogTrace( traceEnvVars,
+                                        wxS( "COMMON_SETTINGS: %s is defined externally" ),
                                         key );
                             m_Env.vars[key].SetDefinedInSettings();
                             m_Env.vars[key].SetSettingsValue( val );
@@ -197,14 +197,16 @@ COMMON_SETTINGS::COMMON_SETTINGS() :
                         }
                         else
                         {
-                            wxLogTrace( traceEnvVars, wxS( "COMMON_SETTINGS: Updating %s: %s -> %s"),
+                            wxLogTrace( traceEnvVars,
+                                        wxS( "COMMON_SETTINGS: Updating %s: %s -> %s"),
                                         key, m_Env.vars[key].GetValue(), val );
                             m_Env.vars[key].SetValue( val );
                         }
                     }
                     else
                     {
-                        wxLogTrace( traceEnvVars, wxS( "COMMON_SETTINGS: Loaded new var: %s = %s" ),
+                        wxLogTrace( traceEnvVars,
+                                    wxS( "COMMON_SETTINGS: Loaded new var: %s = %s" ),
                                     key, val );
                         m_Env.vars[key] = ENV_VAR_ITEM( key, val );
                     }
@@ -324,6 +326,9 @@ COMMON_SETTINGS::COMMON_SETTINGS() :
     m_params.emplace_back( new PARAM<bool>( "do_not_show_again.data_collection_prompt",
             &m_DoNotShowAgain.data_collection_prompt, false ) );
 
+    m_params.emplace_back( new PARAM<bool>( "do_not_show_again.update_check_prompt",
+            &m_DoNotShowAgain.update_check_prompt, false ) );
+
     m_params.emplace_back( new PARAM<bool>( "session.remember_open_files",
             &m_Session.remember_open_files, false ) );
 
@@ -393,7 +398,11 @@ COMMON_SETTINGS::COMMON_SETTINGS() :
     m_params.emplace_back( new PARAM<bool>( "git.useDefaultAuthor",
             &m_Git.useDefaultAuthor, true ) );
 
+    m_params.emplace_back( new PARAM<wxString>( "api.interpreter_path",
+            &m_Api.python_interpreter, wxS( "" ) ) );
 
+    m_params.emplace_back( new PARAM<bool>( "api.enable_server",
+            &m_Api.enable_server, false ) );
 
     registerMigration( 0, 1, std::bind( &COMMON_SETTINGS::migrateSchema0to1, this ) );
     registerMigration( 1, 2, std::bind( &COMMON_SETTINGS::migrateSchema1to2, this ) );
@@ -536,9 +545,10 @@ bool COMMON_SETTINGS::MigrateFromLegacy( wxConfigBase* aCfg )
 
                 while( aCfg->GetNextEntry( key, index ) )
                 {
-                    if( envVarBlacklist.count( key ) )
+                    if( versionedEnvVarRegex.Matches( key ) )
                     {
-                        wxLogTrace( traceSettings, wxT( "Migrate Env: %s is blacklisted; skipping." ), key );
+                        wxLogTrace( traceSettings,
+                                    wxT( "Migrate Env: %s is blacklisted; skipping." ), key );
                         continue;
                     }
 
@@ -548,7 +558,8 @@ bool COMMON_SETTINGS::MigrateFromLegacy( wxConfigBase* aCfg )
                     {
                         ptr.push_back( key.ToStdString() );
 
-                        wxLogTrace( traceSettings, wxT( "Migrate Env: %s=%s" ), ptr.to_string(), value );
+                        wxLogTrace( traceSettings, wxT( "Migrate Env: %s=%s" ),
+                                    ptr.to_string(), value );
                         ( *m_internals )[ptr] = value.ToUTF8();
 
                         ptr.pop_back();
@@ -614,7 +625,8 @@ void COMMON_SETTINGS::InitializeEnvironment()
             }
             else
             {
-                wxLogTrace( traceEnvVars, wxS( "InitializeEnvironment: Setting entry %s to default %s" ),
+                wxLogTrace( traceEnvVars, wxS( "InitializeEnvironment: Setting entry %s to "
+                                               "default %s" ),
                             aKey, aDefault );
             }
         };
@@ -623,21 +635,23 @@ void COMMON_SETTINGS::InitializeEnvironment()
 
     wxFileName path( basePath );
     path.AppendDir( wxT( "footprints" ) );
-    addVar( wxT( "KICAD7_FOOTPRINT_DIR" ), path.GetFullPath() );
+    addVar( ENV_VAR::GetVersionedEnvVarName( wxS( "FOOTPRINT_DIR" ) ), path.GetFullPath() );
 
     path = basePath;
     path.AppendDir( wxT( "3dmodels" ) );
-    addVar( wxT( "KICAD7_3DMODEL_DIR" ), path.GetFullPath() );
+    addVar( ENV_VAR::GetVersionedEnvVarName( wxS( "3DMODEL_DIR" ) ), path.GetFullPath() );
 
-    addVar( wxT( "KICAD7_TEMPLATE_DIR" ), PATHS::GetStockTemplatesPath() );
+    addVar( ENV_VAR::GetVersionedEnvVarName( wxS( "TEMPLATE_DIR" ) ),
+            PATHS::GetStockTemplatesPath() );
 
     addVar( wxT( "KICAD_USER_TEMPLATE_DIR" ), PATHS::GetUserTemplatesPath() );
 
-    addVar( wxT( "KICAD7_3RD_PARTY" ), PATHS::GetDefault3rdPartyPath() );
+    addVar( ENV_VAR::GetVersionedEnvVarName( wxS( "3RD_PARTY" ) ),
+            PATHS::GetDefault3rdPartyPath() );
 
     path = basePath;
     path.AppendDir( wxT( "symbols" ) );
-    addVar( wxT( "KICAD7_SYMBOL_DIR" ), path.GetFullPath() );
+    addVar( ENV_VAR::GetVersionedEnvVarName( wxS( "SYMBOL_DIR" ) ), path.GetFullPath() );
 }
 
 
@@ -715,9 +729,12 @@ bool COMMON_SETTINGS::readLegacy3DResolverCfg( const wxString&                  
         if( !getLegacy3DHollerith( cfgLine, idx, al.m_Alias ) )
             continue;
 
-        // Don't add KICAD7_3DMODEL_DIR, one of its legacy equivalents, or KIPRJMOD from a
-        // config file.  They're system variables are are defined at runtime.
-        if( al.m_Alias == wxS( "${KICAD7_3DMODEL_DIR}" ) || al.m_Alias == wxS( "${KIPRJMOD}" )
+        // Don't add KICADn_3DMODEL_DIR, one of its legacy equivalents, or KIPRJMOD from a
+        // config file.  They're system variables which are defined at runtime.
+        wxString versionedPath = wxString::Format( wxS( "${%s}" ),
+                                       ENV_VAR::GetVersionedEnvVarName( wxS( "3DMODEL_DIR" ) ) );
+
+        if( al.m_Alias == versionedPath || al.m_Alias == wxS( "${KIPRJMOD}" )
             || al.m_Alias == wxS( "$(KIPRJMOD)" ) || al.m_Alias == wxS( "${KISYS3DMOD}" )
             || al.m_Alias == wxS( "$(KISYS3DMOD)" ) )
         {

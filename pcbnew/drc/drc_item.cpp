@@ -181,6 +181,10 @@ DRC_ITEM DRC_ITEM::netConflict( DRCE_NET_CONFLICT,
         _( "Pad net doesn't match schematic" ),
         wxT( "net_conflict" ) );
 
+DRC_ITEM DRC_ITEM::schematicParityIssues( DRCE_SCHEMATIC_PARITY_ISSUES,
+        _( "Footprint attributes don't match symbol" ),
+        wxT( "footprint_symbol_mismatch" ) );
+
 DRC_ITEM DRC_ITEM::libFootprintIssues( DRCE_LIB_FOOTPRINT_ISSUES,
         _( "Footprint not found in libraries" ),
         wxT( "lib_footprint_issues" ) );
@@ -233,8 +237,9 @@ DRC_ITEM DRC_ITEM::skewOutOfRange( DRCE_SKEW_OUT_OF_RANGE,
         _( "Skew between traces out of range" ),
         wxT( "skew_out_of_range" ) );
 
-DRC_ITEM DRC_ITEM::tooManyVias( DRCE_TOO_MANY_VIAS,
-        _( "Too many vias on a connection" ),
+// Note: this used to only check against a max value, hence the settings key too_many_vias
+DRC_ITEM DRC_ITEM::viaCountOutOfRange( DRCE_VIA_COUNT_OUT_OF_RANGE,
+        _( "Too many or too few vias on a connection" ),
         wxT( "too_many_vias" ) );
 
 DRC_ITEM DRC_ITEM::diffPairGapOutOfRange( DRCE_DIFF_PAIR_GAP_OUT_OF_RANGE,
@@ -287,13 +292,14 @@ std::vector<std::reference_wrapper<RC_ITEM>> DRC_ITEM::allItemTypes( {
             DRC_ITEM::duplicateFootprints,
             DRC_ITEM::missingFootprint,
             DRC_ITEM::extraFootprint,
+            DRC_ITEM::schematicParityIssues,
             DRC_ITEM::netConflict,
             DRC_ITEM::unconnectedItems,
 
             DRC_ITEM::heading_signal_integrity,
             DRC_ITEM::lengthOutOfRange,
             DRC_ITEM::skewOutOfRange,
-            DRC_ITEM::tooManyVias,
+            DRC_ITEM::viaCountOutOfRange,
             DRC_ITEM::diffPairGapOutOfRange,
             DRC_ITEM::diffPairUncoupledLengthTooLong,
 
@@ -359,6 +365,7 @@ std::shared_ptr<DRC_ITEM> DRC_ITEM::Create( int aErrorCode )
     case DRCE_DUPLICATE_FOOTPRINT:      return std::make_shared<DRC_ITEM>( duplicateFootprints );
     case DRCE_NET_CONFLICT:             return std::make_shared<DRC_ITEM>( netConflict );
     case DRCE_EXTRA_FOOTPRINT:          return std::make_shared<DRC_ITEM>( extraFootprint );
+    case DRCE_SCHEMATIC_PARITY_ISSUES:  return std::make_shared<DRC_ITEM>( schematicParityIssues );
     case DRCE_LIB_FOOTPRINT_ISSUES:     return std::make_shared<DRC_ITEM>( libFootprintIssues );
     case DRCE_LIB_FOOTPRINT_MISMATCH:   return std::make_shared<DRC_ITEM>( libFootprintMismatch );
     case DRCE_UNRESOLVED_VARIABLE:      return std::make_shared<DRC_ITEM>( unresolvedVariable );
@@ -372,7 +379,7 @@ std::shared_ptr<DRC_ITEM> DRC_ITEM::Create( int aErrorCode )
     case DRCE_TEXT_THICKNESS:           return std::make_shared<DRC_ITEM>( textThicknessOutOfRange );
     case DRCE_LENGTH_OUT_OF_RANGE:      return std::make_shared<DRC_ITEM>( lengthOutOfRange );
     case DRCE_SKEW_OUT_OF_RANGE:        return std::make_shared<DRC_ITEM>( skewOutOfRange );
-    case DRCE_TOO_MANY_VIAS:            return std::make_shared<DRC_ITEM>( tooManyVias );
+    case DRCE_VIA_COUNT_OUT_OF_RANGE:   return std::make_shared<DRC_ITEM>( viaCountOutOfRange );
     case DRCE_DIFF_PAIR_GAP_OUT_OF_RANGE:          return std::make_shared<DRC_ITEM>( diffPairGapOutOfRange );
     case DRCE_DIFF_PAIR_UNCOUPLED_LENGTH_TOO_LONG: return std::make_shared<DRC_ITEM>( diffPairUncoupledLengthTooLong );
     case DRCE_FOOTPRINT:                return std::make_shared<DRC_ITEM>( footprint );

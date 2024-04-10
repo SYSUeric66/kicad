@@ -26,10 +26,11 @@
 #include <symbol_edit_frame.h>
 #include <locale_io.h>
 #include <plotters/plotters_pslike.h>
+#include <sch_plotter.h>
 
-void SYMBOL_EDIT_FRAME::SVGPlotSymbol( const wxString& aFullFileName, VECTOR2I aOffset )
+void SYMBOL_EDIT_FRAME::SVGPlotSymbol( const wxString& aFullFileName, const VECTOR2I& aOffset )
 {
-    KIGFX::SCH_RENDER_SETTINGS renderSettings;
+    SCH_RENDER_SETTINGS renderSettings;
     renderSettings.LoadColors( GetColorSettings() );
     renderSettings.SetDefaultPenWidth( GetRenderSettings()->GetDefaultPenWidth() );
 
@@ -49,34 +50,25 @@ void SYMBOL_EDIT_FRAME::SVGPlotSymbol( const wxString& aFullFileName, VECTOR2I a
     // Init :
     plotter->SetCreator( wxT( "Eeschema-SVG" ) );
 
-    if( ! plotter->OpenFile( aFullFileName ) )
+    if( !plotter->OpenFile( aFullFileName ) )
     {
         delete plotter;
         return;
     }
 
-    LOCALE_IO   toggle;
+    LOCALE_IO     toggle;
+    SCH_PLOT_OPTS plotOpts;
 
     plotter->StartPlot( wxT( "1" ) );
 
     if( m_symbol )
     {
         constexpr bool background = true;
-        TRANSFORM      temp;                 // Uses default transform
-        VECTOR2I        plotPos;
 
-        plotPos.x = aOffset.x;
-        plotPos.y = aOffset.y;
-
-        m_symbol->Plot( plotter, GetUnit(), GetConvert(), background, plotPos, temp, false );
-
-        // Plot lib fields, not plotted by m_symbol->Plot():
-        m_symbol->PlotLibFields( plotter, GetUnit(), GetConvert(), background, plotPos, temp, false );
-
-        m_symbol->Plot( plotter, GetUnit(), GetConvert(), !background, plotPos, temp, false );
-
-        // Plot lib fields, not plotted by m_symbol->Plot():
-        m_symbol->PlotLibFields( plotter, GetUnit(), GetConvert(), !background, plotPos, temp, false );
+        m_symbol->Plot( plotter, background, plotOpts, GetUnit(), GetBodyStyle(), aOffset, false );
+        m_symbol->Plot( plotter, !background, plotOpts, GetUnit(), GetBodyStyle(), aOffset, false );
+        m_symbol->PlotFields( plotter, !background, plotOpts, GetUnit(), GetBodyStyle(), aOffset,
+                              false );
     }
 
     plotter->EndPlot();
@@ -89,17 +81,10 @@ void SYMBOL_EDIT_FRAME::PrintPage( const RENDER_SETTINGS* aSettings )
     if( !m_symbol )
         return;
 
+    const SCH_RENDER_SETTINGS* cfg = static_cast<const SCH_RENDER_SETTINGS*>( aSettings );
     VECTOR2I pagesize = GetScreen()->GetPageSettings().GetSizeIU( schIUScale.IU_PER_MILS );
 
-    /* Plot item centered to the page
-     * In symbol_editor, the symbol is centered at 0,0 coordinates.
-     * So we must plot it with an offset = pagesize/2.
-     */
-    VECTOR2I plot_offset;
-    plot_offset.x = pagesize.x / 2;
-    plot_offset.y = pagesize.y / 2;
-
-    m_symbol->PrintBackground( aSettings, plot_offset, m_unit, m_convert, LIB_SYMBOL_OPTIONS(), false );
-
-    m_symbol->Print( aSettings, plot_offset, m_unit, m_convert, LIB_SYMBOL_OPTIONS(), false );
+    // Print item centered to the page.
+    m_symbol->PrintBackground( cfg, m_unit, m_bodyStyle, pagesize / 2, false );
+    m_symbol->Print( cfg, m_unit, m_bodyStyle, pagesize / 2, false, false );
 }

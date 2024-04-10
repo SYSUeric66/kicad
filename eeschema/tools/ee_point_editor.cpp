@@ -39,6 +39,8 @@ using namespace std::placeholders;
 #include <sch_bitmap.h>
 #include <sch_sheet.h>
 #include <sch_textbox.h>
+#include <sch_table.h>
+#include <sch_tablecell.h>
 #include <sch_shape.h>
 #include <sch_sheet_pin.h>
 #include <symbol_edit_frame.h>
@@ -49,29 +51,46 @@ using namespace std::placeholders;
 // Few constants to avoid using bare numbers for point indices
 enum ARC_POINTS
 {
-    ARC_CENTER, ARC_START, ARC_END
+    ARC_START, ARC_END, ARC_CENTER
 };
+
 
 enum CIRCLE_POINTS
 {
     CIRC_CENTER, CIRC_END
 };
 
+
 enum RECTANGLE_POINTS
 {
     RECT_TOPLEFT, RECT_TOPRIGHT, RECT_BOTLEFT, RECT_BOTRIGHT
 };
+
 
 enum RECTANGLE_LINES
 {
     RECT_TOP, RECT_RIGHT, RECT_BOT, RECT_LEFT
 };
 
+enum TABLECELL_POINTS
+{
+    COL_WIDTH, ROW_HEIGHT
+};
 
 enum LINE_POINTS
 {
     LINE_START, LINE_END
 };
+
+
+enum BEZIER_CURVE_POINTS
+{
+    BEZIER_CURVE_START,
+    BEZIER_CURVE_CONTROL_POINT1,
+    BEZIER_CURVE_CONTROL_POINT2,
+    BEZIER_CURVE_END
+};
+
 
 class EDIT_POINTS_FACTORY
 {
@@ -134,7 +153,10 @@ public:
                 break;
 
             case SHAPE_T::BEZIER:
-                // TODO
+                points->AddPoint( mapCoords( shape->GetStart() ) );
+                points->AddPoint( mapCoords( shape->GetBezierC1() ) );
+                points->AddPoint( mapCoords( shape->GetBezierC2() ) );
+                points->AddPoint( mapCoords( shape->GetEnd() ) );
                 break;
 
             default:
@@ -218,7 +240,10 @@ public:
                 break;
 
             case SHAPE_T::BEZIER:
-                // TODO
+                points->AddPoint( shape->GetStart() );
+                points->AddPoint( shape->GetBezierC1() );
+                points->AddPoint( shape->GetBezierC2() );
+                points->AddPoint( shape->GetEnd() );
                 break;
 
             default:
@@ -251,6 +276,14 @@ public:
             points->AddLine( points->Point( RECT_BOTLEFT ), points->Point( RECT_TOPLEFT ) );
             points->Line( RECT_LEFT ).SetConstraint( new EC_PERPLINE( points->Line( RECT_LEFT ) ) );
 
+            break;
+        }
+
+        case SCH_TABLECELL_T:
+        {
+            SCH_TABLECELL* cell = static_cast<SCH_TABLECELL*>( aItem );
+            points->AddPoint( cell->GetEnd() - VECTOR2I( 0, cell->GetRectangleHeight() / 2 ) );
+            points->AddPoint( cell->GetEnd() - VECTOR2I( cell->GetRectangleWidth() / 2, 0 ) );
             break;
         }
 
@@ -429,6 +462,7 @@ int EE_POINT_EDITOR::Main( const TOOL_EVENT& aEvent )
 
     if( selection.Size() != 1 || !selection.Front()->IsType( { LIB_SHAPE_T, SCH_SHAPE_T,
                                                                LIB_TEXTBOX_T, SCH_TEXTBOX_T,
+                                                               SCH_TABLECELL_T,
                                                                SCH_SHEET_T,
                                                                SCH_ITEM_LOCATE_GRAPHIC_LINE_T,
                                                                SCH_BITMAP_T } ) )
@@ -463,12 +497,8 @@ int EE_POINT_EDITOR::Main( const TOOL_EVENT& aEvent )
         if( grid )
         {
             grid->SetSnap( !evt->Modifier( MD_SHIFT ) );
-            grid->SetUseGrid( getView()->GetGAL()->GetGridSnapping() &&
-                              !evt->DisableGridSnapping() );
-
-            cursorPos = grid->Align( controls->GetMousePosition(),
-                                     GRID_HELPER_GRIDS::GRID_GRAPHICS );
-            controls->ForceCursorPosition( true, cursorPos );
+            grid->SetUseGrid( getView()->GetGAL()->GetGridSnapping()
+                              && !evt->DisableGridSnapping() );
         }
         else
         {
@@ -501,15 +531,22 @@ int EE_POINT_EDITOR::Main( const TOOL_EVENT& aEvent )
                     if( connected.first )
                         commit.Modify( connected.first, m_frame->GetScreen() );
                 }
+                else if( m_editPoints->GetParent()->Type() == SCH_TABLECELL_T )
+                {
+                    SCH_TABLECELL* cell = static_cast<SCH_TABLECELL*>( m_editPoints->GetParent() );
+                    SCH_TABLE*     table = static_cast<SCH_TABLE*>( cell->GetParent() );
+
+                    commit.Modify( table, m_frame->GetScreen() );
+                }
 
                 inDrag = true;
             }
 
-            bool       snap = !evt->DisableGridSnapping();
-            EDA_SHAPE* shape = dynamic_cast<EDA_SHAPE*>( item );
+            bool snap = !evt->DisableGridSnapping();
 
-            if( shape && shape->GetShape() == SHAPE_T::ARC && getEditedPointIndex() == ARC_CENTER )
-                snap = false;
+            cursorPos =
+                    grid->Align( controls->GetMousePosition(), GRID_HELPER_GRIDS::GRID_GRAPHICS );
+            controls->ForceCursorPosition( true, cursorPos );
 
             m_editedPoint->SetPosition( controls->GetCursorPosition( snap ) );
 
@@ -572,8 +609,7 @@ int EE_POINT_EDITOR::Main( const TOOL_EVENT& aEvent )
         m_frame->GetCanvas()->Refresh();
     }
 
-    if( grid )
-        delete grid;
+    delete grid;
 
     return 0;
 }
@@ -776,7 +812,12 @@ void EE_POINT_EDITOR::updateParentItem( bool aSnapToGrid ) const
         }
 
         case SHAPE_T::BEZIER:
-            // TODO
+            shape->SetStart( mapCoords( m_editPoints->Point( BEZIER_CURVE_START ).GetPosition() ) );
+            shape->SetBezierC1( mapCoords( m_editPoints->Point( BEZIER_CURVE_CONTROL_POINT1 ).GetPosition() ) );
+            shape->SetBezierC2( mapCoords( m_editPoints->Point( BEZIER_CURVE_CONTROL_POINT2 ).GetPosition() ) );
+            shape->SetEnd( mapCoords( m_editPoints->Point( BEZIER_CURVE_END ).GetPosition() ) );
+
+            shape->RebuildBezierToSegmentsPointsList( shape->GetWidth() );
             break;
 
         default:
@@ -930,7 +971,12 @@ void EE_POINT_EDITOR::updateParentItem( bool aSnapToGrid ) const
         }
 
         case SHAPE_T::BEZIER:
-            // TODO
+            shape->SetStart( m_editPoints->Point( BEZIER_CURVE_START ).GetPosition() );
+            shape->SetBezierC1( m_editPoints->Point( BEZIER_CURVE_CONTROL_POINT1 ).GetPosition() );
+            shape->SetBezierC2( m_editPoints->Point( BEZIER_CURVE_CONTROL_POINT2 ).GetPosition() );
+            shape->SetEnd( m_editPoints->Point( BEZIER_CURVE_END ).GetPosition() );
+
+            shape->RebuildBezierToSegmentsPointsList( shape->GetWidth() );
             break;
 
         default:
@@ -989,6 +1035,39 @@ void EE_POINT_EDITOR::updateParentItem( bool aSnapToGrid ) const
         }
 
         textBox->ClearRenderCache();
+        break;
+    }
+
+    case SCH_TABLECELL_T:
+    {
+        SCH_TABLECELL* cell = static_cast<SCH_TABLECELL*>( item );
+        SCH_TABLE*     table = static_cast<SCH_TABLE*>( cell->GetParent() );
+
+        if( isModified( m_editPoints->Point( COL_WIDTH ) ) )
+        {
+            cell->SetEnd( VECTOR2I( m_editPoints->Point( 0 ).GetX(), cell->GetEndY() ) );
+
+            int colWidth = cell->GetRectangleWidth();
+
+            for( int ii = 0; ii < cell->GetColSpan() - 1; ++ii )
+                colWidth -= table->GetColWidth( cell->GetColumn() + ii );
+
+            table->SetColWidth( cell->GetColumn() + cell->GetColSpan() - 1, colWidth );
+            table->Normalize();
+        }
+        else if( isModified( m_editPoints->Point( ROW_HEIGHT ) ) )
+        {
+            cell->SetEnd( VECTOR2I( cell->GetEndX(), m_editPoints->Point( 1 ).GetY() ) );
+
+            int rowHeight = cell->GetRectangleHeight();
+
+            for( int ii = 0; ii < cell->GetRowSpan() - 1; ++ii )
+                rowHeight -= table->GetRowHeight( cell->GetRow() + ii );
+
+            table->SetRowHeight( cell->GetRow() + cell->GetRowSpan() - 1, rowHeight );
+            table->Normalize();
+        }
+
         break;
     }
 
@@ -1201,7 +1280,10 @@ void EE_POINT_EDITOR::updatePoints()
         }
 
         case SHAPE_T::BEZIER:
-            // TODO
+            m_editPoints->Point( BEZIER_CURVE_START ).SetPosition( mapCoords( shape->GetStart() ) );
+            m_editPoints->Point( BEZIER_CURVE_CONTROL_POINT1 ).SetPosition( mapCoords( shape->GetBezierC1() ) );
+            m_editPoints->Point( BEZIER_CURVE_CONTROL_POINT2 ).SetPosition( mapCoords( shape->GetBezierC2() ) );
+            m_editPoints->Point( BEZIER_CURVE_END ).SetPosition( mapCoords( shape->GetEnd() ) );
             break;
 
         default:
@@ -1289,7 +1371,10 @@ void EE_POINT_EDITOR::updatePoints()
         }
 
         case SHAPE_T::BEZIER:
-            // TODO
+            m_editPoints->Point( BEZIER_CURVE_START ).SetPosition( shape->GetStart() );
+            m_editPoints->Point( BEZIER_CURVE_CONTROL_POINT1 ).SetPosition( shape->GetBezierC1() );
+            m_editPoints->Point( BEZIER_CURVE_CONTROL_POINT2 ).SetPosition( shape->GetBezierC2() );
+            m_editPoints->Point( BEZIER_CURVE_END ).SetPosition( shape->GetEnd() );
             break;
 
         default:
@@ -1317,6 +1402,17 @@ void EE_POINT_EDITOR::updatePoints()
         m_editPoints->Point( RECT_TOPRIGHT ).SetPosition( VECTOR2I( botRight.x, topLeft.y ) );
         m_editPoints->Point( RECT_BOTLEFT ).SetPosition( VECTOR2I( topLeft.x, botRight.y ) );
         m_editPoints->Point( RECT_BOTRIGHT ).SetPosition( botRight );
+        break;
+    }
+
+    case SCH_TABLECELL_T:
+    {
+        SCH_TABLECELL* cell = static_cast<SCH_TABLECELL*>( item );
+
+        m_editPoints->Point( 0 ).SetPosition( cell->GetEndX(),
+                                              cell->GetEndY() - cell->GetRectangleHeight() / 2 );
+        m_editPoints->Point( 1 ).SetPosition( cell->GetEndX() - cell->GetRectangleWidth() / 2,
+                                              cell->GetEndY() );
         break;
     }
 

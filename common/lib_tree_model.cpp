@@ -91,6 +91,12 @@ bool LIB_TREE_NODE::Compare( LIB_TREE_NODE const& aNode1, LIB_TREE_NODE const& a
     {
         if( aNode2.m_Name.StartsWith( wxT( "-- " ) ) )
         {
+            // Make sure -- Recently Used is always at the top
+            if( aNode1.m_Name.StartsWith( wxT( "-- Recently Used" ) ) )
+                return true;
+            else if( aNode2.m_Name.StartsWith( wxT( "-- Recently Used" ) ) )
+                return false;
+
             return aNode1.m_IntrinsicRank > aNode2.m_IntrinsicRank;
         }
         else
@@ -125,6 +131,7 @@ LIB_TREE_NODE::LIB_TREE_NODE()
       m_IntrinsicRank( 0 ),
       m_Score( 0 ),
       m_Pinned( false ),
+      m_PinCount( 0 ),
       m_Unit( 0 ),
       m_IsRoot( false )
 {}
@@ -186,7 +193,7 @@ LIB_TREE_NODE_ITEM::LIB_TREE_NODE_ITEM( LIB_TREE_NODE* aParent, LIB_TREE_ITEM* a
     m_LibId.SetLibItemName( aItem->GetName() );
 
     m_Name = aItem->GetName();
-    m_Desc = aItem->GetDescription();
+    m_Desc = aItem->GetDesc();
     m_Footprint = aItem->GetFootprint();
     m_PinCount = aItem->GetPinCount();
 
@@ -196,9 +203,9 @@ LIB_TREE_NODE_ITEM::LIB_TREE_NODE_ITEM( LIB_TREE_NODE* aParent, LIB_TREE_ITEM* a
 
     m_IsRoot = aItem->IsRoot();
 
-    if( aItem->GetUnitCount() > 1 )
+    if( aItem->GetSubUnitCount() > 1 )
     {
-        for( int u = 1; u <= aItem->GetUnitCount(); ++u )
+        for( int u = 1; u <= aItem->GetSubUnitCount(); ++u )
             AddUnit( aItem, u );
     }
 }
@@ -214,11 +221,11 @@ LIB_TREE_NODE_UNIT& LIB_TREE_NODE_ITEM::AddUnit( LIB_TREE_ITEM* aItem, int aUnit
 
 void LIB_TREE_NODE_ITEM::Update( LIB_TREE_ITEM* aItem )
 {
-    m_LibId.SetLibNickname( aItem->GetLibId().GetLibNickname() );
+    m_LibId.SetLibNickname( aItem->GetLIB_ID().GetLibNickname() );
     m_LibId.SetLibItemName( aItem->GetName() );
 
     m_Name = aItem->GetName();
-    m_Desc = aItem->GetDescription();
+    m_Desc = aItem->GetDesc();
 
     aItem->GetChooserFields( m_Fields );
 
@@ -227,7 +234,7 @@ void LIB_TREE_NODE_ITEM::Update( LIB_TREE_ITEM* aItem )
     m_IsRoot = aItem->IsRoot();
     m_Children.clear();
 
-    for( int u = 1; u <= aItem->GetUnitCount(); ++u )
+    for( int u = 1; u <= aItem->GetSubUnitCount(); ++u )
         AddUnit( aItem, u );
 }
 
@@ -235,13 +242,21 @@ void LIB_TREE_NODE_ITEM::Update( LIB_TREE_ITEM* aItem )
 void LIB_TREE_NODE_ITEM::UpdateScore( EDA_COMBINED_MATCHER* aMatcher, const wxString& aLib,
                                       std::function<bool( LIB_TREE_NODE& aNode )>* aFilter )
 {
-    // aMatcher test is additive
+    // aMatcher test is additive, but if we don't match the given term at all, it nulls out
     if( aMatcher )
-        m_Score += aMatcher->ScoreTerms( m_SearchTerms );
+    {
+        int currentScore = aMatcher->ScoreTerms( m_SearchTerms );
 
-    // aLib test is additive
-    if( !aLib.IsEmpty() && m_Parent->m_Name.Lower() == aLib )
-        m_Score += 1;
+        // This is a hack: the second phase of search in the adapter will look for a tokenized
+        // LIB_ID and send the lib part down here.  While we generally want to prune ourselves
+        // out here (by setting score to -1) the first time we fail to match a search term,
+        // we want to give the same search term a second chance if it has been split from a library
+        // name.
+        if( ( m_Score >= 0 || !aLib.IsEmpty() ) && currentScore > 0 )
+            m_Score += currentScore;
+        else
+            m_Score = -1;   // Item has failed to match this term, rule it out
+    }
 
     // aFilter test is subtractive
     if( aFilter && !(*aFilter)(*this) )
@@ -280,19 +295,42 @@ LIB_TREE_NODE_ITEM& LIB_TREE_NODE_LIBRARY::AddItem( LIB_TREE_ITEM* aItem )
 void LIB_TREE_NODE_LIBRARY::UpdateScore( EDA_COMBINED_MATCHER* aMatcher, const wxString& aLib,
                                          std::function<bool( LIB_TREE_NODE& aNode )>* aFilter )
 {
+    int maxChildScore = 0;
+
     for( std::unique_ptr<LIB_TREE_NODE>& child: m_Children )
     {
         child->UpdateScore( aMatcher, aLib, aFilter );
-        m_Score = std::max( m_Score, child->m_Score );
+        maxChildScore = std::max( maxChildScore, child->m_Score );
     }
 
-    // aLib test is additive
-    if( !aLib.IsEmpty() && m_Name.Lower() == aLib )
+    // Each time UpdateScore is called for a library, child (item) scores may go up or down.
+    // If the all go down to zero, we need to make sure to drop the library from the list.
+    if( maxChildScore > 0 )
+        m_Score = std::max( m_Score, maxChildScore );
+    else
+        m_Score = 0;
+
+    // aLib test is additive, but only when we've already accumulated some score from children
+    if( !aLib.IsEmpty()
+        && m_Name.Lower().Matches( aLib )
+        && ( m_Score > 0 || m_Children.empty() ) )
+    {
         m_Score += 1;
+    }
 
     // aMatcher test is additive
     if( aMatcher )
-        m_Score += aMatcher->ScoreTerms( m_SearchTerms );
+    {
+        int ownScore = aMatcher->ScoreTerms( m_SearchTerms );
+        m_Score += ownScore;
+
+        // If we have a hit on a library, show all children in that library
+        if( maxChildScore <= 0 && ownScore > 0 )
+        {
+            for( std::unique_ptr<LIB_TREE_NODE>& child: m_Children )
+                child->ForceScore( 1 );
+        }
+    }
 
     // show all nodes if no search/filter/etc. criteria are given
     if( m_Children.empty() && !aMatcher && aLib.IsEmpty() && ( !aFilter || (*aFilter)(*this) ) )

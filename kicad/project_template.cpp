@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2012 Brian Sidebotham <brian.sidebotham@gmail.com>
- * Copyright (C) 1992-2023 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2024 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -54,8 +54,8 @@ PROJECT_TEMPLATE::PROJECT_TEMPLATE( const wxString& aPath )
     else if( !wxFileName::DirExists( m_metaPath.GetPath() ) )
     {
         // Error, the meta information directory doesn't exist!
-        m_title = _( "Couldn't open the meta information directory for this template!" ) + wxS( " " ) +
-                  m_metaPath.GetPath();
+        m_title = _( "Couldn't open the meta information directory for this template!" ) +
+                  wxS( " " ) + m_metaPath.GetPath();
     }
     else if( !wxFileName::FileExists( m_metaHtmlFile.GetFullPath() ) )
     {
@@ -82,31 +82,49 @@ public:
     virtual wxDirTraverseResult OnFile( const wxString& filename ) override
     {
         wxFileName fn( filename );
+        wxString   path( fn.GetPathWithSep() );
 
-        bool exclude = filename.StartsWith( m_exclude ) || fn.GetName().StartsWith( wxS( "." ) );
+        bool exclude = fn.GetName().Contains( "fp-info-cache" )
+                       || fn.GetName().StartsWith( "_autosave-" ) || fn.GetExt().Contains( "lck" );
 
         if( !exclude )
             m_files.emplace_back( wxFileName( filename ) );
+
+        if( path != m_oldPath )
+        {
+            const wxString gitfiles[] = { wxT( ".gitignore" ), wxT( ".gitattributes" ) };
+
+            for( const wxString& file : gitfiles )
+            {
+                if( wxFileExists( path + file ) )
+                    m_files.emplace_back( wxFileName( path + file ) );
+            }
+
+            m_oldPath = path;
+        }
 
         return wxDIR_CONTINUE;
     }
 
     virtual wxDirTraverseResult OnDir( const wxString& dirname ) override
     {
-        wxFileName fn( dirname, wxEmptyString );
-        wxArrayString dirs = fn.GetDirs();
-        wxString lastDir = dirs[ fn.GetDirCount() - 1 ];
-        bool exclude = dirname.StartsWith( m_exclude ) || lastDir.StartsWith( wxS( "." ) );
+        wxDirTraverseResult result = wxDIR_IGNORE;
+
+        bool exclude = dirname.StartsWith( m_exclude ) || dirname.EndsWith( "-backups" );
 
         if( !exclude )
+        {
             m_files.emplace_back( wxFileName::DirName( dirname ) );
+            result = wxDIR_CONTINUE;
+        }
 
-        return wxDIR_CONTINUE;
+        return result;
     }
 
 private:
     std::vector<wxFileName>& m_files;
     wxString                 m_exclude;
+    wxString                 m_oldPath;
 };
 
 
@@ -116,7 +134,7 @@ std::vector<wxFileName> PROJECT_TEMPLATE::GetFileList()
     FILE_TRAVERSER          sink( files, m_metaPath.GetPath() );
     wxDir                   dir( m_basePath.GetPath() );
 
-    dir.Traverse( sink );
+    dir.Traverse( sink, wxEmptyString, ( wxDIR_FILES | wxDIR_DIRS ) );
     return files;
 }
 
@@ -156,7 +174,8 @@ size_t PROJECT_TEMPLATE::GetDestinationFiles( const wxFileName& aNewProjectPath,
 
     for( wxFileName& file : srcFiles )
     {
-        if( file.GetExt() == ProjectFileExtension || file.GetExt() == LegacyProjectFileExtension )
+        if( file.GetExt() == FILEEXT::ProjectFileExtension
+            || file.GetExt() == FILEEXT::LegacyProjectFileExtension )
         {
             if( !basename.IsEmpty() && basename != file.GetName() )
                 multipleProjectFilesFound = true;
@@ -205,7 +224,8 @@ bool PROJECT_TEMPLATE::CreateProject( wxFileName& aNewProjectPath, wxString* aEr
 
     for( wxFileName& file : srcFiles )
     {
-        if( file.GetExt() == ProjectFileExtension || file.GetExt() == LegacyProjectFileExtension )
+        if( file.GetExt() == FILEEXT::ProjectFileExtension
+            || file.GetExt() == FILEEXT::LegacyProjectFileExtension )
         {
             if( !basename.IsEmpty() && basename != file.GetName() )
                 multipleProjectFilesFound = true;
@@ -225,7 +245,7 @@ bool PROJECT_TEMPLATE::CreateProject( wxFileName& aNewProjectPath, wxString* aEr
         // Replace the template filename with the project filename for the new project creation
         wxString currname = destFile.GetName();
 
-        if( destFile.GetExt() == DrawingSheetFileExtension )
+        if( destFile.GetExt() == FILEEXT::DrawingSheetFileExtension )
         {
             // Don't rename drawing sheet definitions; they're often shared
         }

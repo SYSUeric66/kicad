@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2022 Mark Roszko <mark.roszko@gmail.com>
- * Copyright (C) 1992-2022 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2023 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software: you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -28,19 +28,21 @@
 
 #include <macros.h>
 
+
 #define ARG_FORCE "--force"
+
 
 CLI::SYM_UPGRADE_COMMAND::SYM_UPGRADE_COMMAND() : COMMAND( "upgrade" )
 {
     addCommonArgs( true, true, false, false );
 
-    m_argParser.add_description( UTF8STDSTR( _( "Upgrades the symbol library to the current kicad version format" ) ) );
+    m_argParser.add_description( UTF8STDSTR( _( "Upgrades the symbol library to the current "
+                                                "kicad version format" ) ) );
 
     m_argParser.add_argument( ARG_FORCE )
             .help( UTF8STDSTR(
                     _( "Forces the symbol library to be resaved regardless of versioning" ) ) )
-            .implicit_value( true )
-            .default_value( false );
+            .flag();
 }
 
 

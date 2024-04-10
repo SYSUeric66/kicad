@@ -3,7 +3,7 @@
  *
  * Copyright (C) 2015-2016 Mario Luzeiro <mrluzeiro@ua.pt>
  * Copyright (C) 2023 CERN
- * Copyright (C) 1992-2023 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2024 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -38,6 +38,7 @@
 #include <pad.h>
 #include <pcb_text.h>
 #include <pcb_textbox.h>
+#include <pcb_table.h>
 #include <board_design_settings.h>
 #include <pcb_painter.h>        // for PCB_RENDER_SETTINGS
 #include <zone.h>
@@ -225,12 +226,17 @@ void BOARD_ADAPTER::addFootprintShapes( const FOOTPRINT* aFootprint, CONTAINER_2
             PCB_TEXTBOX* textbox = static_cast<PCB_TEXTBOX*>( item );
 
             if( textbox->GetLayer() == aLayerId )
-            {
-                if( textbox->IsBorderEnabled() )
-                    addShape( textbox, aContainer, aFootprint );
+                addShape( textbox, aContainer, aFootprint );
 
-                addText( textbox, aContainer, aFootprint );
-            }
+            break;
+        }
+
+        case PCB_TABLE_T:
+        {
+            PCB_TABLE* table = static_cast<PCB_TABLE*>( item );
+
+            if( table->GetLayer() == aLayerId )
+                addTable( table, aContainer, aFootprint );
 
             break;
         }
@@ -610,7 +616,7 @@ void BOARD_ADAPTER::addShape( const PCB_SHAPE* aShape, CONTAINER_2D_BASE* aConta
             float   innerR3DU = TO_3DU( aShape->GetRadius() ) - linewidth3DU / 2.0;
             float   outerR3DU = TO_3DU( aShape->GetRadius() ) + linewidth3DU / 2.0;
 
-            if( aShape->IsFilled() )
+            if( aShape->IsFilled() || innerR3DU <= 0.0 )
                 addFILLED_CIRCLE_2D( aContainer, center3DU, outerR3DU, *aOwner );
             else
                 addRING_2D( aContainer, center3DU, innerR3DU, outerR3DU, *aOwner );
@@ -726,7 +732,9 @@ void BOARD_ADAPTER::addShape( const PCB_TEXTBOX* aTextBox, CONTAINER_2D_BASE* aC
     // So for polygon, we use PCB_SHAPE::TransformShapeToPolygon
 
     if( aTextBox->GetShape() == SHAPE_T::RECTANGLE )
+    {
         addShape( static_cast<const PCB_SHAPE*>( aTextBox ), aContainer, aOwner );
+    }
     else
     {
         SHAPE_POLY_SET polyList;
@@ -736,6 +744,17 @@ void BOARD_ADAPTER::addShape( const PCB_TEXTBOX* aTextBox, CONTAINER_2D_BASE* aC
 
         ConvertPolygonToTriangles( polyList, *aContainer, m_biuTo3Dunits, *aOwner );
     }
+}
+
+
+void BOARD_ADAPTER::addTable( const PCB_TABLE* aTable, CONTAINER_2D_BASE* aContainer,
+                              const BOARD_ITEM* aOwner )
+{
+    // JEY TODO: tables
+    // add borders
+
+    for( PCB_TABLECELL* cell : aTable->GetCells() )
+        addText( cell, aContainer, aOwner );
 }
 
 

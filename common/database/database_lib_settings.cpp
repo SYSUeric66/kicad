@@ -22,7 +22,7 @@
 * 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA
 */
 
-#include <nlohmann/json.hpp>
+#include <json_common.h>
 
 #include <database/database_lib_settings.h>
 #include <settings/parameters.h>
@@ -30,6 +30,17 @@
 
 
 const int dblibSchemaVersion = 1;
+
+
+DATABASE_FIELD_MAPPING::DATABASE_FIELD_MAPPING( std::string aColumn, std::string aName,
+                                                bool aVisibleOnAdd, bool aVisibleInChooser,
+                                                bool aShowName, bool aInheritProperties ) :
+        column( aColumn ),
+        name( aName ), name_wx( aName.c_str(), wxConvUTF8 ), visible_on_add( aVisibleOnAdd ),
+        visible_in_chooser( aVisibleInChooser ), show_name( aShowName ),
+        inherit_properties( aInheritProperties )
+{
+}
 
 
 DATABASE_LIB_SETTINGS::DATABASE_LIB_SETTINGS( const std::string& aFilename ) :
@@ -113,11 +124,8 @@ DATABASE_LIB_SETTINGS::DATABASE_LIB_SETTINGS( const std::string& aFilename ) :
                         bool inherit   = fetchOrDefault<bool>( fieldJson, "inherit_properties" );
 
                         table.fields.emplace_back(
-                                DATABASE_FIELD_MAPPING(
-                                {
-                                    column, name, visible_on_add, visible_in_chooser, show_name,
-                                    inherit
-                                } ) );
+                                DATABASE_FIELD_MAPPING( column, name, visible_on_add,
+                                                        visible_in_chooser, show_name, inherit ) );
                     }
                 }
 
@@ -168,5 +176,5 @@ DATABASE_LIB_SETTINGS::DATABASE_LIB_SETTINGS( const std::string& aFilename ) :
 
 wxString DATABASE_LIB_SETTINGS::getFileExt() const
 {
-    return DatabaseLibraryFileExtension;
+    return FILEEXT::DatabaseLibraryFileExtension;
 }

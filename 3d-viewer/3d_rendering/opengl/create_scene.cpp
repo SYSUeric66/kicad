@@ -454,7 +454,7 @@ void RENDER_3D_OPENGL::reload( REPORTER* aStatusReporter, REPORTER* aWarningRepo
 
     OBJECT_2D_STATS::Instance().ResetStats();
 
-    unsigned stats_startReloadTime = GetRunningMicroSecs();
+    int64_t stats_startReloadTime = GetRunningMicroSecs();
 
     m_boardAdapter.InitSettings( aStatusReporter, aWarningReporter );
 
@@ -613,12 +613,12 @@ void RENDER_3D_OPENGL::reload( REPORTER* aStatusReporter, REPORTER* aWarningRepo
 
     if( m_boardAdapter.m_Cfg->m_Render.differentiate_plated_copper )
     {
-        const SHAPE_POLY_SET* frontPlatedPadPolys = m_boardAdapter.GetFrontPlatedPadPolys();
-        const SHAPE_POLY_SET* backPlatedPadPolys = m_boardAdapter.GetBackPlatedPadPolys();
+        const SHAPE_POLY_SET* frontPlatedPadAndGraphicPolys = m_boardAdapter.GetFrontPlatedPadAndGraphicPolys();
+        const SHAPE_POLY_SET* backPlatedPadAndGraphicPolys = m_boardAdapter.GetBackPlatedPadAndGraphicPolys();
 
-        if( frontPlatedPadPolys )
+        if( frontPlatedPadAndGraphicPolys )
         {
-            SHAPE_POLY_SET poly = frontPlatedPadPolys->CloneDropTriangulation();
+            SHAPE_POLY_SET poly = frontPlatedPadAndGraphicPolys->CloneDropTriangulation();
             poly.BooleanIntersection( m_boardAdapter.GetBoardPoly(), SHAPE_POLY_SET::PM_FAST );
             poly.BooleanSubtract( m_boardAdapter.GetTH_ODPolys(), SHAPE_POLY_SET::PM_FAST );
             poly.BooleanSubtract( m_boardAdapter.GetNPTH_ODPolys(), SHAPE_POLY_SET::PM_FAST );
@@ -630,9 +630,9 @@ void RENDER_3D_OPENGL::reload( REPORTER* aStatusReporter, REPORTER* aWarningRepo
                 m_layers[F_Cu] = generateEmptyLayerList( F_Cu );
         }
 
-        if( backPlatedPadPolys )
+        if( backPlatedPadAndGraphicPolys )
         {
-            SHAPE_POLY_SET poly = backPlatedPadPolys->CloneDropTriangulation();
+            SHAPE_POLY_SET poly = backPlatedPadAndGraphicPolys->CloneDropTriangulation();
             poly.BooleanIntersection( m_boardAdapter.GetBoardPoly(), SHAPE_POLY_SET::PM_FAST );
             poly.BooleanSubtract( m_boardAdapter.GetTH_ODPolys(), SHAPE_POLY_SET::PM_FAST );
             poly.BooleanSubtract( m_boardAdapter.GetNPTH_ODPolys(), SHAPE_POLY_SET::PM_FAST );
@@ -917,6 +917,10 @@ void RENDER_3D_OPENGL::load3dModels( REPORTER* aStatusReporter )
     if( !m_boardAdapter.GetBoard() )
         return;
 
+    // Building the 3D models late crashes on recent versions of macOS
+    // Unclear the exact mechanism, but as a workaround, just build them
+    // all the time.  See https://gitlab.com/kicad/code/kicad/-/issues/17198
+#ifndef __WXMAC__
     if( !m_boardAdapter.m_IsPreviewer
           && !m_boardAdapter.m_Cfg->m_Render.show_footprints_normal
           && !m_boardAdapter.m_Cfg->m_Render.show_footprints_insert
@@ -924,6 +928,7 @@ void RENDER_3D_OPENGL::load3dModels( REPORTER* aStatusReporter )
     {
         return;
     }
+#endif
 
     // Go for all footprints
     for( const FOOTPRINT* footprint : m_boardAdapter.GetBoard()->Footprints() )

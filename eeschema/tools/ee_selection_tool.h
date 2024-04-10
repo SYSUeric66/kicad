@@ -25,6 +25,7 @@
 #ifndef KICAD_SCH_SELECTION_TOOL_H
 #define KICAD_SCH_SELECTION_TOOL_H
 
+#include <project/sch_project_settings.h>
 #include <tool/selection_tool.h>
 #include <tool/action_menu.h>
 #include <tool/tool_menu.h>
@@ -35,6 +36,7 @@
 
 class SCH_BASE_FRAME;
 class SCH_ITEM;
+class SCH_TABLE;
 class EE_GRID_HELPER;
 
 namespace KIGFX
@@ -91,7 +93,8 @@ public:
      * @param aScanTypes [optional] List of item types that are acceptable for selection.
      * @return either the current selection or, if empty, the selection at the cursor.
      */
-    EE_SELECTION& RequestSelection( const std::vector<KICAD_T>& aScanTypes = { SCH_LOCATE_ANY_T } );
+    EE_SELECTION& RequestSelection( const std::vector<KICAD_T>& aScanTypes = { SCH_LOCATE_ANY_T },
+                                    bool aPromoteCellSelections = false );
 
     /**
      * Perform a click-type selection at a point (usually the cursor position).
@@ -134,6 +137,10 @@ public:
      * otherwise select connection under the current cursor position.
      */
     int SelectConnection( const TOOL_EVENT& aEvent );
+
+    int SelectColumns( const TOOL_EVENT& aEvent );
+    int SelectRows( const TOOL_EVENT& aEvent );
+    int SelectTable( const TOOL_EVENT& aEvent );
 
     ///< Clear current selection event handler.
     int ClearSelection( const TOOL_EVENT& aEvent );
@@ -184,6 +191,8 @@ public:
     void SyncSelection( const std::optional<SCH_SHEET_PATH>& targetSheetPath, SCH_ITEM* focusItem,
                         const std::vector<SCH_ITEM*>& items );
 
+    SCH_SELECTION_FILTER_OPTIONS& GetFilter() { return m_filter; }
+
 protected:
     SELECTION& selection() override { return m_selection; }
 
@@ -227,6 +236,13 @@ private:
      * @return true if the function was canceled (i.e. CancelEvent was received).
      */
     bool selectMultiple();
+
+    /**
+     * Handle a table cell drag selection within a table.
+     *
+     * @return true if the function was canceled (i.e. CancelEvent was received).
+     */
+    bool selectTableCells( SCH_TABLE* aTable );
 
     /**
      * Handle disambiguation actions including displaying the menu.
@@ -275,6 +291,11 @@ private:
      */
     bool selectionContains( const VECTOR2I& aPoint ) const;
 
+    /**
+     * Return true if the given item passes the stateful selection filter
+     */
+    bool itemPassesFilter( EDA_ITEM* aItem );
+
     ///< Set up handlers for various events.
     void setTransitions() override;
 
@@ -288,7 +309,9 @@ private:
     bool            m_isSymbolEditor;    // True when the symbol editor is the parent frame
     bool            m_isSymbolViewer;    // True when the symbol browser is the parent frame
     int             m_unit;              // Fixed unit filter (for symbol editor)
-    int             m_convert;           // Fixed DeMorgan filter (for symbol editor)
+    int             m_bodyStyle;         // Fixed DeMorgan filter (for symbol editor)
+
+    SCH_SELECTION_FILTER_OPTIONS m_filter;
 };
 
 #endif //KICAD_SCH_SELECTION_TOOL_H

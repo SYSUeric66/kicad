@@ -36,20 +36,36 @@
 class PNS_KICAD_IFACE_GENERATOR : public PNS_KICAD_IFACE
 {
 public:
-    void Commit() override {}
-
     void SetHostTool( PCB_TOOL_BASE* aTool ) override
     {
         m_tool = aTool;
         m_commit = nullptr;
-        m_addedItems.clear();
-        m_removedItems.clear();
+
+        ClearCommits();
+    }
+
+    void Commit() override
+    { //
+        m_changes.emplace_back();
+    }
+
+    void ClearCommits()
+    {
+        m_changes.clear();
+        m_changes.emplace_back();
     }
 
     void AddItem( PNS::ITEM* aItem ) override
     {
         BOARD_ITEM* brdItem = createBoardItem( aItem );
-        m_addedItems.emplace( brdItem );
+
+        if( brdItem )
+        {
+            aItem->SetParent( brdItem );
+            brdItem->ClearFlags();
+
+            m_changes.back().addedItems.emplace( brdItem );
+        }
     }
 
     void UpdateItem( PNS::ITEM* aItem ) override
@@ -72,35 +88,26 @@ public:
 
         if( parent )
         {
-            m_removedItems.emplace( parent );
+            m_changes.back().removedItems.emplace( parent );
         }
     }
 
-    std::set<BOARD_ITEM*>& AddedItems() { return m_addedItems; }
-    std::set<BOARD_ITEM*>& RemovedItems() { return m_removedItems; }
+    std::vector<GENERATOR_PNS_CHANGES>& Changes() { return m_changes; };
 
 private:
-    std::set<BOARD_ITEM*> m_addedItems;
-    std::set<BOARD_ITEM*> m_removedItems;
+    std::vector<GENERATOR_PNS_CHANGES> m_changes;
 };
 
 
-void GENERATOR_TOOL_PNS_PROXY::ClearRouterCommit()
+void GENERATOR_TOOL_PNS_PROXY::ClearRouterChanges()
 {
-    static_cast<PNS_KICAD_IFACE_GENERATOR*>( GetInterface() )->AddedItems().clear();
-    static_cast<PNS_KICAD_IFACE_GENERATOR*>( GetInterface() )->RemovedItems().clear();
+    static_cast<PNS_KICAD_IFACE_GENERATOR*>( GetInterface() )->ClearCommits();
 }
 
 
-const std::set<BOARD_ITEM*>& GENERATOR_TOOL_PNS_PROXY::GetRouterCommitAddedItems()
+const std::vector<GENERATOR_PNS_CHANGES>& GENERATOR_TOOL_PNS_PROXY::GetRouterChanges()
 {
-    return static_cast<PNS_KICAD_IFACE_GENERATOR*>( GetInterface() )->AddedItems();
-}
-
-
-const std::set<BOARD_ITEM*>& GENERATOR_TOOL_PNS_PROXY::GetRouterCommitRemovedItems()
-{
-    return static_cast<PNS_KICAD_IFACE_GENERATOR*>( GetInterface() )->RemovedItems();
+    return static_cast<PNS_KICAD_IFACE_GENERATOR*>( GetInterface() )->Changes();
 }
 
 

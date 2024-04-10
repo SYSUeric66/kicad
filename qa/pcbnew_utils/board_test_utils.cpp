@@ -1,7 +1,7 @@
 /*
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
- * Copyright (C) 2019-2023 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2019-2024 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -26,21 +26,23 @@
 #include <filesystem>
 
 #include <wx/filename.h>
-#include <board.h>
-#include <board_design_settings.h>
-#include <footprint.h>
-#include <pcb_shape.h>
-#include <zone.h>
-#include <pad.h>
-#include <settings/settings_manager.h>
-#include <pcbnew_utils/board_file_utils.h>
-#include <tool/tool_manager.h>
-#include <zone_filler.h>
 
 #include <boost/test/unit_test.hpp>
-#include <board_commit.h>
 
-#define CHECK_ENUM_CLASS_EQUAL( L, R )                                                             \
+#include <board.h>
+#include <board_commit.h>
+#include <board_design_settings.h>
+#include <footprint.h>
+#include <kiid.h>
+#include <pad.h>
+#include <pcb_shape.h>
+#include <zone.h>
+#include <zone_filler.h>
+#include <pcbnew_utils/board_file_utils.h>
+#include <settings/settings_manager.h>
+#include <tool/tool_manager.h>
+
+#define CHECK_ENUM_CLASS_EQUAL( L, R )                                                      \
     BOOST_CHECK_EQUAL( static_cast<int>( L ), static_cast<int>( R ) )
 
 
@@ -86,7 +88,17 @@ void LoadBoard( SETTINGS_MANAGER& aSettingsManager, const wxString& aRelPath,
     else if( legacyProject.Exists() )
         aSettingsManager.LoadProject( legacyProject.GetFullPath() );
 
-    aBoard = ReadBoardFromFileOrStream( boardPath );
+    BOOST_TEST_MESSAGE( "Loading board file: " << boardPath );
+
+    try {
+        aBoard = ReadBoardFromFileOrStream( boardPath );
+    }
+    catch( const IO_ERROR& ioe )
+    {
+        BOOST_TEST_ERROR( ioe.What() );
+    }
+
+    BOOST_REQUIRE( aBoard );
 
     if( projectFile.Exists() || legacyProject.Exists() )
         aBoard->SetProject( &aSettingsManager.Prj() );
@@ -101,6 +113,57 @@ void LoadBoard( SETTINGS_MANAGER& aSettingsManager, const wxString& aRelPath,
     aBoard->GetDesignSettings().m_DRCEngine = m_DRCEngine;
     aBoard->BuildListOfNets();
     aBoard->BuildConnectivity();
+}
+
+
+BOARD_ITEM& RequireBoardItemWithTypeAndId( const BOARD& aBoard, KICAD_T aItemType, const KIID& aID )
+{
+    BOARD_ITEM* item = aBoard.GetItem( aID );
+
+    BOOST_REQUIRE( item );
+    BOOST_REQUIRE_EQUAL( item->Type(), aItemType );
+
+    return *item;
+}
+
+
+void LoadAndTestBoardFile( const wxString aRelativePath, bool aRoundtrip,
+                           std::function<void( BOARD& )> aBoardTestFunction,
+                           std::optional<int> aExpectedBoardVersion )
+{
+    const std::string absBoardPath =
+            KI_TEST::GetPcbnewTestDataDir() + aRelativePath.ToStdString() + ".kicad_pcb";
+
+    BOOST_TEST_MESSAGE( "Loading board to test: " << absBoardPath );
+    std::unique_ptr<BOARD> board1 = KI_TEST::ReadBoardFromFileOrStream( absBoardPath );
+
+    // Should load - if it doesn't we're done for
+    BOOST_REQUIRE( board1 );
+
+    BOOST_TEST_MESSAGE( "Testing loaded board" );
+    aBoardTestFunction( *board1 );
+
+    // If we care about the board version, check it now - but not after a roundtrip
+    // (as the version will be updated to the current version)
+    if( aExpectedBoardVersion )
+    {
+        BOOST_CHECK_EQUAL( board1->GetFileFormatVersionAtLoad(), *aExpectedBoardVersion );
+    }
+
+    if( aRoundtrip )
+    {
+        const auto savePath = std::filesystem::temp_directory_path()
+                              / ( aRelativePath.ToStdString() + ".kicad_pcb" );
+        KI_TEST::DumpBoardToFile( *board1, savePath.string() );
+
+        std::unique_ptr<BOARD> board2 = KI_TEST::ReadBoardFromFileOrStream( savePath.string() );
+
+        // Should load again
+        BOOST_REQUIRE( board2 );
+
+        BOOST_TEST_MESSAGE( "Testing roundtripped (saved/reloaded) file" );
+        aBoardTestFunction( *board2 );
+    }
 }
 
 
@@ -286,13 +349,15 @@ void CheckFpPad( const PAD* expected, const PAD* pad )
         BOOST_CHECK_EQUAL( expected->GetPinFunction(), pad->GetPinFunction() );
         BOOST_CHECK_EQUAL( expected->GetPinType(), pad->GetPinType() );
         BOOST_CHECK_EQUAL( expected->GetPadToDieLength(), pad->GetPadToDieLength() );
-        BOOST_CHECK_EQUAL( expected->GetLocalSolderMaskMargin(), pad->GetLocalSolderMaskMargin() );
-        BOOST_CHECK_EQUAL( expected->GetLocalSolderPasteMargin(),
-                           pad->GetLocalSolderPasteMargin() );
-        BOOST_CHECK_EQUAL( expected->GetLocalSolderPasteMarginRatio(),
-                           pad->GetLocalSolderPasteMarginRatio() );
-        BOOST_CHECK_EQUAL( expected->GetLocalClearance(), pad->GetLocalClearance() );
-        CHECK_ENUM_CLASS_EQUAL( expected->GetZoneConnection(), pad->GetZoneConnection() );
+        BOOST_CHECK_EQUAL( expected->GetLocalSolderMaskMargin().value_or( 0 ),
+                                  pad->GetLocalSolderMaskMargin().value_or( 0 ) );
+        BOOST_CHECK_EQUAL( expected->GetLocalSolderPasteMargin().value_or( 0 ),
+                                  pad->GetLocalSolderPasteMargin().value_or( 0 ) );
+        BOOST_CHECK_EQUAL( expected->GetLocalSolderPasteMarginRatio().value_or( 0 ),
+                                  pad->GetLocalSolderPasteMarginRatio().value_or( 0 ) );
+        BOOST_CHECK_EQUAL( expected->GetLocalClearance().value_or( 0 ),
+                           pad->GetLocalClearance().value_or( 0 ) );
+        CHECK_ENUM_CLASS_EQUAL( expected->GetLocalZoneConnection(), pad->GetLocalZoneConnection() );
         BOOST_CHECK_EQUAL( expected->GetThermalSpokeWidth(), pad->GetThermalSpokeWidth() );
         BOOST_CHECK_EQUAL( expected->GetThermalSpokeAngle(), pad->GetThermalSpokeAngle() );
         BOOST_CHECK_EQUAL( expected->GetThermalGap(), pad->GetThermalGap() );
@@ -404,7 +469,8 @@ void CheckFpZone( const ZONE* expected, const ZONE* zone )
         BOOST_CHECK_EQUAL( expected->GetNetCode(), zone->GetNetCode() );
         BOOST_CHECK_EQUAL( expected->GetAssignedPriority(), zone->GetAssignedPriority() );
         CHECK_ENUM_CLASS_EQUAL( expected->GetPadConnection(), zone->GetPadConnection() );
-        BOOST_CHECK_EQUAL( expected->GetLocalClearance(), zone->GetLocalClearance() );
+        BOOST_CHECK_EQUAL( expected->GetLocalClearance().value_or( 0 ),
+                           zone->GetLocalClearance().value_or( 0 ) );
         BOOST_CHECK_EQUAL( expected->GetMinThickness(), zone->GetMinThickness() );
 
         BOOST_CHECK_EQUAL( expected->GetLayerSet(), zone->GetLayerSet() );

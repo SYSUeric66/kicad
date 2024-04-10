@@ -184,8 +184,8 @@ FOOTPRINT_EDITOR_SETTINGS::FOOTPRINT_EDITOR_SETTINGS() :
                                        { "${REFERENCE}", true, F_Fab }
                                    } ) ) );
 
-    int minTextSize = pcbIUScale.MilsToIU( TEXT_MIN_SIZE_MILS );
-    int maxTextSize = pcbIUScale.MilsToIU( TEXT_MAX_SIZE_MILS );
+    int minTextSize = pcbIUScale.mmToIU( TEXT_MIN_SIZE_MM );
+    int maxTextSize = pcbIUScale.mmToIU( TEXT_MAX_SIZE_MM );
     int minStroke = 1;
     int maxStroke = pcbIUScale.mmToIU( 100 );
 
@@ -376,7 +376,7 @@ bool FOOTPRINT_EDITOR_SETTINGS::MigrateFromLegacy( wxConfigBase* aCfg )
                                                           { "", true, F_Fab }
                                                       } );
 
-    Set( "design_settings.default_footprint_text_items", textItems );
+    Set( "design_settings.default_footprint_text_items", std::move( textItems ) );
 
     ret &= fromLegacyString( aCfg, "FpEditorRefDefaultText",         "design_settings.default_footprint_text_items.0.0" );
     ret &= fromLegacy<bool>( aCfg, "FpEditorRefDefaultVisibility",   "design_settings.default_footprint_text_items.0.1" );

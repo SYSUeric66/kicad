@@ -36,6 +36,7 @@
 #define ARG_HPGL_ORIGIN "--origin"
 #define ARG_PAGES "--pages"
 #define ARG_EXCLUDE_PDF_PROPERTY_POPUPS "--exclude-pdf-property-popups"
+#define ARG_EXCLUDE_PDF_METADATA "--exclude-pdf-metadata"
 
 const JOB_HPGL_PLOT_ORIGIN_AND_UNITS hpgl_origin_ops[4] = {
     JOB_HPGL_PLOT_ORIGIN_AND_UNITS::PLOTTER_BOT_LEFT,
@@ -61,12 +62,12 @@ CLI::SCH_EXPORT_PLOT_COMMAND::SCH_EXPORT_PLOT_COMMAND( const std::string& aName,
     {
         m_argParser.add_argument( "-t", ARG_THEME )
                 .default_value( std::string() )
-                .help( UTF8STDSTR( _( "Color theme to use (will default to schematic settings)" ) ) )
+                .help( UTF8STDSTR( _( "Color theme to use (will default to schematic "
+                                      "settings)" ) ) )
                 .metavar( "THEME_NAME" );
         m_argParser.add_argument( "-b", ARG_BLACKANDWHITE )
                 .help( UTF8STDSTR( _( ARG_BLACKANDWHITE_DESC ) ) )
-                .implicit_value( true )
-                .default_value( false );
+                .flag();
     }
 
     m_argParser.add_argument( "-e", ARG_EXCLUDE_DRAWING_SHEET )
@@ -78,8 +79,11 @@ CLI::SCH_EXPORT_PLOT_COMMAND::SCH_EXPORT_PLOT_COMMAND( const std::string& aName,
     {
         m_argParser.add_argument( ARG_EXCLUDE_PDF_PROPERTY_POPUPS )
                 .help( UTF8STDSTR( _( "Do not generate property popups in PDF" ) ) )
-                .implicit_value( true )
-                .default_value( false );
+                .flag();
+
+        m_argParser.add_argument( ARG_EXCLUDE_PDF_METADATA )
+                .help( UTF8STDSTR( _( "Do not generate PDF metadata from AUTHOR and SUBJECT variables" ) ) )
+                .flag();
     }
 
     if( aPlotFormat == SCH_PLOT_FORMAT::PDF
@@ -88,13 +92,13 @@ CLI::SCH_EXPORT_PLOT_COMMAND::SCH_EXPORT_PLOT_COMMAND( const std::string& aName,
     {
         m_argParser.add_argument( "-n", ARG_NO_BACKGROUND_COLOR )
                 .help( UTF8STDSTR( _( "Avoid setting a background color (regardless of theme)" ) ) )
-                .implicit_value( true )
-                .default_value( false );
+                .flag();
     }
 
     m_argParser.add_argument( "-p", ARG_PAGES )
             .default_value( std::string() )
-            .help( UTF8STDSTR( _( "List of page numbers separated by comma to print, blank or unspecified is equivalent to all pages" ) ) )
+            .help( UTF8STDSTR( _( "List of page numbers separated by comma to print, blank or "
+                                  "unspecified is equivalent to all pages" ) ) )
             .metavar( "PAGE_LIST" );
 
     if( aPlotFormat == SCH_PLOT_FORMAT::HPGL )
@@ -179,6 +183,7 @@ int CLI::SCH_EXPORT_PLOT_COMMAND::doPerform( KIWAY& aKiway )
     else if( m_plotFormat == SCH_PLOT_FORMAT::PDF )
     {
         plotJob->m_PDFPropertyPopups = !m_argParser.get<bool>( ARG_EXCLUDE_PDF_PROPERTY_POPUPS );
+        plotJob->m_PDFMetadata = !m_argParser.get<bool>( ARG_EXCLUDE_PDF_METADATA );
     }
 
     int exitCode = aKiway.ProcessJob( KIWAY::FACE_SCH, plotJob.get() );

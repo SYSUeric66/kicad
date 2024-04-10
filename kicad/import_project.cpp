@@ -35,8 +35,8 @@
 #include <confirm.h>
 #include <wildcards_and_files_ext.h>
 
-#include <io_mgr.h>
-#include <sch_io_mgr.h>
+#include <sch_io/sch_io_mgr.h>
+#include <pcb_io/pcb_io_mgr.h>
 
 #include "kicad_manager_frame.h"
 #include <import_proj.h>
@@ -81,35 +81,53 @@ void KICAD_MANAGER_FRAME::ImportNonKiCadProject( const wxString& aWindowTitle,
 
     importProj.m_TargetProj.SetPath( targetDir );
     importProj.m_TargetProj.SetName( importProj.m_InputFile.GetName() );
-    importProj.m_TargetProj.SetExt( ProjectFileExtension );
+    importProj.m_TargetProj.SetExt( FILEEXT::ProjectFileExtension );
     importProj.m_TargetProj.MakeAbsolute();
 
-    // Check if the project directory is empty
-    if( wxDir( targetDir ).HasFiles() )
+    // Check if the project directory exists and is empty
+    if( !importProj.m_TargetProj.DirExists() )
     {
-        msg = _( "The selected directory is not empty.  We recommend you "
-                 "create projects in their own clean directory.\n\nDo you "
-                 "want to create a new empty directory for the project?" );
-
-        KIDIALOG dlg( this, msg, _( "Confirmation" ), wxYES_NO | wxICON_WARNING );
-        dlg.DoNotShowCheckbox( __FILE__, __LINE__ );
-
-        if( dlg.ShowModal() == wxID_YES )
+        if( !importProj.m_TargetProj.Mkdir() )
         {
-            // Append a new directory with the same name of the project file
-            // Keep iterating until we find an empty directory
-            importProj.FindEmptyTargetDir();
+            msg.Printf( _( "Folder '%s' could not be created.\n\n"
+                           "Make sure you have write permissions and try again." ),
+                        importProj.m_TargetProj.GetPath() );
+            DisplayErrorMessage( this, msg );
+            return;
+        }
+    }
+    else
+    {
+        wxDir targetDirTest( targetDir );
+        if( targetDirTest.IsOpened() && targetDirTest.HasFiles() )
+        {
+            msg = _( "The selected directory is not empty.  We recommend you "
+                     "create projects in their own clean directory.\n\nDo you "
+                     "want to create a new empty directory for the project?" );
 
-            if( !wxMkdir( importProj.m_TargetProj.GetPath() ) )
+            KIDIALOG dlg( this, msg, _( "Confirmation" ), wxYES_NO | wxICON_WARNING );
+            dlg.DoNotShowCheckbox( __FILE__, __LINE__ );
+
+            if( dlg.ShowModal() == wxID_YES )
             {
-                msg = _( "Error creating new directory. Please try a different path. The "
-                         "project cannot be imported." );
+                // Append a new directory with the same name of the project file
+                // Keep iterating until we find an empty directory
+                importProj.FindEmptyTargetDir();
 
-                wxMessageDialog dirErrorDlg( this, msg, _( "Error" ), wxOK_DEFAULT | wxICON_ERROR );
-                dirErrorDlg.ShowModal();
-                return;
+                if( !wxMkdir( importProj.m_TargetProj.GetPath() ) )
+                {
+                    msg = _( "Error creating new directory. Please try a different path. The "
+                             "project cannot be imported." );
+
+                    wxMessageDialog dirErrorDlg( this, msg, _( "Error" ),
+                                                 wxOK_DEFAULT | wxICON_ERROR );
+                    dirErrorDlg.ShowModal();
+                    return;
+                }
             }
         }
+
+        targetDirTest.Close();
     }
 
     CreateNewProject( importProj.m_TargetProj.GetFullPath(), false /* Don't create stub files */ );
@@ -125,27 +143,27 @@ void KICAD_MANAGER_FRAME::ImportNonKiCadProject( const wxString& aWindowTitle,
 void KICAD_MANAGER_FRAME::OnImportCadstarArchiveFiles( wxCommandEvent& event )
 {
     ImportNonKiCadProject( _( "Import CADSTAR Archive Project Files" ),
-                           CadstarArchiveFilesWildcard(), { "csa" }, { "cpa" },
-                           SCH_IO_MGR::SCH_CADSTAR_ARCHIVE, IO_MGR::CADSTAR_PCB_ARCHIVE );
+                           FILEEXT::CadstarArchiveFilesWildcard(), { "csa" }, { "cpa" },
+                           SCH_IO_MGR::SCH_CADSTAR_ARCHIVE, PCB_IO_MGR::CADSTAR_PCB_ARCHIVE );
 }
 
 
 void KICAD_MANAGER_FRAME::OnImportEagleFiles( wxCommandEvent& event )
 {
-    ImportNonKiCadProject( _( "Import Eagle Project Files" ), EagleFilesWildcard(), { "sch" },
-                           { "brd" }, SCH_IO_MGR::SCH_EAGLE, IO_MGR::EAGLE );
+    ImportNonKiCadProject( _( "Import Eagle Project Files" ), FILEEXT::EagleFilesWildcard(), { "sch" },
+                           { "brd" }, SCH_IO_MGR::SCH_EAGLE, PCB_IO_MGR::EAGLE );
 }
 
 
 void KICAD_MANAGER_FRAME::OnImportEasyEdaFiles( wxCommandEvent& event )
 {
-    ImportNonKiCadProject( _( "Import EasyEDA Std Backup" ), EasyEdaArchiveWildcard(), { "INPUT" },
-                           { "INPUT" }, SCH_IO_MGR::SCH_EASYEDA, IO_MGR::EASYEDA );
+    ImportNonKiCadProject( _( "Import EasyEDA Std Backup" ), FILEEXT::EasyEdaArchiveWildcard(), { "INPUT" },
+                           { "INPUT" }, SCH_IO_MGR::SCH_EASYEDA, PCB_IO_MGR::EASYEDA );
 }
 
 
 void KICAD_MANAGER_FRAME::OnImportEasyEdaProFiles( wxCommandEvent& event )
 {
-    ImportNonKiCadProject( _( "Import EasyEDA Pro Project" ), EasyEdaProFileWildcard(), { "INPUT" },
-                           { "INPUT" }, SCH_IO_MGR::SCH_EASYEDAPRO, IO_MGR::EASYEDAPRO );
+    ImportNonKiCadProject( _( "Import EasyEDA Pro Project" ), FILEEXT::EasyEdaProFileWildcard(), { "INPUT" },
+                           { "INPUT" }, SCH_IO_MGR::SCH_EASYEDAPRO, PCB_IO_MGR::EASYEDAPRO );
 }

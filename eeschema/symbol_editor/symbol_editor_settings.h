@@ -25,6 +25,7 @@
 #define SYMBOL_EDITOR_SETTINGS_H
 
 #include <settings/app_settings.h>
+#include <project/sch_project_settings.h>
 
 
 class SYMBOL_EDITOR_SETTINGS : public APP_SETTINGS_BASE
@@ -80,6 +81,8 @@ public:
     DIALOG_IMPORT_GRAPHICS m_ImportGraphics;
 
     bool m_ShowPinElectricalType;
+    bool m_ShowHiddenPins;
+    bool m_ShowHiddenFields;
 
     int m_LibWidth;
 
@@ -90,6 +93,8 @@ public:
     wxString m_PinTableVisibleColumns;
 
     bool m_UseEeschemaColorSettings;
+
+    SCH_SELECTION_FILTER_OPTIONS m_SelectionFilter;
 
 protected:
 

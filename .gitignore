@@ -103,6 +103,9 @@ __pycache__
 .editorconfig
 CMakeSettings.json
 .vscode/
+compile_commands.json
+/vcpkg_installed
+CMakePresets.json
 
 # Sublime Text
 *.sublime-*
@@ -110,6 +113,10 @@ CMakeSettings.json
 # KDevelop
 .kdev4/
 *.kdev4
+
+# Qt Creator
+CMakeLists.txt.user
+*.autosave
 
 # Translations
 *.mo

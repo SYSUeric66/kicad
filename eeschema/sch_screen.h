@@ -61,11 +61,11 @@ class SCH_LINE;
 class SCH_LABEL_BASE;
 class PLOTTER;
 class REPORTER;
-class SCH_ALTIUM_PLUGIN;
+class SCH_IO_ALTIUM;
 class SCH_EDIT_FRAME;
 class SCH_SHEET_LIST;
-class SCH_SEXPR_PARSER;
-class SCH_SEXPR_PLUGIN;
+class SCH_IO_KICAD_SEXPR_PARSER;
+class SCH_IO_KICAD_SEXPR;
 
 enum SCH_LINE_TEST_T
 {
@@ -102,7 +102,7 @@ public:
      * N.B. The iteration order of the RTree is not readily apparent and will change
      * if/when you add or move items and the RTree is re-balanced.  Any exposure of the
      * RTree contents to the user MUST be sorted before being presented.  See
-     * SCH_SEXPR_PLUGIN::Format() or SCH_EDITOR_CONTROL::nextMatch() for examples.
+     * SCH_IO_KICAD_SEXPR::Format() or SCH_EDITOR_CONTROL::nextMatch() for examples.
      *
      * @return Complete RTree of the screen's items
      */
@@ -246,7 +246,7 @@ public:
      * @note This function is useful only for schematic.  The library editor and library viewer
      *       do not use a draw list and therefore draws nothing.
      */
-    void Print( const RENDER_SETTINGS* aSettings );
+    void Print( const SCH_RENDER_SETTINGS* aSettings );
 
     /**
      * Plot all the schematic objects to \a aPlotter.
@@ -256,7 +256,7 @@ public:
      *
      * @param[in] aPlotter The plotter object to plot to.
      */
-    void Plot( PLOTTER* aPlotter, const SCH_PLOT_SETTINGS& aPlotSettings ) const;
+    void Plot( PLOTTER* aPlotter, const SCH_PLOT_OPTS& aPlotOpts ) const;
 
     /**
      * Remove \a aItem from the schematic associated with this screen.
@@ -551,11 +551,41 @@ public:
      */
     void MigrateSimModels();
 
+    /**
+     * Remove all invalid symbol instance data in this screen object for the project defined
+     * by \a aProjectName and the list of \a aValidSheetPaths.
+     *
+     * @warning This method will assert and exit on debug builds when \a aProjectName is empty.
+     *
+     * @note This method does not affect instance data for any other projects.
+     *
+     * @param aProjectName is the name of the current project.
+     * @param aValidSheetPaths is the list of valid #SCH_SHEET_PATH objects for the current
+     *                         project.
+     */
+    void PruneOrphanedSymbolInstances( const wxString& aProjectName,
+                                       const SCH_SHEET_LIST& aValidSheetPaths );
+
+    /**
+     * Remove all invalid sheet instance data in this screen object for the project defined
+     * by \a aProjectName and the list of \a aValidSheetPaths.
+     *
+     * @warning This method will assert and exit on debug builds when \a aProjectName is empty.
+     *
+     * @note This method does not affect instance data for any other projects.
+     *
+     * @param aProjectName is the name of the current project.
+     * @param aValidSheetPaths is the list of valid #SCH_SHEET_PATH objects for the current
+     *                         project.
+     */
+    void PruneOrphanedSheetInstances( const wxString& aProjectName,
+                                      const SCH_SHEET_LIST& aValidSheetPaths );
+
 private:
     friend SCH_EDIT_FRAME;     // Only to populate m_symbolInstances.
-    friend SCH_SEXPR_PARSER;   // Only to load instance information from schematic file.
-    friend SCH_SEXPR_PLUGIN;   // Only to save the loaded instance information to schematic file.
-    friend SCH_ALTIUM_PLUGIN;
+    friend SCH_IO_KICAD_SEXPR_PARSER;   // Only to load instance information from schematic file.
+    friend SCH_IO_KICAD_SEXPR;   // Only to save the loaded instance information to schematic file.
+    friend SCH_IO_ALTIUM;
 
     bool doIsJunction( const VECTOR2I& aPosition, bool aBreakCrossings,
                        bool* aHasExplicitJunctionDot, bool* aHasBusEntry ) const;
@@ -578,12 +608,13 @@ private:
     size_t getLibSymbolNameMatches( const SCH_SYMBOL& aSymbol, std::vector<wxString>& aMatches );
 
 
-/**
- * Compare two #BUS_ALIAS objects by name.  For sorting in the set.
-*/
+    /**
+     * Compare two #BUS_ALIAS objects by name.  For sorting in the set.
+     */
     struct BusAliasCmp
     {
-        bool operator()( const std::shared_ptr<BUS_ALIAS>& a, const std::shared_ptr<BUS_ALIAS>& b ) const
+        bool operator()( const std::shared_ptr<BUS_ALIAS>& a,
+                         const std::shared_ptr<BUS_ALIAS>& b ) const
         {
             return a->GetName() < b->GetName();
         }
@@ -708,12 +739,12 @@ public:
      *
      * @param aMarkerType Type of markers to be deleted.
      */
-    void DeleteAllMarkers( enum MARKER_BASE::TYPEMARKER aMarkerType, bool aIncludeExclusions );
+    void DeleteAllMarkers( enum MARKER_BASE::MARKER_T aMarkerType, bool aIncludeExclusions );
 
     /**
      * Delete all markers of a particular type and error code.
      */
-    void DeleteMarkers( enum MARKER_BASE::TYPEMARKER aMarkerTyp, int aErrorCode,
+    void DeleteMarkers( enum MARKER_BASE::MARKER_T aMarkerTyp, int aErrorCode,
                         bool aIncludeExclusions = true );
 
     /**
@@ -804,6 +835,12 @@ public:
      * and invisible power pin names.
      */
     void FixLegacyPowerSymbolMismatches();
+
+    void PruneOrphanedSymbolInstances( const wxString& aProjectName,
+                                       const SCH_SHEET_LIST& aValidSheetPaths );
+
+    void PruneOrphanedSheetInstances( const wxString& aProjectName,
+                                      const SCH_SHEET_LIST& aValidSheetPaths );
 
 private:
     void addScreenToList( SCH_SCREEN* aScreen, SCH_SHEET* aSheet );

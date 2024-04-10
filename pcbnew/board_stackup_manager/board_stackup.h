@@ -29,6 +29,7 @@
 #include <vector>
 #include <wx/string.h>
 #include <layer_ids.h>
+#include <api/serializable.h>
 
 class BOARD;
 class BOARD_DESIGN_SETTINGS;
@@ -69,6 +70,9 @@ public:
         m_EpsilonR( 1.0 ), m_LossTangent( 0.0 )
     {}
 
+    bool operator==( const DIELECTRIC_PRMS& aOther ) const;
+    bool operator!=( const DIELECTRIC_PRMS& aOther ) const { return !operator==( aOther ); }
+
 private:
     friend class BOARD_STACKUP_ITEM;
 
@@ -92,6 +96,9 @@ class BOARD_STACKUP_ITEM
 public:
     BOARD_STACKUP_ITEM( BOARD_STACKUP_ITEM_TYPE aType );
     BOARD_STACKUP_ITEM( const BOARD_STACKUP_ITEM& aOther );
+
+    bool operator==( const BOARD_STACKUP_ITEM& aOther ) const;
+    bool operator!=( const BOARD_STACKUP_ITEM& aOther ) const { return !operator==( aOther ); }
 
     /**
      * Add (insert) a DIELECTRIC_PRMS item to m_DielectricPrmsList
@@ -207,14 +214,21 @@ private:
  * @note There are a few other parameters related to the physical stackup like finish type,
  *       impedance control and a few others.
  */
-class BOARD_STACKUP
+class BOARD_STACKUP : public SERIALIZABLE
 {
 public:
     BOARD_STACKUP();
     BOARD_STACKUP( const BOARD_STACKUP& aOther );
     BOARD_STACKUP& operator=( const BOARD_STACKUP& aOther );
 
+    bool operator==( const BOARD_STACKUP& aOther ) const;
+    bool operator!=( const BOARD_STACKUP& aOther ) const { return !operator==( aOther ); }
+
     ~BOARD_STACKUP() { RemoveAll(); }
+
+    void Serialize( google::protobuf::Any &aContainer ) const override;
+
+    bool Deserialize( const google::protobuf::Any &aContainer ) override;
 
     const std::vector<BOARD_STACKUP_ITEM*>& GetList() const { return m_list; }
 

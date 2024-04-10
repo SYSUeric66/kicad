@@ -41,9 +41,7 @@ class PROPERTIES_PANEL : public wxPanel
 public:
     PROPERTIES_PANEL( wxWindow* aParent, EDA_BASE_FRAME* aFrame );
 
-    virtual ~PROPERTIES_PANEL()
-    {
-    }
+    virtual ~PROPERTIES_PANEL();
 
     virtual void UpdateData() = 0;
 
@@ -69,8 +67,6 @@ public:
     void SetSplitterProportion( float aProportion );
     float SplitterProportion() const { return m_splitter_key_proportion; }
 
-    void OnLanguageChanged();
-
 protected:
     /**
      * Generates the property grid for a given selection of items.
@@ -86,6 +82,8 @@ protected:
     virtual void valueChanged( wxPropertyGridEvent& aEvent ) {}
     void onCharHook( wxKeyEvent& aEvent );
     void onShow( wxShowEvent& aEvent );
+
+    virtual void OnLanguageChanged( wxCommandEvent& aEvent );
 
     /**
      * Utility to fetch a property value and convert to wxVariant

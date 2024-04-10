@@ -64,6 +64,11 @@ else()
     set( UNIX_NOT_APPLE OFF )
 endif()
 
+if( APPLE OR WIN32 )
+    set( APPLE_OR_WIN32 ON )
+else()
+    set( APPLE_OR_WIN32 OFF )
+endif()
 
 #
 # KiCad build options should be added below.
@@ -100,6 +105,10 @@ option( KICAD_SCRIPTING_WXPYTHON
     "Build wxPython implementation for wx interface building in Python and py.shell (default ON)."
     ON )
 mark_as_advanced( KICAD_SCRIPTING_WXPYTHON )
+
+option( KICAD_UPDATE_CHECK
+    "Build in update check"
+    ON )
 
 # EGL is only needed on Linux with Wayland
 cmake_dependent_option( KICAD_USE_EGL
@@ -151,6 +160,17 @@ cmake_dependent_option( KICAD_APPLE_MAKE_RELOCATEABLE_BUNDLE
     "On macOS, post-process the build to make it relocateable (default ON)"
     ON "APPLE" OFF )
 
+# CMake's FindProtobuf module doesn't work correctly on MacOS or Windows but is
+# required for Linux
+if( UNIX_NOT_APPLE )
+    set( KICAD_CMAKE_PROTOBUF_DEFAULT ON )
+else()
+    set( KICAD_CMAKE_PROTOBUF_DEFAULT OFF )
+endif()
+
+option( KICAD_USE_CMAKE_FINDPROTOBUF "Use FindProtobuf provided by CMake" ${KICAD_CMAKE_PROTOBUF_DEFAULT} )
+mark_as_advanced( KICAD_USE_CMAKE_FINDPROTOBUF )
+
 ####################################
 # Installation options
 ####################################
@@ -200,6 +220,11 @@ cmake_dependent_option( KICAD_WIN32_BUILD_PARALLEL_CL_MP
     OFF "WIN32"
     OFF )
 
+cmake_dependent_option( KICAD_WIN32_LTCG
+    "Enable Whole Program Optimization"
+    OFF "WIN32"
+    OFF )
+
 # Advanced option to make link maps (only available on linux)
 cmake_dependent_option( KICAD_MAKE_LINK_MAPS
     "Create link maps for artifacts"
@@ -233,6 +258,10 @@ option( KICAD_GAL_PROFILE
     "Enable profiling info for GAL"
     OFF )
 
+option( KICAD_IPC_API
+    "Enable experimental IPC API"
+    OFF )
+
 # Global setting: exports are explicit
 set( CMAKE_CXX_VISIBILITY_PRESET "hidden" )
 set( CMAKE_VISIBILITY_INLINES_HIDDEN ON )
@@ -252,6 +281,7 @@ add_compile_definitions( $<$<BOOL:${KICAD_SIGNAL_INTEGRITY}>:KICAD_SIGNAL_INTEGR
 add_compile_definitions( $<$<BOOL:${KICAD_USE_VALGRIND}>:KICAD_USE_VALGRIND> )
 add_compile_definitions( $<$<BOOL:${KICAD_GAL_PROFILE}>:KICAD_GAL_PROFILE> )
 add_compile_definitions( $<$<BOOL:${KICAD_WIN32_VERIFY_CODESIGN}>:KICAD_WIN32_VERIFY_CODESIGN> )
+add_compile_definitions( $<$<BOOL:${KICAD_UPDATE_CHECK}>:KICAD_UPDATE_CHECK> )
 
 if( KICAD_USE_EGL )
     message( STATUS "Configuring KiCad for the wxGLCanvas EGL backend" )
@@ -261,6 +291,10 @@ endif()
 if( KICAD_WAYLAND )
     message( STATUS "Configuring KiCad to support Wayland features" )
     add_compile_definitions( KICAD_WAYLAND )
+endif()
+
+if( KICAD_IPC_API )
+    add_definitions( -DKICAD_IPC_API )
 endif()
 
 # Ensure DEBUG is defined for all platforms in Debug builds
@@ -499,6 +533,8 @@ if( MSVC )
     string( APPEND CMAKE_CXX_FLAGS " /wd4800" )
     # /Zi: create PDB
     string( APPEND CMAKE_CXX_FLAGS " /Zi" )
+    # /Zc:__cplusplus: define this macro according to C++ standard version
+    string( APPEND CMAKE_CXX_FLAGS " /Zc:__cplusplus" )
     # /GF: enable string pooling
     string( APPEND CMAKE_CXX_FLAGS_RELEASE " /GF" )
     string( APPEND CMAKE_CXX_FLAGS_RELWITHDEBINFO " /GF" )
@@ -529,6 +565,12 @@ if( MSVC )
         string( APPEND CMAKE_CXX_FLAGS " /fsanitize=address" )
     endif()
 
+    if( KICAD_WIN32_LTCG )
+        # we are implementing this manually because CMake's LTCG option is incomplete
+        # https://gitlab.kitware.com/cmake/cmake/-/issues/20484
+        string( APPEND CMAKE_CXX_FLAGS_RELEASE " /GL" )
+    endif()
+
     foreach( type EXE SHARED MODULE)
         # /DEBUG: create PDB
         string( APPEND CMAKE_${type}_LINKER_FLAGS " /DEBUG /MANIFEST:NO" )
@@ -538,6 +580,12 @@ if( MSVC )
         # /OPT:ICF: fold common data
         string( APPEND CMAKE_${type}_LINKER_FLAGS_RELEASE " /OPT:ICF /MANIFEST:NO" )
         string( APPEND CMAKE_${type}_LINKER_FLAGS_RELWITHDEBINFO " /OPT:ICF /MANIFEST:NO" )
+
+        if( KICAD_WIN32_LTCG )
+            # we are implementing this manually because CMake's LTCG option is incomplete
+            # https://gitlab.kitware.com/cmake/cmake/-/issues/20484
+            string( APPEND CMAKE_${type}_LINKER_FLAGS_RELEASE " /LTCG" )
+        endif()
     endforeach()
 
     # Let cl.exe parallelize builds
@@ -813,6 +861,27 @@ if( OCC_VERSION_STRING VERSION_LESS 7.5.0 )
 endif()
 include_directories( SYSTEM ${OCC_INCLUDE_DIR} )
 
+if( KICAD_USE_CMAKE_FINDPROTOBUF )
+    include( FindProtobuf )
+    find_package( Protobuf REQUIRED )
+else()
+    find_package( Protobuf REQUIRED CONFIG )
+    set( Protobuf_LIBRARY "protobuf::libprotobuf" )
+endif()
+
+if( NOT Protobuf_PROTOC_EXECUTABLE )
+if( NOT KICAD_USE_CMAKE_FINDPROTOBUF)
+    set( Protobuf_PROTOC_EXECUTABLE "protobuf::protoc" )
+else()
+    MESSAGE( FATAL_ERROR "Protobuf compiler not found. Please install protobuf-compiler." )
+endif()
+endif()
+
+if( NOT Protobuf_INCLUDE_DIR )
+    get_target_property( Protobuf_INCLUDE_DIR protobuf::libprotobuf INTERFACE_INCLUDE_DIRECTORIES )
+endif()
+
+
 # Assist with header file searching optimization:
 # INC_BEFORE and INC_AFTER are two lists which go at the front and back of the
 # header file search lists, respectively.
@@ -849,7 +918,14 @@ check_find_package_result( PYTHONINTERP_FOUND "Python Interpreter" )
 # Get the correct Python site package install path from the Python interpreter found by
 # FindPythonInterp unless the user specifically defined a custom path.
 if( NOT PYTHON_SITE_PACKAGE_PATH )
-    execute_process( COMMAND ${PYTHON_EXECUTABLE} -c "import sysconfig;print(\"%s\"%sysconfig.get_path('platlib', vars={'platbase': '.'}))"
+    execute_process( COMMAND ${PYTHON_EXECUTABLE} -c "import sys, sysconfig
+if 'deb_system' in sysconfig.get_scheme_names():
+    scheme = 'deb_system'
+elif sys.version_info > (3, 10):
+    scheme = sysconfig.get_default_scheme()
+else:
+    scheme = sysconfig._get_default_scheme()
+print(\"%s\"%sysconfig.get_path('platlib', vars={'platbase': '.'}, scheme=scheme))"
         OUTPUT_VARIABLE PYTHON_SITE_PACKAGE_PATH
         OUTPUT_STRIP_TRAILING_WHITESPACE
         )
@@ -1015,6 +1091,10 @@ if( KICAD_USE_SENTRY )
     add_compile_definitions( KICAD_USE_SENTRY )
 endif()
 
+if( KICAD_IPC_API )
+    find_package( nng REQUIRED )
+endif()
+
 #================================================
 # Add the doxygen target
 #================================================
@@ -1053,6 +1133,7 @@ list( APPEND CMAKE_CTEST_ARGUMENTS "--output-on-failure" )
 #================================================
 
 # Binaries ( CMake targets )
+add_subdirectory( api )
 add_subdirectory( resources )
 add_subdirectory( thirdparty )
 add_subdirectory( libs )
@@ -1067,7 +1148,7 @@ add_subdirectory( bitmap2component )
 add_subdirectory( pcb_calculator )
 add_subdirectory( plugins )             # 3D plugins must be built before kicad
 add_subdirectory( cvpcb )               # must be after pcbnew
-add_subdirectory( kicad )               # should follow pcbnew, eeschema
+add_subdirectory( kicad )               # should follow pcbnew, eeschema, api
 add_subdirectory( tools )
 add_subdirectory( utils )
 

@@ -24,13 +24,14 @@
 
 #include <layer_ids.h>
 #include <project/board_project_settings.h>
+#include <project/sch_project_settings.h>
 #include <settings/json_settings.h>
 #include <wildcards_and_files_ext.h>
 #include <settings/app_settings.h>
 
 class PROJECT;
 
-struct PROJECT_FILE_STATE
+struct KICOMMON_API PROJECT_FILE_STATE
 {
     wxString fileName;
     bool open;
@@ -50,7 +51,7 @@ struct PROJECT_FILE_STATE
  * This file doesn't need to exist for a project to be loaded.  It will be created on-demand if
  * any of the things stored here are modified by the user.
  */
-class PROJECT_LOCAL_SETTINGS : public JSON_SETTINGS
+class KICOMMON_API PROJECT_LOCAL_SETTINGS : public JSON_SETTINGS
 {
 public:
     PROJECT_LOCAL_SETTINGS( PROJECT* aProject, const wxString& aFilename );
@@ -74,7 +75,7 @@ public:
 protected:
     wxString getFileExt() const override
     {
-        return ProjectLocalSettingsFileExtension;
+        return FILEEXT::ProjectLocalSettingsFileExtension;
     }
 
     wxString getLegacyFileExt() const override
@@ -113,6 +114,9 @@ public:
     /// The current net color mode
     NET_COLOR_MODE m_NetColorMode;
 
+    /// The state of the net inspector panel
+    PANEL_NET_INSPECTOR_SETTINGS m_NetInspectorPanel;
+
     /// The current setting for whether to automatically adjust track widths to match
     bool m_AutoTrackWidth;
 
@@ -132,8 +136,9 @@ public:
     std::vector<wxString> m_HiddenNets;
     std::set<wxString> m_HiddenNetclasses;
 
-    /// State of the selection filter widget
-    SELECTION_FILTER_OPTIONS m_SelectionFilter;
+    /// State of the selection filter widgets
+    PCB_SELECTION_FILTER_OPTIONS m_PcbSelectionFilter;
+    SCH_SELECTION_FILTER_OPTIONS m_SchSelectionFilter;
 
     // Upstream git repo info
     wxString m_GitRepoUsername;

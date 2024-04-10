@@ -23,6 +23,7 @@
 #include "tools/convert_tool.h"
 #include "tools/drawing_tool.h"
 #include "tools/edit_tool.h"
+#include "tools/pcb_edit_table_tool.h"
 #include "tools/footprint_editor_control.h"
 #include "tools/pad_tool.h"
 #include "tools/pcb_actions.h"
@@ -120,7 +121,11 @@ FOOTPRINT_EDIT_FRAME::FOOTPRINT_EDIT_FRAME( KIWAY* aKiway, wxWindow* aParent ) :
     wxIcon icon;
     wxIconBundle icon_bundle;
 
-    icon.CopyFromBitmap( KiBitmap( BITMAPS::icon_modedit ) );
+    icon.CopyFromBitmap( KiBitmap( BITMAPS::icon_modedit, 48 ) );
+    icon_bundle.AddIcon( icon );
+    icon.CopyFromBitmap( KiBitmap( BITMAPS::icon_modedit, 128 ) );
+    icon_bundle.AddIcon( icon );
+    icon.CopyFromBitmap( KiBitmap( BITMAPS::icon_modedit, 256 ) );
     icon_bundle.AddIcon( icon );
     icon.CopyFromBitmap( KiBitmap( BITMAPS::icon_modedit_32 ) );
     icon_bundle.AddIcon( icon );
@@ -152,9 +157,6 @@ FOOTPRINT_EDIT_FRAME::FOOTPRINT_EDIT_FRAME( KIWAY* aKiway, wxWindow* aParent ) :
     // footprint or pad mask expansions settings should be shown.
     GetBoard()->GetDesignSettings().m_SolderMaskExpansion = 0;
 
-    // restore the last footprint from the project, if any
-    restoreLastFootprint();
-
     // Ensure all layers and items are visible:
     // In footprint editor, some layers have no meaning or cannot be used, but we show all of
     // them, at least to be able to edit a bad layer
@@ -172,6 +174,9 @@ FOOTPRINT_EDIT_FRAME::FOOTPRINT_EDIT_FRAME( KIWAY* aKiway, wxWindow* aParent ) :
 
     initLibraryTree();
     m_treePane = new FOOTPRINT_TREE_PANE( this );
+
+    // restore the last footprint from the project, if any, after the library has been init'ed
+    restoreLastFootprint();
 
     ReCreateMenuBar();
     ReCreateHToolbar();
@@ -222,11 +227,11 @@ FOOTPRINT_EDIT_FRAME::FOOTPRINT_EDIT_FRAME( KIWAY* aKiway, wxWindow* aParent ) :
     m_auimgr.AddPane( m_treePane, EDA_PANE().Palette().Name( "Footprints" )
                       .Left().Layer( 4 )
                       .Caption( _( "Libraries" ) )
-                      .MinSize( 250, -1 ).BestSize( 250, -1 ) );
+                      .MinSize( FromDIP( 250 ), -1 ).BestSize( FromDIP( 250 ), -1 ) );
     m_auimgr.AddPane( m_propertiesPanel, EDA_PANE().Name( PropertiesPaneName() )
                       .Left().Layer( 3 )
                       .Caption( _( "Properties" ) ).PaneBorder( false )
-                      .MinSize( 240, 60 ).BestSize( 300, 200 ) );
+                      .MinSize( FromDIP( wxSize( 240, 60 ) ) ).BestSize( FromDIP( wxSize( 300, 200 ) ) ) );
     m_auimgr.AddPane( m_optionsToolBar, EDA_PANE().VToolbar().Name( "OptToolbar" )
                       .Left().Layer( 2 ) );
 
@@ -235,11 +240,11 @@ FOOTPRINT_EDIT_FRAME::FOOTPRINT_EDIT_FRAME( KIWAY* aKiway, wxWindow* aParent ) :
     m_auimgr.AddPane( m_appearancePanel, EDA_PANE().Name( "LayersManager" )
                       .Right().Layer( 3 )
                       .Caption( _( "Appearance" ) ).PaneBorder( false )
-                      .MinSize( 180, -1 ).BestSize( 180, -1 ) );
+                      .MinSize( FromDIP( 180 ), -1 ).BestSize( FromDIP( 180 ), -1 ) );
     m_auimgr.AddPane( m_selectionFilterPanel, EDA_PANE().Palette().Name( "SelectionFilter" )
                       .Right().Layer( 3 ).Position( 2 )
                       .Caption( _( "Selection Filter" ) ).PaneBorder( false )
-                      .MinSize( 180, -1 ).BestSize( 180, -1 ) );
+                      .MinSize( FromDIP( 180 ), -1 ).BestSize( FromDIP( 180 ), -1 ) );
 
     // Center
     m_auimgr.AddPane( GetCanvas(), EDA_PANE().Canvas().Name( "DrawFrame" )
@@ -252,8 +257,8 @@ FOOTPRINT_EDIT_FRAME::FOOTPRINT_EDIT_FRAME( KIWAY* aKiway, wxWindow* aParent ) :
     // The selection filter doesn't need to grow in the vertical direction when docked
     m_auimgr.GetPane( "SelectionFilter" ).dock_proportion = 0;
 
-    m_acceptedExts.emplace( KiCadFootprintLibPathExtension, &ACTIONS::ddAddLibrary );
-    m_acceptedExts.emplace( KiCadFootprintFileExtension, &PCB_ACTIONS::ddImportFootprint );
+    m_acceptedExts.emplace( FILEEXT::KiCadFootprintLibPathExtension, &ACTIONS::ddAddLibrary );
+    m_acceptedExts.emplace( FILEEXT::KiCadFootprintFileExtension, &PCB_ACTIONS::ddImportFootprint );
     DragAcceptFiles( true );
 
     ActivateGalCanvas();
@@ -298,7 +303,7 @@ FOOTPRINT_EDIT_FRAME::FOOTPRINT_EDIT_FRAME( KIWAY* aKiway, wxWindow* aParent ) :
     // Register a call to update the toolbar sizes. It can't be done immediately because
     // it seems to require some sizes calculated that aren't yet (at least on GTK).
     CallAfter(
-            [&]()
+            [this]()
             {
                 // Ensure the controls on the toolbars all are correctly sized
                 UpdateToolbarControlSizes();
@@ -804,6 +809,11 @@ bool FOOTPRINT_EDIT_FRAME::canCloseWindow( wxCloseEvent& aEvent )
         }
     }
 
+    PAD_TOOL* padTool = m_toolManager->GetTool<PAD_TOOL>();
+
+    if( padTool->InPadEditMode() )
+        padTool->ExitPadEditMode();
+
     // Save footprint tree column widths
     m_adapter->SaveSettings();
 
@@ -901,8 +911,6 @@ void FOOTPRINT_EDIT_FRAME::ShowChangedLanguage()
     sf_pane_info.Caption( _( "Selection Filter" ) );
 
     // update the layer manager
-    m_appearancePanel->OnLanguageChanged();
-    m_selectionFilterPanel->OnLanguageChanged();
     UpdateUserInterface();
 
     // Now restore the visibility:
@@ -942,7 +950,7 @@ void FOOTPRINT_EDIT_FRAME::UpdateTitle()
         title += footprint->GetReference();
         title += wxS( " " ) + wxString::Format( _( "[from %s]" ), Prj().GetProjectName()
                                                                               + wxT( "." )
-                                                                              + PcbFileExtension );
+                                                                              + FILEEXT::PcbFileExtension );
     }
     else if( fpid.IsValid() )
     {
@@ -1110,6 +1118,7 @@ void FOOTPRINT_EDIT_FRAME::setupTools()
     m_toolManager->RegisterTool( new PCB_SELECTION_TOOL );
     m_toolManager->RegisterTool( new ZOOM_TOOL );
     m_toolManager->RegisterTool( new EDIT_TOOL );
+    m_toolManager->RegisterTool( new PCB_EDIT_TABLE_TOOL );
     m_toolManager->RegisterTool( new PAD_TOOL );
     m_toolManager->RegisterTool( new DRAWING_TOOL );
     m_toolManager->RegisterTool( new PCB_POINT_EDITOR );
@@ -1142,9 +1151,9 @@ void FOOTPRINT_EDIT_FRAME::setupTools()
     PCB_EDIT_FRAME* pcbframe = static_cast<PCB_EDIT_FRAME*>( Kiway().Player( FRAME_PCB_EDITOR, false ) );
 
     if( pcbframe )
-        pcbframe->GetToolManager()->RunAction( PCB_ACTIONS::pluginsReload );
+        pcbframe->GetToolManager()->RunAction( ACTIONS::pluginsReload );
     else
-        m_toolManager->RunAction( PCB_ACTIONS::pluginsReload );
+        m_toolManager->RunAction( ACTIONS::pluginsReload );
 }
 
 
@@ -1199,7 +1208,7 @@ void FOOTPRINT_EDIT_FRAME::setupUIConditions()
     mgr->SetConditions( PCB_ACTIONS::rotateCcw,          ENABLE( cond.HasItems() ) );
     mgr->SetConditions( PCB_ACTIONS::mirrorH,            ENABLE( cond.HasItems() ) );
     mgr->SetConditions( PCB_ACTIONS::mirrorV,            ENABLE( cond.HasItems() ) );
-    mgr->SetConditions( PCB_ACTIONS::group,              ENABLE( SELECTION_CONDITIONS::MoreThan( 1 ) ) );
+    mgr->SetConditions( PCB_ACTIONS::group,              ENABLE( SELECTION_CONDITIONS::NotEmpty ) );
     mgr->SetConditions( PCB_ACTIONS::ungroup,            ENABLE( SELECTION_CONDITIONS::HasType( PCB_GROUP_T ) ) );
 
     mgr->SetConditions( PCB_ACTIONS::padDisplayMode,     CHECK( !cond.PadFillDisplay() ) );
@@ -1363,8 +1372,8 @@ void FOOTPRINT_EDIT_FRAME::OnSaveFootprintAsPng( wxCommandEvent& event )
 
     wxString projectPath = wxPathOnly( Prj().GetProjectFullName() );
 
-    wxFileDialog dlg( this, _( "Export View as PNG" ), projectPath,
-                      fn.GetFullName(), PngFileWildcard(), wxFD_SAVE | wxFD_OVERWRITE_PROMPT );
+    wxFileDialog dlg( this, _( "Export View as PNG" ), projectPath, fn.GetFullName(),
+                      FILEEXT::PngFileWildcard(), wxFD_SAVE | wxFD_OVERWRITE_PROMPT );
 
     if( dlg.ShowModal() == wxID_CANCEL || dlg.GetPath().IsEmpty() )
         return;

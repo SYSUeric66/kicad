@@ -3,7 +3,7 @@
  *
  * Copyright (C) 2015 Jean-Pierre Charras, jp.charras at wanadoo.fr
  * Copyright (C) 2011 Wayne Stambaugh <stambaughw@gmail.com>
- * Copyright (C) 1992-2023 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2024 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -27,6 +27,7 @@
 #include <numeric>
 
 #include "connection_graph.h"
+#include "kiface_ids.h"
 #include <advanced_config.h>
 #include <common.h>     // for ExpandEnvVarSubstitutions
 #include <erc.h>
@@ -50,6 +51,7 @@
 #include <wx/ffile.h>
 #include <sim/sim_lib_mgr.h>
 #include <progress_reporter.h>
+#include <kiway.h>
 
 
 /* ERC tests :
@@ -212,6 +214,7 @@ void ERC_TESTER::TestTextVars( DS_PROXY_VIEW_ITEM* aDrawingSheet )
                     {
                         auto ercItem = ERC_ITEM::Create( ERCE_UNRESOLVED_VARIABLE );
                         ercItem->SetItems( &field );
+                        ercItem->SetSheetSpecificPath( sheet );
 
                         SCH_MARKER* marker = new SCH_MARKER( ercItem, field.GetPosition() );
                         screen->Append( marker );
@@ -228,6 +231,7 @@ void ERC_TESTER::TestTextVars( DS_PROXY_VIEW_ITEM* aDrawingSheet )
                     {
                         auto ercItem = ERC_ITEM::Create( ERCE_UNRESOLVED_VARIABLE );
                         ercItem->SetItems( &field );
+                        ercItem->SetSheetSpecificPath( sheet );
 
                         SCH_MARKER* marker = new SCH_MARKER( ercItem, field.GetPosition() );
                         screen->Append( marker );
@@ -243,6 +247,7 @@ void ERC_TESTER::TestTextVars( DS_PROXY_VIEW_ITEM* aDrawingSheet )
                     {
                         auto ercItem = ERC_ITEM::Create( ERCE_UNRESOLVED_VARIABLE );
                         ercItem->SetItems( pin );
+                        ercItem->SetSheetSpecificPath( sheet );
 
                         SCH_MARKER* marker = new SCH_MARKER( ercItem, pin->GetPosition() );
                         screen->Append( marker );
@@ -255,6 +260,7 @@ void ERC_TESTER::TestTextVars( DS_PROXY_VIEW_ITEM* aDrawingSheet )
                 {
                     auto ercItem = ERC_ITEM::Create( ERCE_UNRESOLVED_VARIABLE );
                     ercItem->SetItems( text );
+                    ercItem->SetSheetSpecificPath( sheet );
 
                     SCH_MARKER* marker = new SCH_MARKER( ercItem, text->GetPosition() );
                     screen->Append( marker );
@@ -266,6 +272,7 @@ void ERC_TESTER::TestTextVars( DS_PROXY_VIEW_ITEM* aDrawingSheet )
                 {
                     auto ercItem = ERC_ITEM::Create( ERCE_UNRESOLVED_VARIABLE );
                     ercItem->SetItems( textBox );
+                    ercItem->SetSheetSpecificPath( sheet );
 
                     SCH_MARKER* marker = new SCH_MARKER( ercItem, textBox->GetPosition() );
                     screen->Append( marker );
@@ -281,6 +288,7 @@ void ERC_TESTER::TestTextVars( DS_PROXY_VIEW_ITEM* aDrawingSheet )
                 {
                     std::shared_ptr<ERC_ITEM> erc = ERC_ITEM::Create( ERCE_UNRESOLVED_VARIABLE );
                     erc->SetErrorMessage( _( "Unresolved text variable in drawing sheet" ) );
+                    erc->SetSheetSpecificPath( sheet );
 
                     SCH_MARKER* marker = new SCH_MARKER( erc, text->GetPosition() );
                     screen->Append( marker );
@@ -485,21 +493,21 @@ int ERC_TESTER::TestMissingUnits()
 
         for( int missing_unit : missing_units )
         {
-            LIB_PINS pins;
-            int convert = 0;
+            std::vector<LIB_PIN*> pins;
+            int                   bodyStyle = 0;
 
             for( size_t ii = 0; ii < refList.GetCount(); ++ii )
             {
                 if( refList.GetItem( ii ).GetUnit() == missing_unit )
                 {
-                    convert = refList.GetItem( ii ).GetSymbol()->GetConvert();
+                    bodyStyle = refList.GetItem( ii ).GetSymbol()->GetBodyStyle();
                     break;
                 }
             }
 
-            libSymbol->GetPins( pins, missing_unit, convert );
+            libSymbol->GetPins( pins, missing_unit, bodyStyle );
 
-            for( auto pin : pins )
+            for( LIB_PIN* pin : pins )
             {
                 switch( pin->GetType() )
                 {
@@ -552,6 +560,7 @@ int ERC_TESTER::TestMissingNetclasses()
 {
     int                            err_count = 0;
     std::shared_ptr<NET_SETTINGS>& settings = m_schematic->Prj().GetProjectFile().NetSettings();
+    wxString                       defaultNetclass = settings->m_DefaultNetClass->GetName();
 
     auto logError =
             [&]( const SCH_SHEET_PATH& sheet, SCH_ITEM* item, const wxString& netclass )
@@ -583,8 +592,11 @@ int ERC_TESTER::TestMissingNetclasses()
                             {
                                 wxString netclass = field->GetText();
 
-                                if( settings->m_NetClasses.count( netclass ) == 0 )
+                                if( !netclass.IsSameAs( defaultNetclass )
+                                        && settings->m_NetClasses.count( netclass ) == 0 )
+                                {
                                     logError( sheet, item, netclass );
+                                }
                             }
                         }
 
@@ -654,6 +666,7 @@ int ERC_TESTER::TestNoConnectPins()
                                    pair.second.size() > 2 ? pair.second[2] : nullptr,
                                    pair.second.size() > 3 ? pair.second[3] : nullptr );
                 ercItem->SetErrorMessage( _( "Pin with 'no connection' type is connected" ) );
+                ercItem->SetSheetSpecificPath( sheet );
 
                 SCH_MARKER* marker = new SCH_MARKER( ercItem, pair.first );
                 sheet.LastScreen()->Append( marker );
@@ -769,8 +782,8 @@ int ERC_TESTER::TestPinToPin()
                                               ElectricalPinTypeGetText( refType ),
                                               ElectricalPinTypeGetText( testType ) ) );
 
-                    SCH_MARKER* marker =
-                            new SCH_MARKER( ercItem, refPin.Pin()->GetTransformedPosition() );
+                    SCH_MARKER* marker = new SCH_MARKER( ercItem,
+                                                         refPin.Pin()->GetTransformedPosition() );
                     pinToScreenMap[refPin.Pin()]->Append( marker );
                     errors++;
                 }
@@ -789,8 +802,8 @@ int ERC_TESTER::TestPinToPin()
                 ercItem->SetSheetSpecificPath( needsDriver.Sheet() );
                 ercItem->SetItemsSheetPaths( needsDriver.Sheet() );
 
-                SCH_MARKER* marker =
-                        new SCH_MARKER( ercItem, needsDriver.Pin()->GetTransformedPosition() );
+                SCH_MARKER* marker = new SCH_MARKER( ercItem,
+                                                     needsDriver.Pin()->GetTransformedPosition() );
                 pinToScreenMap[needsDriver.Pin()]->Append( marker );
                 errors++;
             }
@@ -822,7 +835,7 @@ int ERC_TESTER::TestMultUnitPinConflicts()
                     SCH_PIN* pin = static_cast<SCH_PIN*>( item );
                     const SCH_SHEET_PATH& sheet = subgraph->GetSheet();
 
-                    if( !pin->GetLibPin()->GetParent()->IsMulti() )
+                    if( !pin->GetLibPin()->GetParentSymbol()->IsMulti() )
                         continue;
 
                     wxString name = pin->GetParentSymbol()->GetRef( &sheet ) +
@@ -926,6 +939,7 @@ int ERC_TESTER::TestLibSymbolIssues()
 {
     wxCHECK( m_schematic, 0 );
 
+    ERC_SETTINGS&     settings = m_schematic->ErcSettings();
     SYMBOL_LIB_TABLE* libTable = PROJECT_SCH::SchSymbolLibTable( &m_schematic->Prj() );
     wxString          msg;
     int               err_count = 0;
@@ -948,24 +962,32 @@ int ERC_TESTER::TestLibSymbolIssues()
 
             if( !libTableRow )
             {
-                std::shared_ptr<ERC_ITEM> ercItem = ERC_ITEM::Create( ERCE_LIB_SYMBOL_ISSUES );
-                ercItem->SetItems( symbol );
-                msg.Printf( _( "The current configuration does not include the library '%s'" ),
-                            UnescapeString( libName ) );
-                ercItem->SetErrorMessage( msg );
+                if( settings.IsTestEnabled( ERCE_LIB_SYMBOL_ISSUES ) )
+                {
+                    std::shared_ptr<ERC_ITEM> ercItem = ERC_ITEM::Create( ERCE_LIB_SYMBOL_ISSUES );
+                    ercItem->SetItems( symbol );
+                    msg.Printf( _( "The current configuration does not include the symbol library '%s'" ),
+                                UnescapeString( libName ) );
+                    ercItem->SetErrorMessage( msg );
 
-                markers.emplace_back( new SCH_MARKER( ercItem, symbol->GetPosition() ) );
+                    markers.emplace_back( new SCH_MARKER( ercItem, symbol->GetPosition() ) );
+                }
+
                 continue;
             }
             else if( !libTable->HasLibrary( libName, true ) )
             {
-                std::shared_ptr<ERC_ITEM> ercItem = ERC_ITEM::Create( ERCE_LIB_SYMBOL_ISSUES );
-                ercItem->SetItems( symbol );
-                msg.Printf( _( "The library '%s' is not enabled in the current configuration" ),
-                            UnescapeString( libName ) );
-                ercItem->SetErrorMessage( msg );
+                if( settings.IsTestEnabled( ERCE_LIB_SYMBOL_ISSUES ) )
+                {
+                    std::shared_ptr<ERC_ITEM> ercItem = ERC_ITEM::Create( ERCE_LIB_SYMBOL_ISSUES );
+                    ercItem->SetItems( symbol );
+                    msg.Printf( _( "The library '%s' is not enabled in the current configuration" ),
+                                UnescapeString( libName ) );
+                    ercItem->SetErrorMessage( msg );
 
-                markers.emplace_back( new SCH_MARKER( ercItem, symbol->GetPosition() ) );
+                    markers.emplace_back( new SCH_MARKER( ercItem, symbol->GetPosition() ) );
+                }
+
                 continue;
             }
 
@@ -974,25 +996,30 @@ int ERC_TESTER::TestLibSymbolIssues()
 
             if( libSymbol == nullptr )
             {
-                std::shared_ptr<ERC_ITEM> ercItem = ERC_ITEM::Create( ERCE_LIB_SYMBOL_ISSUES );
-                ercItem->SetItems( symbol );
-                msg.Printf( _( "Symbol '%s' not found in symbol library '%s'" ),
-                            UnescapeString( symbolName ),
-                            UnescapeString( libName ) );
-                ercItem->SetErrorMessage( msg );
+                if( settings.IsTestEnabled( ERCE_LIB_SYMBOL_ISSUES ) )
+                {
+                    std::shared_ptr<ERC_ITEM> ercItem = ERC_ITEM::Create( ERCE_LIB_SYMBOL_ISSUES );
+                    ercItem->SetItems( symbol );
+                    msg.Printf( _( "Symbol '%s' not found in symbol library '%s'" ),
+                                UnescapeString( symbolName ),
+                                UnescapeString( libName ) );
+                    ercItem->SetErrorMessage( msg );
 
-                markers.emplace_back( new SCH_MARKER( ercItem, symbol->GetPosition() ) );
+                    markers.emplace_back( new SCH_MARKER( ercItem, symbol->GetPosition() ) );
+                }
+
                 continue;
             }
 
             std::unique_ptr<LIB_SYMBOL> flattenedSymbol = libSymbol->Flatten();
-            constexpr int flags = LIB_ITEM::COMPARE_FLAGS::EQUALITY | LIB_ITEM::COMPARE_FLAGS::ERC;
+            constexpr int flags = SCH_ITEM::COMPARE_FLAGS::EQUALITY | SCH_ITEM::COMPARE_FLAGS::ERC;
 
-            if( flattenedSymbol->Compare( *libSymbolInSchematic, flags ) != 0 )
+            if( settings.IsTestEnabled( ERCE_LIB_SYMBOL_MISMATCH )
+                && flattenedSymbol->Compare( *libSymbolInSchematic, flags ) != 0 )
             {
-                std::shared_ptr<ERC_ITEM> ercItem = ERC_ITEM::Create( ERCE_LIB_SYMBOL_ISSUES );
+                std::shared_ptr<ERC_ITEM> ercItem = ERC_ITEM::Create( ERCE_LIB_SYMBOL_MISMATCH );
                 ercItem->SetItems( symbol );
-                msg.Printf( _( "Symbol '%s' has been modified in library '%s'" ),
+                msg.Printf( _( "Symbol '%s' doesn't match copy in library '%s'" ),
                             UnescapeString( symbolName ),
                             UnescapeString( libName ) );
                 ercItem->SetErrorMessage( msg );
@@ -1004,6 +1031,86 @@ int ERC_TESTER::TestLibSymbolIssues()
         for( SCH_MARKER* marker : markers )
         {
             screen->Append( marker );
+            err_count += 1;
+        }
+    }
+
+    return err_count;
+}
+
+
+int ERC_TESTER::TestFootprintLinkIssues( KIFACE* aCvPcb, PROJECT* aProject )
+{
+    wxCHECK( m_schematic, 0 );
+
+    wxString msg;
+    int      err_count = 0;
+
+    typedef int (*TESTER_FN_PTR)( const wxString&, PROJECT* );
+
+    TESTER_FN_PTR linkTester = (TESTER_FN_PTR) aCvPcb->IfaceOrAddress( KIFACE_TEST_FOOTPRINT_LINK );
+
+    for( SCH_SHEET_PATH& sheet : m_schematic->GetSheets() )
+    {
+        std::vector<SCH_MARKER*> markers;
+
+        for( SCH_ITEM* item : sheet.LastScreen()->Items().OfType( SCH_SYMBOL_T ) )
+        {
+            SCH_SYMBOL* symbol = static_cast<SCH_SYMBOL*>( item );
+            wxString    footprint = symbol->GetFootprintFieldText( true, &sheet, false );
+
+            if( footprint.IsEmpty() )
+                continue;
+
+            LIB_ID fpID;
+
+            if( fpID.Parse( footprint, true ) >= 0 )
+            {
+                std::shared_ptr<ERC_ITEM> ercItem = ERC_ITEM::Create( ERCE_FOOTPRINT_LINK_ISSUES );
+                msg.Printf( _( "'%s' is not a valid footprint identifier." ), footprint );
+                ercItem->SetErrorMessage( msg );
+                ercItem->SetItems( symbol );
+                markers.emplace_back( new SCH_MARKER( ercItem, symbol->GetPosition() ) );
+                continue;
+            }
+
+            wxString libName = fpID.GetLibNickname();
+            wxString fpName = fpID.GetLibItemName();
+            int      ret = (linkTester)( footprint, aProject );
+
+            if( ret == KIFACE_TEST_FOOTPRINT_LINK_NO_LIBRARY )
+            {
+                std::shared_ptr<ERC_ITEM> ercItem = ERC_ITEM::Create( ERCE_FOOTPRINT_LINK_ISSUES );
+                msg.Printf( _( "The current configuration does not include the footprint library '%s'." ),
+                            libName );
+                ercItem->SetErrorMessage( msg );
+                ercItem->SetItems( symbol );
+                markers.emplace_back( new SCH_MARKER( ercItem, symbol->GetPosition() ) );
+            }
+            else if( ret == KIFACE_TEST_FOOTPRINT_LINK_LIBRARY_NOT_ENABLED )
+            {
+                std::shared_ptr<ERC_ITEM> ercItem = ERC_ITEM::Create( ERCE_FOOTPRINT_LINK_ISSUES );
+                msg.Printf( _( "The footprint library '%s' is not enabled in the current configuration." ),
+                            libName );
+                ercItem->SetErrorMessage( msg );
+                ercItem->SetItems( symbol );
+                markers.emplace_back( new SCH_MARKER( ercItem, symbol->GetPosition() ) );
+            }
+            else if( ret == KIFACE_TEST_FOOTPRINT_LINK_NO_FOOTPRINT )
+            {
+                std::shared_ptr<ERC_ITEM> ercItem = ERC_ITEM::Create( ERCE_FOOTPRINT_LINK_ISSUES );
+                msg.Printf( _( "Footprint '%s' not found in library '%s'." ),
+                            fpName,
+                            libName );
+                ercItem->SetErrorMessage( msg );
+                ercItem->SetItems( symbol );
+                markers.emplace_back( new SCH_MARKER( ercItem, symbol->GetPosition() ) );
+            }
+        }
+
+        for( SCH_MARKER* marker : markers )
+        {
+            sheet.LastScreen()->Append( marker );
             err_count += 1;
         }
     }
@@ -1129,7 +1236,7 @@ int ERC_TESTER::TestSimModelIssues()
 
 
 void ERC_TESTER::RunTests( DS_PROXY_VIEW_ITEM* aDrawingSheet, SCH_EDIT_FRAME* aEditFrame,
-                           PROGRESS_REPORTER* aProgressReporter )
+                           KIFACE* aCvPcb, PROJECT* aProject, PROGRESS_REPORTER* aProgressReporter )
 {
     ERC_SETTINGS& settings = m_schematic->ErcSettings();
 
@@ -1234,12 +1341,21 @@ void ERC_TESTER::RunTests( DS_PROXY_VIEW_ITEM* aDrawingSheet, SCH_EDIT_FRAME* aE
         TestNoConnectPins();
     }
 
-    if( settings.IsTestEnabled( ERCE_LIB_SYMBOL_ISSUES ) )
+    if( settings.IsTestEnabled( ERCE_LIB_SYMBOL_ISSUES )
+        || settings.IsTestEnabled( ERCE_LIB_SYMBOL_MISMATCH ) )
     {
         if( aProgressReporter )
             aProgressReporter->AdvancePhase( _( "Checking for library symbol issues..." ) );
 
         TestLibSymbolIssues();
+    }
+
+    if( settings.IsTestEnabled( ERCE_FOOTPRINT_LINK_ISSUES ) && aCvPcb )
+    {
+        if( aProgressReporter )
+            aProgressReporter->AdvancePhase( _( "Checking for footprint link issues..." ) );
+
+        TestFootprintLinkIssues( aCvPcb, aProject );
     }
 
     if( settings.IsTestEnabled( ERCE_ENDPOINT_OFF_GRID ) )

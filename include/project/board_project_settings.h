@@ -39,7 +39,7 @@
  * Selection filtering that applies all the time (not the "filter selection" dialog that modifies
  * the current selection)
  */
-struct SELECTION_FILTER_OPTIONS
+struct KICOMMON_API PCB_SELECTION_FILTER_OPTIONS
 {
     bool lockedItems;   ///< Allow selecting locked items
     bool footprints;    ///< Allow selecting entire footprints
@@ -53,7 +53,7 @@ struct SELECTION_FILTER_OPTIONS
     bool dimensions;    ///< Dimension items
     bool otherItems;    ///< Anything not fitting one of the above categories
 
-    SELECTION_FILTER_OPTIONS()
+    PCB_SELECTION_FILTER_OPTIONS()
     {
         lockedItems = true;
         footprints  = true;
@@ -125,7 +125,7 @@ enum class RATSNEST_MODE
 };
 
 ///< BOM Data choices for IPC2581 export
-struct IP2581_BOM
+struct KICOMMON_API IP2581_BOM
 {
     wxString mfg;       ///< Manufacturer name column
     wxString MPN;     ///< Manufacturer part number column
@@ -137,37 +137,37 @@ struct IP2581_BOM
 /**
  * A saved set of layers that are visible.
  */
-struct LAYER_PRESET
+struct KICOMMON_API LAYER_PRESET
 {
-    LAYER_PRESET( const wxString& aName = wxEmptyString ) :
+    LAYER_PRESET( const wxString& aName = wxS( "" ) ) :
             name( aName ),
+            layers( LSET::AllLayersMask() ),
+            renderLayers( GAL_SET::DefaultVisible() ),
+            flipBoard( false ),
             activeLayer( UNSELECTED_LAYER )
     {
-        layers       = LSET::AllLayersMask();
-        renderLayers = GAL_SET::DefaultVisible();
         readOnly     = false;
-        flipBoard    = false;
     }
 
-    LAYER_PRESET( const wxString& aName, const LSET& aVisibleLayers ) :
+    LAYER_PRESET( const wxString& aName, const LSET& aVisibleLayers, bool aFlipBoard ) :
             name( aName ),
             layers( aVisibleLayers ),
+            renderLayers( GAL_SET::DefaultVisible() ),
+            flipBoard( aFlipBoard ),
             activeLayer( UNSELECTED_LAYER )
     {
-        renderLayers = GAL_SET::DefaultVisible();
         readOnly     = false;
-        flipBoard    = false;
     }
 
     LAYER_PRESET( const wxString& aName, const LSET& aVisibleLayers, const GAL_SET& aVisibleObjects,
-                  PCB_LAYER_ID aActiveLayer ) :
+                  PCB_LAYER_ID aActiveLayer, bool aFlipBoard ) :
             name( aName ),
             layers( aVisibleLayers ),
             renderLayers( aVisibleObjects ),
+            flipBoard( aFlipBoard ),
             activeLayer( aActiveLayer )
     {
         readOnly  = false;
-        flipBoard = false;
     }
 
     bool LayersMatch( const LAYER_PRESET& aOther )
@@ -184,7 +184,7 @@ struct LAYER_PRESET
 };
 
 
-class PARAM_LAYER_PRESET : public PARAM_LAMBDA<nlohmann::json>
+class KICOMMON_API PARAM_LAYER_PRESET : public PARAM_LAMBDA<nlohmann::json>
 {
 public:
     PARAM_LAYER_PRESET( const std::string& aPath, std::vector<LAYER_PRESET>* aPresetList );
@@ -198,7 +198,7 @@ private:
 };
 
 
-struct VIEWPORT
+struct KICOMMON_API VIEWPORT
 {
     VIEWPORT( const wxString& aName = wxEmptyString ) :
             name( aName )
@@ -214,7 +214,7 @@ struct VIEWPORT
 };
 
 
-class PARAM_VIEWPORT : public PARAM_LAMBDA<nlohmann::json>
+class KICOMMON_API PARAM_VIEWPORT : public PARAM_LAMBDA<nlohmann::json>
 {
 public:
     PARAM_VIEWPORT( const std::string& aPath, std::vector<VIEWPORT>* aViewportList );
@@ -228,7 +228,7 @@ private:
 };
 
 
-struct VIEWPORT3D
+struct KICOMMON_API VIEWPORT3D
 {
     VIEWPORT3D( const wxString& aName = wxEmptyString ) :
             name( aName )
@@ -236,7 +236,7 @@ struct VIEWPORT3D
 
     VIEWPORT3D( const wxString& aName, glm::mat4 aViewMatrix ) :
             name( aName ),
-            matrix( aViewMatrix )
+            matrix( std::move( aViewMatrix ) )
     { }
 
     wxString  name;
@@ -244,7 +244,7 @@ struct VIEWPORT3D
 };
 
 
-class PARAM_VIEWPORT3D : public PARAM_LAMBDA<nlohmann::json>
+class KICOMMON_API PARAM_VIEWPORT3D : public PARAM_LAMBDA<nlohmann::json>
 {
 public:
     PARAM_VIEWPORT3D( const std::string& aPath, std::vector<VIEWPORT3D>* aViewportList );
@@ -255,6 +255,41 @@ private:
     void jsonToViewports( const nlohmann::json & aJson );
 
     std::vector<VIEWPORT3D>* m_viewports;
+};
+
+/**
+ * Persisted state for the net inspector panel
+ */
+struct KICOMMON_API PANEL_NET_INSPECTOR_SETTINGS
+{
+    wxString              filter_text;
+    bool                  filter_by_net_name;
+    bool                  filter_by_netclass;
+    bool                  group_by_netclass;
+    bool                  group_by_constraint;
+    std::vector<wxString> custom_group_rules;
+    bool                  show_zero_pad_nets;
+    bool                  show_unconnected_nets;
+    int                   sorting_column;
+    bool                  sort_order_asc;
+    std::vector<int>      col_order;
+    std::vector<int>      col_widths;
+    std::vector<bool>     col_hidden;
+
+    std::vector<wxString> expanded_rows;
+
+    PANEL_NET_INSPECTOR_SETTINGS()
+    {
+        filter_text = "";
+        filter_by_net_name = true;
+        filter_by_netclass = true;
+        group_by_netclass = false;
+        group_by_constraint = false;
+        show_zero_pad_nets = false;
+        show_unconnected_nets = false;
+        sorting_column = -1;
+        sort_order_asc = true;
+    }
 };
 
 

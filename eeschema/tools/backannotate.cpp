@@ -109,7 +109,7 @@ bool BACK_ANNOTATE::FetchNetlistFromPCB( std::string& aNetlist )
     if( !frame )
     {
         wxFileName fn( m_frame->Prj().GetProjectFullName() );
-        fn.SetExt( PcbFileExtension );
+        fn.SetExt( FILEEXT::PcbFileExtension );
 
         frame = m_frame->Kiway().Player( FRAME_PCB_EDITOR, true );
         frame->OpenProjectFiles( std::vector<wxString>( 1, fn.GetFullPath() ) );
@@ -185,8 +185,8 @@ void BACK_ANNOTATE::getPcbModulesFromString( const std::string& aPayload )
                         continue;
 
                     // Fields are of the format "(field (name "name") "12345")
-                    const auto fieldName = field.second.get_child_optional( "name" );
-                    const auto fieldValue = field.second.back().first;
+                    const auto& fieldName = field.second.get_child_optional( "name" );
+                    const auto& fieldValue = field.second.back().first;
 
                     if( !fieldName )
                         continue;
@@ -625,14 +625,14 @@ static SPIN_STYLE orientLabel( SCH_PIN* aPin )
 
     ORIENT o = orientations[ 0 ];
 
-    SCH_SYMBOL* parentSymbol = aPin->GetParentSymbol();
+    const SCH_SYMBOL* parentSymbol = static_cast<const SCH_SYMBOL*>( aPin->GetParentSymbol() );
 
     if( !parentSymbol )
         return spin;
 
     int symbolOrientation = parentSymbol->GetOrientation();
 
-    for( auto& i : orientations )
+    for( const ORIENT& i : orientations )
     {
         if( i.flag == symbolOrientation )
         {

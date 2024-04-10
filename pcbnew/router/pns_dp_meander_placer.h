@@ -84,12 +84,16 @@ public:
 
     const LINE Trace() const;
 
+    const DIFF_PAIR& GetOriginPair();
+
     /**
      * Return the most recent world state.
      */
     NODE* CurrentNode( bool aLoopsRemoved = false ) const override;
 
     const ITEM_SET Traces() override;
+
+    const ITEM_SET TunedPath() override;
 
     /// @copydoc PLACEMENT_ALGO::CurrentStart()
     const VECTOR2I& CurrentStart() const override;

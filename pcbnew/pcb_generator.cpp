@@ -36,38 +36,60 @@ PCB_GENERATOR::~PCB_GENERATOR()
 }
 
 
-void PCB_GENERATOR::EditStart( GENERATOR_TOOL* aTool, BOARD* aBoard, PCB_BASE_EDIT_FRAME* aFrame,
-                               BOARD_COMMIT* aCommit )
+PCB_GENERATOR* PCB_GENERATOR::DeepClone() const
+{
+    // Use copy constructor to get the same uuid and other fields
+    PCB_GENERATOR* newGenerator = static_cast<PCB_GENERATOR*>( Clone() );
+    newGenerator->m_items.clear();
+
+    for( BOARD_ITEM* member : m_items )
+    {
+        if( member->Type() == PCB_GROUP_T )
+            newGenerator->AddItem( static_cast<PCB_GROUP*>( member )->DeepClone() );
+        else
+            newGenerator->AddItem( static_cast<BOARD_ITEM*>( member->Clone() ) );
+    }
+
+    return newGenerator;
+}
+
+
+void PCB_GENERATOR::EditStart( GENERATOR_TOOL* aTool, BOARD* aBoard, BOARD_COMMIT* aCommit )
 {
     aCommit->Modify( this );
 }
 
 
-void PCB_GENERATOR::EditPush( GENERATOR_TOOL* aTool, BOARD* aBoard, PCB_BASE_EDIT_FRAME* aFrame,
-                              BOARD_COMMIT* aCommit, const wxString& aCommitMsg, int aCommitFlags )
+void PCB_GENERATOR::EditPush( GENERATOR_TOOL* aTool, BOARD* aBoard, BOARD_COMMIT* aCommit,
+                              const wxString& aCommitMsg, int aCommitFlags )
 {
     aCommit->Push( aCommitMsg, aCommitFlags );
 }
 
 
-void PCB_GENERATOR::EditRevert( GENERATOR_TOOL* aTool, BOARD* aBoard, PCB_BASE_EDIT_FRAME* aFrame,
-                                BOARD_COMMIT* aCommit )
+void PCB_GENERATOR::EditRevert( GENERATOR_TOOL* aTool, BOARD* aBoard, BOARD_COMMIT* aCommit )
 {
     aCommit->Revert();
 }
 
 
-void PCB_GENERATOR::Remove( GENERATOR_TOOL* aTool, BOARD* aBoard, PCB_BASE_EDIT_FRAME* aFrame,
-                            BOARD_COMMIT* aCommit )
+void PCB_GENERATOR::Remove( GENERATOR_TOOL* aTool, BOARD* aBoard, BOARD_COMMIT* aCommit )
 {
     aCommit->Remove( this );
 }
 
 
-bool PCB_GENERATOR::Update( GENERATOR_TOOL* aTool, BOARD* aBoard, PCB_BASE_EDIT_FRAME* aFrame,
-                            BOARD_COMMIT* aCommit )
+bool PCB_GENERATOR::Update( GENERATOR_TOOL* aTool, BOARD* aBoard, BOARD_COMMIT* aCommit )
 {
     return true;
+}
+
+
+std::vector<EDA_ITEM*> PCB_GENERATOR::GetPreviewItems( GENERATOR_TOOL* aTool,
+                                                       PCB_BASE_EDIT_FRAME* aFrame,
+                                                       bool aStatusItemsOnly )
+{
+    return std::vector<EDA_ITEM*>();
 }
 
 
@@ -78,7 +100,7 @@ bool PCB_GENERATOR::MakeEditPoints( std::shared_ptr<EDIT_POINTS> aEditPoints ) c
 
 
 bool PCB_GENERATOR::UpdateFromEditPoints( std::shared_ptr<EDIT_POINTS> aEditPoints,
-                                          BOARD_COMMIT*                aCommit )
+                                          BOARD_COMMIT* aCommit )
 {
     return true;
 }
@@ -162,7 +184,7 @@ void PCB_GENERATOR::SetProperties( const STRING_ANY_MAP& aProps )
 std::vector<std::pair<wxString, wxVariant>> PCB_GENERATOR::GetRowData()
 {
 #ifdef GENERATOR_ORDER
-    return { { _HKI( "Update order" ), wxString::FromCDouble( GetUpdateOrder() ) } };
+    return { { _HKI( "Update Order" ), wxString::FromCDouble( GetUpdateOrder() ) } };
 #else
     return { {} };
 #endif
@@ -199,7 +221,7 @@ static struct PCB_GENERATOR_DESC
 
         const wxString groupTab = _HKI( "Generator Properties" );
 
-        propMgr.AddProperty( new PROPERTY<PCB_GENERATOR, int>( _HKI( "Update order" ),
+        propMgr.AddProperty( new PROPERTY<PCB_GENERATOR, int>( _HKI( "Update Order" ),
                                                                &PCB_GENERATOR::SetUpdateOrder,
                                                                &PCB_GENERATOR::GetUpdateOrder ),
                              groupTab );

@@ -1,7 +1,7 @@
 /*
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
- * Copyright (C) 2017-2023 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2017-2024 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -219,7 +219,7 @@ static void doPushPadProperties( BOARD& board, const PAD& aSrcPad, BOARD_COMMIT&
                 continue;
 
             if( aPadTypeFilter && ( pad->GetAttribute() != aSrcPad.GetAttribute() ) )
-                    continue;
+                continue;
 
             // Special-case for aperture pads
             if( aPadTypeFilter && pad->GetAttribute() == PAD_ATTRIB::CONN )
@@ -361,18 +361,20 @@ int PAD_TOOL::EnumeratePads( const TOOL_EVENT& aEvent )
     STATUS_TEXT_POPUP statusPopup( frame() );
 
     // Callable lambda to construct the pad number string for the given value
-    const auto constructPadNumber = [&]( int aValue )
-    {
-        return wxString::Format( wxT( "%s%d" ), params->m_prefix.value_or( "" ), aValue );
-    };
+    const auto constructPadNumber =
+            [&]( int aValue )
+            {
+                return wxString::Format( wxT( "%s%d" ), params->m_prefix.value_or( "" ), aValue );
+            };
 
     // Callable lambda to set the popup text for the given pad value
-    const auto setPopupTextForValue = [&]( int aValue )
-    {
-        const wxString msg =
-                _( "Click on pad %s\nPress <esc> to cancel all; double-click to finish" );
-        statusPopup.SetText( wxString::Format( msg, constructPadNumber( aValue ) ) );
-    };
+    const auto setPopupTextForValue =
+            [&]( int aValue )
+            {
+                const wxString msg = _( "Click on pad %s\n"
+                                        "Press <esc> to cancel all; double-click to finish" );
+                statusPopup.SetText( wxString::Format( msg, constructPadNumber( aValue ) ) );
+            };
 
     setPopupTextForValue( seqPadNum );
     statusPopup.Popup();
@@ -396,7 +398,7 @@ int PAD_TOOL::EnumeratePads( const TOOL_EVENT& aEvent )
         }
         else if( evt->IsActivate() )
         {
-            commit.Push( _( "Renumber pads" ) );
+            commit.Push( _( "Renumber Pads" ) );
 
             frame()->PopTool( aEvent );
             break;
@@ -428,7 +430,12 @@ int PAD_TOOL::EnumeratePads( const TOOL_EVENT& aEvent )
                 collector.Collect( board(), { PCB_PAD_T }, testpoint, guide );
 
                 for( int i = 0; i < collector.GetCount(); ++i )
-                    selectedPads.push_back( static_cast<PAD*>( collector[i] ) );
+                {
+                    PAD* pad = static_cast<PAD*>( collector[i] );
+
+                    if( !pad->IsAperturePad() )
+                        selectedPads.push_back( pad );
+                }
             }
 
             selectedPads.unique();
@@ -494,7 +501,7 @@ int PAD_TOOL::EnumeratePads( const TOOL_EVENT& aEvent )
         }
         else if( evt->IsDblClick( BUT_LEFT ) )
         {
-            commit.Push( _( "Renumber pads" ) );
+            commit.Push( _( "Renumber Pads" ) );
             frame()->PopTool( aEvent );
             break;
         }
@@ -530,6 +537,12 @@ int PAD_TOOL::EnumeratePads( const TOOL_EVENT& aEvent )
 
 int PAD_TOOL::PlacePad( const TOOL_EVENT& aEvent )
 {
+    // When creating a new pad (in FP editor) we can use a new pad number
+    // or the last entered pad number
+    // neednewPadNumber = true to create a new pad number, false to use the last
+    // entered pad number
+    static bool neednewPadNumber;
+
     if( !m_isFootprintEditor )
         return 0;
 
@@ -540,6 +553,7 @@ int PAD_TOOL::PlacePad( const TOOL_EVENT& aEvent )
     {
         PAD_PLACER( PAD_TOOL* aPadTool )
         {
+            neednewPadNumber = true;    // Use a new pad number when creatin a pad by default
             m_padTool = aPadTool;
         }
 
@@ -556,13 +570,17 @@ int PAD_TOOL::PlacePad( const TOOL_EVENT& aEvent )
 
             // If the footprint type and master pad type directly conflict then make some
             // adjustments.  Otherwise assume the user set what they wanted.
+            // Note also a HEATSINK pad (thermal via) is allowed in SMD footprint
             if( ( m_board->GetFirstFootprint()->GetAttributes() & FP_SMD )
                     && master->GetAttribute() == PAD_ATTRIB::PTH )
             {
-                pad->SetAttribute( PAD_ATTRIB::SMD );
-                pad->SetShape( PAD_SHAPE::ROUNDRECT );
-                pad->SetSizeX( 1.5 * pad->GetSizeY() );
-                pad->SetLayerSet( PAD::SMDMask() );
+                if( pad->GetProperty() != PAD_PROP::HEATSINK )
+                {
+                    pad->SetAttribute( PAD_ATTRIB::SMD );
+                    pad->SetShape( PAD_SHAPE::ROUNDRECT );
+                    pad->SetSizeX( 1.5 * pad->GetSizeY() );
+                    pad->SetLayerSet( PAD::SMDMask() );
+                }
             }
             else if( ( m_board->GetFirstFootprint()->GetAttributes() & FP_THROUGH_HOLE )
                     && master->GetAttribute() == PAD_ATTRIB::SMD )
@@ -570,15 +588,31 @@ int PAD_TOOL::PlacePad( const TOOL_EVENT& aEvent )
                 pad->SetAttribute( PAD_ATTRIB::PTH );
                 pad->SetShape( PAD_SHAPE::CIRCLE );
                 pad->SetSize( VECTOR2I( pad->GetSizeX(), pad->GetSizeX() ) );
+
+                // Gives an acceptable drill size: it cannot be 0, but from pad master
+                // it is currently 0, therefore change it:
+                pad->SetDrillShape( PAD_DRILL_SHAPE_CIRCLE );
+                int hole_size = pad->GetSizeX() / 2;
+                pad->SetDrillSize( VECTOR2I( hole_size, hole_size ) );
+
                 pad->SetLayerSet( PAD::PTHMask() );
             }
 
             if( pad->CanHaveNumber() )
             {
                 wxString padNumber = m_padTool->GetLastPadNumber();
-                padNumber = m_board->GetFirstFootprint()->GetNextPadNumber( padNumber );
+
+                // Use the last entered pad number when recreating a pad without using the
+                // previously created pad, and a new number when creating a really new pad
+                if( neednewPadNumber )
+                    padNumber = m_board->GetFirstFootprint()->GetNextPadNumber( padNumber );
+
                 pad->SetNumber( padNumber );
                 m_padTool->SetLastPadNumber( padNumber );
+
+                // If a pad is recreated and the previously created was not placed, use
+                // the last entered pad number
+                neednewPadNumber = false;
             }
 
             return std::unique_ptr<BOARD_ITEM>( pad );
@@ -587,6 +621,9 @@ int PAD_TOOL::PlacePad( const TOOL_EVENT& aEvent )
         bool PlaceItem( BOARD_ITEM *aItem, BOARD_COMMIT& aCommit ) override
         {
             PAD* pad = dynamic_cast<PAD*>( aItem );
+            // We are using this pad number.
+            // therefore use a new pad number for a newly created pad
+            neednewPadNumber = true;
 
             if( pad )
             {
@@ -628,8 +665,13 @@ int PAD_TOOL::EditPad( const TOOL_EVENT& aEvent )
         if( pad )
         {
             BOARD_COMMIT commit( frame() );
-            commit.Modify( pad->GetParentFootprint() );
-            RecombinePad( pad, false );
+            commit.Modify( pad );
+
+            std::vector<PCB_SHAPE*> mergedShapes = RecombinePad( pad, false );
+
+            for( PCB_SHAPE* shape : mergedShapes )
+                commit.Remove( shape );
+
             commit.Push( _( "Edit Pad" ) );
         }
 
@@ -641,8 +683,8 @@ int PAD_TOOL::EditPad( const TOOL_EVENT& aEvent )
         PAD*         pad = static_cast<PAD*>( selection[0] );
         BOARD_COMMIT commit( frame() );
 
-        commit.Modify( pad->GetParentFootprint() );
-        explodePad( pad, &layer );
+        commit.Modify( pad );
+        explodePad( pad, &layer, commit );
         commit.Push( _( "Edit Pad" ) );
 
         m_toolMgr->RunAction( PCB_ACTIONS::selectionClear );
@@ -653,10 +695,7 @@ int PAD_TOOL::EditPad( const TOOL_EVENT& aEvent )
     }
 
     if( m_editPad == niluuid )
-    {
-        settings->m_PadEditModePad = nullptr;
-        exitPadEditMode();
-    }
+        ExitPadEditMode();
 
     return 0;
 }
@@ -691,7 +730,7 @@ int PAD_TOOL::OnUndoRedo( const TOOL_EVENT& aEvent )
         if( flaggedPad )
             enterPadEditMode();
         else
-            exitPadEditMode();
+            ExitPadEditMode();
     }
 
     return 0;
@@ -734,9 +773,13 @@ void PAD_TOOL::enterPadEditMode()
 }
 
 
-void PAD_TOOL::exitPadEditMode()
+void PAD_TOOL::ExitPadEditMode()
 {
-    PCB_DISPLAY_OPTIONS opts = frame()->GetDisplayOptions();
+    KIGFX::PCB_PAINTER*  painter = static_cast<KIGFX::PCB_PAINTER*>( view()->GetPainter() );
+    PCB_RENDER_SETTINGS* settings = painter->GetSettings();
+    PCB_DISPLAY_OPTIONS  opts = frame()->GetDisplayOptions();
+
+    settings->m_PadEditModePad = nullptr;
 
     if( m_previousHighContrastMode != opts.m_ContrastModeDisplay )
     {
@@ -760,7 +803,7 @@ void PAD_TOOL::exitPadEditMode()
 }
 
 
-void PAD_TOOL::explodePad( PAD* aPad, PCB_LAYER_ID* aLayer )
+void PAD_TOOL::explodePad( PAD* aPad, PCB_LAYER_ID* aLayer, BOARD_COMMIT& aCommit )
 {
     if( aPad->IsOnLayer( F_Cu ) )
         *aLayer = F_Cu;
@@ -788,8 +831,7 @@ void PAD_TOOL::explodePad( PAD* aPad, PCB_LAYER_ID* aLayer )
                     shape->SetWidth( pcbIUScale.mmToIU( ZONE_THERMAL_RELIEF_COPPER_WIDTH_MM ) );
             }
 
-            board()->GetFirstFootprint()->Add( shape );
-            frame()->GetCanvas()->GetView()->Add( shape );
+            aCommit.Add( shape );
         }
 
         aPad->SetShape( aPad->GetAnchorPadShape() );

@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2022 Mark Roszko <mark.roszko@gmail.com>
- * Copyright (C) 1992-2023 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2024 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software: you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -24,6 +24,7 @@
 #include <jobs/job_dispatcher.h>
 #include <pcb_plot_params.h>
 
+class KIWAY;
 class BOARD;
 class DS_PROXY_VIEW_ITEM;
 class FOOTPRINT;
@@ -33,8 +34,9 @@ class JOB_FP_EXPORT_SVG;
 class PCBNEW_JOBS_HANDLER : public JOB_DISPATCHER
 {
 public:
-    PCBNEW_JOBS_HANDLER();
+    PCBNEW_JOBS_HANDLER( KIWAY* aKiway );
     int JobExportStep( JOB* aJob );
+    int JobExportRender( JOB* aJob );
     int JobExportSvg( JOB* aJob );
     int JobExportDxf( JOB* aJob );
     int JobExportPdf( JOB* aJob );
@@ -45,6 +47,7 @@ public:
     int JobExportFpUpgrade( JOB* aJob );
     int JobExportFpSvg( JOB* aJob );
     int JobExportDrc( JOB* aJob );
+    int JobExportIpc2581( JOB* aJob );
 
 private:
     void populateGerberPlotOptionsFromJob( PCB_PLOT_PARAMS&       aPlotOpts,

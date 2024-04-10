@@ -68,6 +68,7 @@ PCB_MARKER::PCB_MARKER( std::shared_ptr<RC_ITEM> aItem, const VECTOR2I& aPositio
             case DRCE_DUPLICATE_FOOTPRINT:
             case DRCE_EXTRA_FOOTPRINT:
             case DRCE_NET_CONFLICT:
+            case DRCE_SCHEMATIC_PARITY_ISSUES:
                 SetMarkerType( MARKER_BASE::MARKER_PARITY );
                 break;
 
@@ -92,7 +93,7 @@ PCB_MARKER::~PCB_MARKER()
 }
 
 
-wxString PCB_MARKER::Serialize() const
+wxString PCB_MARKER::SerializeToString() const
 {
     if( m_rcItem->GetErrorCode() == DRCE_COPPER_SLIVER )
     {
@@ -136,7 +137,7 @@ wxString PCB_MARKER::Serialize() const
 }
 
 
-PCB_MARKER* PCB_MARKER::Deserialize( const wxString& data )
+PCB_MARKER* PCB_MARKER::DeserializeFromString( const wxString& data )
 {
     auto getMarkerLayer =
             []( const wxString& layerName ) -> int
@@ -233,6 +234,9 @@ void PCB_MARKER::GetMsgPanelInfo( EDA_DRAW_FRAME* aFrame, std::vector<MSG_PANEL_
 
         aList.emplace_back( mainText, auxText );
     }
+
+    if( IsExcluded() )
+        aList.emplace_back( _( "Excluded" ), m_comment );
 }
 
 

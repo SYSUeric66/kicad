@@ -42,6 +42,7 @@ using namespace std::placeholders;
 #include <tools/pcb_selection_tool.h>
 #include <tools/pcb_control.h>
 #include <tools/board_editor_control.h>
+#include <board_commit.h>
 #include <drawing_sheet/ds_proxy_undo_item.h>
 #include <wx/msgdlg.h>
 
@@ -124,17 +125,7 @@ void PCB_BASE_EDIT_FRAME::saveCopyInUndoList( PICKED_ITEMS_LIST* commandToUndo,
         case UNDO_REDO::GRIDORIGIN:
             // If we don't yet have a copy in the link, set one up
             if( !commandToUndo->GetPickedItemLink( ii ) )
-            {
-                // Warning: DRILLORIGIN and GRIDORIGIN undo/redo command create EDA_ITEMs
-                // that cannot be casted blindly to BOARD_ITEMs (a BOARD_ITEM is derived from a EDA_ITEM)
-                // Especially SetParentGroup() does not exist in EDA_ITEM
-                EDA_ITEM* clone = static_cast<EDA_ITEM*>( item->Clone() );
-
-                if( BOARD_ITEM* brdclone = dynamic_cast<BOARD_ITEM*>( clone ) )
-                    brdclone->SetParentGroup( nullptr );
-
-                commandToUndo->SetPickedItemLink( clone, ii );
-            }
+                commandToUndo->SetPickedItemLink( BOARD_COMMIT::MakeImage( item ), ii );
 
             break;
 
@@ -273,15 +264,82 @@ void PCB_BASE_EDIT_FRAME::PutDataInPreviousState( PICKED_ITEMS_LIST* aList )
     auto view = GetCanvas()->GetView();
     auto connectivity = GetBoard()->GetConnectivity();
 
-    PCB_GROUP* addedGroup = nullptr;
-
     GetBoard()->IncrementTimeStamp();   // clear caches
+
+    // Enum to track the modification type of items. Used to enable bulk BOARD_LISTENER
+    // callbacks at the end of the undo / redo operation
+    enum ITEM_CHANGE_TYPE
+    {
+        ADDED,
+        DELETED,
+        CHANGED
+    };
+
+    std::unordered_map<EDA_ITEM*, ITEM_CHANGE_TYPE> item_changes;
+
+    auto update_item_change_state = [&]( EDA_ITEM* item, ITEM_CHANGE_TYPE change_type )
+            {
+                auto item_itr = item_changes.find( item );
+
+                if( item_itr == item_changes.end() )
+                {
+                    // First time we've seen this item - tag the current change type
+                    item_changes.insert( { item, change_type } );
+                    return;
+                }
+
+                // Update the item state based on the current and next change type
+                switch( item_itr->second )
+                {
+                case ITEM_CHANGE_TYPE::ADDED:
+                {
+                    if( change_type == ITEM_CHANGE_TYPE::DELETED )
+                    {
+                        // The item was previously added, now deleted - as far as bulk callbacks
+                        // are concerned, the item has never existed
+                        item_changes.erase( item_itr );
+                    }
+                    else if( change_type == ITEM_CHANGE_TYPE::ADDED )
+                    {
+                        // Error condition - added an already added item
+                        wxASSERT_MSG( false, wxT( "UndoRedo: should not add already added item" ) );
+                    }
+
+                    // For all other cases, the item remains as ADDED as seen by the bulk callbacks
+                    break;
+                }
+                case ITEM_CHANGE_TYPE::DELETED:
+                {
+                    // This is an error condition - item has already been deleted so should not
+                    // be operated on further
+                    wxASSERT_MSG( false, wxT( "UndoRedo: should not alter already deleted item" ) );
+                    break;
+                }
+                case ITEM_CHANGE_TYPE::CHANGED:
+                {
+                    if( change_type == ITEM_CHANGE_TYPE::DELETED )
+                    {
+                        item_itr->second = ITEM_CHANGE_TYPE::DELETED;
+                    }
+                    else if( change_type == ITEM_CHANGE_TYPE::ADDED )
+                    {
+                        // This is an error condition - item has already been changed so should not
+                        // be added
+                        wxASSERT_MSG( false,
+                                      wxT( "UndoRedo: should not add already changed item" ) );
+                    }
+
+                    // Otherwise, item remains CHANGED
+                    break;
+                }
+                }
+            };
 
     // Undo in the reverse order of list creation: (this can allow stacked changes
     // like the same item can be changes and deleted in the same complex command
 
     // Restore changes in reverse order
-    for( int ii = aList->GetCount() - 1; ii >= 0 ; ii-- )
+    for( int ii = (int) aList->GetCount() - 1; ii >= 0 ; ii-- )
     {
         EDA_ITEM* eda_item = aList->GetPickedItem( (unsigned) ii );
 
@@ -295,8 +353,8 @@ void PCB_BASE_EDIT_FRAME::PutDataInPreviousState( PICKED_ITEMS_LIST* aList )
         UNDO_REDO status = aList->GetPickedItemStatus( ii );
 
         if( status != UNDO_REDO::DELETED
-                && status != UNDO_REDO::UNGROUP
                 && status != UNDO_REDO::REGROUP
+                && status != UNDO_REDO::UNGROUP
                 && status != UNDO_REDO::DRILLORIGIN     // origin markers never on board
                 && status != UNDO_REDO::GRIDORIGIN      // origin markers never on board
                 && status != UNDO_REDO::PAGESETTINGS )  // nor are page settings proxy items
@@ -373,15 +431,26 @@ void PCB_BASE_EDIT_FRAME::PutDataInPreviousState( PICKED_ITEMS_LIST* aList )
         {
         case UNDO_REDO::CHANGED:    /* Exchange old and new data for each item */
         {
-            BOARD_ITEM* item = (BOARD_ITEM*) eda_item;
+            BOARD_ITEM*           item = (BOARD_ITEM*) eda_item;
+            BOARD_ITEM_CONTAINER* parent = GetBoard();
+
+            if( item->GetParentFootprint() )
+            {
+                // We need the current item and it's parent, which may be different from what
+                // was stored if we're multiple frames up the undo stack.
+                item = GetBoard()->GetItem( item->m_Uuid );
+                parent = item->GetParentFootprint();
+            }
+
             BOARD_ITEM* image = (BOARD_ITEM*) aList->GetPickedItemLink( ii );
 
-            // Remove all pads/drawings/texts, as they become invalid
-            // for the VIEW after SwapItemData() called for footprints
             view->Remove( item );
-            connectivity->Remove( item );
+            parent->Remove( item );
 
             item->SwapItemData( image );
+
+            item->ClearFlags( UR_TRANSIENT );
+            image->SetFlags( UR_TRANSIENT );
 
             if( PCB_GROUP* group = dynamic_cast<PCB_GROUP*>( item ) )
             {
@@ -393,47 +462,61 @@ void PCB_BASE_EDIT_FRAME::PutDataInPreviousState( PICKED_ITEMS_LIST* aList )
 
             view->Add( item );
             view->Hide( item, false );
-            connectivity->Add( item );
-            item->GetBoard()->OnItemChanged( item );
+            parent->Add( item );
+            update_item_change_state( item, ITEM_CHANGE_TYPE::CHANGED );
             break;
         }
 
         case UNDO_REDO::NEWITEM:        /* new items are deleted */
             aList->SetPickedItemStatus( UNDO_REDO::DELETED, ii );
-            GetModel()->Remove( (BOARD_ITEM*) eda_item );
+            GetModel()->Remove( (BOARD_ITEM*) eda_item, REMOVE_MODE::BULK );
+            update_item_change_state( eda_item, ITEM_CHANGE_TYPE::DELETED );
 
             if( eda_item->Type() != PCB_NETINFO_T )
                 view->Remove( eda_item );
+
+            eda_item->SetFlags( UR_TRANSIENT );
 
             break;
 
         case UNDO_REDO::DELETED:    /* deleted items are put in List, as new items */
             aList->SetPickedItemStatus( UNDO_REDO::NEWITEM, ii );
-            GetModel()->Add( (BOARD_ITEM*) eda_item );
+
+            eda_item->ClearFlags( UR_TRANSIENT );
+
+            GetModel()->Add( (BOARD_ITEM*) eda_item, ADD_MODE::BULK_APPEND );
+            update_item_change_state( eda_item, ITEM_CHANGE_TYPE::ADDED );
 
             if( eda_item->Type() != PCB_NETINFO_T )
                 view->Add( eda_item );
 
-            if( PCB_GROUP* group = dynamic_cast<PCB_GROUP*>( eda_item ) )
-                addedGroup = group;
-
             break;
 
-        case UNDO_REDO::REGROUP:
+        case UNDO_REDO::REGROUP:    /* grouped items are ungrouped */
             aList->SetPickedItemStatus( UNDO_REDO::UNGROUP, ii );
 
             if( BOARD_ITEM* boardItem = dynamic_cast<BOARD_ITEM*>( eda_item ) )
-                boardItem->SetParentGroup( nullptr );
+            {
+                if( PCB_GROUP* group = boardItem->GetParentGroup() )
+                {
+                    aList->SetPickedItemGroupId( group->m_Uuid, ii );
+
+                    group->RemoveItem( boardItem );
+                }
+            }
 
             break;
 
-        case UNDO_REDO::UNGROUP:
+        case UNDO_REDO::UNGROUP:    /* ungrouped items are re-added to their previuos groups */
             aList->SetPickedItemStatus( UNDO_REDO::REGROUP, ii );
 
             if( BOARD_ITEM* boardItem = dynamic_cast<BOARD_ITEM*>( eda_item ) )
             {
-                if( addedGroup )
-                    addedGroup->AddItem( boardItem );
+                PCB_GROUP* group = dynamic_cast<PCB_GROUP*>(
+                        GetBoard()->GetItem( aList->GetPickedItemGroupId( ii ) ) );
+
+                if( group )
+                    group->AddItem( boardItem );
             }
 
             break;
@@ -461,7 +544,7 @@ void PCB_BASE_EDIT_FRAME::PutDataInPreviousState( PICKED_ITEMS_LIST* aList )
             DS_PROXY_UNDO_ITEM  alt_item( this );
             DS_PROXY_UNDO_ITEM* item = static_cast<DS_PROXY_UNDO_ITEM*>( eda_item );
             item->Restore( this );
-            *item = alt_item;
+            *item = std::move( alt_item );
             break;
         }
 
@@ -478,7 +561,11 @@ void PCB_BASE_EDIT_FRAME::PutDataInPreviousState( PICKED_ITEMS_LIST* aList )
     if( IsType( FRAME_PCB_EDITOR ) )
     {
         if( reBuild_ratsnest || deep_reBuild_ratsnest )
+        {
+            // Connectivity may have changed; rebuild internal caches to remove stale items
+            GetBoard()->BuildConnectivity();
             Compile_Ratsnest( false );
+        }
 
         if( solder_mask_dirty )
             HideSolderMask();
@@ -488,6 +575,34 @@ void PCB_BASE_EDIT_FRAME::PutDataInPreviousState( PICKED_ITEMS_LIST* aList )
     selTool->RebuildSelection();
 
     GetBoard()->SanitizeNetcodes();
+
+    // Invoke bulk BOARD_LISTENER callbacks
+    std::vector<BOARD_ITEM*> added_items, deleted_items, changed_items;
+
+    for( auto& item_itr : item_changes )
+    {
+        switch( item_itr.second )
+        {
+        case ITEM_CHANGE_TYPE::ADDED:
+        {
+            added_items.push_back( static_cast<BOARD_ITEM*>( item_itr.first ) );
+            break;
+        }
+        case ITEM_CHANGE_TYPE::DELETED:
+        {
+            deleted_items.push_back( static_cast<BOARD_ITEM*>( item_itr.first ) );
+            break;
+        }
+        case ITEM_CHANGE_TYPE::CHANGED:
+        {
+            changed_items.push_back( static_cast<BOARD_ITEM*>( item_itr.first ) );
+            break;
+        }
+        }
+    }
+
+    if( added_items.size() > 0 || deleted_items.size() > 0 || changed_items.size() > 0 )
+        GetBoard()->OnItemsCompositeUpdate( added_items, deleted_items, changed_items );
 }
 
 
@@ -496,21 +611,24 @@ void PCB_BASE_EDIT_FRAME::ClearUndoORRedoList( UNDO_REDO_LIST whichList, int aIt
     if( aItemCount == 0 )
         return;
 
-    UNDO_REDO_CONTAINER& list = whichList == UNDO_LIST ? m_undoList : m_redoList;
-    unsigned             icnt = list.m_CommandsList.size();
+    UNDO_REDO_CONTAINER& list = ( whichList == UNDO_LIST ) ? m_undoList : m_redoList;
 
-    if( aItemCount > 0 )
-        icnt = aItemCount;
-
-    for( unsigned ii = 0; ii < icnt; ii++ )
+    if( aItemCount < 0 )
     {
-        if( list.m_CommandsList.size() == 0 )
-            break;
+        list.ClearCommandList();
+    }
+    else
+    {
+        for( int ii = 0; ii < aItemCount; ii++ )
+        {
+            if( list.m_CommandsList.size() == 0 )
+                break;
 
-        PICKED_ITEMS_LIST* curr_cmd = list.m_CommandsList[0];
-        list.m_CommandsList.erase( list.m_CommandsList.begin() );
-        ClearListAndDeleteItems( curr_cmd );
-        delete curr_cmd;    // Delete command
+            PICKED_ITEMS_LIST* curr_cmd = list.m_CommandsList[0];
+            list.m_CommandsList.erase( list.m_CommandsList.begin() );
+            ClearListAndDeleteItems( curr_cmd );
+            delete curr_cmd;    // Delete command
+        }
     }
 }
 
@@ -520,6 +638,9 @@ void PCB_BASE_EDIT_FRAME::ClearListAndDeleteItems( PICKED_ITEMS_LIST* aList )
     aList->ClearListAndDeleteItems(
             []( EDA_ITEM* item )
             {
+                wxASSERT_MSG( item->HasFlag( UR_TRANSIENT ),
+                              "Item on undo/redo list not owned by undo/redo!" );
+
                 if( BOARD_ITEM* boardItem = dynamic_cast<BOARD_ITEM*>( item ) )
                     boardItem->SetParentGroup( nullptr );
 

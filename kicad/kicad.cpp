@@ -35,6 +35,7 @@
 #include <wx/msgdlg.h>
 #include <wx/cmdline.h>
 
+#include <env_vars.h>
 #include <file_history.h>
 #include <hotkeys_basic.h>
 #include <kiway.h>
@@ -56,6 +57,10 @@
 #include <kiplatform/app.h>
 #include <kiplatform/environment.h>
 
+#ifdef KICAD_IPC_API
+#include <api/api_server.h>
+#endif
+
 
 // a dummy to quiet linking with EDA_BASE_FRAME::config();
 #include <kiface_base.h>
@@ -71,20 +76,6 @@ KIFACE_BASE& Kiface()
 
 
 static PGM_KICAD program;
-
-
-PGM_BASE& Pgm()
-{
-    return program;
-}
-
-
-// Similar to PGM_BASE& Pgm(), but return nullptr when a *.ki_face is run from a python script.
-PGM_BASE* PgmOrNull()
-{
-    return &program;
-}
-
 
 PGM_KICAD& PgmTop()
 {
@@ -198,18 +189,20 @@ bool PGM_KICAD::OnPgmInit()
                 m_bm.m_search.AddPaths( fn.GetPath() );
         }
 
-        // The KICAD7_TEMPLATE_DIR takes precedence over the search stack template path.
-        ENV_VAR_MAP_CITER it = GetLocalEnvVariables().find( "KICAD7_TEMPLATE_DIR" );
-
-        if( it != GetLocalEnvVariables().end() && it->second.GetValue() != wxEmptyString )
-            m_bm.m_search.Insert( it->second.GetValue(), 0 );
+        // The versioned TEMPLATE_DIR takes precedence over the search stack template path.
+        if( std::optional<wxString> v = ENV_VAR::GetVersionedEnvVarValue( GetLocalEnvVariables(),
+                                                                          wxT( "TEMPLATE_DIR" ) ) )
+        {
+            if( !v->IsEmpty() )
+                m_bm.m_search.Insert( *v, 0 );
+        }
 
         // We've been adding system (installed default) search paths so far, now for user paths
         // The default user search path is inside KIPLATFORM::ENV::GetDocumentsPath()
         m_bm.m_search.Insert( PATHS::GetUserTemplatesPath(), 0 );
 
         // ...but the user can override that default with the KICAD_USER_TEMPLATE_DIR env var
-        it = GetLocalEnvVariables().find( "KICAD_USER_TEMPLATE_DIR" );
+        ENV_VAR_MAP_CITER it = GetLocalEnvVariables().find( "KICAD_USER_TEMPLATE_DIR" );
 
         if( it != GetLocalEnvVariables().end() && it->second.GetValue() != wxEmptyString )
             m_bm.m_search.Insert( it->second.GetValue(), 0 );
@@ -222,7 +215,7 @@ bool PGM_KICAD::OnPgmInit()
     if( appType == KICAD_MAIN_FRAME_T )
     {
         managerFrame = new KICAD_MANAGER_FRAME( nullptr, wxT( "KiCad" ), wxDefaultPosition,
-                                                wxSize( 775, -1 ) );
+                                                wxWindow::FromDIP( wxSize( 775, -1 ), NULL ) );
         frame = managerFrame;
     }
     else
@@ -247,6 +240,10 @@ bool PGM_KICAD::OnPgmInit()
     Kiway.SetTop( frame );
 
     KICAD_SETTINGS* settings = static_cast<KICAD_SETTINGS*>( PgmSettings() );
+
+#ifdef KICAD_IPC_API
+    m_api_server = std::make_unique<KICAD_API_SERVER>();
+#endif
 
     wxString projToLoad;
 
@@ -309,7 +306,8 @@ bool PGM_KICAD::OnPgmInit()
         {
             wxFileName tmp = App().argv[1];
 
-            if( tmp.GetExt() != ProjectFileExtension && tmp.GetExt() != LegacyProjectFileExtension )
+            if( tmp.GetExt() != FILEEXT::ProjectFileExtension
+                && tmp.GetExt() != FILEEXT::LegacyProjectFileExtension )
             {
                 wxString msg;
 
@@ -358,6 +356,10 @@ bool PGM_KICAD::OnPgmInit()
     frame->Show( true );
     frame->Raise();
 
+#ifdef KICAD_IPC_API
+    m_api_server->SetReadyToReply();
+#endif
+
     return true;
 }
 
@@ -371,6 +373,10 @@ int PGM_KICAD::OnPgmRun()
 void PGM_KICAD::OnPgmExit()
 {
     Kiway.OnKiwayEnd();
+
+#ifdef KICAD_IPC_API
+    m_api_server.reset();
+#endif
 
     if( m_settings_manager && m_settings_manager->IsOK() )
     {
@@ -410,7 +416,7 @@ void PGM_KICAD::Destroy()
 }
 
 
-KIWAY  Kiway( &Pgm(), KFCTL_CPP_PROJECT_SUITE );
+KIWAY  Kiway( KFCTL_CPP_PROJECT_SUITE );
 
 #ifdef NDEBUG
 // Define a custom assertion handler
@@ -431,6 +437,8 @@ struct APP_KICAD : public wxApp
 {
     APP_KICAD() : wxApp()
     {
+        SetPgm( &program );
+
         // Init the environment each platform wants
         KIPLATFORM::ENV::Init();
     }
@@ -448,6 +456,17 @@ struct APP_KICAD : public wxApp
         // Perform platform-specific init tasks
         if( !KIPLATFORM::APP::Init() )
             return false;
+
+#ifndef DEBUG
+        // Enable logging traces to the console in release build.
+        // This is usually disabled, but it can be useful for users to run to help
+        // debug issues and other problems.
+        if( wxGetEnv( wxS( "KICAD_ENABLE_WXTRACE" ), nullptr ) )
+        {
+            wxLog::EnableLogging( true );
+            wxLog::SetLogLevel( wxLOG_Trace );
+        }
+#endif
 
         if( !program.OnPgmInit() )
         {

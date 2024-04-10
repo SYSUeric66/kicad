@@ -39,6 +39,7 @@
 #include <wx/stc/stc.h>
 #include <textentry_tricks.h>
 #include <wx/listctrl.h>
+#include <wx/grid.h>
 #include <widgets/ui_common.h>
 
 using namespace std::placeholders;
@@ -415,8 +416,8 @@ void ACTION_MENU::OnMenuEvent( wxMenuEvent& aEvent )
 
         wxMenu* parent = dynamic_cast<wxMenu*>( GetParent() );
 
-        // Don't update the position if this menu has a parent
-        if( !parent && toolMgr )
+        // Don't update the position if this menu has a parent or is a menubar menu
+        if( !parent && !IsAttached() && toolMgr )
             g_menu_open_position = toolMgr->GetMousePosition();
 
         g_last_menu_highlighted_id = 0;
@@ -436,7 +437,8 @@ void ACTION_MENU::OnMenuEvent( wxMenuEvent& aEvent )
         // events first.
         if( dynamic_cast<wxTextEntry*>( focus )
                 || dynamic_cast<wxStyledTextCtrl*>( focus )
-                || dynamic_cast<wxListView*>( focus ) )
+                || dynamic_cast<wxListView*>( focus )
+                || dynamic_cast<wxGrid*>( focus ) )
         {
             // Original key event has been lost, so we have to re-create it from the menu's
             // wxAcceleratorEntry.
@@ -451,7 +453,7 @@ void ACTION_MENU::OnMenuEvent( wxMenuEvent& aEvent )
                 keyEvent.m_shiftDown = ( acceleratorKey->GetFlags() & wxMOD_SHIFT ) > 0;
                 keyEvent.m_altDown = ( acceleratorKey->GetFlags() & wxMOD_ALT ) > 0;
 
-                if( auto ctrl = dynamic_cast<wxTextEntry*>( focus ) )
+                if( wxTextEntry* ctrl = dynamic_cast<wxTextEntry*>( focus ) )
                     TEXTENTRY_TRICKS::OnCharHook( ctrl, keyEvent );
                 else
                     focus->HandleWindowEvent( keyEvent );
@@ -462,10 +464,14 @@ void ACTION_MENU::OnMenuEvent( wxMenuEvent& aEvent )
                     focus->HandleWindowEvent( keyEvent );
                 }
 
-                // If the event was used as KEY event (not skipped) by the focused window,
-                // just finish.
-                // Otherwise this is actually a wxEVT_COMMAND_MENU_SELECTED, or the
-                // focused window is read only
+                // Don't bubble-up dangerous actions; the target may be behind a modeless dialog.
+                // Cf. https://gitlab.com/kicad/code/kicad/-/issues/17229
+                if( keyEvent.GetKeyCode() == WXK_BACK || keyEvent.GetKeyCode() == WXK_DELETE )
+                    return;
+
+                // If the event was used as a KEY event (not skipped) by the focused window,
+                // just finish.  Otherwise this is actually a wxEVT_COMMAND_MENU_SELECTED (or the
+                // focused window is read only).
                 if( !keyEvent.GetSkipped() )
                     return;
             }
@@ -546,8 +552,9 @@ void ACTION_MENU::OnMenuEvent( wxMenuEvent& aEvent )
         {
             evt->SetMousePosition( g_menu_open_position );
         }
-        // Otherwise, if g_last_menu_highlighted_id matches then it's a menubar menu event and has
-        // no position.
+        // Check if it is a menubar event, and don't get any position if it is.  Note that we
+        // can't  use IsAttached() here, as it only differentiates a context menu, and we also
+        // want a hotkey to generate a position.
         else if( g_last_menu_highlighted_id == aEvent.GetId() )
         {
             evt->SetHasPosition( false );

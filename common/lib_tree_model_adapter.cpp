@@ -47,7 +47,7 @@ public:
 
     wxSize GetSize() const override
     {
-        return wxSize( GetOwner()->GetWidth(), GetTextExtent( m_text ).y );
+        return wxSize( GetOwner()->GetWidth(), GetTextExtent( m_text ).y + 2 );
     }
 
     bool GetValue( wxVariant& aValue ) const override
@@ -91,14 +91,19 @@ public:
             dc->DrawLines( 6, points );
         }
 
+        aRect.Deflate( 1 );
+
+#ifdef __WXOSX__
         // We should be able to pass wxDATAVIEW_CELL_SELECTED into RenderText() and have it do
-        // the right thing -- but it picks wxSYS_COLOUR_HIGHLIGHTTEXT on MacOS and GTK (instead
+        // the right thing -- but it picks wxSYS_COLOUR_HIGHLIGHTTEXT on MacOS (instead
         // of wxSYS_COLOUR_LISTBOXHIGHLIGHTTEXT).
         if( aState & wxDATAVIEW_CELL_SELECTED )
             dc->SetTextForeground( wxSystemSettings::GetColour( wxSYS_COLOUR_LISTBOXHIGHLIGHTTEXT ) );
 
-        aRect.Deflate( 1 );
         RenderText( m_text, 0, aRect, dc, 0 );
+#else
+        RenderText( m_text, 0, aRect, dc, aState );
+#endif
         return true;
     }
 
@@ -155,6 +160,38 @@ LIB_TREE_MODEL_ADAPTER::~LIB_TREE_MODEL_ADAPTER()
 {}
 
 
+std::vector<wxString> LIB_TREE_MODEL_ADAPTER::GetOpenLibs() const
+{
+    std::vector<wxString> openLibs;
+    wxDataViewItem        rootItem( nullptr );
+    wxDataViewItemArray   children;
+
+    GetChildren( rootItem, children );
+
+    for( const wxDataViewItem& child : children )
+    {
+        if( m_widget->IsExpanded( child ) )
+            openLibs.emplace_back( ToNode( child )->m_LibId.GetLibNickname().wx_str() );
+    }
+
+    return openLibs;
+}
+
+
+void LIB_TREE_MODEL_ADAPTER::OpenLibs( const std::vector<wxString>& aLibs )
+{
+    wxWindowUpdateLocker updateLock( m_widget );
+
+    for( const wxString& lib : aLibs )
+    {
+        wxDataViewItem item = FindItem( LIB_ID( lib, wxEmptyString ) );
+
+        if( item.IsOk() )
+            m_widget->Expand( item );
+    }
+}
+
+
 void LIB_TREE_MODEL_ADAPTER::SaveSettings()
 {
     if( m_widget )
@@ -166,6 +203,8 @@ void LIB_TREE_MODEL_ADAPTER::SaveSettings()
 
         for( const std::pair<const wxString, wxDataViewColumn*>& pair : m_colNameMap )
             cfg->m_LibTree.column_widths[pair.first] = pair.second->GetWidth();
+
+        cfg->m_LibTree.open_libs = GetOpenLibs();
     }
 }
 
@@ -262,11 +301,6 @@ void LIB_TREE_MODEL_ADAPTER::UpdateSearchString( const wxString& aSearch, bool a
                 EDA_COMBINED_MATCHER itemNameMatcher( itemName, CTX_LIBITEM );
 
                 m_tree.UpdateScore( &itemNameMatcher, lib, nullptr );
-            }
-            else
-            {
-                // In case the full token happens to be a library name
-                m_tree.UpdateScore( nullptr, term, nullptr );
             }
         }
 
@@ -380,9 +414,9 @@ wxDataViewColumn* LIB_TREE_MODEL_ADAPTER::doAddColumn( const wxString& aHeader, 
 
     int index = (int) m_columns.size();
 
-    wxDataViewColumn* col = new wxDataViewColumn( translatedHeader, new LIB_TREE_RENDERER(),
-                                                  index, m_colWidths[aHeader], wxALIGN_NOT,
-                                                  wxDATAVIEW_CELL_INERT );
+    wxDataViewColumn* col = new wxDataViewColumn(
+            translatedHeader, new LIB_TREE_RENDERER(), index, m_colWidths[aHeader], wxALIGN_NOT,
+            wxDATAVIEW_CELL_INERT | wxDATAVIEW_COL_RESIZABLE | wxDATAVIEW_COL_SORTABLE );
     m_widget->AppendColumn( col );
 
     col->SetMinWidth( headerMinWidth.x );
@@ -640,10 +674,10 @@ void LIB_TREE_MODEL_ADAPTER::GetValue( wxVariant&              aVariant,
         {
             const wxString& key = m_colIdxMap.at( aCol );
 
-            if( node->m_Fields.count( key ) )
-                valueStr = UnescapeString( node->m_Fields.at( key ) );
-            else if( key == wxT( "Description" ) )
+            if( key == wxT( "Description" ) )
                 valueStr = UnescapeString( node->m_Desc );
+            else if( node->m_Fields.count( key ) )
+                valueStr = UnescapeString( node->m_Fields.at( key ) );
             else
                 valueStr = wxEmptyString;
         }
@@ -681,12 +715,16 @@ bool LIB_TREE_MODEL_ADAPTER::GetAttr( const wxDataViewItem&   aItem,
 }
 
 
-void recursiveDescent( LIB_TREE_NODE& aNode, const std::function<bool( const LIB_TREE_NODE* )>& f )
+void recursiveDescent( LIB_TREE_NODE& aNode, const std::function<int( const LIB_TREE_NODE* )>& f )
 {
     for( std::unique_ptr<LIB_TREE_NODE>& node: aNode.m_Children )
     {
-        if( !f( node.get() ) )
+        int r = f( node.get() );
+
+        if( r == 0 )
             break;
+        else if( r == -1 )
+            continue;
 
         recursiveDescent( *node, f );
     }
@@ -711,7 +749,7 @@ const LIB_TREE_NODE* LIB_TREE_MODEL_ADAPTER::ShowResults()
                     m_widget->ExpandAncestors( ToItem( n ) );
                 }
 
-                return true;    // keep going to expand ancestors of all found items
+                return 1; // keep going to expand ancestors of all found items
             } );
 
     // If no matches, find and show the preselect node
@@ -720,13 +758,17 @@ const LIB_TREE_NODE* LIB_TREE_MODEL_ADAPTER::ShowResults()
         recursiveDescent( m_tree,
                 [&]( const LIB_TREE_NODE* n )
                 {
+                    // Don't match the recent and already placed libraries
+                    if( n->m_Name.StartsWith( "-- " ) )
+                        return -1; // Skip this node and its children
+
                     if( n->m_Type == LIB_TREE_NODE::ITEM
                               && ( n->m_Children.empty() || !m_preselect_unit )
                               && m_preselect_lib_id == n->m_LibId )
                     {
                         firstMatch = n;
                         m_widget->ExpandAncestors( ToItem( n ) );
-                        return false;
+                        return 0;
                     }
                     else if( n->m_Type == LIB_TREE_NODE::UNIT
                               && ( m_preselect_unit && m_preselect_unit == n->m_Unit )
@@ -734,10 +776,10 @@ const LIB_TREE_NODE* LIB_TREE_MODEL_ADAPTER::ShowResults()
                     {
                         firstMatch = n;
                         m_widget->ExpandAncestors( ToItem( n ) );
-                        return false;
+                        return 0;
                     }
 
-                    return true;
+                    return 1;
                 } );
     }
 
@@ -762,10 +804,10 @@ const LIB_TREE_NODE* LIB_TREE_MODEL_ADAPTER::ShowResults()
                     {
                         firstMatch = n;
                         m_widget->ExpandAncestors( ToItem( n ) );
-                        return false;
+                        return 0;
                     }
 
-                    return true;
+                    return 1;
                 } );
     }
 

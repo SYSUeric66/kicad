@@ -26,7 +26,7 @@
 #include <settings/settings_manager.h>
 #include <wildcards_and_files_ext.h>
 #include <schematic.h>
-#include <sch_io_mgr.h>
+#include <sch_io/sch_io_mgr.h>
 #include <locale_io.h>
 #include <wx/app.h>
 #include <sch_label.h>
@@ -78,22 +78,23 @@ PROJECT* EESCHEMA_HELPERS::GetDefaultProject()
 }
 
 
-SCHEMATIC* EESCHEMA_HELPERS::LoadSchematic( wxString& aFileName )
+SCHEMATIC* EESCHEMA_HELPERS::LoadSchematic( wxString& aFileName, bool aSetActive )
 {
-    if( aFileName.EndsWith( KiCadSchematicFileExtension ) )
-        return LoadSchematic( aFileName, SCH_IO_MGR::SCH_KICAD );
-    else if( aFileName.EndsWith( LegacySchematicFileExtension ) )
-        return LoadSchematic( aFileName, SCH_IO_MGR::SCH_LEGACY );
+    if( aFileName.EndsWith( FILEEXT::KiCadSchematicFileExtension ) )
+        return LoadSchematic( aFileName, SCH_IO_MGR::SCH_KICAD, aSetActive );
+    else if( aFileName.EndsWith( FILEEXT::LegacySchematicFileExtension ) )
+        return LoadSchematic( aFileName, SCH_IO_MGR::SCH_LEGACY, aSetActive );
 
     // as fall back for any other kind use the legacy format
-    return LoadSchematic( aFileName, SCH_IO_MGR::SCH_LEGACY );
+    return LoadSchematic( aFileName, SCH_IO_MGR::SCH_LEGACY, aSetActive );
 }
 
 
-SCHEMATIC* EESCHEMA_HELPERS::LoadSchematic( wxString& aFileName, SCH_IO_MGR::SCH_FILE_T aFormat )
+SCHEMATIC* EESCHEMA_HELPERS::LoadSchematic( wxString& aFileName, SCH_IO_MGR::SCH_FILE_T aFormat,
+                                            bool aSetActive )
 {
     wxFileName pro = aFileName;
-    pro.SetExt( ProjectFileExtension );
+    pro.SetExt( FILEEXT::ProjectFileExtension );
     pro.MakeAbsolute();
     wxString projectPath = pro.GetFullPath();
 
@@ -107,7 +108,7 @@ SCHEMATIC* EESCHEMA_HELPERS::LoadSchematic( wxString& aFileName, SCH_IO_MGR::SCH
     {
         if( wxFileExists( projectPath ) )
         {
-            GetSettingsManager()->LoadProject( projectPath, false );
+            GetSettingsManager()->LoadProject( projectPath, aSetActive );
             project = GetSettingsManager()->GetProject( projectPath );
         }
     }
@@ -121,8 +122,7 @@ SCHEMATIC* EESCHEMA_HELPERS::LoadSchematic( wxString& aFileName, SCH_IO_MGR::SCH
     if( !project )
         project = GetDefaultProject();
 
-    SCH_PLUGIN*                     plugin = SCH_IO_MGR::FindPlugin( aFormat );
-    SCH_PLUGIN::SCH_PLUGIN_RELEASER pi( plugin );
+    IO_RELEASER<SCH_IO> pi( SCH_IO_MGR::FindPlugin( aFormat ) );
 
     SCHEMATIC* schematic = new SCHEMATIC( project );
 

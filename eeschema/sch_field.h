@@ -54,7 +54,8 @@ public:
     SCH_FIELD( const VECTOR2I& aPos, int aFieldId, SCH_ITEM* aParent,
                const wxString& aName = wxEmptyString );
 
-    SCH_FIELD( SCH_ITEM* aParent, int aFieldId, const wxString& aName = wxEmptyString );
+    SCH_FIELD( SCH_ITEM* aParent, int aFieldId = INVALID_FIELD,
+               const wxString& aName = wxEmptyString );
 
     SCH_FIELD( const SCH_FIELD& aText );
 
@@ -152,6 +153,9 @@ public:
         return name.Trim().empty() && value.Trim().empty();
     }
 
+    int GetSchTextSize() const { return GetTextWidth(); }
+    void SetSchTextSize( int aSize ) { SetTextSize( VECTOR2I( aSize, aSize ) ); }
+
     COLOR4D GetFieldColor() const;
 
     void SetLastResolvedState( const SCH_ITEM* aItem ) override
@@ -215,14 +219,12 @@ public:
     GetRenderCache( const wxString& forResolvedText, const VECTOR2I& forPosition,
                     TEXT_ATTRIBUTES& aAttrs ) const;
 
-    void Print( const RENDER_SETTINGS* aSettings, const VECTOR2I& aOffset ) override;
-
     void Move( const VECTOR2I& aMoveVector ) override
     {
         Offset( aMoveVector );
     }
 
-    void Rotate( const VECTOR2I& aCenter ) override;
+    void Rotate( const VECTOR2I& aCenter, bool aRotateCCW ) override;
 
     /**
      * @copydoc SCH_ITEM::MirrorVertically()
@@ -269,8 +271,11 @@ public:
     bool HitTest( const VECTOR2I& aPosition, int aAccuracy = 0 ) const override;
     bool HitTest( const BOX2I& aRect, bool aContained, int aAccuracy = 0 ) const override;
 
-    void Plot( PLOTTER* aPlotter, bool aBackground,
-               const SCH_PLOT_SETTINGS& aPlotSettings ) const override;
+    void Print( const SCH_RENDER_SETTINGS* aSettings, int aUnit, int aBodyStyle,
+                const VECTOR2I& aOffset, bool aForceNoFill, bool aDimmed ) override;
+
+    void Plot( PLOTTER* aPlotter, bool aBackground, const SCH_PLOT_OPTS& aPlotOpts,
+               int aUnit, int aBodyStyle, const VECTOR2I& aOffset, bool aDimmed ) override;
 
     EDA_ITEM* Clone() const override;
 
