@@ -1,3 +1,24 @@
+/**
+ * This program source code file is part of KiCad, a free EDA CAD application.
+ *
+ * Copyright (C) 2023 KiCad Developers, see AUTHORS.txt for contributors.
+ * Author: SYSUEric <jzzhuang666@gmail.com>.
+ *
+ * This program is free software: you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License as published by the
+ * Free Software Foundation, either version 3 of the License, or (at your
+ * option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but
+ * WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License along
+ * with this program.  If not, see <http://www.gnu.org/licenses/>.
+ */
+
+
 #ifndef _ODB_FEATURE_H_
 #define _ODB_FEATURE_H_
 
@@ -255,7 +276,7 @@ class ODB_PAD : public ODB_FEATURE
 {
 public:
     ODB_PAD( uint32_t aIndex, const std::pair<wxString, wxString>& aCenter,
-             uint32_t aSym, EDA_ANGLE aAngle = EDA_ANGLE::m_Angle0,
+             uint32_t aSym, EDA_ANGLE aAngle = ANGLE_0,
              bool aMirror = false, double aResize = 1.0 )
         : ODB_FEATURE( aIndex ), m_center( aCenter ), m_symIndex( aSym ),
         m_angle( aAngle ), m_mirror( aMirror ), m_resize( aResize )

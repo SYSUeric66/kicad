@@ -1,3 +1,23 @@
+/**
+ * This program source code file is part of KiCad, a free EDA CAD application.
+ *
+ * Copyright (C) 2023 KiCad Developers, see AUTHORS.txt for contributors.
+ * Author: SYSUEric <jzzhuang666@gmail.com>.
+ *
+ * This program is free software: you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License as published by the
+ * Free Software Foundation, either version 3 of the License, or (at your
+ * option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but
+ * WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License along
+ * with this program.  If not, see <http://www.gnu.org/licenses/>.
+ */
+
 #include "odb_component.h"
 #include "odb_util.h"
 #include "hash_eda.h"
@@ -13,7 +33,7 @@ ODB_COMPONENT& COMPONENTS_MANAGER::AddComponent( FOOTPRINT* aFp, EDAData& eda_da
 
     comp.m_center = ODB::AddXY( aFp->GetPosition() );
 
-    if( aFp->GetOrientation() != EDA_ANGLE::m_Angle0 )
+    if( aFp->GetOrientation() != ANGLE_0 )
     {
         comp.m_rot = ODB::Float2StrVal( 
                      aFp->GetOrientation().Normalize().AsDegrees() );

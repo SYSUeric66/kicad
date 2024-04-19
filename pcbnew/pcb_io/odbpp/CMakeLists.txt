@@ -1,5 +1,5 @@
 
-# Sources for the pcbnew PLUGIN called IPC2581_PLUGIN
+# Sources for the pcbnew pcb_io called ODB Plus Plus
 
 include_directories( ${CMAKE_CURRENT_SOURCE_DIR} )
 

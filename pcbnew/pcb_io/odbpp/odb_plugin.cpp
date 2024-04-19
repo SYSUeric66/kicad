@@ -1,22 +1,22 @@
 /**
-* This program source code file is part of KiCad, a free EDA CAD application.
-*
-* Copyright (C) 2023 SYSUeric66 <jzzhuang666@gmail.com>
-* Copyright (C) 2023 KiCad Developers, see AUTHORS.txt for contributors.
-*
-* This program is free software: you can redistribute it and/or modify it
-* under the terms of the GNU General Public License as published by the
-* Free Software Foundation, either version 3 of the License, or (at your
-* option) any later version.
-*
-* This program is distributed in the hope that it will be useful, but
-* WITHOUT ANY WARRANTY; without even the implied warranty of
-* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
-* General Public License for more details.
-*
-* You should have received a copy of the GNU General Public License along
-* with this program.  If not, see <http://www.gnu.org/licenses/>.
-*/
+ * This program source code file is part of KiCad, a free EDA CAD application.
+ *
+ * Copyright (C) 2023 KiCad Developers, see AUTHORS.txt for contributors.
+ * Author: SYSUEric <jzzhuang666@gmail.com>.
+ *
+ * This program is free software: you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License as published by the
+ * Free Software Foundation, either version 3 of the License, or (at your
+ * option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but
+ * WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License along
+ * with this program.  If not, see <http://www.gnu.org/licenses/>.
+ */
 
 #include "odb_plugin.h"
 #include "odb_util.h"
@@ -39,11 +39,6 @@ void ODB_PLUGIN::ClearLoadedFootprints()
     m_loaded_footprints.clear();
 }
 
-
-const wxString ODB_PLUGIN::PluginName() const
-{
-    return wxT( "ODB++" );
-}
 
 bool ODB_PLUGIN::CreateEntity( ODB_TREE_WRITER& writer )
 {
@@ -135,14 +130,13 @@ std::vector<FOOTPRINT*> ODB_PLUGIN::GetImportedCachedLibraryFootprints()
 
 
 void ODB_PLUGIN::SaveBoard( const wxString& aFileName, BOARD* aBoard,
-                                const STRING_UTF8_MAP* aProperties,
-                                PROGRESS_REPORTER*     aProgressReporter )
+                                const STRING_UTF8_MAP* aProperties )
 {
     m_board = aBoard;
     m_units_str = "MILLIMETER";
     // m_ODBScale = 1.0 / PCB_IU_PER_MM;
     m_sigfig = 4;
-    m_progress_reporter = aProgressReporter;
+    // m_progress_reporter = aProgressReporter;
 
     // if( m_progress_reporter )
     //     {

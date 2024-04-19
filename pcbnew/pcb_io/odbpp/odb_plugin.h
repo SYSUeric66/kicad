@@ -1,30 +1,33 @@
 /**
-* This program source code file is part of KiCad, a free EDA CAD application.
-*
-* Copyright (C) 2023 KiCad Developers, see AUTHORS.txt for contributors.
-*
-* This program is free software: you can redistribute it and/or modify it
-* under the terms of the GNU General Public License as published by the
-* Free Software Foundation, either version 3 of the License, or (at your
-* option) any later version.
-*
-* This program is distributed in the hope that it will be useful, but
-* WITHOUT ANY WARRANTY; without even the implied warranty of
-* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
-* General Public License for more details.
-*
-* You should have received a copy of the GNU General Public License along
-* with this program.  If not, see <http://www.gnu.org/licenses/>.
-*/
+ * This program source code file is part of KiCad, a free EDA CAD application.
+ *
+ * Copyright (C) 2023 KiCad Developers, see AUTHORS.txt for contributors.
+ * Author: SYSUEric <jzzhuang666@gmail.com>.
+ *
+ * This program is free software: you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License as published by the
+ * Free Software Foundation, either version 3 of the License, or (at your
+ * option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but
+ * WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License along
+ * with this program.  If not, see <http://www.gnu.org/licenses/>.
+ */
 
 
 #ifndef _ODB_PLUGIN_H_
 #define _ODB_PLUGIN_H_
 
+#include <pcb_io/pcb_io.h>
+#include <pcb_io/pcb_io_mgr.h>
+#include <pcb_io/common/plugin_common_layer_mapping.h>
+
 #include <eda_shape.h>
-#include <io_mgr.h>
 #include <layer_ids.h> // PCB_LAYER_ID
-#include <plugins/common/plugin_common_layer_mapping.h>
 #include <font/font.h>
 #include <geometry/shape_segment.h>
 #include <stroke_params.h>
@@ -49,14 +52,14 @@ class EDAData::Subnet;
 
 
 
-class ODB_PLUGIN : public PLUGIN, public LAYER_REMAPPABLE_PLUGIN
+class ODB_PLUGIN : public PCB_IO, public LAYER_REMAPPABLE_PLUGIN
 {
 public:
     /**
      * @brief ODB_PLUGIN
      *
     */
-    ODB_PLUGIN()
+    ODB_PLUGIN() : PCB_IO( wxS( "ODBPlusPlus" ) )
     {
         // m_show_layer_mapping_warnings = false;
         // m_total_bytes = 0;
@@ -69,33 +72,28 @@ public:
         // m_shape_std_node = nullptr;
         // m_line_node = nullptr;
         // m_last_padstack = nullptr;
-        m_progress_reporter = nullptr;
+        // m_progress_reporter = nullptr;
         // m_xml_doc = nullptr;
         // m_xml_root = nullptr;
     }
 
     ~ODB_PLUGIN() override;
 
-    /**
-     * @brief IPC2581_PLUGIN
-    */
-    const wxString PluginName() const override;
-
-    /**
-     *
-    */
-    // BOARD* LoadBoard( const wxString& aFileName, BOARD* aAppendToMe,
-    //              const STRING_UTF8_MAP* aProperties = nullptr, PROJECT* aProject = nullptr,
-    //              PROGRESS_REPORTER* aProgressReporter = nullptr ) override;
-
     void SaveBoard( const wxString& aFileName, BOARD* aBoard,
-                const STRING_UTF8_MAP* aProperties = nullptr,
-                PROGRESS_REPORTER*     aProgressReporter = nullptr ) override;
+                const STRING_UTF8_MAP* aProperties = nullptr ) override;
 
-    PLUGIN_FILE_DESC GetBoardFileDesc() const override
+    const IO_BASE::IO_FILE_DESC GetBoardFileDesc() const override
     {
-        return PLUGIN_FILE_DESC( _HKI( "ODB++ Production File" ), { "ZIP" } );
+        return IO_BASE::IO_FILE_DESC( _HKI( "ODB++ Production File" ), { "ZIP" } );
     }
+
+    const IO_BASE::IO_FILE_DESC GetLibraryDesc() const override
+    {
+        // No library description for this plugin
+        return IO_BASE::IO_FILE_DESC( wxEmptyString, {} );
+    }
+
+
     std::vector<FOOTPRINT*> GetImportedCachedLibraryFootprints() override;
 
     long long GetLibraryTimestamp( const wxString& aLibraryPath ) const override
@@ -116,7 +114,7 @@ public:
     }
 
     // Reading currently disabled
-    bool CanReadFootprintLib( const wxString& aFileName ) const override
+    bool CanReadLibrary( const wxString& aFileName ) const override
     {
         return false;
     }
@@ -294,7 +292,7 @@ private:
             m_via_trace_subnets;
 
     std::vector<std::shared_ptr<ODB_ENTITY_BASE>> m_entities;
-    PROGRESS_REPORTER*      m_progress_reporter;
+    // PROGRESS_REPORTER*      m_progress_reporter;
 
     // std::set<wxUniChar>     m_acceptable_chars;     //<! IPC2581B and C have differing sets of allowed characters in names
 

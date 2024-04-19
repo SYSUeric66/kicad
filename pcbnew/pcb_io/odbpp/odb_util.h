@@ -12,7 +12,7 @@
 
 
 
-//<! Scale factor from IU to IPC2581 units (mm, micron, in)
+//<! Scale factor from IU to ODBPP units (mm, micron, in)
 static double m_ODBScale = 1.0 / PCB_IU_PER_MM; 
 
 enum class ODB_POLARITY

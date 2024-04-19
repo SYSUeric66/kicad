@@ -1,3 +1,23 @@
+/**
+ * This program source code file is part of KiCad, a free EDA CAD application.
+ *
+ * Copyright (C) 2023 KiCad Developers, see AUTHORS.txt for contributors.
+ * Author: SYSUEric <jzzhuang666@gmail.com>.
+ *
+ * This program is free software: you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License as published by the
+ * Free Software Foundation, either version 3 of the License, or (at your
+ * option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but
+ * WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License along
+ * with this program.  If not, see <http://www.gnu.org/licenses/>.
+ */
+
 
 #include <base_units.h>
 #include <board_stackup_manager/stackup_predefined_prms.h>
@@ -532,7 +552,7 @@ void ODB_LAYER_ENTITY::InitDrillData()
         {
             for( BOARD_ITEM* item : vec )
             {
-                //for drill tools
+                // for drill tools
                 if( item->Type() == PCB_VIA_T )
                 {
                     PCB_VIA* via = static_cast<PCB_VIA*>( item );
@@ -541,7 +561,7 @@ void ODB_LAYER_ENTITY::InitDrillData()
                         "VIA",
                         ODB::Float2StrVal( m_ODBScale * via->GetDrillValue() ) );
 
-                    //for drill features
+                    // for drill features
                     m_layerItems[via->GetNetCode()].push_back( item );
                 }
                 else if( item->Type() == PCB_PAD_T )
@@ -552,7 +572,7 @@ void ODB_LAYER_ENTITY::InitDrillData()
                         pad->GetAttribute() == PAD_ATTRIB::PTH ? "PLATED" : "NON_PLATED",
                         ODB::Float2StrVal( m_ODBScale * pad->GetDrillSizeX() ) );
                     
-                    //for drill features
+                    // for drill features
                     m_layerItems[pad->GetNetCode()].push_back( item );
                 }
 
@@ -611,7 +631,7 @@ void ODB_STEP_ENTITY::InitEntityData()
 {
     MakeLayerEntity();
     InitEdaData();
-    InitNetListData();
+    // InitNetListData();
     InitLayerEntityData();
 
 }
@@ -774,9 +794,10 @@ void ODB_STEP_ENTITY::InitEdaData()
 }
 
 
-void ODB_STEP_ENTITY::InitNetListData()
-{
-}
+// void ODB_STEP_ENTITY::InitNetListData()
+// {
+
+// }
 
 bool ODB_STEP_ENTITY::GenerateFiles( ODB_TREE_WRITER& writer )
 {
@@ -794,7 +815,7 @@ bool ODB_STEP_ENTITY::GenerateFiles( ODB_TREE_WRITER& writer )
         return false;
     }
 
-    writer.CreateEntityDirectory( step_root, "netlists" );
+    writer.CreateEntityDirectory( step_root, "netlists/cadnet" );
     if( !GenerateNetlistsFiles( writer ) )
     {
         return false;
@@ -905,11 +926,20 @@ bool ODB_STEP_ENTITY::GenerateEdaFiles( ODB_TREE_WRITER& writer )
     return true;
 }
 
+bool ODB_STEP_ENTITY::GenerateNetlistsFiles( ODB_TREE_WRITER& writer )
+{
+    auto fileproxy = writer.CreateFileProxy( "netlist" );
+    
+    m_netlist.Write( fileproxy.GetStream() );
+    return true;
+}
+
 ODB_STEP_ENTITY::ODB_STEP_ENTITY( BOARD* aBoard, ODB_PLUGIN* aPlugin )
      : ODB_ENTITY_BASE( aBoard, aPlugin )
 {
     m_profile = nullptr;
     m_edaData = EDAData();
+    m_netlist = ODB_NET_LIST( aBoard );
 }
 
 bool ODB_STEP_ENTITY::CreateDirectiryTree( ODB_TREE_WRITER& writer )

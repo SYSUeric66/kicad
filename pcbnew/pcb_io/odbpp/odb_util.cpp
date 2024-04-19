@@ -1,3 +1,22 @@
+/**
+ * This program source code file is part of KiCad, a free EDA CAD application.
+ *
+ * Copyright (C) 2023 KiCad Developers, see AUTHORS.txt for contributors.
+ * Author: SYSUEric <jzzhuang666@gmail.com>.
+ *
+ * This program is free software: you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License as published by the
+ * Free Software Foundation, either version 3 of the License, or (at your
+ * option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but
+ * WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License along
+ * with this program.  If not, see <http://www.gnu.org/licenses/>.
+ */
 
 #include <string>
 #include <algorithm>
@@ -11,25 +30,26 @@
 namespace ODB
 {
 
-    // wxString GenString( const wxString& aStr )
-    // {
-    //     wxString tmp = aStr.ToAscii();
-    //     std::wstring_convert<std::codecvt_utf8<wchar_t>> converter;
-    //     std::wstring wstr = converter.from_bytes( tmp.ToStdString() );
+    wxString GenODBString( const wxString& aStr )
+    {
+        wxString str;
 
-    //     wxString str;
+        for( size_t ii = 0; ii < aStr.Len(); ++ii )
+        {
+            // Rule: we can only use the standard ASCII, control excluded
+            wxUniChar ch = aStr[ii];
 
-    //     std::transform( wstr.begin(), wstr.end(), std::back_inserter(str),
-    //                []( wchar_t ch )
-    //                {
-    //                     if( ch == ';' || isspace( ch ) )
-    //                         ch = '_';
+            if( ch > 126 || !std::isgraph( static_cast<unsigned char>( ch ) ) )
+                ch = '?';
 
-    //                     return  ch;
-    //                } );
+            str += ch;
+        }
 
-    //     return str;
-    // }
+        // Rule: only uppercase
+        str.MakeUpper();
+
+        return str;
+    }
 
 
     // The names of these ODB++ entities must comply with
