@@ -33,6 +33,7 @@
 #include <wx/stdpaths.h>
 #include <wx/wfstream.h>
 #include <wx/zipstrm.h>
+#include <wx/stdstream.h>
 
 #include <decompress.hpp>
 
@@ -43,6 +44,7 @@
 #include <string_utils.h>
 #include <build_version.h>
 #include <geometry/shape_segment.h>
+#include <geometry/shape_circle.h>
 
 #include "step_pcb_model.h"
 #include "streamwrapper.h"
@@ -77,7 +79,10 @@
 #include <BRepBuilderAPI_MakeFace.hxx>
 #include <BRepPrimAPI_MakePrism.hxx>
 #include <BRepPrimAPI_MakeCylinder.hxx>
+#include <BRepTools.hxx>
 #include <BRepAlgoAPI_Cut.hxx>
+#include <BRepAlgoAPI_Fuse.hxx>
+#include <ShapeUpgrade_UnifySameDomain.hxx>
 
 #include <BRepBndLib.hxx>
 #include <Bnd_BoundSortBox.hxx>
@@ -204,6 +209,7 @@ STEP_PCB_MODEL::STEP_PCB_MODEL( const wxString& aPcbName )
     m_minx = 1.0e10;    // absurdly large number; any valid PCB X value will be smaller
     m_pcbName = aPcbName;
     m_maxError = pcbIUScale.mmToIU( ARC_TO_SEGMENT_MAX_ERROR_MM );
+    m_fuseShapes = false;
 }
 
 
@@ -215,34 +221,121 @@ STEP_PCB_MODEL::~STEP_PCB_MODEL()
 
 bool STEP_PCB_MODEL::AddPadShape( const PAD* aPad, const VECTOR2D& aOrigin )
 {
-    const std::shared_ptr<SHAPE_POLY_SET>& pad_shape = aPad->GetEffectivePolygon( ERROR_INSIDE );
     bool success = true;
-    VECTOR2I pos = aPad->GetPosition();
 
     for( PCB_LAYER_ID pcb_layer = F_Cu; ; pcb_layer = B_Cu )
     {
         TopoDS_Shape curr_shape;
-        double Zpos = pcb_layer == F_Cu ? m_boardThickness : -m_copperThickness;
+        double       Zpos = pcb_layer == F_Cu ? m_boardThickness : -m_copperThickness;
 
         if( aPad->IsOnLayer( pcb_layer ) )
         {
-            // Make a shape on top/bottom copper layer: a cylinder for rond shapes (pad or via)
-            // and a polygon for other shapes:
-            if( aPad->GetShape() == PAD_SHAPE::CIRCLE )
+            // Make a shape on top/bottom copper layer
+            std::shared_ptr<SHAPE> effShapePtr = aPad->GetEffectiveShape( pcb_layer );
+
+            wxCHECK( effShapePtr->Type() == SHAPE_TYPE::SH_COMPOUND, false );
+            SHAPE_COMPOUND* compoundShape = static_cast<SHAPE_COMPOUND*>( effShapePtr.get() );
+
+            std::vector<TopoDS_Shape> topodsShapes;
+
+            for( SHAPE* shape : compoundShape->Shapes() )
             {
-                curr_shape = BRepPrimAPI_MakeCylinder(
-                                pcbIUScale.IUTomm( aPad->GetSizeX() ) * 0.5, m_copperThickness ).Shape();
-                gp_Trsf shift;
-                shift.SetTranslation( gp_Vec( pcbIUScale.IUTomm( pos.x - aOrigin.x ),
-                                              -pcbIUScale.IUTomm( pos.y - aOrigin.y ),
-                                              Zpos ) );
-                BRepBuilderAPI_Transform round_shape( curr_shape, shift );
-                m_board_copper_pads.push_back( round_shape.Shape() );
+                if( shape->Type() == SHAPE_TYPE::SH_SEGMENT
+                    || shape->Type() == SHAPE_TYPE::SH_CIRCLE )
+                {
+                    VECTOR2I start, end;
+                    int      width = 0;
+
+                    if( shape->Type() == SHAPE_TYPE::SH_SEGMENT )
+                    {
+                        SHAPE_SEGMENT* sh_seg = static_cast<SHAPE_SEGMENT*>( shape );
+
+                        start = sh_seg->GetSeg().A;
+                        end = sh_seg->GetSeg().B;
+                        width = sh_seg->GetWidth();
+                    }
+                    else if( shape->Type() == SHAPE_TYPE::SH_CIRCLE )
+                    {
+                        SHAPE_CIRCLE* sh_circ = static_cast<SHAPE_CIRCLE*>( shape );
+
+                        start = end = sh_circ->GetCenter();
+                        width = sh_circ->GetRadius() * 2;
+                    }
+
+                    TopoDS_Shape topods_shape;
+
+                    if( MakeShapeAsThickSegment( topods_shape, start, end, width, m_copperThickness,
+                                                 Zpos, aOrigin ) )
+                    {
+                        topodsShapes.emplace_back( topods_shape );
+                    }
+                    else
+                    {
+                        success = false;
+                    }
+                }
+                else
+                {
+                    SHAPE_POLY_SET polySet;
+                    shape->TransformToPolygon( polySet, ARC_HIGH_DEF, ERROR_INSIDE );
+
+                    success &= MakeShapes( topodsShapes, polySet, m_copperThickness, Zpos, aOrigin );
+                }
+            }
+
+            // Fuse shapes
+            if( topodsShapes.size() == 1 )
+            {
+                m_board_copper_pads.emplace_back( topodsShapes.front() );
             }
             else
             {
-                success = MakeShapes( m_board_copper_pads, *pad_shape, m_copperThickness, Zpos,
-                                      aOrigin );
+                BRepAlgoAPI_Fuse     mkFuse;
+                TopTools_ListOfShape shapeArguments, shapeTools;
+
+                for( TopoDS_Shape& sh : topodsShapes )
+                {
+                    if( sh.IsNull() )
+                        continue;
+
+                    if( shapeArguments.IsEmpty() )
+                        shapeArguments.Append( sh );
+                    else
+                        shapeTools.Append( sh );
+                }
+
+                mkFuse.SetRunParallel( true );
+                mkFuse.SetToFillHistory( false );
+                mkFuse.SetArguments( shapeArguments );
+                mkFuse.SetTools( shapeTools );
+                mkFuse.Build();
+
+                if( mkFuse.IsDone() )
+                {
+                    TopoDS_Shape fusedShape = mkFuse.Shape();
+
+                    ShapeUpgrade_UnifySameDomain unify( fusedShape, false, true, false );
+                    unify.History() = nullptr;
+                    unify.Build();
+
+                    TopoDS_Shape unifiedShapes = unify.Shape();
+
+                    if( !unifiedShapes.IsNull() )
+                    {
+                        m_board_copper_pads.emplace_back( unifiedShapes );
+                    }
+                    else
+                    {
+                        ReportMessage(
+                                _( "** ShapeUpgrade_UnifySameDomain produced a null shape **\n" ) );
+                        m_board_copper_pads.emplace_back( fusedShape );
+                    }
+                }
+                else
+                {
+                    for( TopoDS_Shape& sh : topodsShapes )
+                        m_board_copper_pads.emplace_back( sh );
+                }
             }
         }
 
@@ -449,6 +542,12 @@ void STEP_PCB_MODEL::SetPCBThickness( double aThickness )
         m_boardThickness = BOARD_THICKNESS_MIN_MM;
     else
         m_boardThickness = aThickness;
+}
+
+
+void STEP_PCB_MODEL::SetFuseShapes( bool aValue )
+{
+    m_fuseShapes = aValue;
 }
 
 
@@ -851,18 +950,32 @@ bool STEP_PCB_MODEL::MakeShapes( std::vector<TopoDS_Shape>& aShapes, const SHAPE
                 if( !makeWireFromChain( mkWire, contour ) )
                     continue;
 
-                wxASSERT( mkWire.IsDone() );
+                if( !mkWire.IsDone() )
+                {
+                    ReportMessage( wxString::Format(
+                            _( "Wire not done (contour %d, points %d): OCC error %d\n" ),
+                            static_cast<int>( contId ), static_cast<int>( contour.PointCount() ),
+                            static_cast<int>( mkWire.Error() ) ) );
+                }
 
                 if( contId == 0 ) // Outline
-                    mkFace = BRepBuilderAPI_MakeFace( mkWire.Wire() );
+                {
+                    if( mkWire.IsDone() )
+                        mkFace = BRepBuilderAPI_MakeFace( mkWire.Wire() );
+                    else
+                        continue;
+                }
                 else // Hole
-                    mkFace.Add( mkWire );
+                {
+                    if( mkWire.IsDone() )
+                        mkFace.Add( mkWire );
+                }
             }
             catch( const Standard_Failure& e )
             {
                 ReportMessage(
                         wxString::Format( wxT( "MakeShapes (contour %d): OCC exception: %s\n" ),
-                                          contId, e.GetMessageString() ) );
+                                          static_cast<int>( contId ), e.GetMessageString() ) );
                 return false;
             }
         }
@@ -1004,12 +1117,33 @@ bool STEP_PCB_MODEL::CreatePCB( SHAPE_POLY_SET& aOutline, VECTOR2D aOrigin )
 
             BRepAlgoAPI_Cut cut;
 
-            // This helps cutting circular holes in zones where a hole is already cut in Clipper
-            cut.SetFuzzyValue( 0.0005 );
-            cut.SetArguments( cutArgs );
+            cut.SetRunParallel( true );
+            cut.SetToFillHistory( false );
 
+            cut.SetArguments( cutArgs );
             cut.SetTools( holelist );
             cut.Build();
+
+            if( cut.HasErrors() || cut.HasWarnings() )
+            {
+                ReportMessage( wxString::Format(
+                        _( "\n** Got problems while cutting %s number %d **\n" ), aWhat, cnt ) );
+                shapeBbox.Dump();
+
+                if( cut.HasErrors() )
+                {
+                    ReportMessage( _( "Errors:\n" ) );
+                    cut.DumpErrors( std::cout );
+                }
+
+                if( cut.HasWarnings() )
+                {
+                    ReportMessage( _( "Warnings:\n" ) );
+                    cut.DumpWarnings( std::cout );
+                }
+
+                std::cout << "\n";
+            }
 
             shape = cut.Shape();
         }
@@ -1089,9 +1223,95 @@ bool STEP_PCB_MODEL::CreatePCB( SHAPE_POLY_SET& aOutline, VECTOR2D aOrigin )
     Quantity_Color copper_color( m_copperColor[0], m_copperColor[1], m_copperColor[2],
                                  Quantity_TOC_RGB );
 
+    if( m_fuseShapes )
+    {
+        ReportMessage( wxT( "Fusing shapes\n" ) );
+
+        auto iterateCopperItems = [this]( std::function<void( TopoDS_Shape& )> aFn )
+        {
+            for( TopoDS_Shape& shape : m_board_copper_tracks )
+                aFn( shape );
+
+            for( TopoDS_Shape& shape : m_board_copper_zones )
+                aFn( shape );
+
+            for( TopoDS_Shape& shape : m_board_copper_pads )
+                aFn( shape );
+        };
+
+        BRepAlgoAPI_Fuse     mkFuse;
+        TopTools_ListOfShape shapeArguments, shapeTools;
+
+        iterateCopperItems(
+                [&]( TopoDS_Shape& sh )
+                {
+                    if( sh.IsNull() )
+                        return;
+
+                    if( shapeArguments.IsEmpty() )
+                        shapeArguments.Append( sh );
+                    else
+                        shapeTools.Append( sh );
+                } );
+
+        mkFuse.SetRunParallel( true );
+        mkFuse.SetToFillHistory( false );
+        mkFuse.SetArguments( shapeArguments );
+        mkFuse.SetTools( shapeTools );
+        mkFuse.Build();
+
+        if( mkFuse.HasErrors() || mkFuse.HasWarnings() )
+        {
+            ReportMessage( _( "** Got problems while fusing shapes **\n" ) );
+
+            if( mkFuse.HasErrors() )
+            {
+                ReportMessage( _( "Errors:\n" ) );
+                mkFuse.DumpErrors( std::cout );
+            }
+
+            if( mkFuse.HasWarnings() )
+            {
+                ReportMessage( _( "Warnings:\n" ) );
+                mkFuse.DumpWarnings( std::cout );
+            }
+
+            std::cout << "\n";
+        }
+
+        if( mkFuse.IsDone() )
+        {
+            ReportMessage( wxT( "Removing extra faces\n" ) );
+
+            TopoDS_Shape fusedShape = mkFuse.Shape();
+
+            ShapeUpgrade_UnifySameDomain unify( fusedShape, false, true, false );
+            unify.History() = nullptr;
+            unify.Build();
+
+            TopoDS_Shape unifiedShapes = unify.Shape();
+
+            if( !unifiedShapes.IsNull() )
+            {
+                m_board_copper_fused.emplace_back( unifiedShapes );
+            }
+            else
+            {
+                ReportMessage( _( "** ShapeUpgrade_UnifySameDomain produced a null shape **\n" ) );
+                m_board_copper_fused.emplace_back( fusedShape );
+            }
+
+            m_board_copper_tracks.clear();
+            m_board_copper_zones.clear();
+            m_board_copper_pads.clear();
+        }
+    }
+
     pushToAssembly( m_board_copper_tracks, copper_color, "track" );
     pushToAssembly( m_board_copper_zones, copper_color, "zone" );
     pushToAssembly( m_board_copper_pads, copper_color, "pad" );
+    pushToAssembly( m_board_copper_fused, copper_color, "copper" );
+
     pushToAssembly( m_board_outlines, board_color, "PCB" );
 
 #if( defined OCC_VERSION_HEX ) && ( OCC_VERSION_HEX > 0x070101 )
@@ -1212,6 +1432,48 @@ bool STEP_PCB_MODEL::WriteSTEP( const wxString& aFileName, bool aOptimize )
     wxSetWorkingDirectory( currCWD );
 
     return success;
+}
+
+
+bool STEP_PCB_MODEL::WriteBREP( const wxString& aFileName )
+{
+    if( !isBoardOutlineValid() )
+    {
+        ReportMessage( wxString::Format( wxT( "No valid PCB assembly; cannot create output file "
+                                              "'%s'.\n" ),
+                                         aFileName ) );
+        return false;
+    }
+
+    // s_assy = shape tool for the source
+    Handle( XCAFDoc_ShapeTool ) s_assy = XCAFDoc_DocumentTool::ShapeTool( m_doc->Main() );
+
+    // retrieve all free shapes within the assembly
+    TDF_LabelSequence freeShapes;
+    s_assy->GetFreeShapes( freeShapes );
+
+    for( Standard_Integer i = 1; i <= freeShapes.Length(); ++i )
+    {
+        TDF_Label    label = freeShapes.Value( i );
+        TopoDS_Shape shape;
+        m_assy->GetShape( label, shape );
+
+        wxFileName fn( aFileName );
+
+        if( freeShapes.Length() > 1 )
+            fn.SetName( wxString::Format( "%s_%s", fn.GetName(), i ) );
+
+        wxFFileOutputStream ffStream( fn.GetFullPath() );
+        wxStdOutputStream   stdStream( ffStream );
+
+#if OCC_VERSION_HEX >= 0x070600
+        BRepTools::Write( shape, stdStream, false, false, TopTools_FormatVersion_VERSION_1 );
+#else
+        BRepTools::Write( shape, stdStream );
+#endif
+    }
+
+    return true;
 }
 
 

@@ -713,6 +713,7 @@ bool PROJECT_TREE_PANE::hasChangedFiles()
         return false;
 
     git_status_options opts = GIT_STATUS_OPTIONS_INIT;
+
     opts.show = GIT_STATUS_SHOW_INDEX_AND_WORKDIR;
     opts.flags = GIT_STATUS_OPT_INCLUDE_UNTRACKED | GIT_STATUS_OPT_RENAMES_HEAD_TO_INDEX
                  | GIT_STATUS_OPT_SORT_CASE_SENSITIVELY;

@@ -301,6 +301,8 @@ private:
     /// A cache of connections that are part of this subgraph but that don't have
     /// an owning element (i.e. bus members)
     std::set<SCH_CONNECTION*> m_bus_element_connections;
+
+    std::mutex m_driver_mutex;
 };
 
 struct NET_NAME_CODE_CACHE_KEY
@@ -497,8 +499,12 @@ private:
      * the driver is first selected by CONNECTION_SUBGRAPH::ResolveDrivers(),
      * and then the connection for the chosen driver is propagated to all the
      * other items in the subgraph.
+     *
+     * If the unconitional flag is set, all existing net classes will be removed
+     * and re-created.  Otherwise, we will preserve existing net classes that do not
+     * conflict with the new net classes.
      */
-    void buildConnectionGraph( std::function<void( SCH_ITEM* )>* aChangedItemHandler );
+    void buildConnectionGraph( std::function<void( SCH_ITEM* )>* aChangedItemHandler, bool aUnconditional );
 
     /**
      * Generate individual item subgraphs on a per-sheet basis.

@@ -25,7 +25,6 @@
 #include <memory>
 
 #include "altium_parser_sch.h"
-#include "sch_shape.h"
 #include <io/io_utils.h>
 #include <io/altium/altium_binary_parser.h>
 #include <io/altium/altium_ascii_parser.h>
@@ -37,17 +36,15 @@
 #include <project/project_file.h>
 #include <project/net_settings.h>
 
-#include <lib_shape.h>
 #include <lib_id.h>
 #include <lib_pin.h>
-#include <lib_text.h>
-#include <lib_textbox.h>
 
 #include <sch_bitmap.h>
 #include <sch_bus_entry.h>
 #include <sch_symbol.h>
 #include <sch_junction.h>
 #include <sch_line.h>
+#include <sch_shape.h>
 #include <sch_no_connect.h>
 #include <sch_screen.h>
 #include <sch_label.h>
@@ -136,7 +133,7 @@ static void SetSchShapeFillAndColor( const ASCH_FILL_INTERFACE& elem, SCH_SHAPE*
 }
 
 
-static void SetLibShapeLine( const ASCH_BORDER_INTERFACE& elem, LIB_SHAPE* shape,
+static void SetLibShapeLine( const ASCH_BORDER_INTERFACE& elem, SCH_SHAPE* shape,
                              ALTIUM_SCH_RECORD aType )
 {
     COLOR4D color = GetColorFromInt( elem.Color );
@@ -166,7 +163,7 @@ static void SetLibShapeLine( const ASCH_BORDER_INTERFACE& elem, LIB_SHAPE* shape
     shape->SetStroke( STROKE_PARAMS( elem.LineWidth, LINE_STYLE::SOLID, color ) );
 }
 
-static void SetLibShapeFillAndColor( const ASCH_FILL_INTERFACE& elem, LIB_SHAPE* shape,
+static void SetLibShapeFillAndColor( const ASCH_FILL_INTERFACE& elem, SCH_SHAPE* shape,
                                      ALTIUM_SCH_RECORD aType, int aStrokeColor )
 {
     COLOR4D bgcolor = GetColorFromInt( elem.AreaColor );
@@ -216,7 +213,8 @@ static void SetLibShapeFillAndColor( const ASCH_FILL_INTERFACE& elem, LIB_SHAPE*
 }
 
 
-SCH_IO_ALTIUM::SCH_IO_ALTIUM() : SCH_IO( wxS( "Altium" ) )
+SCH_IO_ALTIUM::SCH_IO_ALTIUM() :
+        SCH_IO( wxS( "Altium" ) )
 {
     m_isIntLib     = false;
     m_rootSheet    = nullptr;
@@ -1521,7 +1519,7 @@ void SCH_IO_ALTIUM::ParseLabel( const std::map<wxString, wxString>& aProperties,
             schsym = m_symbols.at( libSymbolIt->first );
         }
 
-        LIB_TEXT*   textItem = new LIB_TEXT( symbol );
+        SCH_TEXT*   textItem = new SCH_TEXT( { 0, 0 }, elem.text, LAYER_DEVICE );
         symbol->AddDrawItem( textItem, false );
 
         /// Handle labels that are in a library symbol, not on schematic
@@ -1531,10 +1529,9 @@ void SCH_IO_ALTIUM::ParseLabel( const std::map<wxString, wxString>& aProperties,
             textItem->SetPosition( GetRelativePosition( elem.location + m_sheetOffset, schsym ) );
 
         textItem->SetUnit( std::max( 0, elem.ownerpartid ) );
-        textItem->SetText( elem.text );
         SetTextPositioning( textItem, elem.justification, elem.orientation );
 
-        size_t fontId = static_cast<int>( elem.fontId );
+        size_t fontId = elem.fontId;
 
         if( m_altiumSheet && fontId > 0 && fontId <= m_altiumSheet->fonts.size() )
         {
@@ -1663,10 +1660,9 @@ void SCH_IO_ALTIUM::AddLibTextBox( const ASCH_TEXT_FRAME *aElem, std::vector<LIB
         schsym = m_symbols.at( libSymbolIt->first );
     }
 
-    LIB_TEXTBOX* textBox = new LIB_TEXTBOX( symbol );
+    SCH_TEXTBOX* textBox = new SCH_TEXTBOX( LAYER_DEVICE );
 
     textBox->SetUnit( std::max( 0, aElem->ownerpartid ) );
-
     symbol->AddDrawItem( textBox, false );
 
     /// Handle text frames that are in a library symbol, not on schematic
@@ -1810,7 +1806,7 @@ void SCH_IO_ALTIUM::ParseBezier( const std::map<wxString, wxString>& aProperties
             if( i + 2 == elem.points.size() )
             {
                 // special case: single line
-                LIB_SHAPE* line = new LIB_SHAPE( symbol, SHAPE_T::POLY );
+                SCH_SHAPE* line = new SCH_SHAPE( SHAPE_T::POLY, LAYER_DEVICE );
                 symbol->AddDrawItem( line, false );
 
                 line->SetUnit( std::max( 0, elem.ownerpartid ) );
@@ -1832,7 +1828,7 @@ void SCH_IO_ALTIUM::ParseBezier( const std::map<wxString, wxString>& aProperties
                 // I haven't a clue what this is all about, but the sample document we have in
                 // https://gitlab.com/kicad/code/kicad/-/issues/8974 responds best by treating it
                 // as another single line special case.
-                LIB_SHAPE* line = new LIB_SHAPE( symbol, SHAPE_T::POLY );
+                SCH_SHAPE* line = new SCH_SHAPE( SHAPE_T::POLY, LAYER_DEVICE );
                 symbol->AddDrawItem( line, false );
 
                 line->SetUnit( std::max( 0, elem.ownerpartid ) );
@@ -1851,7 +1847,7 @@ void SCH_IO_ALTIUM::ParseBezier( const std::map<wxString, wxString>& aProperties
             else
             {
                 // Bezier always has exactly 4 control points
-                LIB_SHAPE* bezier = new LIB_SHAPE( symbol, SHAPE_T::BEZIER );
+                SCH_SHAPE* bezier = new SCH_SHAPE( SHAPE_T::BEZIER, LAYER_DEVICE );
                 symbol->AddDrawItem( bezier, false );
 
                 bezier->SetUnit( std::max( 0, elem.ownerpartid ) );
@@ -1937,7 +1933,7 @@ void SCH_IO_ALTIUM::ParsePolyline( const std::map<wxString, wxString>& aProperti
         if( aSymbol.empty() && !IsComponentPartVisible( elem ) )
             return;
 
-        LIB_SHAPE*  line = new LIB_SHAPE( symbol, SHAPE_T::POLY );
+        SCH_SHAPE*  line = new SCH_SHAPE( SHAPE_T::POLY, LAYER_DEVICE );
         symbol->AddDrawItem( line, false );
 
         line->SetUnit( std::max( 0, elem.ownerpartid ) );
@@ -2008,7 +2004,7 @@ void SCH_IO_ALTIUM::ParsePolygon( const std::map<wxString, wxString>& aPropertie
         if( aSymbol.empty() && !IsComponentPartVisible( elem ) )
             return;
 
-        LIB_SHAPE* line = new LIB_SHAPE( symbol, SHAPE_T::POLY );
+        SCH_SHAPE* line = new SCH_SHAPE( SHAPE_T::POLY, LAYER_DEVICE );
 
         symbol->AddDrawItem( line, false );
         line->SetUnit( std::max( 0, elem.ownerpartid ) );
@@ -2089,7 +2085,7 @@ void SCH_IO_ALTIUM::ParseRoundRectangle( const std::map<wxString, wxString>& aPr
         if( aSymbol.empty() && !IsComponentPartVisible( elem ) )
             return;
 
-        LIB_SHAPE* rect = nullptr;
+        SCH_SHAPE* rect = nullptr;
 
         int width = std::abs( elem.TopRight.x - elem.BottomLeft.x );
         int height = std::abs( elem.TopRight.y - elem.BottomLeft.y );
@@ -2098,7 +2094,7 @@ void SCH_IO_ALTIUM::ParseRoundRectangle( const std::map<wxString, wxString>& aPr
         if( std::abs( elem.CornerRadius.x ) >= width / 2
             && std::abs( elem.CornerRadius.y ) >= height / 2 )
         {
-            rect = new LIB_SHAPE( symbol, SHAPE_T::CIRCLE );
+            rect = new SCH_SHAPE( SHAPE_T::CIRCLE, LAYER_DEVICE );
 
             VECTOR2I center = ( elem.TopRight + elem.BottomLeft ) / 2;
             int      radius = std::min( width / 2, height / 2 );
@@ -2112,7 +2108,7 @@ void SCH_IO_ALTIUM::ParseRoundRectangle( const std::map<wxString, wxString>& aPr
         }
         else
         {
-            rect = new LIB_SHAPE( symbol, SHAPE_T::RECTANGLE );
+            rect = new SCH_SHAPE( SHAPE_T::RECTANGLE, LAYER_DEVICE );
 
             if( !schsym )
             {
@@ -2207,7 +2203,7 @@ void SCH_IO_ALTIUM::ParseArc( const std::map<wxString, wxString>& aProperties,
 
         if( elem.m_StartAngle == 0 && ( elem.m_EndAngle == 0 || elem.m_EndAngle == 360 ) )
         {
-            LIB_SHAPE* circle = new LIB_SHAPE( symbol, SHAPE_T::CIRCLE );
+            SCH_SHAPE* circle = new SCH_SHAPE( SHAPE_T::CIRCLE, LAYER_DEVICE );
             symbol->AddDrawItem( circle, false );
 
             circle->SetUnit( std::max( 0, elem.ownerpartid ) );
@@ -2222,7 +2218,7 @@ void SCH_IO_ALTIUM::ParseArc( const std::map<wxString, wxString>& aProperties,
         }
         else
         {
-            LIB_SHAPE* arc = new LIB_SHAPE( symbol, SHAPE_T::ARC );
+            SCH_SHAPE* arc = new SCH_SHAPE( SHAPE_T::ARC, LAYER_DEVICE );
             symbol->AddDrawItem( arc, false );
             arc->SetUnit( std::max( 0, elem.ownerpartid ) );
 
@@ -2319,7 +2315,7 @@ void SCH_IO_ALTIUM::ParseEllipticalArc( const std::map<wxString, wxString>& aPro
 
         for( const BEZIER<int>& bezier : beziers )
         {
-            LIB_SHAPE* schbezier = new LIB_SHAPE( symbol, SHAPE_T::BEZIER );
+            SCH_SHAPE* schbezier = new SCH_SHAPE( SHAPE_T::BEZIER, LAYER_DEVICE );
             symbol->AddDrawItem( schbezier, false );
 
             schbezier->SetUnit( std::max( 0, elem.ownerpartid ) );
@@ -2443,7 +2439,7 @@ void SCH_IO_ALTIUM::ParseEllipse( const std::map<wxString, wxString>& aPropertie
 
         for( const BEZIER<int>& bezier : beziers )
         {
-            LIB_SHAPE* libbezier = new LIB_SHAPE( symbol, SHAPE_T::BEZIER );
+            SCH_SHAPE* libbezier = new SCH_SHAPE( SHAPE_T::BEZIER, LAYER_DEVICE );
             symbol->AddDrawItem( libbezier, false );
             libbezier->SetUnit( std::max( 0, elem.ownerpartid ) );
 
@@ -2473,7 +2469,7 @@ void SCH_IO_ALTIUM::ParseEllipse( const std::map<wxString, wxString>& aPropertie
         // Add a polygon to fill the center
         if( elem.IsSolid )
         {
-            LIB_SHAPE* libline = new LIB_SHAPE( symbol, SHAPE_T::POLY );
+            SCH_SHAPE* libline = new SCH_SHAPE( SHAPE_T::POLY, LAYER_DEVICE );
             symbol->AddDrawItem( libline, false );
             libline->SetUnit( std::max( 0, elem.ownerpartid ) );
 
@@ -2538,7 +2534,7 @@ void SCH_IO_ALTIUM::ParseCircle( const std::map<wxString, wxString>& aProperties
             schsym = m_symbols.at( libSymbolIt->first );
         }
 
-        LIB_SHAPE* circle = new LIB_SHAPE( symbol, SHAPE_T::CIRCLE );
+        SCH_SHAPE* circle = new SCH_SHAPE( SHAPE_T::CIRCLE, LAYER_DEVICE );
         symbol->AddDrawItem( circle, false );
 
         circle->SetUnit( std::max( 0, elem.ownerpartid ) );
@@ -2603,7 +2599,7 @@ void SCH_IO_ALTIUM::ParseLine( const std::map<wxString, wxString>& aProperties,
         if( aSymbol.empty() && !IsComponentPartVisible( elem ) )
             return;
 
-        LIB_SHAPE*  line = new LIB_SHAPE( symbol, SHAPE_T::POLY );
+        SCH_SHAPE*  line = new SCH_SHAPE( SHAPE_T::POLY, LAYER_DEVICE );
         symbol->AddDrawItem( line, false );
 
         line->SetUnit( std::max( 0, elem.ownerpartid ) );
@@ -2838,7 +2834,7 @@ void SCH_IO_ALTIUM::ParseRectangle( const std::map<wxString, wxString>& aPropert
         if( aSymbol.empty() && !IsComponentPartVisible( elem ) )
             return;
 
-        LIB_SHAPE*  rect = new LIB_SHAPE( symbol, SHAPE_T::RECTANGLE );
+        SCH_SHAPE*  rect = new SCH_SHAPE( SHAPE_T::RECTANGLE, LAYER_DEVICE );
         symbol->AddDrawItem( rect, false );
 
         rect->SetUnit( std::max( 0, elem.ownerpartid ) );
@@ -2978,7 +2974,7 @@ VECTOR2I HelperGeneratePowerPortGraphics( LIB_SYMBOL* aKsymbol, ASCH_POWER_PORT_
 {
     if( aStyle == ASCH_POWER_PORT_STYLE::CIRCLE || aStyle == ASCH_POWER_PORT_STYLE::ARROW )
     {
-        LIB_SHAPE* line1 = new LIB_SHAPE( aKsymbol, SHAPE_T::POLY );
+        SCH_SHAPE* line1 = new SCH_SHAPE( SHAPE_T::POLY, LAYER_DEVICE );
         aKsymbol->AddDrawItem( line1, false );
         line1->SetStroke( STROKE_PARAMS( schIUScale.MilsToIU( 10 ), LINE_STYLE::SOLID ) );
         line1->AddPoint( { 0, 0 } );
@@ -2986,7 +2982,7 @@ VECTOR2I HelperGeneratePowerPortGraphics( LIB_SYMBOL* aKsymbol, ASCH_POWER_PORT_
 
         if( aStyle == ASCH_POWER_PORT_STYLE::CIRCLE )
         {
-            LIB_SHAPE* circle = new LIB_SHAPE( aKsymbol, SHAPE_T::CIRCLE );
+            SCH_SHAPE* circle = new SCH_SHAPE( SHAPE_T::CIRCLE, LAYER_DEVICE );
             aKsymbol->AddDrawItem( circle, false );
             circle->SetStroke( STROKE_PARAMS( schIUScale.MilsToIU( 5 ), LINE_STYLE::SOLID ) );
             circle->SetPosition( { schIUScale.MilsToIU( 0 ), schIUScale.MilsToIU( -75 ) } );
@@ -2994,7 +2990,7 @@ VECTOR2I HelperGeneratePowerPortGraphics( LIB_SYMBOL* aKsymbol, ASCH_POWER_PORT_
         }
         else
         {
-            LIB_SHAPE* line2 = new LIB_SHAPE( aKsymbol, SHAPE_T::POLY );
+            SCH_SHAPE* line2 = new SCH_SHAPE( SHAPE_T::POLY, LAYER_DEVICE );
             aKsymbol->AddDrawItem( line2, false );
             line2->SetStroke( STROKE_PARAMS( schIUScale.MilsToIU( 10 ), LINE_STYLE::SOLID ) );
             line2->AddPoint( { schIUScale.MilsToIU( -25 ), schIUScale.MilsToIU( -50 ) } );
@@ -3007,13 +3003,13 @@ VECTOR2I HelperGeneratePowerPortGraphics( LIB_SYMBOL* aKsymbol, ASCH_POWER_PORT_
     }
     else if( aStyle == ASCH_POWER_PORT_STYLE::WAVE )
     {
-        LIB_SHAPE* line = new LIB_SHAPE( aKsymbol, SHAPE_T::POLY );
+        SCH_SHAPE* line = new SCH_SHAPE( SHAPE_T::POLY, LAYER_DEVICE );
         aKsymbol->AddDrawItem( line, false );
         line->SetStroke( STROKE_PARAMS( schIUScale.MilsToIU( 10 ), LINE_STYLE::SOLID ) );
         line->AddPoint( { 0, 0 } );
         line->AddPoint( { 0, schIUScale.MilsToIU( -72 ) } );
 
-        LIB_SHAPE* bezier = new LIB_SHAPE( aKsymbol, SHAPE_T::BEZIER );
+        SCH_SHAPE* bezier = new SCH_SHAPE( SHAPE_T::BEZIER, LAYER_DEVICE );
         aKsymbol->AddDrawItem( bezier, false );
         bezier->SetStroke( STROKE_PARAMS( schIUScale.MilsToIU( 5 ), LINE_STYLE::SOLID ) );
         bezier->SetStart( { schIUScale.MilsToIU( 30 ), schIUScale.MilsToIU( -50 ) } );
@@ -3028,7 +3024,7 @@ VECTOR2I HelperGeneratePowerPortGraphics( LIB_SYMBOL* aKsymbol, ASCH_POWER_PORT_
              || aStyle == ASCH_POWER_PORT_STYLE::EARTH
              || aStyle == ASCH_POWER_PORT_STYLE::GOST_ARROW )
     {
-        LIB_SHAPE* line1 = new LIB_SHAPE( aKsymbol, SHAPE_T::POLY );
+        SCH_SHAPE* line1 = new SCH_SHAPE( SHAPE_T::POLY, LAYER_DEVICE );
         aKsymbol->AddDrawItem( line1, false );
         line1->SetStroke( STROKE_PARAMS( schIUScale.MilsToIU( 10 ), LINE_STYLE::SOLID ) );
         line1->AddPoint( { 0, 0 } );
@@ -3036,25 +3032,25 @@ VECTOR2I HelperGeneratePowerPortGraphics( LIB_SYMBOL* aKsymbol, ASCH_POWER_PORT_
 
         if( aStyle == ASCH_POWER_PORT_STYLE::POWER_GROUND )
         {
-            LIB_SHAPE* line2 = new LIB_SHAPE( aKsymbol, SHAPE_T::POLY );
+            SCH_SHAPE* line2 = new SCH_SHAPE( SHAPE_T::POLY, LAYER_DEVICE );
             aKsymbol->AddDrawItem( line2, false );
             line2->SetStroke( STROKE_PARAMS( schIUScale.MilsToIU( 10 ), LINE_STYLE::SOLID ) );
             line2->AddPoint( { schIUScale.MilsToIU( -100 ), schIUScale.MilsToIU( -100 ) } );
             line2->AddPoint( { schIUScale.MilsToIU( 100 ), schIUScale.MilsToIU( -100 ) } );
 
-            LIB_SHAPE* line3 = new LIB_SHAPE( aKsymbol, SHAPE_T::POLY );
+            SCH_SHAPE* line3 = new SCH_SHAPE( SHAPE_T::POLY, LAYER_DEVICE );
             aKsymbol->AddDrawItem( line3, false );
             line3->SetStroke( STROKE_PARAMS( schIUScale.MilsToIU( 10 ), LINE_STYLE::SOLID ) );
             line3->AddPoint( { schIUScale.MilsToIU( -70 ), schIUScale.MilsToIU( -130 ) } );
             line3->AddPoint( { schIUScale.MilsToIU( 70 ), schIUScale.MilsToIU( -130 ) } );
 
-            LIB_SHAPE* line4 = new LIB_SHAPE( aKsymbol, SHAPE_T::POLY );
+            SCH_SHAPE* line4 = new SCH_SHAPE( SHAPE_T::POLY, LAYER_DEVICE );
             aKsymbol->AddDrawItem( line4, false );
             line4->SetStroke( STROKE_PARAMS( schIUScale.MilsToIU( 10 ), LINE_STYLE::SOLID ) );
             line4->AddPoint( { schIUScale.MilsToIU( -40 ), schIUScale.MilsToIU( -160 ) } );
             line4->AddPoint( { schIUScale.MilsToIU( 40 ), schIUScale.MilsToIU( -160 ) } );
 
-            LIB_SHAPE* line5 = new LIB_SHAPE( aKsymbol, SHAPE_T::POLY );
+            SCH_SHAPE* line5 = new SCH_SHAPE( SHAPE_T::POLY, LAYER_DEVICE );
             aKsymbol->AddDrawItem( line5, false );
             line5->SetStroke( STROKE_PARAMS( schIUScale.MilsToIU( 10 ), LINE_STYLE::SOLID ) );
             line5->AddPoint( { schIUScale.MilsToIU( -10 ), schIUScale.MilsToIU( -190 ) } );
@@ -3062,7 +3058,7 @@ VECTOR2I HelperGeneratePowerPortGraphics( LIB_SYMBOL* aKsymbol, ASCH_POWER_PORT_
         }
         else if( aStyle == ASCH_POWER_PORT_STYLE::SIGNAL_GROUND )
         {
-            LIB_SHAPE* line2 = new LIB_SHAPE( aKsymbol, SHAPE_T::POLY );
+            SCH_SHAPE* line2 = new SCH_SHAPE( SHAPE_T::POLY, LAYER_DEVICE );
             aKsymbol->AddDrawItem( line2, false );
             line2->SetStroke( STROKE_PARAMS( schIUScale.MilsToIU( 10 ), LINE_STYLE::SOLID ) );
             line2->AddPoint( { schIUScale.MilsToIU( -100 ), schIUScale.MilsToIU( -100 ) } );
@@ -3072,7 +3068,7 @@ VECTOR2I HelperGeneratePowerPortGraphics( LIB_SYMBOL* aKsymbol, ASCH_POWER_PORT_
         }
         else if( aStyle == ASCH_POWER_PORT_STYLE::EARTH )
         {
-            LIB_SHAPE* line2 = new LIB_SHAPE( aKsymbol, SHAPE_T::POLY );
+            SCH_SHAPE* line2 = new SCH_SHAPE( SHAPE_T::POLY, LAYER_DEVICE );
             aKsymbol->AddDrawItem( line2, false );
             line2->SetStroke( STROKE_PARAMS( schIUScale.MilsToIU( 10 ), LINE_STYLE::SOLID ) );
             line2->AddPoint( { schIUScale.MilsToIU( -150 ), schIUScale.MilsToIU( -200 ) } );
@@ -3080,7 +3076,7 @@ VECTOR2I HelperGeneratePowerPortGraphics( LIB_SYMBOL* aKsymbol, ASCH_POWER_PORT_
             line2->AddPoint( { schIUScale.MilsToIU( 100 ), schIUScale.MilsToIU( -100 ) } );
             line2->AddPoint( { schIUScale.MilsToIU( 50 ), schIUScale.MilsToIU( -200 ) } );
 
-            LIB_SHAPE* line3 = new LIB_SHAPE( aKsymbol, SHAPE_T::POLY );
+            SCH_SHAPE* line3 = new SCH_SHAPE( SHAPE_T::POLY, LAYER_DEVICE );
             aKsymbol->AddDrawItem( line3, false );
             line3->SetStroke( STROKE_PARAMS( schIUScale.MilsToIU( 10 ), LINE_STYLE::SOLID ) );
             line3->AddPoint( { schIUScale.MilsToIU( 0 ), schIUScale.MilsToIU( -100 ) } );
@@ -3088,7 +3084,7 @@ VECTOR2I HelperGeneratePowerPortGraphics( LIB_SYMBOL* aKsymbol, ASCH_POWER_PORT_
         }
         else // ASCH_POWER_PORT_STYLE::GOST_ARROW
         {
-            LIB_SHAPE* line2 = new LIB_SHAPE( aKsymbol, SHAPE_T::POLY );
+            SCH_SHAPE* line2 = new SCH_SHAPE( SHAPE_T::POLY, LAYER_DEVICE );
             aKsymbol->AddDrawItem( line2, false );
             line2->SetStroke( STROKE_PARAMS( schIUScale.MilsToIU( 10 ), LINE_STYLE::SOLID ) );
             line2->AddPoint( { schIUScale.MilsToIU( -25 ), schIUScale.MilsToIU( -50 ) } );
@@ -3103,25 +3099,25 @@ VECTOR2I HelperGeneratePowerPortGraphics( LIB_SYMBOL* aKsymbol, ASCH_POWER_PORT_
     else if( aStyle == ASCH_POWER_PORT_STYLE::GOST_POWER_GROUND
              || aStyle == ASCH_POWER_PORT_STYLE::GOST_EARTH )
     {
-        LIB_SHAPE* line1 = new LIB_SHAPE( aKsymbol, SHAPE_T::POLY );
+        SCH_SHAPE* line1 = new SCH_SHAPE( SHAPE_T::POLY, LAYER_DEVICE );
         aKsymbol->AddDrawItem( line1, false );
         line1->SetStroke( STROKE_PARAMS( schIUScale.MilsToIU( 10 ), LINE_STYLE::SOLID ) );
         line1->AddPoint( { 0, 0 } );
         line1->AddPoint( { 0, schIUScale.MilsToIU( -160 ) } );
 
-        LIB_SHAPE* line2 = new LIB_SHAPE( aKsymbol, SHAPE_T::POLY );
+        SCH_SHAPE* line2 = new SCH_SHAPE( SHAPE_T::POLY, LAYER_DEVICE );
         aKsymbol->AddDrawItem( line2, false );
         line2->SetStroke( STROKE_PARAMS( schIUScale.MilsToIU( 10 ), LINE_STYLE::SOLID ) );
         line2->AddPoint( { schIUScale.MilsToIU( -100 ), schIUScale.MilsToIU( -160 ) } );
         line2->AddPoint( { schIUScale.MilsToIU( 100 ), schIUScale.MilsToIU( -160 ) } );
 
-        LIB_SHAPE* line3 = new LIB_SHAPE( aKsymbol, SHAPE_T::POLY );
+        SCH_SHAPE* line3 = new SCH_SHAPE( SHAPE_T::POLY, LAYER_DEVICE );
         aKsymbol->AddDrawItem( line3, false );
         line3->SetStroke( STROKE_PARAMS( schIUScale.MilsToIU( 10 ), LINE_STYLE::SOLID ) );
         line3->AddPoint( { schIUScale.MilsToIU( -60 ), schIUScale.MilsToIU( -200 ) } );
         line3->AddPoint( { schIUScale.MilsToIU( 60 ), schIUScale.MilsToIU( -200 ) } );
 
-        LIB_SHAPE* line4 = new LIB_SHAPE( aKsymbol, SHAPE_T::POLY );
+        SCH_SHAPE* line4 = new SCH_SHAPE( SHAPE_T::POLY, LAYER_DEVICE );
         aKsymbol->AddDrawItem( line4, false );
         line4->SetStroke( STROKE_PARAMS( schIUScale.MilsToIU( 10 ), LINE_STYLE::SOLID ) );
         line4->AddPoint( { schIUScale.MilsToIU( -20 ), schIUScale.MilsToIU( -240 ) } );
@@ -3130,7 +3126,7 @@ VECTOR2I HelperGeneratePowerPortGraphics( LIB_SYMBOL* aKsymbol, ASCH_POWER_PORT_
         if( aStyle == ASCH_POWER_PORT_STYLE::GOST_POWER_GROUND )
             return { 0, schIUScale.MilsToIU( 300 ) };
 
-        LIB_SHAPE* circle = new LIB_SHAPE( aKsymbol, SHAPE_T::CIRCLE );
+        SCH_SHAPE* circle = new SCH_SHAPE( SHAPE_T::CIRCLE, LAYER_DEVICE );
         aKsymbol->AddDrawItem( circle, false );
         circle->SetStroke( STROKE_PARAMS( schIUScale.MilsToIU( 10 ), LINE_STYLE::SOLID ) );
         circle->SetPosition( { schIUScale.MilsToIU( 0 ), schIUScale.MilsToIU( -160 ) } );
@@ -3140,13 +3136,13 @@ VECTOR2I HelperGeneratePowerPortGraphics( LIB_SYMBOL* aKsymbol, ASCH_POWER_PORT_
     }
     else if( aStyle == ASCH_POWER_PORT_STYLE::GOST_BAR )
     {
-        LIB_SHAPE* line1 = new LIB_SHAPE( aKsymbol, SHAPE_T::POLY );
+        SCH_SHAPE* line1 = new SCH_SHAPE( SHAPE_T::POLY, LAYER_DEVICE );
         aKsymbol->AddDrawItem( line1, false );
         line1->SetStroke( STROKE_PARAMS( schIUScale.MilsToIU( 10 ), LINE_STYLE::SOLID ) );
         line1->AddPoint( { 0, 0 } );
         line1->AddPoint( { 0, schIUScale.MilsToIU( -200 ) } );
 
-        LIB_SHAPE* line2 = new LIB_SHAPE( aKsymbol, SHAPE_T::POLY );
+        SCH_SHAPE* line2 = new SCH_SHAPE( SHAPE_T::POLY, LAYER_DEVICE );
         aKsymbol->AddDrawItem( line2, false );
         line2->SetStroke( STROKE_PARAMS( schIUScale.MilsToIU( 10 ), LINE_STYLE::SOLID ) );
         line2->AddPoint( { schIUScale.MilsToIU( -100 ), schIUScale.MilsToIU( -200 ) } );
@@ -3162,13 +3158,13 @@ VECTOR2I HelperGeneratePowerPortGraphics( LIB_SYMBOL* aKsymbol, ASCH_POWER_PORT_
                                RPT_SEVERITY_WARNING );
         }
 
-        LIB_SHAPE* line1 = new LIB_SHAPE( aKsymbol, SHAPE_T::POLY );
+        SCH_SHAPE* line1 = new SCH_SHAPE( SHAPE_T::POLY, LAYER_DEVICE );
         aKsymbol->AddDrawItem( line1, false );
         line1->SetStroke( STROKE_PARAMS( schIUScale.MilsToIU( 10 ), LINE_STYLE::SOLID ) );
         line1->AddPoint( { 0, 0 } );
         line1->AddPoint( { 0, schIUScale.MilsToIU( -100 ) } );
 
-        LIB_SHAPE* line2 = new LIB_SHAPE( aKsymbol, SHAPE_T::POLY );
+        SCH_SHAPE* line2 = new SCH_SHAPE( SHAPE_T::POLY, LAYER_DEVICE );
         aKsymbol->AddDrawItem( line2, false );
         line2->SetStroke( STROKE_PARAMS( schIUScale.MilsToIU( 10 ), LINE_STYLE::SOLID ) );
         line2->AddPoint( { schIUScale.MilsToIU( -50 ), schIUScale.MilsToIU( -100 ) } );
@@ -3796,7 +3792,7 @@ void SCH_IO_ALTIUM::ParseLibDesignator( const std::map<wxString, wxString>& aPro
     for( LIB_SYMBOL* symbol : aSymbol )
     {
         bool emptyRef = elem.text.IsEmpty();
-        LIB_FIELD& refField = symbol->GetReferenceField();
+        SCH_FIELD& refField = symbol->GetReferenceField();
 
         if( emptyRef )
             refField.SetText( wxT( "X" ) );
@@ -3958,7 +3954,7 @@ void SCH_IO_ALTIUM::ParseLibParameter( const std::map<wxString, wxString>& aProp
 
     for( LIB_SYMBOL* libSymbol : aSymbol )
     {
-        LIB_FIELD*  field = nullptr;
+        SCH_FIELD*  field = nullptr;
         wxString    upperName = elem.name.Upper();
 
         if( upperName == "COMMENT" )
@@ -3988,7 +3984,7 @@ void SCH_IO_ALTIUM::ParseLibParameter( const std::map<wxString, wxString>& aProp
             while( libSymbol->FindField( fieldName ) )
                 fieldName = wxString::Format( "%s_%d", fieldNameStem, disambiguate++ );
 
-            LIB_FIELD* new_field = new LIB_FIELD( fieldIdx, fieldName );
+            SCH_FIELD* new_field = new SCH_FIELD( libSymbol, fieldIdx, fieldName );
             libSymbol->AddField( new_field );
             field = new_field;
         }
@@ -4046,7 +4042,7 @@ void SCH_IO_ALTIUM::ParseImplementation( const std::map<wxString, wxString>& aPr
             LIB_ID fpLibId = AltiumToKiCadLibID( libName, elem.name );
 
             symbol->SetFPFilters( fpFilters );
-            LIB_FIELD& footprintField = symbol->GetFootprintField();
+            SCH_FIELD& footprintField = symbol->GetFootprintField();
             footprintField.SetText( fpLibId.Format() );
         }
 
@@ -4269,7 +4265,7 @@ std::map<wxString,LIB_SYMBOL*> SCH_IO_ALTIUM::ParseLibFile( const ALTIUM_COMPOUN
             LIB_SYMBOL* symbol = symbols[ii];
             symbol->FixupDrawItems();
 
-            LIB_FIELD& valField = symbol->GetValueField();
+            SCH_FIELD& valField = symbol->GetValueField();
 
             if( valField.GetText().IsEmpty() )
                 valField.SetText( name );

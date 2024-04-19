@@ -133,6 +133,8 @@ int PCBNEW_JOBS_HANDLER::JobExportStep( JOB* aJob )
             break;
         case JOB_EXPORT_PCB_3D::FORMAT::STEP: fn.SetExt( FILEEXT::StepFileExtension );
             break;
+        case JOB_EXPORT_PCB_3D::FORMAT::BREP: fn.SetExt( FILEEXT::BrepFileExtension );
+            break;
         case JOB_EXPORT_PCB_3D::FORMAT::GLB: fn.SetExt( FILEEXT::GltfBinaryFileExtension );
             break;
         default:
@@ -190,6 +192,7 @@ int PCBNEW_JOBS_HANDLER::JobExportStep( JOB* aJob )
         EXPORTER_STEP_PARAMS params;
         params.m_exportTracks = aStepJob->m_exportTracks;
         params.m_exportZones = aStepJob->m_exportZones;
+        params.m_fuseShapes = aStepJob->m_fuseShapes;
         params.m_includeUnspecified = aStepJob->m_includeUnspecified;
         params.m_includeDNP = aStepJob->m_includeDNP;
         params.m_BoardOutlinesChainingEpsilon = aStepJob->m_BoardOutlinesChainingEpsilon;
@@ -205,6 +208,9 @@ int PCBNEW_JOBS_HANDLER::JobExportStep( JOB* aJob )
         {
         case JOB_EXPORT_PCB_3D::FORMAT::STEP:
             params.m_format = EXPORTER_STEP_PARAMS::FORMAT::STEP;
+            break;
+        case JOB_EXPORT_PCB_3D::FORMAT::BREP:
+            params.m_format = EXPORTER_STEP_PARAMS::FORMAT::BREP;
             break;
         case JOB_EXPORT_PCB_3D::FORMAT::GLB:
             params.m_format = EXPORTER_STEP_PARAMS::FORMAT::GLB;

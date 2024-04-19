@@ -279,11 +279,16 @@ void SCH_PIN::GetMsgPanelInfo( EDA_DRAW_FRAME* aFrame, std::vector<MSG_PANEL_ITE
 
 bool SCH_PIN::IsStacked( const SCH_PIN* aPin ) const
 {
+    bool isConnectableType_a = GetType() == ELECTRICAL_PINTYPE::PT_PASSIVE
+                            || GetType() == ELECTRICAL_PINTYPE::PT_NIC;
+    bool isConnectableType_b = aPin->GetType() == ELECTRICAL_PINTYPE::PT_PASSIVE
+                            || aPin->GetType() == ELECTRICAL_PINTYPE::PT_NIC;
+
     return m_parent == aPin->GetParent()
            && GetTransformedPosition() == aPin->GetTransformedPosition()
            && GetName() == aPin->GetName()
-           && ( ( GetType() == aPin->GetType() ) || ( GetType() == ELECTRICAL_PINTYPE::PT_PASSIVE )
-                || ( aPin->GetType() == ELECTRICAL_PINTYPE::PT_PASSIVE ) );
+           && ( ( GetType() == aPin->GetType() )
+                || isConnectableType_a || isConnectableType_b );
 }
 
 
@@ -494,13 +499,19 @@ bool SCH_PIN::operator==( const SCH_ITEM& aOther ) const
 
     const SCH_PIN& other = static_cast<const SCH_PIN&>( aOther );
 
-    if( m_number != other.m_number )
+    return *this == other;
+}
+
+
+bool SCH_PIN::operator==( const SCH_PIN& aOther ) const
+{
+    if( m_number != aOther.m_number )
         return false;
 
-    if( m_position != other.m_position )
+    if( m_position != aOther.m_position )
         return false;
 
-    return m_libPin == other.m_libPin;
+    return m_libPin == aOther.m_libPin;
 }
 
 

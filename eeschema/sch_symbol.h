@@ -176,9 +176,6 @@ public:
 
     void RemoveInstance( const KIID_PATH& aInstancePath );
 
-    void SortInstances( bool ( *aSortFunction )( const SCH_SYMBOL_INSTANCE& aLhs,
-                                                 const SCH_SYMBOL_INSTANCE& aRhs ) );
-
     /**
      * Return true for items which are moved with the anchor point at mouse cursor
      * and false for items moved with no reference to anchor.
@@ -834,37 +831,6 @@ public:
 
     bool HasBrightenedPins();
 
-    bool GetExcludedFromSim() const override { return m_excludedFromSim; }
-    void SetExcludedFromSim( bool aExclude ) override { m_excludedFromSim = aExclude; }
-
-    bool GetExcludedFromBOM() const { return m_excludedFromBOM; }
-    void SetExcludedFromBOM( bool aIncludeInBOM ) { m_excludedFromBOM = aIncludeInBOM; }
-
-    bool GetExcludedFromBoard() const { return m_excludedFromBoard; }
-    void SetExcludedFromBoard( bool aIncludeOnBoard ) { m_excludedFromBoard = aIncludeOnBoard; }
-
-    bool GetDNP() const { return m_DNP; }
-    void SetDNP( bool aDNP ) { m_DNP = aDNP; }
-
-    bool GetShowPinNumbers() const
-    {
-        return m_part && m_part->GetShowPinNumbers();
-    }
-
-    void SetShowPinNumbers( bool aShow )
-    {
-        if( m_part )
-            m_part->SetShowPinNumbers( aShow );
-    }
-
-    bool GetShowPinNames() const { return m_part && m_part->GetShowPinNames(); }
-
-    void SetShowPinNames( bool aShow )
-    {
-        if( m_part )
-            m_part->SetShowPinNames( aShow );
-    }
-
     bool IsPointClickableAnchor( const VECTOR2I& aPos ) const override;
 
     /**
@@ -890,10 +856,6 @@ private:
 
     VECTOR2I    m_pos;
     LIB_ID      m_lib_id;       ///< Name and library the symbol was loaded from, i.e. 74xx:74LS00.
-    int         m_unit;         ///< The unit for multiple part per package symbols.
-    int         m_bodyStyle;    ///< The alternate body style for symbols that have more than
-                                ///<   one body style defined.  Currently only used for symbols
-                                ///<   that have a DeMorgan conversion.
     wxString    m_prefix;       ///< C, R, U, Q etc - the first character(s) which typically
                                 ///<   indicate what the symbol is. Determined, upon placement,
                                 ///<   from the library symbol.  Created upon file load, by the
@@ -906,25 +868,21 @@ private:
      * multiple variants of the same library symbol.  Set this member in order to preserve the
      * link to the original symbol library.  If empty, #LIB_ID::GetLibItemName() should be used.
      */
-    wxString    m_schLibSymbolName;
+    wxString                    m_schLibSymbolName;
 
-    TRANSFORM                              m_transform; ///< The rotation/mirror transformation.
-    std::vector<SCH_FIELD>                 m_fields;    ///< Variable length list of fields.
+    TRANSFORM                   m_transform;     ///< The rotation/mirror transformation.
+    std::vector<SCH_FIELD>      m_fields;        ///< Variable length list of fields.
 
-    std::unique_ptr< LIB_SYMBOL >          m_part;      ///< a flattened copy of the LIB_SYMBOL
-                                                        ///<   from the PROJECT's libraries.
-    std::vector<std::unique_ptr<SCH_PIN>>  m_pins;      ///< a SCH_PIN for every LIB_PIN (all units)
-    std::unordered_map<LIB_PIN*, SCH_PIN*> m_pinMap;    ///< library pin pointer : SCH_PIN's index
+    std::unique_ptr<LIB_SYMBOL> m_part;          ///< A flattened copy of the LIB_SYMBOL from the
+                                                 ///<   PROJECT's libraries.
+    bool                        m_isInNetlist;   ///< True if the symbol should appear in netlist
 
-    bool        m_isInNetlist;            ///< True if the symbol should appear in the netlist
-    bool        m_excludedFromSim;        ///< True to exclude from simulation.
-    bool        m_excludedFromBOM;        ///< True to exclude from bill of materials export.
-    bool        m_excludedFromBoard;      ///< True to exclude from netlist when updating board.
-    bool        m_DNP;                    ///< True if symbol is set to 'Do Not Populate'.
+    std::vector<std::unique_ptr<SCH_PIN>>  m_pins;     ///< a SCH_PIN for every LIB_PIN (all units)
+    std::unordered_map<LIB_PIN*, SCH_PIN*> m_pinMap;   ///< library pin pointer : SCH_PIN's index
 
-    // Defines the hierarchical path and reference of the symbol.  This allows support
-    // for multiple references to a single sub-sheet.
-    std::vector<SCH_SYMBOL_INSTANCE> m_instanceReferences;
+    // Defines the hierarchical path and reference of the symbol.  This allows support for multiple
+    // references to a single sub-sheet.
+    std::vector<SCH_SYMBOL_INSTANCE>       m_instanceReferences;
 
     /// @see SCH_SYMBOL::GetOrientation
     static std::unordered_map<TRANSFORM, int> s_transformToOrientationCache;

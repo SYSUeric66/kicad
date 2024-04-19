@@ -572,7 +572,7 @@ XNODE* NETLIST_EXPORTER_XML::makeLibParts()
     XNODE*                  xlibparts = node( wxT( "libparts" ) );   // auto_ptr
 
     std::vector<LIB_PIN*>   pinList;
-    std::vector<LIB_FIELD*> fieldList;
+    std::vector<SCH_FIELD*> fieldList;
 
     m_libraries.clear();
 
@@ -613,7 +613,7 @@ XNODE* NETLIST_EXPORTER_XML::makeLibParts()
         XNODE*     xfields;
         xlibpart->AddChild( xfields = node( "fields" ) );
 
-        for( const LIB_FIELD* field : fieldList )
+        for( const SCH_FIELD* field : fieldList )
         {
             XNODE* xfield;
             xfields->AddChild( xfield = node( wxT( "field" ), field->GetText() ) );
@@ -725,7 +725,7 @@ XNODE* NETLIST_EXPORTER_XML::makeListOfNets( unsigned aCtl )
                 if( item->Type() == SCH_PIN_T )
                 {
                     SCH_PIN* pin = static_cast<SCH_PIN*>( item );
-                    SYMBOL*  symbol = pin->GetParentSymbol();
+                    SCH_SYMBOL*  symbol = static_cast<SCH_SYMBOL*>( pin->GetParentSymbol() );
 
                     if( !symbol
                        || ( ( aCtl & GNL_OPT_BOM ) && symbol->GetExcludedFromBOM() )

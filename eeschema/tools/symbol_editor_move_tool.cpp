@@ -28,7 +28,7 @@
 #include <ee_grid_helper.h>
 #include <eda_item.h>
 #include <gal/graphics_abstraction_layer.h>
-#include <lib_shape.h>
+#include <sch_shape.h>
 #include <sch_commit.h>
 #include <wx/log.h>
 #include "symbol_editor_move_tool.h"
@@ -64,7 +64,7 @@ bool SYMBOL_EDITOR_MOVE_TOOL::Init()
                 {
                     for( EDA_ITEM* item : sel )
                     {
-                        if( item->Type() != LIB_FIELD_T )
+                        if( item->Type() != SCH_FIELD_T )
                             return false;
                     }
                 }
@@ -124,7 +124,7 @@ bool SYMBOL_EDITOR_MOVE_TOOL::doMoveSelection( const TOOL_EVENT& aEvent, SCH_COM
     // Be sure that there is at least one item that we can move. If there's no selection try
     // looking for the stuff under mouse cursor (i.e. Kicad old-style hover selection).
     EE_SELECTION& selection = m_frame->IsSymbolAlias()
-                                            ? m_selectionTool->RequestSelection( { LIB_FIELD_T } )
+                                            ? m_selectionTool->RequestSelection( { SCH_FIELD_T } )
                                             : m_selectionTool->RequestSelection();
     bool          unselect = selection.IsHover();
 
@@ -227,7 +227,7 @@ bool SYMBOL_EDITOR_MOVE_TOOL::doMoveSelection( const TOOL_EVENT& aEvent, SCH_COM
                 if( lib_item->IsNew() )
                 {
                     m_anchorPos = selection.GetReferencePoint();
-                    VECTOR2I delta = m_cursor - mapCoords( m_anchorPos );
+                    VECTOR2I delta = m_cursor - mapCoords( m_anchorPos, true );
 
                     // Drag items to the current cursor position
                     for( EDA_ITEM* item : selection )
@@ -387,13 +387,13 @@ int SYMBOL_EDITOR_MOVE_TOOL::AlignElements( const TOOL_EVENT& aEvent )
             [&]( EDA_ITEM* item, const VECTOR2I& delta )
             {
                 commit.Modify( item, m_frame->GetScreen() );
-                static_cast<SCH_ITEM*>( item )->Move( mapCoords( delta ) );
+                static_cast<SCH_ITEM*>( item )->Move( mapCoords( delta, true ) );
                 updateItem( item, true );
             };
 
     for( EDA_ITEM* item : selection )
     {
-        if( LIB_SHAPE* shape = dynamic_cast<LIB_SHAPE*>( item ) )
+        if( SCH_SHAPE* shape = dynamic_cast<SCH_SHAPE*>( item ) )
         {
             VECTOR2I newStart = grid.AlignGrid( shape->GetStart(), grid.GetItemGrid( shape ) );
             VECTOR2I newEnd = grid.AlignGrid( shape->GetEnd(), grid.GetItemGrid( shape ) );
@@ -420,8 +420,6 @@ int SYMBOL_EDITOR_MOVE_TOOL::AlignElements( const TOOL_EVENT& aEvent )
 
                     updateItem( item, true );
                 }
-
-                break;
 
                 break;
 
@@ -513,7 +511,7 @@ int SYMBOL_EDITOR_MOVE_TOOL::AlignElements( const TOOL_EVENT& aEvent )
 
 void SYMBOL_EDITOR_MOVE_TOOL::moveItem( EDA_ITEM* aItem, const VECTOR2I& aDelta )
 {
-    static_cast<SCH_ITEM*>( aItem )->Move( mapCoords( aDelta ) );
+    static_cast<SCH_ITEM*>( aItem )->Move( mapCoords( aDelta, true ) );
     aItem->SetFlags( IS_MOVING );
 }
 

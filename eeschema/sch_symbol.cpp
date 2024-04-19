@@ -27,8 +27,7 @@
 #include <bitmaps.h>
 #include <core/mirror.h>
 #include <lib_pin.h>
-#include <lib_text.h>
-#include <lib_shape.h>
+#include <sch_shape.h>
 #include <pgm_base.h>
 #include <sch_symbol.h>
 #include <sch_sheet_path.h>
@@ -81,17 +80,15 @@ static LIB_SYMBOL* dummy()
     {
         symbol = new LIB_SYMBOL( wxEmptyString );
 
-        LIB_SHAPE* square = new LIB_SHAPE( symbol, SHAPE_T::RECTANGLE );
+        SCH_SHAPE* square = new SCH_SHAPE( SHAPE_T::RECTANGLE, LAYER_DEVICE );
 
         square->SetPosition( VECTOR2I( schIUScale.MilsToIU( -200 ), schIUScale.MilsToIU( 200 ) ) );
         square->SetEnd( VECTOR2I( schIUScale.MilsToIU( 200 ), schIUScale.MilsToIU( -200 ) ) );
+        symbol->AddDrawItem( square );
 
-        LIB_TEXT* text = new LIB_TEXT( symbol );
+        SCH_TEXT* text = new SCH_TEXT( { 0, 0 }, wxT( "??"), LAYER_DEVICE );
 
         text->SetTextSize( VECTOR2I( schIUScale.MilsToIU( 150 ), schIUScale.MilsToIU( 150 ) ) );
-        text->SetText( wxString( wxT( "??" ) ) );
-
-        symbol->AddDrawItem( square );
         symbol->AddDrawItem( text );
     }
 
@@ -102,7 +99,6 @@ static LIB_SYMBOL* dummy()
 SCH_SYMBOL::SCH_SYMBOL() :
     SYMBOL( nullptr, SCH_SYMBOL_T )
 {
-    m_DNP = false;
     Init( VECTOR2I( 0, 0 ) );
 }
 
@@ -142,7 +138,6 @@ SCH_SYMBOL::SCH_SYMBOL( const LIB_SYMBOL& aSymbol, const LIB_ID& aLibId,
     m_excludedFromSim = m_part->GetExcludedFromSim();
     m_excludedFromBOM = m_part->GetExcludedFromBOM();
     m_excludedFromBoard = m_part->GetExcludedFromBoard();
-    m_DNP = false;
 }
 
 
@@ -225,9 +220,6 @@ void SCH_SYMBOL::Init( const VECTOR2I& pos )
 
     m_prefix = wxString( wxT( "U" ) );
     m_isInNetlist = true;
-    m_excludedFromSim = false;
-    m_excludedFromBOM = false;
-    m_excludedFromBoard = false;
 }
 
 
@@ -239,10 +231,7 @@ EDA_ITEM* SCH_SYMBOL::Clone() const
 
 bool SCH_SYMBOL::IsMissingLibSymbol() const
 {
-    if( !m_part )
-        return true;
-
-    return false;
+    return m_part == nullptr;
 }
 
 
@@ -455,8 +444,7 @@ bool SCH_SYMBOL::HasAlternateBodyStyle() const
 
 void SCH_SYMBOL::SetTransform( const TRANSFORM& aTransform )
 {
-    if( m_transform != aTransform )
-        m_transform = aTransform;
+    m_transform = aTransform;
 }
 
 
@@ -625,14 +613,6 @@ void SCH_SYMBOL::RemoveInstance( const KIID_PATH& aInstancePath )
 }
 
 
-void SCH_SYMBOL::SortInstances( bool (*aSortFunction)( const SCH_SYMBOL_INSTANCE& aLhs,
-                                                       const SCH_SYMBOL_INSTANCE& aRhs ) )
-{
-    if( m_instanceReferences.size() > 1 )
-        std::sort( m_instanceReferences.begin(), m_instanceReferences.end(), aSortFunction );
-}
-
-
 void SCH_SYMBOL::AddHierarchicalReference( const KIID_PATH& aPath, const wxString& aRef, int aUnit )
 {
     // Search for an existing path and remove it if found (should not occur)
@@ -643,7 +623,7 @@ void SCH_SYMBOL::AddHierarchicalReference( const KIID_PATH& aPath, const wxStrin
             wxLogTrace( traceSchSheetPaths, wxS( "Removing symbol instance:\n"
                                                  "  sheet path %s\n"
                                                  "  reference %s, unit %d from symbol %s." ),
-                                            aPath.AsString(),
+                        aPath.AsString(),
                         m_instanceReferences[ii].m_Reference,
                         m_instanceReferences[ii].m_Unit,
                         m_Uuid.AsString() );
@@ -754,10 +734,7 @@ const wxString SCH_SYMBOL::GetRef( const SCH_SHEET_PATH* sheet, bool aIncludeUni
     // file.  It will also mean that multiple instances of the same sheet by default all have
     // the same symbol references, but perhaps this is best.
     if( ref.IsEmpty() && !GetField( REFERENCE_FIELD )->GetText().IsEmpty() )
-    {
-        const_cast<SCH_SYMBOL*>( this )->SetRef( sheet, GetField( REFERENCE_FIELD )->GetText() );
         ref = GetField( REFERENCE_FIELD )->GetText();
-    }
 
     if( ref.IsEmpty() )
         ref = UTIL::GetRefDesUnannotated( m_prefix );
@@ -904,7 +881,7 @@ void SCH_SYMBOL::SetUnitSelection( int aUnitSelection )
 
 
 const wxString SCH_SYMBOL::GetValue( bool aResolve, const SCH_SHEET_PATH* aPath,
-                                              bool aAllowExtraText ) const
+                                     bool aAllowExtraText ) const
 {
     if( aResolve )
         return GetField( VALUE_FIELD )->GetShownText( aPath, aAllowExtraText );
@@ -1046,16 +1023,15 @@ void SCH_SYMBOL::UpdateFields( const SCH_SHEET_PATH* aPath, bool aUpdateStyle, b
 {
     if( m_part )
     {
-        std::vector<LIB_FIELD*> fields;
-
+        std::vector<SCH_FIELD*> fields;
         m_part->GetFields( fields );
 
-        for( const LIB_FIELD* libField : fields )
+        for( const SCH_FIELD* libField : fields )
         {
-            int id = libField->GetId();
+            int        id = libField->GetId();
             SCH_FIELD* schField;
 
-            if( id >= 0 && id < MANDATORY_FIELDS )
+            if( libField->IsMandatory() )
             {
                 schField = GetFieldById( id );
             }
@@ -2413,7 +2389,7 @@ bool SCH_SYMBOL::doIsConnected( const VECTOR2I& aPosition ) const
 {
     VECTOR2I new_pos = m_transform.InverseTransform().TransformCoordinate( aPosition - m_pos );
 
-    for( const auto& pin : m_pins )
+    for( const std::unique_ptr<SCH_PIN>& pin : m_pins )
     {
         if( pin->GetType() == ELECTRICAL_PINTYPE::PT_NC )
             continue;
@@ -2546,26 +2522,17 @@ void SCH_SYMBOL::Plot( PLOTTER* aPlotter, bool aBackground, const SCH_PLOT_OPTS&
 
 void SCH_SYMBOL::PlotDNP( PLOTTER* aPlotter ) const
 {
-    SCH_RENDER_SETTINGS* renderSettings = getRenderSettings( aPlotter );
-    TRANSFORM            savedTransform = renderSettings->m_Transform;
-    renderSettings->m_Transform = GetTransform();
-
-    BOX2I bbox = GetBodyAndPinsBoundingBox();
-
     COLOR_SETTINGS* colors = Pgm().GetSettingsManager().GetColorSettings();
+    BOX2I           bbox = GetBodyAndPinsBoundingBox();
+    int             strokeWidth = 3.0 * schIUScale.MilsToIU( DEFAULT_LINE_WIDTH_MILS );
 
     aPlotter->SetColor( colors->GetColor( LAYER_DNP_MARKER ) );
 
-    aPlotter->ThickSegment( bbox.GetOrigin(), bbox.GetEnd(),
-                            3.0 * schIUScale.MilsToIU( DEFAULT_LINE_WIDTH_MILS ),
-                            FILLED, nullptr );
+    aPlotter->ThickSegment( bbox.GetOrigin(), bbox.GetEnd(), strokeWidth, FILLED, nullptr );
 
     aPlotter->ThickSegment( bbox.GetOrigin() + VECTOR2I( bbox.GetWidth(), 0 ),
                             bbox.GetOrigin() + VECTOR2I( 0, bbox.GetHeight() ),
-                            3.0 * schIUScale.MilsToIU( DEFAULT_LINE_WIDTH_MILS ),
-                            FILLED, nullptr );
-
-    renderSettings->m_Transform = savedTransform;
+                            strokeWidth, FILLED, nullptr );
 }
 
 
@@ -2773,14 +2740,12 @@ static struct SCH_SYMBOL_DESC
                     return false;
                 };
 
-        propMgr.AddProperty( new PROPERTY<SCH_SYMBOL, bool>( _HKI( "Pin numbers" ),
-                                                             &SCH_SYMBOL::SetShowPinNumbers,
-                                                             &SCH_SYMBOL::GetShowPinNumbers ) )
+        propMgr.AddProperty( new PROPERTY<SYMBOL, bool>( _HKI( "Pin numbers" ),
+                    &SYMBOL::SetShowPinNumbers, &SYMBOL::GetShowPinNumbers ) )
                 .SetAvailableFunc( hasLibPart );
 
-        propMgr.AddProperty( new PROPERTY<SCH_SYMBOL, bool>( _HKI( "Pin names" ),
-                                                             &SCH_SYMBOL::SetShowPinNames,
-                                                             &SCH_SYMBOL::GetShowPinNames ) )
+        propMgr.AddProperty( new PROPERTY<SYMBOL, bool>( _HKI( "Pin names" ),
+                    &SYMBOL::SetShowPinNames, &SYMBOL::GetShowPinNames ) )
                 .SetAvailableFunc( hasLibPart );
 
         const wxString groupFields = _HKI( "Fields" );
@@ -2803,18 +2768,18 @@ static struct SCH_SYMBOL_DESC
 
         const wxString groupAttributes = _HKI( "Attributes" );
 
-        propMgr.AddProperty( new PROPERTY<SCH_SYMBOL, bool>( _HKI( "Exclude From Board" ),
-                &SCH_SYMBOL::SetExcludedFromBoard, &SCH_SYMBOL::GetExcludedFromBoard ),
-                groupAttributes );
-        propMgr.AddProperty( new PROPERTY<SCH_SYMBOL, bool>( _HKI( "Exclude From Simulation" ),
-                &SCH_SYMBOL::SetExcludedFromSim, &SCH_SYMBOL::GetExcludedFromSim ),
-                groupAttributes );
-        propMgr.AddProperty( new PROPERTY<SCH_SYMBOL, bool>( _HKI( "Exclude From Bill of Materials" ),
-                &SCH_SYMBOL::SetExcludedFromBOM, &SCH_SYMBOL::GetExcludedFromBOM ),
-                groupAttributes );
-        propMgr.AddProperty( new PROPERTY<SCH_SYMBOL, bool>( _HKI( "Do not Populate" ),
-                &SCH_SYMBOL::SetDNP, &SCH_SYMBOL::GetDNP ),
-                groupAttributes );
+        propMgr.AddProperty( new PROPERTY<SYMBOL, bool>( _HKI( "Exclude From Board" ),
+                    &SYMBOL::SetExcludedFromBoard, &SYMBOL::GetExcludedFromBoard ),
+                    groupAttributes );
+        propMgr.AddProperty( new PROPERTY<SYMBOL, bool>( _HKI( "Exclude From Simulation" ),
+                    &SYMBOL::SetExcludedFromSim, &SYMBOL::GetExcludedFromSim ),
+                    groupAttributes );
+        propMgr.AddProperty( new PROPERTY<SYMBOL, bool>( _HKI( "Exclude From Bill of Materials" ),
+                    &SYMBOL::SetExcludedFromBOM, &SYMBOL::GetExcludedFromBOM ),
+                    groupAttributes );
+        propMgr.AddProperty( new PROPERTY<SYMBOL, bool>( _HKI( "Do not Populate" ),
+                    &SYMBOL::SetDNP, &SYMBOL::GetDNP ),
+                    groupAttributes );
     }
 } _SCH_SYMBOL_DESC;
 

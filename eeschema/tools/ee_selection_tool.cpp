@@ -45,14 +45,12 @@
 #include <sch_item.h>
 #include <sch_line.h>
 #include <sch_bus_entry.h>
-#include <sch_junction.h>
 #include <sch_marker.h>
 #include <sch_no_connect.h>
 #include <sch_sheet.h>
 #include <sch_sheet_pin.h>
 #include <sch_table.h>
 #include <sch_tablecell.h>
-#include <lib_shape.h>
 #include <schematic.h>
 #include <tool/tool_event.h>
 #include <tool/tool_manager.h>
@@ -566,15 +564,15 @@ int EE_SELECTION_TOOL::Main( const TOOL_EVENT& aEvent )
                 {
                     if( static_cast<SYMBOL_EDIT_FRAME*>( m_frame )->IsSymbolAlias() )
                     {
-                        m_selection = RequestSelection( { LIB_FIELD_T } );
+                        m_selection = RequestSelection( { SCH_FIELD_T } );
                     }
                     else
                     {
-                        m_selection = RequestSelection( { LIB_SHAPE_T,
-                                                          LIB_TEXT_T,
-                                                          LIB_TEXTBOX_T,
+                        m_selection = RequestSelection( { SCH_SHAPE_T,
+                                                          SCH_TEXT_T,
+                                                          SCH_TEXTBOX_T,
                                                           LIB_PIN_T,
-                                                          LIB_FIELD_T } );
+                                                          SCH_FIELD_T } );
                     }
                 }
                 else
@@ -1076,11 +1074,11 @@ void EE_SELECTION_TOOL::narrowSelection( EE_COLLECTOR& collector, const VECTOR2I
         if( symbolEditorFrame )
         {
             // Do not select invisible items if they are not displayed
-            EDA_ITEM* item = static_cast<EDA_ITEM*>( collector[i] );
+            EDA_ITEM* item = collector[i];
 
-            if( item->Type() == LIB_FIELD_T )
+            if( item->Type() == SCH_FIELD_T )
             {
-                if( !static_cast<LIB_FIELD*>( item )->IsVisible()
+                if( !static_cast<SCH_FIELD*>( item )->IsVisible()
                     && !symbolEditorFrame->GetShowInvisibleFields() )
                 {
                     collector.Remove( i );
@@ -1355,7 +1353,7 @@ void EE_SELECTION_TOOL::GuessSelectionCandidates( EE_COLLECTOR& collector, const
     {
         EDA_ITEM*   item = collector[ i ];
         SCH_LINE*   line = dynamic_cast<SCH_LINE*>( item );
-        LIB_SHAPE*  shape = dynamic_cast<LIB_SHAPE*>( item );
+        SCH_SHAPE*  shape = dynamic_cast<SCH_SHAPE*>( item );
         SCH_TABLE*  table = dynamic_cast<SCH_TABLE*>( item );
 
         // Lines are hard to hit.  Give them a bit more slop to still be considered "exact".
@@ -1391,8 +1389,7 @@ void EE_SELECTION_TOOL::GuessSelectionCandidates( EE_COLLECTOR& collector, const
 
     // Find the closest item.  (Note that at this point all hits are either exact or non-exact.)
     VECTOR2I  pos( aPos );
-    SEG       poss( m_isSymbolEditor ? mapCoords( pos ) : pos,
-                    m_isSymbolEditor ? mapCoords( pos ) : pos );
+    SEG       poss( mapCoords( pos, m_isSymbolEditor ), mapCoords( pos, m_isSymbolEditor ) );
     EDA_ITEM* closest = nullptr;
     int       closestDist = INT_MAX / 4;
 
@@ -1636,7 +1633,6 @@ bool EE_SELECTION_TOOL::itemPassesFilter( EDA_ITEM* aItem )
     }
 
     case SCH_SHAPE_T:
-    case LIB_SHAPE_T:
         if( !m_filter.graphics )
             return false;
 
@@ -1647,9 +1643,6 @@ bool EE_SELECTION_TOOL::itemPassesFilter( EDA_ITEM* aItem )
     case SCH_TABLE_T:
     case SCH_TABLECELL_T:
     case SCH_FIELD_T:
-    case LIB_TEXT_T:
-    case LIB_TEXTBOX_T:
-    case LIB_FIELD_T:
         if( !m_filter.text )
             return false;
 
@@ -2244,45 +2237,40 @@ void EE_SELECTION_TOOL::ZoomFitCrossProbeBBox( const BOX2I& aBBox )
     VECTOR2I bbSize = bbox.Inflate( bbox.GetWidth() * 0.2f ).GetSize();
     VECTOR2D screenSize = getView()->GetViewport().GetSize();
 
-    // This code tries to come up with a zoom factor that doesn't simply zoom in
-    // to the cross probed symbol, but instead shows a reasonable amount of the
-    // circuit around it to provide context.  This reduces or eliminates the need
-    // to manually change the zoom because it's too close.
+    // This code tries to come up with a zoom factor that doesn't simply zoom in to the cross
+    // probed symbol, but instead shows a reasonable amount of the circuit around it to provide
+    // context.  This reduces the need to manually change the zoom because it's too close.
 
-    // Using the default text height as a constant to compare against, use the
-    // height of the bounding box of visible items for a footprint to figure out
-    // if this is a big symbol (like a processor) or a small symbol (like a resistor).
-    // This ratio is not useful by itself as a scaling factor.  It must be "bent" to
-    // provide good scaling at varying symbol sizes.  Bigger symbols need less
-    // scaling than small ones.
+    // Using the default text height as a constant to compare against, use the height of the
+    // bounding box of visible items for a footprint to figure out if this is a big symbol (like
+    // a processor) or a small symbol (like a resistor).  This ratio is not useful by itself as a
+    // scaling factor.  It must be "bent" to provide good scaling at varying symbol sizes.  Bigger
+    // symbols need less scaling than small ones.
     double currTextHeight = schIUScale.MilsToIU( DEFAULT_TEXT_SIZE );
 
     double compRatio = bbSize.y / currTextHeight; // Ratio of symbol to text height
     double compRatioBent = 1.0;
 
-    // LUT to scale zoom ratio to provide reasonable schematic context.  Must work
-    // with symbols of varying sizes (e.g. 0402 package and 200 pin BGA).
-    // "first" is used as the input and "second" as the output
-    //
-    // "first" = compRatio (symbol height / default text height)
-    // "second" = Amount to scale ratio by
-    std::vector<std::pair<double, double>> lut{ { 1.25, 16 }, // 32
-                                                { 2.5, 12 },  //24
-                                                { 5, 8 },     // 16
-                                                { 6, 6 },     //
-                                                { 10, 4 },    //8
-                                                { 20, 2 },    //4
-                                                { 40, 1.5 },  // 2
-                                                { 100, 1 } };
+    // LUT to scale zoom ratio to provide reasonable schematic context.  Must work with symbols
+    // of varying sizes (e.g. 0402 package and 200 pin BGA).
+    // Each entry represents a compRatio (symbol height / default text height) and an amount to
+    // scale by.
+    std::vector<std::pair<double, double>> lut{ { 1.25,  16 },
+                                                {  2.5,  12 },
+                                                {    5,   8 },
+                                                {    6,   6 },
+                                                {   10,   4 },
+                                                {   20,   2 },
+                                                {   40, 1.5 },
+                                                {  100,   1 } };
 
     std::vector<std::pair<double, double>>::iterator it;
 
     // Large symbol default is last LUT entry (1:1).
     compRatioBent = lut.back().second;
 
-    // Use LUT to do linear interpolation of "compRatio" within "first", then
-    // use that result to linearly interpolate "second" which gives the scaling
-    // factor needed.
+    // Use LUT to do linear interpolation of "compRatio" within "first", then use that result to
+    // linearly interpolate "second" which gives the scaling factor needed.
     if( compRatio >= lut.front().first )
     {
         for( it = lut.begin(); it < lut.end() - 1; it++ )
@@ -2302,24 +2290,23 @@ void EE_SELECTION_TOOL::ZoomFitCrossProbeBBox( const BOX2I& aBBox )
         compRatioBent = lut.front().second; // Small symbol default is first entry
     }
 
-    // This is similar to the original KiCad code that scaled the zoom to make sure
-    // symbols were visible on screen.  It's simply a ratio of screen size to
-    // symbol size, and its job is to zoom in to make the component fullscreen.
-    // Earlier in the code the symbol BBox is given a 20% margin to add some
-    // breathing room. We compare the height of this enlarged symbol bbox to the
-    // default text height.  If a symbol will end up with the sides clipped, we
-    // adjust later to make sure it fits on screen.
+    // This is similar to the original KiCad code that scaled the zoom to make sure symbols were
+    // visible on screen.  It's simply a ratio of screen size to symbol size, and its job is to
+    // zoom in to make the component fullscreen.  Earlier in the code the symbol BBox is given a
+    // 20% margin to add some breathing room.  We compare the height of this enlarged symbol bbox
+    // to the default text height.  If a symbol will end up with the sides clipped, we adjust
+    // later to make sure it fits on screen.
     screenSize.x = std::max( 10.0, screenSize.x );
     screenSize.y = std::max( 10.0, screenSize.y );
     double ratio = std::max( -1.0, fabs( bbSize.y / screenSize.y ) );
 
     // Original KiCad code for how much to scale the zoom
-    double kicadRatio =
-            std::max( fabs( bbSize.x / screenSize.x ), fabs( bbSize.y / screenSize.y ) );
+    double kicadRatio = std::max( fabs( bbSize.x / screenSize.x ),
+                                  fabs( bbSize.y / screenSize.y ) );
 
-    // If the width of the part we're probing is bigger than what the screen width
-    // will be after the zoom, then punt and use the KiCad zoom algorithm since it
-    // guarantees the part's width will be encompassed within the screen.
+    // If the width of the part we're probing is bigger than what the screen width will be after
+    // the zoom, then punt and use the KiCad zoom algorithm since it guarantees the part's width
+    // will be encompassed within the screen.
     if( bbSize.x > screenSize.x * ratio * compRatioBent )
     {
         // Use standard KiCad zoom for parts too wide to fit on screen/
@@ -2329,8 +2316,8 @@ void EE_SELECTION_TOOL::ZoomFitCrossProbeBBox( const BOX2I& aBBox )
                     "Part TOO WIDE for screen.  Using normal KiCad zoom ratio: %1.5f", ratio );
     }
 
-    // Now that "compRatioBent" holds our final scaling factor we apply it to the
-    // original fullscreen zoom ratio to arrive at the final ratio itself.
+    // Now that "compRatioBent" holds our final scaling factor we apply it to the original
+    // fullscreen zoom ratio to arrive at the final ratio itself.
     ratio *= compRatioBent;
 
     bool alwaysZoom = false; // DEBUG - allows us to minimize zooming or not
@@ -2442,7 +2429,7 @@ bool EE_SELECTION_TOOL::Selectable( const EDA_ITEM* aItem, const VECTOR2I* aPos,
 
     // Do not allow selection of anything except fields when the current symbol in the symbol
     // editor is a derived symbol.
-    if( symEditFrame && symEditFrame->IsSymbolAlias() && aItem->Type() != LIB_FIELD_T )
+    if( symEditFrame && symEditFrame->IsSymbolAlias() && aItem->Type() != SCH_FIELD_T )
         return false;
 
     switch( aItem->Type() )
@@ -2459,10 +2446,10 @@ bool EE_SELECTION_TOOL::Selectable( const EDA_ITEM* aItem, const VECTOR2I* aPos,
             // Pin anchors have to be allowed for auto-starting wires.
             if( aPos )
             {
-                EE_GRID_HELPER grid( m_toolMgr );
+                EE_GRID_HELPER    grid( m_toolMgr );
+                GRID_HELPER_GRIDS pinGrid = grid.GetItemGrid( pin );
 
-                if( pin->IsPointClickableAnchor( grid.BestSnapAnchor(
-                            *aPos, grid.GetItemGrid( static_cast<const SCH_ITEM*>( aItem ) ) ) ) )
+                if( pin->IsPointClickableAnchor( grid.BestSnapAnchor( *aPos, pinGrid ) ) )
                     return true;
             }
 
@@ -2481,11 +2468,19 @@ bool EE_SELECTION_TOOL::Selectable( const EDA_ITEM* aItem, const VECTOR2I* aPos,
     case LIB_SYMBOL_T:    // In symbol_editor we do not want to select the symbol itself.
         return false;
 
-    case LIB_FIELD_T:     // LIB_FIELD object can always be edited.
-        break;
+    case SCH_FIELD_T:     // SCH_FIELD objects are not unit/body-style-specific.
+    {
+        const SCH_FIELD* field = static_cast<const SCH_FIELD*>( aItem );
 
-    case LIB_SHAPE_T:
-    case LIB_TEXT_T:
+        if( !field->IsVisible() && !( symEditFrame && symEditFrame->GetShowInvisibleFields() ) )
+            return false;
+
+        break;
+    }
+
+    case SCH_SHAPE_T:
+    case SCH_TEXT_T:
+    case SCH_TEXTBOX_T:
     case LIB_PIN_T:
         if( symEditFrame )
         {

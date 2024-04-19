@@ -20,10 +20,9 @@
 #include <magic_enum.hpp>
 #include <wx/log.h>
 
-#include <lib_shape.h>
-#include <lib_field.h>
+#include <sch_shape.h>
 #include <lib_pin.h>
-#include <lib_text.h>
+#include <sch_text.h>
 #include <macros.h>
 #include <richio.h>
 #include <string_utils.h>
@@ -397,7 +396,7 @@ LIB_SYMBOL* SCH_IO_KICAD_LEGACY_LIB_CACHE::LoadPart( LINE_READER& aReader, int a
     // Don't set the library alias, this is determined by the symbol library table.
     symbol->SetLibId( LIB_ID( wxEmptyString, symbol->GetName() ) );
 
-    LIB_FIELD& reference = symbol->GetReferenceField();
+    SCH_FIELD& reference = symbol->GetReferenceField();
 
     if( prefix == "~" )
     {
@@ -501,12 +500,12 @@ void SCH_IO_KICAD_LEGACY_LIB_CACHE::loadAliases( std::unique_ptr<LIB_SYMBOL>& aS
             // Inherit the parent mandatory field attributes.
             for( int id = 0; id < MANDATORY_FIELDS; ++id )
             {
-                LIB_FIELD* field = newSymbol->GetFieldById( id );
+                SCH_FIELD* field = newSymbol->GetFieldById( id );
 
                 // the MANDATORY_FIELDS are exactly that in RAM.
                 wxASSERT( field );
 
-                LIB_FIELD* parentField = aSymbol->GetFieldById( id );
+                SCH_FIELD* parentField = aSymbol->GetFieldById( id );
 
                 wxASSERT( parentField );
 
@@ -540,7 +539,7 @@ void SCH_IO_KICAD_LEGACY_LIB_CACHE::loadField( std::unique_ptr<LIB_SYMBOL>& aSym
     if( sscanf( line + 1, "%d", &id ) != 1 || id < 0 )
         SCH_PARSE_ERROR( "invalid field ID", aReader, line + 1 );
 
-    LIB_FIELD* field;
+    SCH_FIELD* field;
 
     if( id >= 0 && id < MANDATORY_FIELDS )
     {
@@ -553,7 +552,7 @@ void SCH_IO_KICAD_LEGACY_LIB_CACHE::loadField( std::unique_ptr<LIB_SYMBOL>& aSym
     }
     else
     {
-        field = new LIB_FIELD( aSymbol.get(), id );
+        field = new SCH_FIELD( aSymbol.get(), id );
         aSymbol->AddDrawItem( field, false );
     }
 
@@ -664,7 +663,7 @@ void SCH_IO_KICAD_LEGACY_LIB_CACHE::loadField( std::unique_ptr<LIB_SYMBOL>& aSym
         // Fields in RAM must always have names, because we are trying to get
         // less dependent on field ids and more dependent on names.
         // Plus assumptions are made in the field editors.
-        field->m_name = GetCanonicalFieldName( id );
+        field->SetName( GetCanonicalFieldName( id ) );
 
         // Ensure the VALUE field = the symbol name (can be not the case
         // with malformed libraries: edited by hand, or converted from other tools)
@@ -686,7 +685,7 @@ void SCH_IO_KICAD_LEGACY_LIB_CACHE::loadField( std::unique_ptr<LIB_SYMBOL>& aSym
         while( aSymbol->FindField( candidateFieldName ) != nullptr )
             candidateFieldName = wxString::Format( "%s_%d", fieldName, ++suffix );
 
-        field->m_name = candidateFieldName;
+        field->SetName( candidateFieldName );
     }
 }
 
@@ -713,20 +712,19 @@ void SCH_IO_KICAD_LEGACY_LIB_CACHE::loadDrawEntries( std::unique_ptr<LIB_SYMBOL>
         switch( line[0] )
         {
         case 'A':    // Arc
-            aSymbol->AddDrawItem( loadArc( aSymbol, aReader ), false );
+            aSymbol->AddDrawItem( loadArc( aReader ), false );
             break;
 
         case 'C':    // Circle
-            aSymbol->AddDrawItem( loadCircle( aSymbol, aReader ), false );
+            aSymbol->AddDrawItem( loadCircle( aReader ), false );
             break;
 
         case 'T':    // Text
-            aSymbol->AddDrawItem( loadText( aSymbol, aReader, aMajorVersion, aMinorVersion ),
-                                  false );
+            aSymbol->AddDrawItem( loadText( aReader, aMajorVersion, aMinorVersion ), false );
             break;
 
         case 'S':    // Square
-            aSymbol->AddDrawItem( loadRect( aSymbol, aReader ), false );
+            aSymbol->AddDrawItem( loadRect( aReader ), false );
             break;
 
         case 'X':    // Pin Description
@@ -734,11 +732,11 @@ void SCH_IO_KICAD_LEGACY_LIB_CACHE::loadDrawEntries( std::unique_ptr<LIB_SYMBOL>
             break;
 
         case 'P':    // Polyline
-            aSymbol->AddDrawItem( loadPolyLine( aSymbol, aReader ), false );
+            aSymbol->AddDrawItem( loadPolyLine( aReader ), false );
             break;
 
         case 'B':    // Bezier Curves
-            aSymbol->AddDrawItem( loadBezier( aSymbol, aReader ), false );
+            aSymbol->AddDrawItem( loadBezier( aReader ), false );
             break;
 
         case '#':    // Comment
@@ -835,14 +833,13 @@ static bool MapAnglesV6( int* aAngle1, int* aAngle2 )
 }
 
 
-LIB_SHAPE* SCH_IO_KICAD_LEGACY_LIB_CACHE::loadArc( std::unique_ptr<LIB_SYMBOL>& aSymbol,
-                                                   LINE_READER&                 aReader )
+SCH_SHAPE* SCH_IO_KICAD_LEGACY_LIB_CACHE::loadArc( LINE_READER& aReader )
 {
     const char* line = aReader.Line();
 
     wxCHECK_MSG( strCompare( "A", line, &line ), nullptr, "Invalid arc definition" );
 
-    LIB_SHAPE* arc = new LIB_SHAPE( aSymbol.get(), SHAPE_T::ARC );
+    SCH_SHAPE* arc = new SCH_SHAPE( SHAPE_T::ARC, LAYER_DEVICE );
 
     VECTOR2I center;
 
@@ -917,14 +914,13 @@ LIB_SHAPE* SCH_IO_KICAD_LEGACY_LIB_CACHE::loadArc( std::unique_ptr<LIB_SYMBOL>& 
 }
 
 
-LIB_SHAPE* SCH_IO_KICAD_LEGACY_LIB_CACHE::loadCircle( std::unique_ptr<LIB_SYMBOL>& aSymbol,
-                                                      LINE_READER&                 aReader )
+SCH_SHAPE* SCH_IO_KICAD_LEGACY_LIB_CACHE::loadCircle( LINE_READER& aReader )
 {
     const char* line = aReader.Line();
 
     wxCHECK_MSG( strCompare( "C", line, &line ), nullptr, "Invalid circle definition" );
 
-    LIB_SHAPE* circle = new LIB_SHAPE( aSymbol.get(), SHAPE_T::CIRCLE );
+    SCH_SHAPE* circle = new SCH_SHAPE( SHAPE_T::CIRCLE, LAYER_DEVICE );
 
     VECTOR2I center;
 
@@ -950,35 +946,23 @@ LIB_SHAPE* SCH_IO_KICAD_LEGACY_LIB_CACHE::loadCircle( std::unique_ptr<LIB_SYMBOL
 }
 
 
-LIB_TEXT* SCH_IO_KICAD_LEGACY_LIB_CACHE::loadText( std::unique_ptr<LIB_SYMBOL>& aSymbol,
-                                                   LINE_READER&                 aReader,
-                                                   int                          aMajorVersion,
-                                                   int                          aMinorVersion )
+SCH_TEXT* SCH_IO_KICAD_LEGACY_LIB_CACHE::loadText( LINE_READER& aReader,
+                                                   int aMajorVersion, int aMinorVersion )
 {
     const char* line = aReader.Line();
 
-    wxCHECK_MSG( strCompare( "T", line, &line ), nullptr, "Invalid LIB_TEXT definition" );
+    wxCHECK_MSG( strCompare( "T", line, &line ), nullptr, "Invalid SCH_TEXT definition" );
 
-    LIB_TEXT* text = new LIB_TEXT( aSymbol.get() );
-    double    angleInTenths = parseInt( aReader, line, &line );
-
-    text->SetTextAngle( EDA_ANGLE( angleInTenths, TENTHS_OF_A_DEGREE_T ) );
-
+    double   angleInTenths;
     VECTOR2I center;
+    VECTOR2I size;
+    wxString str;
+
+    angleInTenths = parseInt( aReader, line, &line );
 
     center.x = schIUScale.MilsToIU( parseInt( aReader, line, &line ) );
     center.y = schIUScale.MilsToIU( parseInt( aReader, line, &line ) );
-    text->SetPosition( center );
-
-    VECTOR2I size;
-
     size.x = size.y = schIUScale.MilsToIU( parseInt( aReader, line, &line ) );
-    text->SetTextSize( size );
-    text->SetVisible( !parseInt( aReader, line, &line ) );
-    text->SetUnit( parseInt( aReader, line, &line ) );
-    text->SetBodyStyle( parseInt( aReader, line, &line ) );
-
-    wxString str;
 
     // If quoted string loading fails, load as not quoted string.
     if( *line == '"' )
@@ -1001,7 +985,12 @@ LIB_TEXT* SCH_IO_KICAD_LEGACY_LIB_CACHE::loadText( std::unique_ptr<LIB_SYMBOL>& 
         str.Replace( "''", "\"" );
     }
 
-    text->SetText( str );
+    SCH_TEXT* text = new SCH_TEXT( center, str, LAYER_DEVICE );
+    text->SetTextAngle( EDA_ANGLE( angleInTenths, TENTHS_OF_A_DEGREE_T ) );
+    text->SetTextSize( size );
+    text->SetVisible( !parseInt( aReader, line, &line ) );
+    text->SetUnit( parseInt( aReader, line, &line ) );
+    text->SetBodyStyle( parseInt( aReader, line, &line ) );
 
     // Here things are murky and not well defined.  At some point it appears the format
     // was changed to add text properties.  However rather than add the token to the end of
@@ -1049,14 +1038,13 @@ LIB_TEXT* SCH_IO_KICAD_LEGACY_LIB_CACHE::loadText( std::unique_ptr<LIB_SYMBOL>& 
 }
 
 
-LIB_SHAPE* SCH_IO_KICAD_LEGACY_LIB_CACHE::loadRect( std::unique_ptr<LIB_SYMBOL>& aSymbol,
-                                                    LINE_READER&                 aReader )
+SCH_SHAPE* SCH_IO_KICAD_LEGACY_LIB_CACHE::loadRect( LINE_READER& aReader )
 {
     const char* line = aReader.Line();
 
     wxCHECK_MSG( strCompare( "S", line, &line ), nullptr, "Invalid rectangle definition" );
 
-    LIB_SHAPE* rectangle = new LIB_SHAPE( aSymbol.get(), SHAPE_T::RECTANGLE );
+    SCH_SHAPE* rectangle = new SCH_SHAPE( SHAPE_T::RECTANGLE, LAYER_DEVICE );
 
     VECTOR2I pos;
 
@@ -1308,14 +1296,13 @@ LIB_PIN* SCH_IO_KICAD_LEGACY_LIB_CACHE::loadPin( std::unique_ptr<LIB_SYMBOL>& aS
 }
 
 
-LIB_SHAPE* SCH_IO_KICAD_LEGACY_LIB_CACHE::loadPolyLine( std::unique_ptr<LIB_SYMBOL>& aSymbol,
-                                                        LINE_READER&                 aReader )
+SCH_SHAPE* SCH_IO_KICAD_LEGACY_LIB_CACHE::loadPolyLine( LINE_READER& aReader )
 {
     const char* line = aReader.Line();
 
     wxCHECK_MSG( strCompare( "P", line, &line ), nullptr, "Invalid poly definition" );
 
-    LIB_SHAPE* polyLine = new LIB_SHAPE( aSymbol.get(), SHAPE_T::POLY );
+    SCH_SHAPE* polyLine = new SCH_SHAPE( SHAPE_T::POLY, LAYER_DEVICE );
 
     int points = parseInt( aReader, line, &line );
     polyLine->SetUnit( parseInt( aReader, line, &line ) );
@@ -1342,8 +1329,7 @@ LIB_SHAPE* SCH_IO_KICAD_LEGACY_LIB_CACHE::loadPolyLine( std::unique_ptr<LIB_SYMB
 }
 
 
-LIB_SHAPE* SCH_IO_KICAD_LEGACY_LIB_CACHE::loadBezier( std::unique_ptr<LIB_SYMBOL>& aSymbol,
-                                                      LINE_READER&                 aReader )
+SCH_SHAPE* SCH_IO_KICAD_LEGACY_LIB_CACHE::loadBezier( LINE_READER& aReader )
 {
     const char* line = aReader.Line();
 
@@ -1353,7 +1339,7 @@ LIB_SHAPE* SCH_IO_KICAD_LEGACY_LIB_CACHE::loadBezier( std::unique_ptr<LIB_SYMBOL
 
     wxCHECK_MSG( points == 4, NULL, "Invalid Bezier curve definition" );
 
-    LIB_SHAPE* bezier = new LIB_SHAPE( aSymbol.get(), SHAPE_T::BEZIER );
+    SCH_SHAPE* bezier = new SCH_SHAPE( SHAPE_T::BEZIER, LAYER_DEVICE );
 
     bezier->SetUnit( parseInt( aReader, line, &line ) );
     bezier->SetBodyStyle( parseInt( aReader, line, &line ) );
@@ -1481,7 +1467,7 @@ void SCH_IO_KICAD_LEGACY_LIB_CACHE::SaveSymbol( LIB_SYMBOL* aSymbol, OUTPUTFORMA
         }
     }
 
-    LIB_FIELD&  value = aSymbol->GetValueField();
+    SCH_FIELD&  value = aSymbol->GetValueField();
 
     // First line: it s a comment (symbol name for readers)
     aFormatter.Print( 0, "#\n# %s\n#\n", TO_UTF8( value.GetText() ) );
@@ -1490,7 +1476,7 @@ void SCH_IO_KICAD_LEGACY_LIB_CACHE::SaveSymbol( LIB_SYMBOL* aSymbol, OUTPUTFORMA
     aFormatter.Print( 0, "DEF" );
     aFormatter.Print( 0, " %s", TO_UTF8( value.GetText() ) );
 
-    LIB_FIELD& reference = aSymbol->GetReferenceField();
+    SCH_FIELD& reference = aSymbol->GetReferenceField();
 
     if( !reference.GetText().IsEmpty() )
         aFormatter.Print( 0, " %s", TO_UTF8( reference.GetText() ) );
@@ -1518,7 +1504,7 @@ void SCH_IO_KICAD_LEGACY_LIB_CACHE::SaveSymbol( LIB_SYMBOL* aSymbol, OUTPUTFORMA
         aFormatter.Print( 0, "Ti %d/%d/%d %d:%d:%d\n", year, mon, day, hour, min, sec );
     }
 
-    std::vector<LIB_FIELD*> fields;
+    std::vector<SCH_FIELD*> fields;
     aSymbol->GetFields( fields );
 
     // Mandatory fields:
@@ -1580,24 +1566,33 @@ void SCH_IO_KICAD_LEGACY_LIB_CACHE::SaveSymbol( LIB_SYMBOL* aSymbol, OUTPUTFORMA
         {
             switch( item.Type() )
             {
-            default:
-            case LIB_FIELD_T:     /* Fields have already been saved above. */  break;
-            case LIB_PIN_T:       savePin( (LIB_PIN* ) &item, aFormatter );    break;
-            case LIB_TEXT_T:      saveText( ( LIB_TEXT* ) &item, aFormatter ); break;
-            case LIB_SHAPE_T:
+            case LIB_PIN_T:
+                savePin( static_cast<LIB_PIN*>( &item ), aFormatter );
+
+                break;
+            case SCH_TEXT_T:
+                saveText( static_cast<SCH_TEXT*>( &item ), aFormatter );
+                break;
+
+            case SCH_SHAPE_T:
             {
-                LIB_SHAPE& shape = static_cast<LIB_SHAPE&>( item );
+                SCH_SHAPE& shape = static_cast<SCH_SHAPE&>( item );
 
                 switch( shape.GetShape() )
                 {
-                case SHAPE_T::ARC:    saveArc( &shape, aFormatter );           break;
-                case SHAPE_T::BEZIER: saveBezier( &shape, aFormatter );        break;
-                case SHAPE_T::CIRCLE: saveCircle( &shape, aFormatter );        break;
-                case SHAPE_T::POLY:   savePolyLine( &shape, aFormatter );      break;
-                case SHAPE_T::RECTANGLE:   saveRectangle( &shape, aFormatter );     break;
+                case SHAPE_T::ARC:       saveArc( &shape, aFormatter );        break;
+                case SHAPE_T::BEZIER:    saveBezier( &shape, aFormatter );     break;
+                case SHAPE_T::CIRCLE:    saveCircle( &shape, aFormatter );     break;
+                case SHAPE_T::POLY:      savePolyLine( &shape, aFormatter );   break;
+                case SHAPE_T::RECTANGLE: saveRectangle( &shape, aFormatter );  break;
                 default:                                                       break;
                 }
+
+                break;
             }
+
+            default:
+                break;
             }
         }
 
@@ -1608,7 +1603,7 @@ void SCH_IO_KICAD_LEGACY_LIB_CACHE::SaveSymbol( LIB_SYMBOL* aSymbol, OUTPUTFORMA
 }
 
 
-void SCH_IO_KICAD_LEGACY_LIB_CACHE::saveArc( LIB_SHAPE* aArc, OUTPUTFORMATTER& aFormatter )
+void SCH_IO_KICAD_LEGACY_LIB_CACHE::saveArc( SCH_SHAPE* aArc, OUTPUTFORMATTER& aFormatter )
 {
     wxCHECK_RET( aArc && aArc->GetShape() == SHAPE_T::ARC, "Invalid ARC object." );
 
@@ -1635,7 +1630,7 @@ void SCH_IO_KICAD_LEGACY_LIB_CACHE::saveArc( LIB_SHAPE* aArc, OUTPUTFORMATTER& a
 }
 
 
-void SCH_IO_KICAD_LEGACY_LIB_CACHE::saveBezier( LIB_SHAPE* aBezier, OUTPUTFORMATTER& aFormatter )
+void SCH_IO_KICAD_LEGACY_LIB_CACHE::saveBezier( SCH_SHAPE* aBezier, OUTPUTFORMATTER& aFormatter )
 {
     wxCHECK_RET( aBezier && aBezier->GetShape() == SHAPE_T::BEZIER, "Invalid BEZIER object." );
 
@@ -1658,7 +1653,7 @@ void SCH_IO_KICAD_LEGACY_LIB_CACHE::saveBezier( LIB_SHAPE* aBezier, OUTPUTFORMAT
 }
 
 
-void SCH_IO_KICAD_LEGACY_LIB_CACHE::saveCircle( LIB_SHAPE* aCircle, OUTPUTFORMATTER& aFormatter )
+void SCH_IO_KICAD_LEGACY_LIB_CACHE::saveCircle( SCH_SHAPE* aCircle, OUTPUTFORMATTER& aFormatter )
 {
     wxCHECK_RET( aCircle && aCircle->GetShape() == SHAPE_T::CIRCLE, "Invalid CIRCLE object." );
 
@@ -1673,10 +1668,10 @@ void SCH_IO_KICAD_LEGACY_LIB_CACHE::saveCircle( LIB_SHAPE* aCircle, OUTPUTFORMAT
 }
 
 
-void SCH_IO_KICAD_LEGACY_LIB_CACHE::saveField( const LIB_FIELD* aField,
+void SCH_IO_KICAD_LEGACY_LIB_CACHE::saveField( const SCH_FIELD* aField,
                                                OUTPUTFORMATTER& aFormatter )
 {
-    wxCHECK_RET( aField && aField->Type() == LIB_FIELD_T, "Invalid LIB_FIELD object." );
+    wxCHECK_RET( aField && aField->Type() == SCH_FIELD_T, "Invalid SCH_FIELD object." );
 
     int      hjustify, vjustify;
     int      id = aField->GetId();
@@ -1715,8 +1710,8 @@ void SCH_IO_KICAD_LEGACY_LIB_CACHE::saveField( const LIB_FIELD* aField,
      */
     wxString defName = TEMPLATE_FIELDNAME::GetDefaultFieldName( id );
 
-    if( id >= MANDATORY_FIELDS && !aField->m_name.IsEmpty() && aField->m_name != defName )
-        aFormatter.Print( 0, " %s", EscapedUTF8( aField->m_name ).c_str() );
+    if( id >= MANDATORY_FIELDS && !aField->GetName().IsEmpty() && aField->GetName() != defName )
+        aFormatter.Print( 0, " %s", EscapedUTF8( aField->GetName() ).c_str() );
 
     aFormatter.Print( 0, "\n" );
 }
@@ -1787,7 +1782,7 @@ void SCH_IO_KICAD_LEGACY_LIB_CACHE::savePin( const LIB_PIN* aPin, OUTPUTFORMATTE
 }
 
 
-void SCH_IO_KICAD_LEGACY_LIB_CACHE::savePolyLine( LIB_SHAPE* aPolyLine,
+void SCH_IO_KICAD_LEGACY_LIB_CACHE::savePolyLine( SCH_SHAPE* aPolyLine,
                                                   OUTPUTFORMATTER& aFormatter )
 {
     wxCHECK_RET( aPolyLine && aPolyLine->GetShape() == SHAPE_T::POLY, "Invalid POLY object." );
@@ -1805,7 +1800,7 @@ void SCH_IO_KICAD_LEGACY_LIB_CACHE::savePolyLine( LIB_SHAPE* aPolyLine,
 }
 
 
-void SCH_IO_KICAD_LEGACY_LIB_CACHE::saveRectangle( LIB_SHAPE* aRectangle,
+void SCH_IO_KICAD_LEGACY_LIB_CACHE::saveRectangle( SCH_SHAPE* aRectangle,
                                                    OUTPUTFORMATTER& aFormatter )
 {
     wxCHECK_RET( aRectangle && aRectangle->GetShape() == SHAPE_T::RECTANGLE,
@@ -1823,9 +1818,9 @@ void SCH_IO_KICAD_LEGACY_LIB_CACHE::saveRectangle( LIB_SHAPE* aRectangle,
 }
 
 
-void SCH_IO_KICAD_LEGACY_LIB_CACHE::saveText( const LIB_TEXT* aText, OUTPUTFORMATTER& aFormatter )
+void SCH_IO_KICAD_LEGACY_LIB_CACHE::saveText( const SCH_TEXT* aText, OUTPUTFORMATTER& aFormatter )
 {
-    wxCHECK_RET( aText && aText->Type() == LIB_TEXT_T, "Invalid LIB_TEXT object." );
+    wxCHECK_RET( aText && aText->Type() == SCH_TEXT_T, "Invalid SCH_TEXT object." );
 
     wxString text = aText->GetText();
 

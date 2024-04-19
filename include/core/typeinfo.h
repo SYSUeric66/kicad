@@ -137,6 +137,21 @@ enum KICAD_T
     PCB_SHAPE_LOCATE_POLY_T,
     PCB_SHAPE_LOCATE_BEZIER_T,
 
+    /*
+     * Draw items in library symbol.
+     *
+     * The order of these items effects the sort order for items inside the
+     * "DRAW/ENDDRAW" section of the symbol definition in a library file.
+     * If you add a new draw item, type, please make sure you add it so the
+     * sort order is logical.
+     */
+    LIB_SYMBOL_T,
+    SCH_SHAPE_T,
+    SCH_FIELD_T,
+    SCH_TEXT_T,
+    SCH_TEXTBOX_T,
+    LIB_PIN_T,
+
     // Schematic draw Items.  The order of these items effects the sort order.
     // It is currently ordered to mimic the old Eeschema locate behavior where
     // the smallest item is the selected item.
@@ -146,17 +161,13 @@ enum KICAD_T
     SCH_BUS_WIRE_ENTRY_T,
     SCH_BUS_BUS_ENTRY_T,
     SCH_LINE_T,
-    SCH_SHAPE_T,
     SCH_BITMAP_T,
-    SCH_TEXTBOX_T,
-    SCH_TEXT_T,
     SCH_TABLE_T,
     SCH_TABLECELL_T,
     SCH_LABEL_T,
     SCH_GLOBAL_LABEL_T,
     SCH_HIER_LABEL_T,
     SCH_DIRECTIVE_LABEL_T,
-    SCH_FIELD_T,
     SCH_SYMBOL_T,
     SCH_SHEET_PIN_T,
     SCH_SHEET_T,
@@ -190,26 +201,6 @@ enum KICAD_T
     SCH_SCREEN_T,
 
     SCHEMATIC_T,
-
-    /*
-     * Draw items in library symbol.
-     *
-     * The order of these items effects the sort order for items inside the
-     * "DRAW/ENDDRAW" section of the symbol definition in a library file.
-     * If you add a new draw item, type, please make sure you add it so the
-     * sort order is logical.
-     */
-    LIB_SYMBOL_T,
-    LIB_SHAPE_T,
-    LIB_TEXT_T,
-    LIB_TEXTBOX_T,
-    LIB_PIN_T,
-
-    /*
-     * Fields are not saved inside the "DRAW/ENDDRAW".  Add new draw item
-     * types before this line.
-     */
-    LIB_FIELD_T,
 
     /*
      * For GerbView: item types:
@@ -418,12 +409,7 @@ constexpr bool IsEeschemaType( const KICAD_T aType )
     case SCHEMATIC_T:
 
     case LIB_SYMBOL_T:
-    case LIB_SHAPE_T:
-    case LIB_TEXT_T:
-    case LIB_TEXTBOX_T:
     case LIB_PIN_T:
-
-    case LIB_FIELD_T:
         return true;
 
     default:
@@ -548,42 +534,6 @@ constexpr bool IsTypeCorrect( KICAD_T aType )
         || IsGerbviewType( aType )
         || IsPageLayoutEditorType( aType )
         || IsMiscType( aType );
-}
-
-constexpr bool IsTypeAvailable( KICAD_T aType )
-{
-    if( !IsInstantiableType( aType ) )
-        return false;
-
-    if( IsEeschemaType( aType ) )
-    {
-#ifdef EESCHEMA
-        return true;
-#endif // EESCHEMA
-    }
-
-    if( IsPcbnewType( aType ) )
-    {
-#ifdef PCBNEW
-        return true;
-#endif // PCBNEW
-    }
-
-    if( IsGerbviewType( aType ) )
-    {
-#ifdef GERBVIEW
-        return true;
-#endif // GERBVIEW
-    }
-
-    if( IsPageLayoutEditorType( aType ) )
-    {
-#ifdef PL_EDITOR
-        return true;
-#endif // PL_EDITOR
-    }
-
-    return false;
 }
 
 #endif // __KICAD_TYPEINFO_H

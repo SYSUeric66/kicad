@@ -37,9 +37,7 @@
 #include <default_values.h>    // For some default values
 
 
-class LIB_SHAPE;
 class LIB_PIN;
-class LIB_TEXT;
 class PAGE_INFO;
 class SCH_BITMAP;
 class SCH_BUS_WIRE_ENTRY;
@@ -193,16 +191,16 @@ private:
                         bool aEnforceMinTextSize = true );
     void parsePinNames( std::unique_ptr<LIB_SYMBOL>& aSymbol );
 
-    LIB_FIELD* parseProperty( std::unique_ptr<LIB_SYMBOL>& aSymbol );
+    SCH_FIELD* parseProperty( std::unique_ptr<LIB_SYMBOL>& aSymbol );
 
-    LIB_SHAPE* parseArc();
-    LIB_SHAPE* parseBezier();
-    LIB_SHAPE* parseCircle();
+    SCH_SHAPE* parseSymbolArc();
+    SCH_SHAPE* parseSymbolBezier();
+    SCH_SHAPE* parseSymbolCircle();
     LIB_PIN* parsePin();
-    LIB_SHAPE* parsePolyLine();
-    LIB_SHAPE* parseRectangle();
-    LIB_TEXT* parseText();
-    LIB_TEXTBOX* parseTextBox();
+    SCH_SHAPE* parseSymbolPolyLine();
+    SCH_SHAPE* parseSymbolRectangle();
+    SCH_TEXT* parseSymbolText();
+    SCH_TEXTBOX* parseSymbolTextBox();
 
     void parsePAGE_INFO( PAGE_INFO& aPageInfo );
     void parseTITLE_BLOCK( TITLE_BLOCK& aTitleBlock );

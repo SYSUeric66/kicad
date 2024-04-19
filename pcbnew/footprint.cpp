@@ -67,8 +67,7 @@ FOOTPRINT::FOOTPRINT( BOARD* parent ) :
         m_visibleBBoxCacheTimeStamp( 0 ),
         m_textExcludedBBoxCacheTimeStamp( 0 ),
         m_hullCacheTimeStamp( 0 ),
-        m_initial_comments( nullptr ),
-        m_courtyard_cache_timestamp( 0 )
+        m_initial_comments( nullptr )
 {
     m_attributes   = 0;
     m_layer        = F_Cu;
@@ -2224,7 +2223,6 @@ void FOOTPRINT::Rotate( const VECTOR2I& aRotCentre, const EDA_ANGLE& aAngle )
     m_visibleBBoxCacheTimeStamp = 0;
     m_textExcludedBBoxCacheTimeStamp = 0;
     m_hullCacheTimeStamp = 0;
-    m_courtyard_cache_timestamp = 0;
 }
 
 
@@ -2289,7 +2287,6 @@ void FOOTPRINT::Flip( const VECTOR2I& aCentre, bool aFlipLeftRight )
     m_boundingBoxCacheTimeStamp = 0;
     m_visibleBBoxCacheTimeStamp = 0;
     m_textExcludedBBoxCacheTimeStamp = 0;
-    m_courtyard_cache_timestamp = 0;
 
     m_cachedHull.Mirror( aFlipLeftRight, !aFlipLeftRight, m_pos );
 
@@ -2391,7 +2388,6 @@ void FOOTPRINT::SetOrientation( const EDA_ANGLE& aNewAngle )
     m_boundingBoxCacheTimeStamp = 0;
     m_visibleBBoxCacheTimeStamp = 0;
     m_textExcludedBBoxCacheTimeStamp = 0;
-    m_courtyard_cache_timestamp = 0;
 
     m_cachedHull.Rotate( angleChange, GetPosition() );
 }
@@ -2797,8 +2793,13 @@ std::shared_ptr<SHAPE> FOOTPRINT::GetEffectiveShape( PCB_LAYER_ID aLayer, FLASHI
 
 const SHAPE_POLY_SET& FOOTPRINT::GetCourtyard( PCB_LAYER_ID aLayer ) const
 {
-    if( GetBoard() && GetBoard()->GetTimeStamp() > m_courtyard_cache_timestamp )
+    std::lock_guard<std::mutex> lock( m_courtyard_cache_mutex );
+
+    if( m_courtyard_cache_front_hash != m_courtyard_cache_front.GetHash()
+        || m_courtyard_cache_back_hash != m_courtyard_cache_back.GetHash() )
+    {
         const_cast<FOOTPRINT*>( this )->BuildCourtyardCaches();
+    }
 
     if( IsBackLayer( aLayer ) )
         return m_courtyard_cache_back;
@@ -2812,8 +2813,6 @@ void FOOTPRINT::BuildCourtyardCaches( OUTLINE_ERROR_HANDLER* aErrorHandler )
     m_courtyard_cache_front.RemoveAllContours();
     m_courtyard_cache_back.RemoveAllContours();
     ClearFlags( MALFORMED_COURTYARDS );
-
-    m_courtyard_cache_timestamp = GetBoard()->GetTimeStamp();
 
     // Build the courtyard area from graphic items on the courtyard.
     // Only PCB_SHAPE_T have meaning, graphic texts are ignored.
@@ -2903,6 +2902,9 @@ void FOOTPRINT::BuildCourtyardCaches( OUTLINE_ERROR_HANDLER* aErrorHandler )
     {
         SetFlags( MALFORMED_B_COURTYARD );
     }
+
+    m_courtyard_cache_front_hash = m_courtyard_cache_front.GetHash();
+    m_courtyard_cache_back_hash = m_courtyard_cache_back.GetHash();
 }
 
 
@@ -3312,39 +3314,45 @@ bool FOOTPRINT::operator==( const BOARD_ITEM& aOther ) const
 
     const FOOTPRINT& other = static_cast<const FOOTPRINT&>( aOther );
 
-    if( m_pads.size() != other.m_pads.size() )
+    return *this == other;
+}
+
+
+bool FOOTPRINT::operator==( const FOOTPRINT& aOther ) const
+{
+    if( m_pads.size() != aOther.m_pads.size() )
         return false;
 
     for( size_t ii = 0; ii < m_pads.size(); ++ii )
     {
-        if( !( *m_pads[ii] == *other.m_pads[ii] ) )
+        if( !( *m_pads[ii] == *aOther.m_pads[ii] ) )
             return false;
     }
 
-    if( m_drawings.size() != other.m_drawings.size() )
+    if( m_drawings.size() != aOther.m_drawings.size() )
         return false;
 
     for( size_t ii = 0; ii < m_drawings.size(); ++ii )
     {
-        if( !( *m_drawings[ii] == *other.m_drawings[ii] ) )
+        if( !( *m_drawings[ii] == *aOther.m_drawings[ii] ) )
             return false;
     }
 
-    if( m_zones.size() != other.m_zones.size() )
+    if( m_zones.size() != aOther.m_zones.size() )
         return false;
 
     for( size_t ii = 0; ii < m_zones.size(); ++ii )
     {
-        if( !( *m_zones[ii] == *other.m_zones[ii] ) )
+        if( !( *m_zones[ii] == *aOther.m_zones[ii] ) )
             return false;
     }
 
-    if( m_fields.size() != other.m_fields.size() )
+    if( m_fields.size() != aOther.m_fields.size() )
         return false;
 
     for( size_t ii = 0; ii < m_fields.size(); ++ii )
     {
-        if( !( *m_fields[ii] == *other.m_fields[ii] ) )
+        if( !( *m_fields[ii] == *aOther.m_fields[ii] ) )
             return false;
     }
 

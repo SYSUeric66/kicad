@@ -24,13 +24,12 @@
 #include <sch_edit_frame.h>
 #include <widgets/msgpanel.h>
 #include <string_utils.h>
-#include <schematic.h>
 #include <sch_table.h>
 #include <sch_tablecell.h>
 
 
 SCH_TABLECELL::SCH_TABLECELL( int aLineWidth, FILL_T aFillType ) :
-        SCH_TEXTBOX( aLineWidth, aFillType, wxEmptyString, SCH_TABLECELL_T ),
+        SCH_TEXTBOX( LAYER_NOTES, aLineWidth, aFillType, wxEmptyString, SCH_TABLECELL_T ),
         m_colSpan( 1 ),
         m_rowSpan( 1 )
 {
@@ -162,12 +161,15 @@ bool SCH_TABLECELL::operator==( const SCH_ITEM& aOtherItem ) const
 
     const SCH_TABLECELL& other = static_cast<const SCH_TABLECELL&>( aOtherItem );
 
-    return     m_colSpan == other.m_colSpan
-            && m_rowSpan == other.m_rowSpan
-            && SCH_TEXTBOX::operator==( other );
+    return *this == other;
 }
 
 
+bool SCH_TABLECELL::operator==( const SCH_TABLECELL& aOtherItem ) const
+{
+    return m_colSpan == aOtherItem.m_colSpan && m_rowSpan == aOtherItem.m_rowSpan
+           && SCH_TEXTBOX::operator==( aOtherItem );
+}
 
 static struct SCH_TABLECELL_DESC
 {

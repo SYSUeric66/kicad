@@ -21,15 +21,18 @@
  */
 
 #include <wx/log.h>
+#include <core/profile.h>
 #include <tool/tool_manager.h>
 #include <kiface_base.h>
 #include <sch_edit_frame.h>
 #include <sch_bus_entry.h>
 #include <sch_line.h>
 #include <sch_junction.h>
+#include <sch_no_connect.h>
 #include <sch_sheet_pin.h>
 #include <schematic.h>
 #include <string_utils.h>
+#include <trace_helpers.h>
 #include <connection_graph.h>
 #include <widgets/wx_aui_utils.h>
 #include <tools/ee_actions.h>
@@ -138,6 +141,16 @@ static wxString GetNetNavigatorItemText( const SCH_ITEM* aItem,
                      aUnitsProvider->MessageTextFromValue( junction->GetPosition().y ) );
         break;
     }
+    case SCH_NO_CONNECT_T:
+    {
+        const SCH_NO_CONNECT* nc = static_cast<const SCH_NO_CONNECT*>( aItem );
+        wxCHECK( nc, retv );
+
+        retv.Printf( _( "No-Connect at %s, %s" ),
+                     aUnitsProvider->MessageTextFromValue( nc->GetPosition().x ),
+                     aUnitsProvider->MessageTextFromValue( nc->GetPosition().y ) );
+        break;
+    }
     case SCH_BUS_WIRE_ENTRY_T:
     {
         const SCH_BUS_WIRE_ENTRY* entry = static_cast<const SCH_BUS_WIRE_ENTRY*>( aItem );
@@ -160,6 +173,16 @@ static wxString GetNetNavigatorItemText( const SCH_ITEM* aItem,
                      aUnitsProvider->MessageTextFromValue( entry->GetPosition().y ),
                      aUnitsProvider->MessageTextFromValue( entry->GetEnd().x ),
                      aUnitsProvider->MessageTextFromValue( entry->GetEnd().y ) );
+        break;
+    }
+    case SCH_DIRECTIVE_LABEL_T:
+    {
+        const SCH_DIRECTIVE_LABEL* entry = static_cast<const SCH_DIRECTIVE_LABEL*>( aItem );
+        wxCHECK( entry, retv );
+
+        retv.Printf( _( "Netclass label '%s' at %s, %s" ), UnescapeString( entry->GetText() ),
+                     aUnitsProvider->MessageTextFromValue( entry->GetPosition().x ),
+                     aUnitsProvider->MessageTextFromValue( entry->GetPosition().y ) );
         break;
     }
     default:
@@ -240,22 +263,44 @@ void SCH_EDIT_FRAME::RefreshNetNavigator( const NET_NAVIGATOR_ITEM_DATA* aSelect
 {
     wxCHECK( m_netNavigator, /* void */ );
 
-    if( m_netNavigator->IsEmpty() && m_highlightedConn.IsEmpty() )
-        return;
+    size_t     nodeCnt = 0;
 
-    if( !m_netNavigator->IsEmpty() && m_highlightedConn.IsEmpty() )
+    m_netNavigator->Freeze();
+
+    PROF_TIMER timer;
+
+    if( m_highlightedConn.IsEmpty() )
     {
         m_netNavigator->DeleteAllItems();
-        return;
-    }
 
-    if( !m_netNavigator->IsEmpty() )
+        // Create a tree of all nets in the schematic.
+        wxTreeItemId rootId = m_netNavigator->AddRoot( _( "Nets" ), 0 );
+
+        const NET_MAP& netMap = m_schematic->ConnectionGraph()->GetNetMap();
+
+        for( const auto& net : netMap )
+        {
+            // Skip bus member subgraphs for the moment.
+            if( net.first.Name.IsEmpty() )
+                continue;
+
+            nodeCnt++;
+            wxTreeItemId netId = m_netNavigator->AppendItem( rootId,
+                                                             UnescapeString( net.first.Name ) );
+            MakeNetNavigatorNode( net.first.Name, netId, aSelection );
+        }
+
+        m_netNavigator->Expand( rootId );
+    }
+    else if( !m_netNavigator->IsEmpty() )
     {
         const wxString shownNetName = m_netNavigator->GetItemText( m_netNavigator->GetRootItem() );
 
         if( shownNetName != m_highlightedConn )
         {
             m_netNavigator->DeleteAllItems();
+
+            nodeCnt++;
 
             wxTreeItemId rootId = m_netNavigator->AddRoot( UnescapeString( m_highlightedConn ), 0 );
 
@@ -271,6 +316,8 @@ void SCH_EDIT_FRAME::RefreshNetNavigator( const NET_NAVIGATOR_ITEM_DATA* aSelect
                 itemData = dynamic_cast<NET_NAVIGATOR_ITEM_DATA*>( m_netNavigator->GetItemData( selection ) );
 
             m_netNavigator->DeleteAllItems();
+            nodeCnt++;
+
             wxTreeItemId rootId = m_netNavigator->AddRoot( UnescapeString( m_highlightedConn ), 0 );
 
             MakeNetNavigatorNode( m_highlightedConn, rootId, itemData );
@@ -278,10 +325,19 @@ void SCH_EDIT_FRAME::RefreshNetNavigator( const NET_NAVIGATOR_ITEM_DATA* aSelect
     }
     else
     {
+        nodeCnt++;
+
         wxTreeItemId rootId = m_netNavigator->AddRoot( UnescapeString( m_highlightedConn ), 0 );
 
         MakeNetNavigatorNode( m_highlightedConn, rootId, aSelection );
     }
+
+    timer.Stop();
+
+    wxLogTrace( traceUiProfile, wxS( "Adding %zu nodes to net navigator took %s." ),
+                nodeCnt, timer.to_string() );
+
+    m_netNavigator->Thaw();
 }
 
 
@@ -365,7 +421,9 @@ void SCH_EDIT_FRAME::onNetNavigatorSelection( wxTreeEvent& aEvent )
     NET_NAVIGATOR_ITEM_DATA* itemData =
             dynamic_cast<NET_NAVIGATOR_ITEM_DATA*>( m_netNavigator->GetItemData( id ) );
 
-    wxCHECK( itemData, /* void */ );
+    // Just a net name when we have all nets displayed.
+    if( !itemData )
+        return;
 
     if( GetCurrentSheet() != itemData->GetSheetPath() )
     {

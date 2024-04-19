@@ -30,8 +30,6 @@
 #include <core/mirror.h>
 #include <core/kicad_algo.h>
 #include <eda_text.h>
-#include <lib_shape.h>
-#include <lib_text.h>
 #include <macros.h>
 #include <progress_reporter.h>
 #include <string_utils.h>
@@ -300,12 +298,12 @@ void CADSTAR_SCH_ARCHIVE_LOADER::copySymbolItems( std::unique_ptr<LIB_SYMBOL>& a
     //Copy / override all fields
     if( aOverrideFields )
     {
-        std::vector<LIB_FIELD*> fieldsToCopy;
+        std::vector<SCH_FIELD*> fieldsToCopy;
         aSourceSym->GetFields( fieldsToCopy );
 
-        for( LIB_FIELD* templateField : fieldsToCopy )
+        for( SCH_FIELD* templateField : fieldsToCopy )
         {
-            LIB_FIELD* appliedField = addNewFieldToSymbol( templateField->GetName(), aDestSym );
+            SCH_FIELD* appliedField = addNewFieldToSymbol( templateField->GetName(), aDestSym );
             templateField->Copy( appliedField );
         }
     }
@@ -1070,9 +1068,7 @@ void CADSTAR_SCH_ARCHIVE_LOADER::loadBusses()
 
                 label->SetPosition( nearestPt );
 
-                applyTextSettings( label,
-                                   bus.BusLabel.TextCodeID,
-                                   bus.BusLabel.Alignment,
+                applyTextSettings( label, bus.BusLabel.TextCodeID, bus.BusLabel.Alignment,
                                    bus.BusLabel.Justification );
 
                 // Re-set bus name as it might have been "double-escaped" after applyTextSettings
@@ -1115,11 +1111,8 @@ void CADSTAR_SCH_ARCHIVE_LOADER::loadNets()
                     val->SetVisible( true );
                     val->SetPosition( getKiCadPoint( netTerm.NetLabel.Position ) );
 
-                    applyTextSettings( val,
-                                       netTerm.NetLabel.TextCodeID,
-                                       netTerm.NetLabel.Alignment,
-                                       netTerm.NetLabel.Justification,
-                                       netTerm.NetLabel.OrientAngle,
+                    applyTextSettings( val, netTerm.NetLabel.TextCodeID, netTerm.NetLabel.Alignment,
+                                       netTerm.NetLabel.Justification, netTerm.NetLabel.OrientAngle,
                                        netTerm.NetLabel.Mirror  );
                 }
             }
@@ -1212,9 +1205,7 @@ void CADSTAR_SCH_ARCHIVE_LOADER::loadNets()
 
             if( busTerm.HasNetLabel )
             {
-                applyTextSettings( label,
-                                   busTerm.NetLabel.TextCodeID,
-                                   busTerm.NetLabel.Alignment,
+                applyTextSettings( label, busTerm.NetLabel.TextCodeID, busTerm.NetLabel.Alignment,
                                    busTerm.NetLabel.Justification );
             }
             else
@@ -1236,9 +1227,7 @@ void CADSTAR_SCH_ARCHIVE_LOADER::loadNets()
 
             if( dangler.HasNetLabel )
             {
-                applyTextSettings( label,
-                                   dangler.NetLabel.TextCodeID,
-                                   dangler.NetLabel.Alignment,
+                applyTextSettings( label, dangler.NetLabel.TextCodeID, dangler.NetLabel.Alignment,
                                    dangler.NetLabel.Justification );
             }
 
@@ -1580,18 +1569,18 @@ void CADSTAR_SCH_ARCHIVE_LOADER::loadTextVariables()
 }
 
 
-LIB_FIELD*
+SCH_FIELD*
 CADSTAR_SCH_ARCHIVE_LOADER::addNewFieldToSymbol( const wxString&              aFieldName,
                                                  std::unique_ptr<LIB_SYMBOL>& aKiCadSymbol )
 {
     // First Check if field already exists
-    LIB_FIELD* existingField = aKiCadSymbol->FindField( aFieldName );
+    SCH_FIELD* existingField = aKiCadSymbol->FindField( aFieldName );
 
     if( existingField != nullptr )
         return existingField;
 
     int        newfieldID = aKiCadSymbol->GetFieldCount();
-    LIB_FIELD* newfield = new LIB_FIELD( aKiCadSymbol.get(), newfieldID );
+    SCH_FIELD* newfield = new SCH_FIELD( aKiCadSymbol.get(), newfieldID );
     newfield->SetName( aFieldName );
     newfield->SetVisible( false );
     aKiCadSymbol->AddField( newfield );
@@ -1631,7 +1620,8 @@ const LIB_SYMBOL* CADSTAR_SCH_ARCHIVE_LOADER::loadSymdef( const SYMDEF_ID& aSymd
         }
         else
         {
-            LIB_SHAPE* shape = new LIB_SHAPE( kiSym.get(), SHAPE_T::POLY );
+            SCH_SHAPE* shape = new SCH_SHAPE( SHAPE_T::POLY, LAYER_DEVICE );
+
             shape->SetPolyShape( fig.Shape.ConvertToPolySet(
                     [&]( const VECTOR2I& aPt )
                     {
@@ -1705,15 +1695,15 @@ const LIB_SYMBOL* CADSTAR_SCH_ARCHIVE_LOADER::loadSymdef( const SYMDEF_ID& aSymd
     for( std::pair<TEXT_ID, TEXT> textPair : csSym.Texts )
     {
         TEXT csText = textPair.second;
+        VECTOR2I pos = getKiCadLibraryPoint( csText.Position, csSym.Origin );
+        auto     libtext = std::make_unique<SCH_TEXT>( pos, csText.Text, LAYER_DEVICE );
 
-        std::unique_ptr<LIB_TEXT> libtext = std::make_unique<LIB_TEXT>( kiSym.get() );
-        libtext->SetText( csText.Text );
         libtext->SetUnit( gateNumber );
         libtext->SetPosition( getKiCadLibraryPoint( csText.Position, csSym.Origin ) );
         libtext->SetMultilineAllowed( true ); // temporarily so that we calculate bbox correctly
 
         applyTextSettings( libtext.get(), csText.TextCodeID, csText.Alignment, csText.Justification,
-                           csText.OrientAngle, csText.Mirror );
+                           csText.OrientAngle, csText.Mirror, true );
 
         // Split out multi line text items into individual text elements
         if( csText.Text.Contains( "\n" ) )
@@ -1729,7 +1719,7 @@ const LIB_SYMBOL* CADSTAR_SCH_ARCHIVE_LOADER::loadSymdef( const SYMDEF_ID& aSymd
 
                 RotatePoint( linePos, libtext->GetTextPos(), -libtext->GetTextAngle() );
 
-                LIB_TEXT* textLine = static_cast<LIB_TEXT*>( libtext->Duplicate() );
+                SCH_TEXT* textLine = static_cast<SCH_TEXT*>( libtext->Duplicate() );
                 textLine->SetText( strings[ii] );
                 textLine->SetHorizJustify( GR_TEXT_H_ALIGN_LEFT );
                 textLine->SetVertJustify( GR_TEXT_V_ALIGN_BOTTOM );
@@ -1765,7 +1755,7 @@ const LIB_SYMBOL* CADSTAR_SCH_ARCHIVE_LOADER::loadSymdef( const SYMDEF_ID& aSymd
     }
 
     // Always add the part name field (even if it doesn't have a specific location defined)
-    LIB_FIELD* partField = addNewFieldToSymbol( PartNameFieldName, kiSym );
+    SCH_FIELD* partField = addNewFieldToSymbol( PartNameFieldName, kiSym );
     wxCHECK( partField, nullptr );
     wxASSERT( partField->GetName() == PartNameFieldName );
 
@@ -1791,7 +1781,7 @@ const LIB_SYMBOL* CADSTAR_SCH_ARCHIVE_LOADER::loadSymdef( const SYMDEF_ID& aSymd
         }
 
         wxString attributeName = getAttributeName( attributeId );
-        LIB_FIELD* field = addNewFieldToSymbol( attributeName, kiSym );
+        SCH_FIELD* field = addNewFieldToSymbol( attributeName, kiSym );
         applyToLibraryFieldAttribute( textLocation, csSym.Origin, field );
     }
 
@@ -1805,7 +1795,7 @@ const LIB_SYMBOL* CADSTAR_SCH_ARCHIVE_LOADER::loadSymdef( const SYMDEF_ID& aSymd
         }
 
         wxString   attributeName = getAttributeName( attributeId );
-        LIB_FIELD* field = addNewFieldToSymbol( attributeName, kiSym );
+        SCH_FIELD* field = addNewFieldToSymbol( attributeName, kiSym );
 
         if( attrValue.HasLocation )
             applyToLibraryFieldAttribute( attrValue.AttributeLocation, csSym.Origin, field );
@@ -1872,7 +1862,7 @@ void CADSTAR_SCH_ARCHIVE_LOADER::loadSymbolGateAndPartFields( const SYMDEF_ID& a
     tempSymbol->GetValueField().SetVisible( false );
 
 
-    LIB_FIELD* partNameField = tempSymbol->FindField( PartNameFieldName );
+    SCH_FIELD* partNameField = tempSymbol->FindField( PartNameFieldName );
 
     if( partNameField )
         partNameField->SetText( EscapeFieldText( aCadstarPart.Name ) );
@@ -1918,8 +1908,8 @@ void CADSTAR_SCH_ARCHIVE_LOADER::loadSymbolGateAndPartFields( const SYMDEF_ID& a
             return;
         }
 
-        bool attrIsNew = tempSymbol->FindField( attrName ) == nullptr;
-        LIB_FIELD* attrField = addNewFieldToSymbol( attrName, tempSymbol );
+        bool       attrIsNew = tempSymbol->FindField( attrName ) == nullptr;
+        SCH_FIELD* attrField = addNewFieldToSymbol( attrName, tempSymbol );
 
         wxASSERT( attrField->GetName() == attrName );
         attrField->SetText( aAttributeVal.Value );
@@ -1938,7 +1928,7 @@ void CADSTAR_SCH_ARCHIVE_LOADER::loadSymbolGateAndPartFields( const SYMDEF_ID& a
         {
             attrField->SetVisible( false );
             applyTextSettings( attrField, wxT( "TC1" ), ALIGNMENT::NO_ALIGNMENT,
-                                JUSTIFICATION::LEFT );
+                               JUSTIFICATION::LEFT, false, true );
         }
     };
 
@@ -1985,7 +1975,7 @@ void CADSTAR_SCH_ARCHIVE_LOADER::setFootprintOnSymbol( std::unique_ptr<LIB_SYMBO
 
 
 void CADSTAR_SCH_ARCHIVE_LOADER::loadLibrarySymbolShapeVertices( const std::vector<VERTEX>& aCadstarVertices,
-                                                                 VECTOR2I aSymbolOrigin,
+                                                                 const VECTOR2I& aSymbolOrigin,
                                                                  LIB_SYMBOL* aSymbol,
                                                                  int aGateNumber,
                                                                  int aLineThickness )
@@ -1999,11 +1989,11 @@ void CADSTAR_SCH_ARCHIVE_LOADER::loadLibrarySymbolShapeVertices( const std::vect
     {
         cur = &aCadstarVertices.at( i );
 
-        LIB_SHAPE* shape      = nullptr;
+        SCH_SHAPE* shape      = nullptr;
         bool       cw         = false;
-        VECTOR2I startPoint = getKiCadLibraryPoint( prev->End, aSymbolOrigin );
-        VECTOR2I endPoint   = getKiCadLibraryPoint( cur->End, aSymbolOrigin );
-        VECTOR2I centerPoint;
+        VECTOR2I   startPoint = getKiCadLibraryPoint( prev->End, aSymbolOrigin );
+        VECTOR2I   endPoint   = getKiCadLibraryPoint( cur->End, aSymbolOrigin );
+        VECTOR2I   centerPoint;
 
         if( cur->Type == VERTEX_TYPE::ANTICLOCKWISE_SEMICIRCLE
                 || cur->Type == VERTEX_TYPE::CLOCKWISE_SEMICIRCLE )
@@ -2019,7 +2009,7 @@ void CADSTAR_SCH_ARCHIVE_LOADER::loadLibrarySymbolShapeVertices( const std::vect
         switch( cur->Type )
         {
         case VERTEX_TYPE::POINT:
-            shape = new LIB_SHAPE( aSymbol, SHAPE_T::POLY );
+            shape = new SCH_SHAPE( SHAPE_T::POLY, LAYER_DEVICE );
             shape->AddPoint( startPoint );
             shape->AddPoint( endPoint );
             break;
@@ -2031,7 +2021,7 @@ void CADSTAR_SCH_ARCHIVE_LOADER::loadLibrarySymbolShapeVertices( const std::vect
 
         case VERTEX_TYPE::ANTICLOCKWISE_SEMICIRCLE:
         case VERTEX_TYPE::ANTICLOCKWISE_ARC:
-            shape = new LIB_SHAPE( aSymbol, SHAPE_T::ARC );
+            shape = new SCH_SHAPE( SHAPE_T::ARC, LAYER_DEVICE );
 
             shape->SetPosition( centerPoint );
 
@@ -2060,17 +2050,15 @@ void CADSTAR_SCH_ARCHIVE_LOADER::loadLibrarySymbolShapeVertices( const std::vect
 }
 
 
-void CADSTAR_SCH_ARCHIVE_LOADER::applyToLibraryFieldAttribute(
-        const ATTRIBUTE_LOCATION& aCadstarAttrLoc, VECTOR2I aSymbolOrigin, LIB_FIELD* aKiCadField )
+void CADSTAR_SCH_ARCHIVE_LOADER::applyToLibraryFieldAttribute( const ATTRIBUTE_LOCATION& aCadstarAttrLoc,
+                                                               const VECTOR2I& aSymbolOrigin,
+                                                               SCH_FIELD* aKiCadField )
 {
     aKiCadField->SetTextPos( getKiCadLibraryPoint( aCadstarAttrLoc.Position, aSymbolOrigin ) );
 
-    applyTextSettings( aKiCadField,
-                       aCadstarAttrLoc.TextCodeID,
-                       aCadstarAttrLoc.Alignment,
-                       aCadstarAttrLoc.Justification,
-                       aCadstarAttrLoc.OrientAngle,
-                       aCadstarAttrLoc.Mirror );
+    applyTextSettings( aKiCadField, aCadstarAttrLoc.TextCodeID, aCadstarAttrLoc.Alignment,
+                       aCadstarAttrLoc.Justification, aCadstarAttrLoc.OrientAngle,
+                       aCadstarAttrLoc.Mirror, true );
 }
 
 
@@ -2212,9 +2200,7 @@ void CADSTAR_SCH_ARCHIVE_LOADER::loadSymbolFieldAttribute( const ATTRIBUTE_LOCAT
         alignment = mirrorX( alignment );
     }
 
-    applyTextSettings( aKiCadField,
-                       aCadstarAttrLoc.TextCodeID,
-                       alignment,
+    applyTextSettings( aKiCadField, aCadstarAttrLoc.TextCodeID, alignment,
                        aCadstarAttrLoc.Justification,
                        getCadstarAngle( textAngle - aComponentOrientation ),
                        aCadstarAttrLoc.Mirror );
@@ -2388,11 +2374,11 @@ void CADSTAR_SCH_ARCHIVE_LOADER::loadShapeVertices( const std::vector<VERTEX>& a
                   "First vertex should always be a point vertex" );
 
     auto pointTransform =
-        [&]( const VECTOR2I& aV )
-        {
-            return applyTransform( getKiCadPoint( aV ), aMoveVector, aRotation,
-                                   aScalingFactor, aTransformCentre, aMirrorInvert );
-        };
+            [&]( const VECTOR2I& aV )
+            {
+                return applyTransform( getKiCadPoint( aV ), aMoveVector, aRotation,
+                                       aScalingFactor, aTransformCentre, aMirrorInvert );
+            };
 
     for( size_t ii = 1; ii < aCadstarVertices.size(); ii++ )
     {
@@ -2410,12 +2396,12 @@ void CADSTAR_SCH_ARCHIVE_LOADER::loadShapeVertices( const std::vector<VERTEX>& a
         {
             SHAPE_ARC tempArc = cur->BuildArc( transformedStartPoint, pointTransform );
 
-            SCH_SHAPE* arcShape = new SCH_SHAPE( SHAPE_T::ARC, lineWidth );
+            SCH_SHAPE* arcShape = new SCH_SHAPE( SHAPE_T::ARC, LAYER_NOTES, lineWidth );
             arcShape->SetArcGeometry( tempArc.GetP0(), tempArc.GetArcMid(), tempArc.GetP1() );
 
             loadItemOntoKiCadSheet( aCadstarSheetID, arcShape );
-        }
             break;
+        }
 
         case VERTEX_TYPE::POINT:
         {
@@ -2429,13 +2415,12 @@ void CADSTAR_SCH_ARCHIVE_LOADER::loadShapeVertices( const std::vector<VERTEX>& a
             segment->SetEndPoint( transformedEndPoint );
 
             loadItemOntoKiCadSheet( aCadstarSheetID, segment );
-         }
             break;
+        }
 
         default:
             wxFAIL_MSG( "Unknown CADSTAR Vertex type" );
         }
-
 
         prev = cur;
     }
@@ -2598,12 +2583,9 @@ void CADSTAR_SCH_ARCHIVE_LOADER::loadChildSheets( LAYER_ID aCadstarSheetID,
                 kiTxt->SetPosition( getKiCadPoint( block.BlockLabel.Position ) );
                 kiTxt->SetText( block.Name );
 
-                applyTextSettings( kiTxt,
-                                    block.BlockLabel.TextCodeID,
-                                    block.BlockLabel.Alignment,
-                                    block.BlockLabel.Justification,
-                                    block.BlockLabel.OrientAngle,
-                                    block.BlockLabel.Mirror );
+                applyTextSettings( kiTxt, block.BlockLabel.TextCodeID, block.BlockLabel.Alignment,
+                                   block.BlockLabel.Justification, block.BlockLabel.OrientAngle,
+                                   block.BlockLabel.Mirror );
 
                 loadItemOntoKiCadSheet( aCadstarSheetID, kiTxt );
             }
@@ -3003,7 +2985,8 @@ void CADSTAR_SCH_ARCHIVE_LOADER::applyTextSettings( EDA_TEXT*            aKiCadT
                                                     const ALIGNMENT&     aCadstarAlignment,
                                                     const JUSTIFICATION& aCadstarJustification,
                                                     const long long      aCadstarOrientAngle,
-                                                    bool                 aMirrored )
+                                                    bool                 aMirrored,
+                                                    bool                 aInvertY )
 {
     applyTextCodeIfExists( aKiCadTextItem, aCadstarTextCodeID );
     aKiCadTextItem->SetTextAngle( getAngle( aCadstarOrientAngle ) );
@@ -3026,7 +3009,7 @@ void CADSTAR_SCH_ARCHIVE_LOADER::applyTextSettings( EDA_TEXT*            aKiCadT
                 {
                 case ALIGNMENT::NO_ALIGNMENT: // Bottom left of the first line
                     //No exact KiCad equivalent, so lets move the position of the text
-                    FixTextPositionNoAlignment( aText );
+                    FixTextPositionNoAlignment( aText, aInvertY );
                     KI_FALLTHROUGH;
                 case ALIGNMENT::BOTTOMLEFT:
                     aText->SetVertJustify( GR_TEXT_V_ALIGN_BOTTOM );
@@ -3079,13 +3062,7 @@ void CADSTAR_SCH_ARCHIVE_LOADER::applyTextSettings( EDA_TEXT*            aKiCadT
     EDA_ITEM*  textEdaItem = dynamic_cast<EDA_ITEM*>( aKiCadTextItem );
     wxCHECK( textEdaItem, /* void */ ); // ensure this is a EDA_ITEM
 
-    switch( textEdaItem->Type() )
-    {
-    // Some KiCad schematic text items only permit a limited amount of angles
-    // and text justifications
-    case LIB_TEXT_T:
-    case SCH_FIELD_T:
-    case LIB_FIELD_T:
+    if( textEdaItem->Type() == SCH_FIELD_T || aInvertY )
     {
         // Spin style not used. All text justifications are permitted. However, only orientations
         // of 0 deg or 90 deg are supported
@@ -3117,10 +3094,8 @@ void CADSTAR_SCH_ARCHIVE_LOADER::applyTextSettings( EDA_TEXT*            aKiCadT
 
         aKiCadTextItem->SetTextAngle( angle );
         setAlignment( aKiCadTextItem, textAlignment );
-        return;
     }
-
-    case SCH_TEXT_T:
+    else if( textEdaItem->Type() == SCH_TEXT_T )
     {
         // Note spin style in a SCH_TEXT results in a vertical alignment GR_TEXT_V_ALIGN_BOTTOM
         // so need to adjust the location of the text element based on Cadstar's original text
@@ -3138,6 +3113,7 @@ void CADSTAR_SCH_ARCHIVE_LOADER::applyTextSettings( EDA_TEXT*            aKiCadT
         case SPIN_STYLE::UP:     pos = { bb.GetRight() - off, bb.GetBottom()       }; break;
         case SPIN_STYLE::LEFT:   pos = { bb.GetRight()      , bb.GetBottom() + off }; break;
         case SPIN_STYLE::RIGHT:  pos = { bb.GetLeft()       , bb.GetBottom() + off }; break;
+        default:                 wxFAIL_MSG( "Unexpected Spin Style" );               break;
         }
 
         aKiCadTextItem->SetTextPos( pos );
@@ -3163,23 +3139,22 @@ void CADSTAR_SCH_ARCHIVE_LOADER::applyTextSettings( EDA_TEXT*            aKiCadT
             aKiCadTextItem->SetTextAngle( ANGLE_VERTICAL );
             aKiCadTextItem->SetHorizJustify( GR_TEXT_H_ALIGN_RIGHT );
             break;
+
+        default:
+            wxFAIL_MSG( "Unexpected Spin Style" );
+            break;
         }
 
         aKiCadTextItem->SetVertJustify( GR_TEXT_V_ALIGN_BOTTOM );
-        break;
     }
-
-    // We don't want to change position of net labels as that would break connectivity
-    case SCH_LABEL_T:
-    case SCH_GLOBAL_LABEL_T:
-    case SCH_HIER_LABEL_T:
-    case SCH_SHEET_PIN_T:
-        static_cast<SCH_LABEL_BASE*>( aKiCadTextItem )->SetSpinStyle( spin );
-        return;
-
-    default:
+    else if( SCH_LABEL_BASE* label = dynamic_cast<SCH_LABEL_BASE*>( aKiCadTextItem ) )
+    {
+        // We don't want to change position of net labels as that would break connectivity
+        label->SetSpinStyle( spin );
+    }
+    else
+    {
         wxFAIL_MSG( "Unexpected item type" );
-        return;
     }
 }
 
@@ -3192,11 +3167,8 @@ SCH_TEXT* CADSTAR_SCH_ARCHIVE_LOADER::getKiCadSchText( const TEXT& aCadstarTextE
     kiTxt->SetPosition( getKiCadPoint( aCadstarTextElement.Position ) );
     kiTxt->SetText( aCadstarTextElement.Text );
 
-    applyTextSettings( kiTxt,
-                       aCadstarTextElement.TextCodeID,
-                       aCadstarTextElement.Alignment,
-                       aCadstarTextElement.Justification,
-                       aCadstarTextElement.OrientAngle,
+    applyTextSettings( kiTxt, aCadstarTextElement.TextCodeID, aCadstarTextElement.Alignment,
+                       aCadstarTextElement.Justification, aCadstarTextElement.OrientAngle,
                        aCadstarTextElement.Mirror );
 
     return kiTxt;
@@ -3236,9 +3208,9 @@ LIB_SYMBOL* CADSTAR_SCH_ARCHIVE_LOADER::getScaledLibPart( const LIB_SYMBOL* aSym
     {
         switch( item.Type() )
         {
-        case KICAD_T::LIB_SHAPE_T:
+        case KICAD_T::SCH_SHAPE_T:
         {
-            LIB_SHAPE& shape = static_cast<LIB_SHAPE&>( item );
+            SCH_SHAPE& shape = static_cast<SCH_SHAPE&>( item );
 
             if( shape.GetShape() == SHAPE_T::ARC )
             {
@@ -3265,9 +3237,9 @@ LIB_SYMBOL* CADSTAR_SCH_ARCHIVE_LOADER::getScaledLibPart( const LIB_SYMBOL* aSym
             break;
         }
 
-        case KICAD_T::LIB_TEXT_T:
+        case KICAD_T::SCH_TEXT_T:
         {
-            LIB_TEXT& txt = static_cast<LIB_TEXT&>( item );
+            SCH_TEXT& txt = static_cast<SCH_TEXT&>( item );
 
             txt.SetPosition( scalePt( txt.GetPosition() ) );
             txt.SetTextSize( scaleSize( txt.GetTextSize() ) );
@@ -3295,11 +3267,11 @@ void CADSTAR_SCH_ARCHIVE_LOADER::fixUpLibraryPins( LIB_SYMBOL* aSymbolToFix, int
     // Note: Need the custom comparison function to ensure the map is sorted correctly
     std::map<VECTOR2I, SHAPE_LINE_CHAIN, decltype( compLambda )> uniqueSegments( compLambda );
 
-    LIB_ITEMS_CONTAINER::ITERATOR shapeIt = aSymbolToFix->GetDrawItems().begin( LIB_SHAPE_T );
+    LIB_ITEMS_CONTAINER::ITERATOR shapeIt = aSymbolToFix->GetDrawItems().begin( SCH_SHAPE_T );
 
-    for( ; shapeIt != aSymbolToFix->GetDrawItems().end( LIB_SHAPE_T ); ++shapeIt )
+    for( ; shapeIt != aSymbolToFix->GetDrawItems().end( SCH_SHAPE_T ); ++shapeIt )
     {
-        LIB_SHAPE& shape = static_cast<LIB_SHAPE&>( *shapeIt );
+        SCH_SHAPE& shape = static_cast<SCH_SHAPE&>( *shapeIt );
 
         if( aGateNumber > 0 && shape.GetUnit() != aGateNumber )
             continue;

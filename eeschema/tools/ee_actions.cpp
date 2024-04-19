@@ -331,7 +331,7 @@ TOOL_ACTION EE_ACTIONS::showHiddenFields( TOOL_ACTION_ARGS()
         .Scope( AS_GLOBAL )
         .FriendlyName( _( "Show Hidden Fields" ) )
         .Tooltip( _( "Toggle display of hidden text fields" ) )
-        .Icon( BITMAPS::spreadsheet ) );
+        .Icon( BITMAPS::text_sketch ) );
 
 
 // SYMBOL_EDITOR_DRAWING_TOOLS
@@ -354,7 +354,7 @@ TOOL_ACTION EE_ACTIONS::placeSymbolText( TOOL_ACTION_ARGS()
         .Tooltip( _( "Add a text item" ) )
         .Icon( BITMAPS::text )
         .Flags( AF_ACTIVATE )
-        .Parameter( LIB_TEXT_T ) );
+        .Parameter( SCH_TEXT_T ) );
 
 TOOL_ACTION EE_ACTIONS::drawSymbolTextBox( TOOL_ACTION_ARGS()
         .Name( "eeschema.SymbolDrawing.drawSymbolTextBox" )
@@ -1205,7 +1205,7 @@ TOOL_ACTION EE_ACTIONS::lineMode45( TOOL_ACTION_ARGS()
 TOOL_ACTION EE_ACTIONS::lineModeNext( TOOL_ACTION_ARGS()
         .Name( "eeschema.EditorControl.lineModeNext" )
         .Scope( AS_GLOBAL )
-        .DefaultHotkey( MD_SHIFT + WXK_SPACE )
+        .DefaultHotkey( MD_SHIFT + static_cast<int>( WXK_SPACE ) )
         .FriendlyName( _( "Line Mode for Wires and Buses" ) )
         .Tooltip( _( "Switch to next line mode" ) ) );
 
@@ -1250,7 +1250,7 @@ TOOL_ACTION EE_ACTIONS::enterSheet( TOOL_ACTION_ARGS()
 TOOL_ACTION EE_ACTIONS::leaveSheet( TOOL_ACTION_ARGS()
         .Name( "eeschema.NavigateTool.leaveSheet" )
         .Scope( AS_GLOBAL )
-        .DefaultHotkey( MD_ALT + WXK_BACK )
+        .DefaultHotkey( MD_ALT + static_cast<int>( WXK_BACK ) )
         .LegacyHotkeyName( "Leave Sheet" )
         .FriendlyName( _( "Leave Sheet" ) )
         .Tooltip( _( "Display the parent sheet in the schematic editor" ) )
@@ -1259,7 +1259,7 @@ TOOL_ACTION EE_ACTIONS::leaveSheet( TOOL_ACTION_ARGS()
 TOOL_ACTION EE_ACTIONS::navigateUp( TOOL_ACTION_ARGS()
         .Name( "eeschema.NavigateTool.up" )
         .Scope( AS_GLOBAL )
-        .DefaultHotkey( MD_ALT + WXK_UP )
+        .DefaultHotkey( MD_ALT + static_cast<int>( WXK_UP ) )
         .FriendlyName( _( "Navigate Up" ) )
         .Tooltip( _( "Navigate up one sheet in the hierarchy" ) )
         .Icon( BITMAPS::up ) );
@@ -1267,7 +1267,7 @@ TOOL_ACTION EE_ACTIONS::navigateUp( TOOL_ACTION_ARGS()
 TOOL_ACTION EE_ACTIONS::navigateBack( TOOL_ACTION_ARGS()
         .Name( "eeschema.NavigateTool.back" )
         .Scope( AS_GLOBAL )
-        .DefaultHotkey( MD_ALT + WXK_LEFT )
+        .DefaultHotkey( MD_ALT + static_cast<int>( WXK_LEFT ) )
         .FriendlyName( _( "Navigate Back" ) )
         .Tooltip( _( "Move backward in sheet navigation history" ) )
         .Icon( BITMAPS::left ) );
@@ -1275,7 +1275,7 @@ TOOL_ACTION EE_ACTIONS::navigateBack( TOOL_ACTION_ARGS()
 TOOL_ACTION EE_ACTIONS::navigateForward( TOOL_ACTION_ARGS()
         .Name( "eeschema.NavigateTool.forward" )
         .Scope( AS_GLOBAL )
-        .DefaultHotkey( MD_ALT + WXK_RIGHT )
+        .DefaultHotkey( MD_ALT + static_cast<int>( WXK_RIGHT ) )
         .FriendlyName( _( "Navigate Forward" ) )
         .Tooltip( _( "Move forward in sheet navigation history" ) )
         .Icon( BITMAPS::right ) );

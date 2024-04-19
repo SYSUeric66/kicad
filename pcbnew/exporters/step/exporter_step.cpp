@@ -118,6 +118,7 @@ wxString EXPORTER_STEP_PARAMS::GetDefaultExportExtension()
     switch( m_format )
     {
     case EXPORTER_STEP_PARAMS::FORMAT::STEP: return wxS( "step" );
+    case EXPORTER_STEP_PARAMS::FORMAT::BREP: return wxS( "brep" );
     case EXPORTER_STEP_PARAMS::FORMAT::GLB:  return wxS( "glb" );
     default:                                 return wxEmptyString; // shouldn't happen
     }
@@ -129,7 +130,8 @@ wxString EXPORTER_STEP_PARAMS::GetFormatName()
     {
     // honestly these names shouldn't be translated since they are mostly industry standard acronyms
     case EXPORTER_STEP_PARAMS::FORMAT::STEP: return wxS( "STEP" );
-    case EXPORTER_STEP_PARAMS::FORMAT::GLB:  return wxS("Binary GLTF" );
+    case EXPORTER_STEP_PARAMS::FORMAT::BREP: return wxS( "BREP" );
+    case EXPORTER_STEP_PARAMS::FORMAT::GLB:  return wxS( "Binary GLTF" );
     default:                                 return wxEmptyString; // shouldn't happen
     }
 }
@@ -400,6 +402,7 @@ bool EXPORTER_STEP::buildBoard3DShapes()
     m_pcbModel->SetCopperColor( m_copperColor.r, m_copperColor.g, m_copperColor.b );
 
     m_pcbModel->SetPCBThickness( m_boardThickness );
+    m_pcbModel->SetFuseShapes( m_params.m_fuseShapes );
 
     // Note: m_params.m_BoardOutlinesChainingEpsilon is used only to build the board outlines,
     // not to set OCC chaining epsilon (much smaller)
@@ -529,6 +532,8 @@ bool EXPORTER_STEP::Export()
         bool success = true;
         if( m_params.m_format == EXPORTER_STEP_PARAMS::FORMAT::STEP )
             success = m_pcbModel->WriteSTEP( m_outputFile, m_params.m_optimizeStep );
+        else if( m_params.m_format == EXPORTER_STEP_PARAMS::FORMAT::BREP )
+            success = m_pcbModel->WriteBREP( m_outputFile );
         else if( m_params.m_format == EXPORTER_STEP_PARAMS::FORMAT::GLB )
             success = m_pcbModel->WriteGLTF( m_outputFile );
 

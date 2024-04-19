@@ -49,13 +49,8 @@
 #include <sch_sheet_pin.h>
 #include <schematic.h>
 #include <sch_screen.h>
-#include <lib_shape.h>
 #include <lib_pin.h>
-#include <lib_text.h>
-#include <lib_textbox.h>
-#include <eeschema_id.h>       // for MAX_UNIT_COUNT_PER_PACKAGE definition
 #include <io/kicad/kicad_io_utils.h>
-#include <sch_file_versions.h>
 #include <schematic_lexer.h>
 #include <sch_io/kicad_sexpr/sch_io_kicad_sexpr.h>
 #include <sch_io/kicad_sexpr/sch_io_kicad_sexpr_parser.h>
@@ -647,9 +642,6 @@ void SCH_IO_KICAD_SEXPR::saveSymbol( SCH_SYMBOL* aSymbol, const SCHEMATIC& aSche
                                      const SCH_SHEET_PATH* aRelativePath )
 {
     wxCHECK_RET( aSymbol != nullptr && m_out != nullptr, "" );
-
-    // Sort symbol instance data to minimize file churn.
-    aSymbol->SortInstances( SortSymbolInstancesByProjectUuid );
 
     std::string     libName;
 
@@ -1775,10 +1767,10 @@ void SCH_IO_KICAD_SEXPR::GetAvailableSymbolFields( std::vector<wxString>& aNames
 
     for( LIB_SYMBOL_MAP::const_iterator it = symbols.begin();  it != symbols.end();  ++it )
     {
-        std::vector<LIB_FIELD*> fields;
+        std::vector<SCH_FIELD*> fields;
         it->second->GetFields( fields );
 
-        for( LIB_FIELD* field : fields )
+        for( SCH_FIELD* field : fields )
         {
             if( field->IsMandatory() )
                 continue;

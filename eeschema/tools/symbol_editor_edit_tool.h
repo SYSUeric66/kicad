@@ -65,10 +65,10 @@ public:
     int InteractiveDelete( const TOOL_EVENT& aEvent );
 
 private:
-    void editShapeProperties( LIB_SHAPE* aShape );
+    void editShapeProperties( SCH_SHAPE* aShape );
     void editTextProperties( SCH_ITEM* aItem );
     void editTextBoxProperties( SCH_ITEM* aItem );
-    void editFieldProperties( LIB_FIELD* aField );
+    void editFieldProperties( SCH_FIELD* aField );
     void editSymbolProperties();
     void handlePinDuplication(LIB_PIN* aOldPin, LIB_PIN* aNewPin, int &aSymbolLastPinNumber );
 

@@ -4,8 +4,6 @@ if( COMPILER_SUPPORTS_WARNINGS )
     set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${WARN_FLAGS_C}")
 endif()
 
-add_compile_definitions( EESCHEMA )
-
 if( CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang" )
     if( MSYS )
         # For some reason the big file sim/ngspice_models.cpp creates an issue when
@@ -123,14 +121,8 @@ set( EESCHEMA_DLGS
     dialogs/dialog_lib_edit_pin_table_base.cpp
     dialogs/dialog_lib_new_symbol.cpp
     dialogs/dialog_lib_new_symbol_base.cpp
-    dialogs/dialog_lib_shape_properties.cpp
-    dialogs/dialog_lib_shape_properties_base.cpp
     dialogs/dialog_lib_symbol_properties.cpp
     dialogs/dialog_lib_symbol_properties_base.cpp
-    dialogs/dialog_lib_text_properties.cpp
-    dialogs/dialog_lib_text_properties_base.cpp
-    dialogs/dialog_lib_textbox_properties.cpp
-    dialogs/dialog_lib_textbox_properties_base.cpp
     dialogs/dialog_line_properties.cpp
     dialogs/dialog_line_properties_base.cpp
     dialogs/dialog_migrate_buses.cpp
@@ -361,12 +353,8 @@ set( EESCHEMA_SRCS
     generate_alias_info.cpp
     gfx_import_utils.cpp
     picksymbol.cpp
-    lib_field.cpp
-        lib_pin.cpp
-    lib_shape.cpp
+    lib_pin.cpp
     lib_symbol.cpp
-    lib_text.cpp
-    lib_textbox.cpp
     libarch.cpp
     menubar.cpp
     net_navigator.cpp
@@ -551,13 +539,8 @@ add_executable( eeschema WIN32 MACOSX_BUNDLE
 set_source_files_properties( ${CMAKE_SOURCE_DIR}/common/single_top.cpp PROPERTIES
     COMPILE_DEFINITIONS "TOP_FRAME=FRAME_SCH;PGM_DATA_FILE_EXT=\"kicad_sch\";BUILD_KIWAY_DLL"
     )
+
 target_link_libraries( eeschema
-    #singletop  # replaces common, giving us restrictive control and link warnings.
-    # There's way too much crap coming in from common yet.
-    gal
-    common
-    pcbcommon
-    argparse::argparse
     kicommon
     ${wxWidgets_LIBRARIES}
     )

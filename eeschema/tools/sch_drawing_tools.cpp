@@ -1886,7 +1886,7 @@ int SCH_DRAWING_TOOLS::DrawShape( const TOOL_EVENT& aEvent )
 
             if( isTextBox )
             {
-                SCH_TEXTBOX* textbox = new SCH_TEXTBOX( 0, m_lastTextboxFillStyle );
+                SCH_TEXTBOX* textbox = new SCH_TEXTBOX( LAYER_NOTES, 0, m_lastTextboxFillStyle );
 
                 textbox->SetTextSize( VECTOR2I( sch_settings.m_DefaultTextSize,
                                                 sch_settings.m_DefaultTextSize ) );
@@ -1907,12 +1907,12 @@ int SCH_DRAWING_TOOLS::DrawShape( const TOOL_EVENT& aEvent )
             }
             else
             {
-                item = new SCH_SHAPE( type, 0, m_lastFillStyle );
+                item = new SCH_SHAPE( type, LAYER_NOTES, 0, m_lastFillStyle );
 
                 item->SetStroke( m_lastStroke );
                 item->SetFillColor( m_lastFillColor );
                 item->SetParent( schematic );
-                description = wxString::Format( _( "Add %s" ), item->EDA_SHAPE::GetFriendlyName() );
+                description = wxString::Format( _( "Add %s" ), item->GetFriendlyName() );
             }
 
             item->SetFlags( IS_NEW );
@@ -2028,29 +2028,6 @@ int SCH_DRAWING_TOOLS::DrawShape( const TOOL_EVENT& aEvent )
     getViewControls()->CaptureCursor( false );
     m_frame->GetCanvas()->SetCurrentCursor( KICURSOR::ARROW );
     return 0;
-}
-
-
-void SCH_DRAWING_TOOLS::initSharedInstancePageNumbers( const SCH_SHEET_PATH& aAddedSheet )
-{
-    SCH_SHEET_LIST fullHierarchy = m_frame->Schematic().GetFullHierarchy();
-    SCH_SHEET_LIST instances = fullHierarchy.FindAllSheetsForScreen( aAddedSheet.LastScreen() );
-
-    long pageNo;
-    long addedSheetPageNo;
-
-    if( aAddedSheet.GetPageNumber().ToLong( &addedSheetPageNo ) )
-        pageNo = addedSheetPageNo + 1;
-    else
-        pageNo = (signed)( fullHierarchy.size() - instances.size() + 1 );
-
-    for( SCH_SHEET_PATH& sheet : instances )
-    {
-        if( sheet == aAddedSheet )
-            continue;
-
-        sheet.SetPageNumber( wxString::Format( wxS( "%ld" ), pageNo++ ) );
-    }
 }
 
 
@@ -2430,7 +2407,6 @@ int SCH_DRAWING_TOOLS::DrawSheet( const TOOL_EVENT& aEvent )
 
                 SCH_SHEET_PATH newPath = m_frame->GetCurrentSheet();
                 newPath.push_back( sheet );
-                initSharedInstancePageNumbers( newPath );
 
                 m_frame->UpdateHierarchyNavigator();
                 m_selectionTool->AddItemToSel( sheet );

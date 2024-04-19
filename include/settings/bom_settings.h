@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2023 Mike Williams <mike@mikebwilliams.com>
- * Copyright (C) 2023 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2024 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software: you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -38,10 +38,10 @@ struct KICOMMON_API BOM_FIELD
 };
 
 KICOMMON_API bool operator!=( const BOM_FIELD& lhs, const BOM_FIELD& rhs );
-KICOMMON_API bool  operator<( const BOM_FIELD& lhs, const BOM_FIELD& rhs );
+KICOMMON_API bool operator<( const BOM_FIELD& lhs, const BOM_FIELD& rhs );
 
 KICOMMON_API void to_json( nlohmann::json& j, const BOM_FIELD& f );
-KICOMMON_API void  from_json( const nlohmann::json& j, BOM_FIELD& f );
+KICOMMON_API void from_json( const nlohmann::json& j, BOM_FIELD& f );
 
 
 // A complete preset defining a BOM "View" with a list of all the fields to show,
@@ -56,9 +56,11 @@ struct KICOMMON_API BOM_PRESET
     wxString               filterString;
     bool                   groupSymbols = false;
     bool                   excludeDNP = false;
+    bool                   includeExcludedFromBOM = false;
 
     bool operator==( const BOM_PRESET& rhs ) const;
 
+    static BOM_PRESET DefaultEditing();
     static BOM_PRESET GroupedByValue();
     static BOM_PRESET GroupedByValueFootprint();
     static BOM_PRESET Attributes();
@@ -67,10 +69,10 @@ struct KICOMMON_API BOM_PRESET
 };
 
 KICOMMON_API bool operator!=( const BOM_PRESET& lhs, const BOM_PRESET& rhs );
-KICOMMON_API bool  operator<( const BOM_PRESET& lhs, const BOM_PRESET& rhs );
+KICOMMON_API bool operator<( const BOM_PRESET& lhs, const BOM_PRESET& rhs );
 
 KICOMMON_API void to_json( nlohmann::json& j, const BOM_PRESET& f );
-KICOMMON_API void  from_json( const nlohmann::json& j, BOM_PRESET& f );
+KICOMMON_API void from_json( const nlohmann::json& j, BOM_PRESET& f );
 
 
 // A formatting preset, like CSV (Comma Separated Values)
@@ -95,10 +97,17 @@ struct KICOMMON_API BOM_FMT_PRESET
 };
 
 KICOMMON_API bool operator!=( const BOM_FMT_PRESET& lhs, const BOM_FMT_PRESET& rhs );
-KICOMMON_API bool  operator<( const BOM_FMT_PRESET& lhs, const BOM_FMT_PRESET& rhs );
+KICOMMON_API bool operator<( const BOM_FMT_PRESET& lhs, const BOM_FMT_PRESET& rhs );
 
 KICOMMON_API void to_json( nlohmann::json& j, const BOM_FMT_PRESET& f );
-KICOMMON_API void  from_json( const nlohmann::json& j, BOM_FMT_PRESET& f );
+KICOMMON_API void from_json( const nlohmann::json& j, BOM_FMT_PRESET& f );
 
+#if defined( __MINGW32__ )
+template class KICOMMON_API PARAM_LIST<struct BOM_PRESET>;
+template class KICOMMON_API PARAM_LIST<struct BOM_FMT_PRESET>;
+#else
+extern template class APIVISIBLE PARAM_LIST<BOM_PRESET>;
+extern template class APIVISIBLE PARAM_LIST<BOM_FMT_PRESET>;
+#endif
 
 #endif
