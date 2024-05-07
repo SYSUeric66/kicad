@@ -242,8 +242,11 @@ void LIB_TREE_NODE_ITEM::Update( LIB_TREE_ITEM* aItem )
     m_IsRoot = aItem->IsRoot();
     m_Children.clear();
 
-    for( int u = 1; u <= aItem->GetUnitCount(); ++u )
-        AddUnit( aItem, u );
+    if( aItem->GetUnitCount() > 1 )
+    {
+        for( int u = 1; u <= aItem->GetUnitCount(); ++u )
+            AddUnit( aItem, u );
+    }
 }
 
 
