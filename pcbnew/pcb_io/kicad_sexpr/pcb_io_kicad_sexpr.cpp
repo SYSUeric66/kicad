@@ -242,6 +242,10 @@ bool FP_CACHE::IsPath( const wxString& aPath ) const
     return aPath == m_lib_raw_path;
 }
 
+bool FP_CACHE::IsHQLibPath( const wxString& aPath ) const
+{
+    return aPath.EndsWith( wxT( "kicad_community_lib.pretty" ) );
+}
 
 void FP_CACHE::SetPath( const wxString& aPath )
 {
@@ -2494,7 +2498,8 @@ void PCB_IO_KICAD_SEXPR::init( const STRING_UTF8_MAP* aProperties )
 
 void PCB_IO_KICAD_SEXPR::validateCache( const wxString& aLibraryPath, bool checkModified )
 {
-    if( !m_cache || !m_cache->IsPath( aLibraryPath ) || ( checkModified && m_cache->IsModified() ) )
+    if( !m_cache || !m_cache->IsPath( aLibraryPath ) || ( checkModified && m_cache->IsModified() )
+         || m_cache->IsHQLibPath( aLibraryPath ) )
     {
         // a spectacular episode in memory management:
         delete m_cache;
