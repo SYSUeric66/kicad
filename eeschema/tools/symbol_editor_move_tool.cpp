@@ -31,6 +31,7 @@
 #include <sch_shape.h>
 #include <sch_commit.h>
 #include <wx/log.h>
+#include <view/view_controls.h>
 #include "symbol_editor_move_tool.h"
 #include "symbol_editor_pin_tool.h"
 
@@ -176,26 +177,23 @@ bool SYMBOL_EDITOR_MOVE_TOOL::doMoveSelection( const TOOL_EVENT& aEvent, SCH_COM
                 //
                 // Careful when pasting.  The pasted pin will be at the same location as it
                 // was copied from, leading us to believe it's a synchronized pin.  It's not.
-                if( m_frame->SynchronizePins()
-                        && ( lib_item->GetEditFlags() & IS_PASTED ) == 0 )
+                if( m_frame->SynchronizePins() && !( lib_item->GetEditFlags() & IS_PASTED ) )
                 {
-                    std::set<LIB_PIN*> sync_pins;
+                    std::set<SCH_PIN*> sync_pins;
 
                     for( EDA_ITEM* sel_item : selection )
                     {
                         lib_item = static_cast<SCH_ITEM*>( sel_item );
 
-                        if(  lib_item->Type() == LIB_PIN_T )
+                        if(  lib_item->Type() == SCH_PIN_T )
                         {
-                            LIB_PIN* cur_pin = static_cast<LIB_PIN*>( lib_item );
-                            LIB_SYMBOL* symbol = m_frame->GetCurSymbol();
+                            SCH_PIN*          cur_pin = static_cast<SCH_PIN*>( lib_item );
+                            LIB_SYMBOL*       symbol = m_frame->GetCurSymbol();
                             std::vector<bool> got_unit( symbol->GetUnitCount() + 1 );
 
                             got_unit[cur_pin->GetUnit()] = true;
 
-                            std::vector<LIB_PIN*> pins = symbol->GetAllLibPins();
-
-                            for( LIB_PIN* pin : pins )
+                            for( SCH_PIN* pin : symbol->GetAllLibPins() )
                             {
                                 if( !got_unit[pin->GetUnit()]
                                         && pin->GetPosition() == cur_pin->GetPosition()
@@ -211,7 +209,7 @@ bool SYMBOL_EDITOR_MOVE_TOOL::doMoveSelection( const TOOL_EVENT& aEvent, SCH_COM
                         }
                     }
 
-                    for( LIB_PIN* pin : sync_pins )
+                    for( SCH_PIN* pin : sync_pins )
                         m_selectionTool->AddItemToSel( pin, true /*quiet mode*/ );
                 }
 
@@ -227,7 +225,7 @@ bool SYMBOL_EDITOR_MOVE_TOOL::doMoveSelection( const TOOL_EVENT& aEvent, SCH_COM
                 if( lib_item->IsNew() )
                 {
                     m_anchorPos = selection.GetReferencePoint();
-                    VECTOR2I delta = m_cursor - mapCoords( m_anchorPos, true );
+                    VECTOR2I delta = m_cursor - m_anchorPos;
 
                     // Drag items to the current cursor position
                     for( EDA_ITEM* item : selection )
@@ -241,7 +239,7 @@ bool SYMBOL_EDITOR_MOVE_TOOL::doMoveSelection( const TOOL_EVENT& aEvent, SCH_COM
                 else if( m_frame->GetMoveWarpsCursor() )
                 {
                     VECTOR2I itemPos = selection.GetTopLeftItem()->GetPosition();
-                    m_anchorPos = VECTOR2I( itemPos.x, -itemPos.y );
+                    m_anchorPos = VECTOR2I( itemPos.x, itemPos.y );
 
                     getViewControls()->WarpMouseCursor( m_anchorPos, true, true );
                     m_cursor = m_anchorPos;
@@ -322,13 +320,13 @@ bool SYMBOL_EDITOR_MOVE_TOOL::doMoveSelection( const TOOL_EVENT& aEvent, SCH_COM
                 || evt->IsClick( BUT_LEFT )
                 || evt->IsDblClick( BUT_LEFT ) )
         {
-            if( selection.GetSize() == 1 && selection.Front()->Type() == LIB_PIN_T )
+            if( selection.GetSize() == 1 && selection.Front()->Type() == SCH_PIN_T )
             {
                 SYMBOL_EDITOR_PIN_TOOL* pinTool = m_toolMgr->GetTool<SYMBOL_EDITOR_PIN_TOOL>();
 
                 try
                 {
-                    LIB_PIN* curr_pin = (LIB_PIN*) selection.Front();
+                    SCH_PIN* curr_pin = static_cast<SCH_PIN*>( selection.Front() );
 
                     if( pinTool->PlacePin( curr_pin ) )
                     {
@@ -387,7 +385,7 @@ int SYMBOL_EDITOR_MOVE_TOOL::AlignElements( const TOOL_EVENT& aEvent )
             [&]( EDA_ITEM* item, const VECTOR2I& delta )
             {
                 commit.Modify( item, m_frame->GetScreen() );
-                static_cast<SCH_ITEM*>( item )->Move( mapCoords( delta, true ) );
+                static_cast<SCH_ITEM*>( item )->Move( delta );
                 updateItem( item, true );
             };
 
@@ -479,7 +477,7 @@ int SYMBOL_EDITOR_MOVE_TOOL::AlignElements( const TOOL_EVENT& aEvent )
             if( delta != VECTOR2I( 0, 0 ) )
                 doMoveItem( item, delta );
 
-            if( LIB_PIN* pin = dynamic_cast<LIB_PIN*>( item ) )
+            if( SCH_PIN* pin = dynamic_cast<SCH_PIN*>( item ) )
             {
                 int length = pin->GetLength();
                 int pinGrid;
@@ -511,7 +509,7 @@ int SYMBOL_EDITOR_MOVE_TOOL::AlignElements( const TOOL_EVENT& aEvent )
 
 void SYMBOL_EDITOR_MOVE_TOOL::moveItem( EDA_ITEM* aItem, const VECTOR2I& aDelta )
 {
-    static_cast<SCH_ITEM*>( aItem )->Move( mapCoords( aDelta, true ) );
+    static_cast<SCH_ITEM*>( aItem )->Move( aDelta );
     aItem->SetFlags( IS_MOVING );
 }
 

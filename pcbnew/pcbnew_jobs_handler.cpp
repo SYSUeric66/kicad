@@ -135,6 +135,8 @@ int PCBNEW_JOBS_HANDLER::JobExportStep( JOB* aJob )
             break;
         case JOB_EXPORT_PCB_3D::FORMAT::BREP: fn.SetExt( FILEEXT::BrepFileExtension );
             break;
+        case JOB_EXPORT_PCB_3D::FORMAT::XAO: fn.SetExt( FILEEXT::XaoFileExtension );
+            break;
         case JOB_EXPORT_PCB_3D::FORMAT::GLB: fn.SetExt( FILEEXT::GltfBinaryFileExtension );
             break;
         default:
@@ -164,7 +166,7 @@ int PCBNEW_JOBS_HANDLER::JobExportStep( JOB* aJob )
 
         if( !aStepJob->m_hasUserOrigin )
         {
-            BOX2I bbox = brd->ComputeBoundingBox( true );
+            BOX2I bbox = brd->ComputeBoundingBox( true, false );
             originX = pcbIUScale.IUTomm( bbox.GetCenter().x );
             originY = pcbIUScale.IUTomm( bbox.GetCenter().y );
         }
@@ -190,8 +192,11 @@ int PCBNEW_JOBS_HANDLER::JobExportStep( JOB* aJob )
     else
     {
         EXPORTER_STEP_PARAMS params;
-        params.m_exportTracks = aStepJob->m_exportTracks;
+        params.m_exportBoardBody = aStepJob->m_exportBoardBody;
+        params.m_exportComponents = aStepJob->m_exportComponents;
+        params.m_exportTracksVias = aStepJob->m_exportTracks;
         params.m_exportZones = aStepJob->m_exportZones;
+        params.m_exportInnerCopper = aStepJob->m_exportInnerCopper;
         params.m_fuseShapes = aStepJob->m_fuseShapes;
         params.m_includeUnspecified = aStepJob->m_includeUnspecified;
         params.m_includeDNP = aStepJob->m_includeDNP;
@@ -203,6 +208,7 @@ int PCBNEW_JOBS_HANDLER::JobExportStep( JOB* aJob )
         params.m_useGridOrigin = aStepJob->m_useGridOrigin;
         params.m_boardOnly = aStepJob->m_boardOnly;
         params.m_optimizeStep = aStepJob->m_optimizeStep;
+        params.m_netFilter = aStepJob->m_netFilter;
 
         switch( aStepJob->m_format )
         {
@@ -211,6 +217,9 @@ int PCBNEW_JOBS_HANDLER::JobExportStep( JOB* aJob )
             break;
         case JOB_EXPORT_PCB_3D::FORMAT::BREP:
             params.m_format = EXPORTER_STEP_PARAMS::FORMAT::BREP;
+            break;
+        case JOB_EXPORT_PCB_3D::FORMAT::XAO:
+            params.m_format = EXPORTER_STEP_PARAMS::FORMAT::XAO;
             break;
         case JOB_EXPORT_PCB_3D::FORMAT::GLB:
             params.m_format = EXPORTER_STEP_PARAMS::FORMAT::GLB;
@@ -1247,7 +1256,7 @@ int PCBNEW_JOBS_HANDLER::JobExportDrc( JOB* aJob )
                 KICAD_NETLIST_READER netlistReader( lineReader, netlist.get() );
                 netlistReader.LoadNetlist();
             }
-            catch( const IO_ERROR& e )
+            catch( const IO_ERROR& )
             {
                 m_reporter->Report( _( "Failed to fetch schematic netlist for parity tests.\n" ),
                                     RPT_SEVERITY_INFO );

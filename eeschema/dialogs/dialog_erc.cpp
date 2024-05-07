@@ -37,20 +37,22 @@
 #include <tools/ee_actions.h>
 #include <tools/ee_inspection_tool.h>
 #include <dialog_erc.h>
-#include <erc.h>
-#include <erc_report.h>
+#include <erc/erc.h>
+#include <erc/erc_report.h>
 #include <id.h>
 #include <confirm.h>
 #include <common.h>
 #include <widgets/wx_html_report_box.h>
 #include <dialogs/dialog_text_entry.h>
-#include <wx/ffile.h>
-#include <wx/filedlg.h>
-#include <wx/hyperlink.h>
-#include <erc_item.h>
+#include <erc/erc_item.h>
 #include <eeschema_settings.h>
 #include <string_utils.h>
 #include <kiplatform/ui.h>
+
+#include <wx/ffile.h>
+#include <wx/filedlg.h>
+#include <wx/hyperlink.h>
+#include <wx/msgdlg.h>
 
 
 wxDEFINE_EVENT( EDA_EVT_CLOSE_ERC_DIALOG, wxCommandEvent );
@@ -80,6 +82,7 @@ DIALOG_ERC::DIALOG_ERC( SCH_EDIT_FRAME* parent ) :
     m_currentSchematic = &parent->Schematic();
 
     SetName( DIALOG_ERC_WINDOW_NAME ); // Set a window name to be able to find it
+    KIPLATFORM::UI::SetFloatLevel( this );
 
     EESCHEMA_SETTINGS* settings = dynamic_cast<EESCHEMA_SETTINGS*>( Kiface().KifaceSettings() );
     m_severities = settings->m_Appearance.erc_severities;
@@ -467,6 +470,8 @@ void DIALOG_ERC::OnRunERCClick( wxCommandEvent& event )
     m_ercRun = true;
     redrawDrawPanel();
     updateDisplayedCounts();
+    // set float level again, it can be lost due to window events during test run
+    KIPLATFORM::UI::SetFloatLevel( this );
 }
 
 

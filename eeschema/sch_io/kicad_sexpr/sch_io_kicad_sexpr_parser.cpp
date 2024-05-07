@@ -36,7 +36,7 @@
 
 #include <base_units.h>
 #include <lib_id.h>
-#include <lib_pin.h>
+#include <sch_pin.h>
 #include <math/util.h>                           // KiROUND, Clamp
 #include <font/font.h>
 #include <string_utils.h>
@@ -46,6 +46,7 @@
 #include <sch_edit_frame.h>          // SYM_ORIENT_XXX
 #include <sch_field.h>
 #include <sch_line.h>
+#include <sch_rule_area.h>
 #include <sch_textbox.h>
 #include <sch_table.h>
 #include <sch_tablecell.h>
@@ -316,15 +317,15 @@ LIB_SYMBOL* SCH_IO_KICAD_SEXPR_PARSER::parseLibSymbol( LIB_SYMBOL_MAP& aSymbolLi
     name.Replace( wxS( "{slash}" ), wxT( "/" ) );
 
     LIB_ID id;
-    int bad_pos = id.Parse( name );
+    int    bad_pos = id.Parse( name );
 
     if( bad_pos >= 0 )
     {
         if( static_cast<int>( name.size() ) > bad_pos )
         {
-            wxString msg = wxString::Format(
-                    _( "Symbol %s contains invalid character '%c'" ), name,
-                    name[bad_pos] );
+            wxString msg = wxString::Format( _( "Symbol %s contains invalid character '%c'" ),
+                                             name,
+                                             name[bad_pos] );
 
             THROW_PARSE_ERROR( msg, CurSource(), CurLine(), CurLineNumber(), CurOffset() );
         }
@@ -487,6 +488,7 @@ LIB_SYMBOL* SCH_IO_KICAD_SEXPR_PARSER::parseLibSymbol( LIB_SYMBOL_MAP& aSymbolLi
                         unitDisplayName = FromUTF8();
                         symbol->SetUnitDisplayName( m_unit, unitDisplayName );
                     }
+
                     NeedRIGHT();
                     break;
 
@@ -498,7 +500,7 @@ LIB_SYMBOL* SCH_IO_KICAD_SEXPR_PARSER::parseLibSymbol( LIB_SYMBOL_MAP& aSymbolLi
                 case T_rectangle:
                 case T_text:
                 case T_text_box:
-                    item = ParseDrawItem();
+                    item = ParseSymbolDrawItem();
 
                     wxCHECK_MSG( item, nullptr, "Invalid draw item pointer." );
 
@@ -524,7 +526,7 @@ LIB_SYMBOL* SCH_IO_KICAD_SEXPR_PARSER::parseLibSymbol( LIB_SYMBOL_MAP& aSymbolLi
         case T_rectangle:
         case T_text:
         case T_text_box:
-            item = ParseDrawItem();
+            item = ParseSymbolDrawItem();
 
             wxCHECK_MSG( item, nullptr, "Invalid draw item pointer." );
 
@@ -545,44 +547,19 @@ LIB_SYMBOL* SCH_IO_KICAD_SEXPR_PARSER::parseLibSymbol( LIB_SYMBOL_MAP& aSymbolLi
 }
 
 
-SCH_ITEM* SCH_IO_KICAD_SEXPR_PARSER::ParseDrawItem()
+SCH_ITEM* SCH_IO_KICAD_SEXPR_PARSER::ParseSymbolDrawItem()
 {
     switch( CurTok() )
     {
-    case T_arc:
-        return parseSymbolArc();
-        break;
-
-    case T_bezier:
-        return parseSymbolBezier();
-        break;
-
-    case T_circle:
-        return parseSymbolCircle();
-        break;
-
-    case T_pin:
-        return parsePin();
-        break;
-
-    case T_polyline:
-        return parseSymbolPolyLine();
-        break;
-
-    case T_rectangle:
-        return parseSymbolRectangle();
-        break;
-
-    case T_text:
-        return parseSymbolText();
-        break;
-
-    case T_text_box:
-        return parseSymbolTextBox();
-        break;
-
-    default:
-        Expecting( "arc, bezier, circle, pin, polyline, rectangle, or text" );
+    case T_arc:       return parseSymbolArc();       break;
+    case T_bezier:    return parseSymbolBezier();    break;
+    case T_circle:    return parseSymbolCircle();    break;
+    case T_pin:       return parseSymbolPin();       break;
+    case T_polyline:  return parseSymbolPolyLine();  break;
+    case T_rectangle: return parseSymbolRectangle(); break;
+    case T_text:      return parseSymbolText();      break;
+    case T_text_box:  return parseSymbolTextBox();   break;
+    default:          Expecting( "arc, bezier, circle, pin, polyline, rectangle, or text" );
     }
 
     return nullptr;
@@ -689,6 +666,8 @@ void SCH_IO_KICAD_SEXPR_PARSER::parseEDA_TEXT( EDA_TEXT* aText, bool aConvertOve
         aText->SetText( ConvertToNewOverbarNotation( aText->GetText() ) );
 
     T        token;
+    bool     bold = false;
+    bool     italic = false;
     wxString faceName;
     COLOR4D  color = COLOR4D::UNSPECIFIED;
 
@@ -734,18 +713,14 @@ void SCH_IO_KICAD_SEXPR_PARSER::parseEDA_TEXT( EDA_TEXT* aText, bool aConvertOve
                     break;
 
                 case T_bold:
-                {
-                    bool bold = parseMaybeAbsentBool( true );
+                    bold = parseMaybeAbsentBool( true );
                     aText->SetBoldFlag( bold );
                     break;
-                }
 
                 case T_italic:
-                {
-                    bool italic = parseMaybeAbsentBool( true );
+                    italic = parseMaybeAbsentBool( true );
                     aText->SetItalic( italic );
                     break;
-                }
 
                 case T_color:
                     color.r = parseInt( "red" ) / 255.0;
@@ -767,10 +742,7 @@ void SCH_IO_KICAD_SEXPR_PARSER::parseEDA_TEXT( EDA_TEXT* aText, bool aConvertOve
             }
 
             if( !faceName.IsEmpty() )
-            {
-                aText->SetFont( KIFONT::FONT::GetFont( faceName, aText->IsBold(),
-                                                       aText->IsItalic() ) );
-            }
+                aText->SetFont( KIFONT::FONT::GetFont( faceName, bold, italic ) );
 
             break;
 
@@ -796,7 +768,7 @@ void SCH_IO_KICAD_SEXPR_PARSER::parseEDA_TEXT( EDA_TEXT* aText, bool aConvertOve
             NeedSYMBOL();
             wxString hyperlink = FromUTF8();
 
-            if( !aText->ValidateHyperlink( hyperlink ) )
+            if( !EDA_TEXT::ValidateHyperlink( hyperlink ) )
             {
                 THROW_PARSE_ERROR( wxString::Format( _( "Invalid hyperlink url '%s'" ), hyperlink ),
                                    CurSource(), CurLine(), CurLineNumber(), CurOffset() );
@@ -885,8 +857,7 @@ SCH_FIELD* SCH_IO_KICAD_SEXPR_PARSER::parseProperty( std::unique_ptr<LIB_SYMBOL>
 
     wxString name;
     wxString value;
-    std::unique_ptr<SCH_FIELD> field = std::make_unique<SCH_FIELD>( aSymbol.get(),
-                                                                    MANDATORY_FIELDS );
+    auto field = std::make_unique<SCH_FIELD>( aSymbol.get(), MANDATORY_FIELDS );
 
     // By default, fieds are visible.
     // Invisible fields have the hide style or keyword specified in file
@@ -947,15 +918,17 @@ SCH_FIELD* SCH_IO_KICAD_SEXPR_PARSER::parseProperty( std::unique_ptr<LIB_SYMBOL>
         case T_id:
         {
             int id = parseInt( "field ID" );
+
             // Only set an ID that isn't a MANDATORY_FIELDS ID
             if( id >= MANDATORY_FIELDS )
                 field->SetId( id );
+
             NeedRIGHT();
         }
             break;
 
         case T_at:
-            field->SetPosition( parseXY() );
+            field->SetPosition( parseXY( true ) );
             field->SetTextAngle( EDA_ANGLE( parseDouble( "text angle" ), DEGREES_T ) );
             NeedRIGHT();
             break;
@@ -983,9 +956,8 @@ SCH_FIELD* SCH_IO_KICAD_SEXPR_PARSER::parseProperty( std::unique_ptr<LIB_SYMBOL>
         }
     }
 
-    // Due to an bug when in #LIB_SYMBOL::Flatten, duplicate ids slipped through
-    // when writing files.  This section replaces duplicate #SCH_FIELD indices on
-    // load.
+    // Due to an bug when in #LIB_SYMBOL::Flatten, duplicate ids slipped through when writing
+    // files.  This section replaces duplicate #SCH_FIELD indices on load.
     if( ( field->GetId() >= MANDATORY_FIELDS ) && m_fieldIDsRead.count( field->GetId() ) )
     {
         int nextAvailableId = field->GetId() + 1;
@@ -1123,18 +1095,18 @@ SCH_SHAPE* SCH_IO_KICAD_SEXPR_PARSER::parseSymbolArc()
         switch( token )
         {
         case T_start:
-            startPoint = parseXY();
+            startPoint = parseXY( true );
             NeedRIGHT();
             break;
 
         case T_mid:
-            midPoint = parseXY();
+            midPoint = parseXY( true );
             NeedRIGHT();
             hasMidPoint = true;
             break;
 
         case T_end:
-            endPoint = parseXY();
+            endPoint = parseXY( true );
             NeedRIGHT();
             break;
 
@@ -1149,7 +1121,7 @@ SCH_SHAPE* SCH_IO_KICAD_SEXPR_PARSER::parseSymbolArc()
                 switch( token )
                 {
                 case T_at:
-                    center = parseXY();
+                    center = parseXY( true );
                     NeedRIGHT();
                     break;
 
@@ -1315,11 +1287,11 @@ SCH_SHAPE* SCH_IO_KICAD_SEXPR_PARSER::parseSymbolBezier()
 
                 switch( ii )
                 {
-                case 0: bezier->SetStart( parseXY() );    break;
-                case 1: bezier->SetBezierC1( parseXY() ); break;
-                case 2: bezier->SetBezierC2( parseXY() ); break;
-                case 3: bezier->SetEnd( parseXY() );      break;
-                default: Unexpected( "control point" );   break;
+                case 0:  bezier->SetStart( parseXY( true ) );    break;
+                case 1:  bezier->SetBezierC1( parseXY( true ) ); break;
+                case 2:  bezier->SetBezierC2( parseXY( true ) ); break;
+                case 3:  bezier->SetEnd( parseXY( true ) );      break;
+                default: Unexpected( "control point" );          break;
                 }
 
                 NeedRIGHT();
@@ -1383,7 +1355,7 @@ SCH_SHAPE* SCH_IO_KICAD_SEXPR_PARSER::parseSymbolCircle()
         switch( token )
         {
         case T_center:
-            center = parseXY();
+            center = parseXY( true );
             NeedRIGHT();
             break;
 
@@ -1415,54 +1387,56 @@ SCH_SHAPE* SCH_IO_KICAD_SEXPR_PARSER::parseSymbolCircle()
 }
 
 
-LIB_PIN* SCH_IO_KICAD_SEXPR_PARSER::parsePin()
+SCH_PIN* SCH_IO_KICAD_SEXPR_PARSER::parseSymbolPin()
 {
-    auto parseType = [&]( T token ) -> ELECTRICAL_PINTYPE
-                     {
-                         switch( token )
-                         {
-                         case T_input:          return ELECTRICAL_PINTYPE::PT_INPUT;
-                         case T_output:         return ELECTRICAL_PINTYPE::PT_OUTPUT;
-                         case T_bidirectional:  return ELECTRICAL_PINTYPE::PT_BIDI;
-                         case T_tri_state:      return ELECTRICAL_PINTYPE::PT_TRISTATE;
-                         case T_passive:        return ELECTRICAL_PINTYPE::PT_PASSIVE;
-                         case T_unspecified:    return ELECTRICAL_PINTYPE::PT_UNSPECIFIED;
-                         case T_power_in:       return ELECTRICAL_PINTYPE::PT_POWER_IN;
-                         case T_power_out:      return ELECTRICAL_PINTYPE::PT_POWER_OUT;
-                         case T_open_collector: return ELECTRICAL_PINTYPE::PT_OPENCOLLECTOR;
-                         case T_open_emitter:   return ELECTRICAL_PINTYPE::PT_OPENEMITTER;
-                         case T_unconnected:
-                         case T_no_connect:     return ELECTRICAL_PINTYPE::PT_NC;
-                         case T_free:           return ELECTRICAL_PINTYPE::PT_NIC;
+    auto parseType =
+            [&]( T token ) -> ELECTRICAL_PINTYPE
+            {
+                switch( token )
+                {
+                case T_input:          return ELECTRICAL_PINTYPE::PT_INPUT;
+                case T_output:         return ELECTRICAL_PINTYPE::PT_OUTPUT;
+                case T_bidirectional:  return ELECTRICAL_PINTYPE::PT_BIDI;
+                case T_tri_state:      return ELECTRICAL_PINTYPE::PT_TRISTATE;
+                case T_passive:        return ELECTRICAL_PINTYPE::PT_PASSIVE;
+                case T_unspecified:    return ELECTRICAL_PINTYPE::PT_UNSPECIFIED;
+                case T_power_in:       return ELECTRICAL_PINTYPE::PT_POWER_IN;
+                case T_power_out:      return ELECTRICAL_PINTYPE::PT_POWER_OUT;
+                case T_open_collector: return ELECTRICAL_PINTYPE::PT_OPENCOLLECTOR;
+                case T_open_emitter:   return ELECTRICAL_PINTYPE::PT_OPENEMITTER;
+                case T_unconnected:
+                case T_no_connect:     return ELECTRICAL_PINTYPE::PT_NC;
+                case T_free:           return ELECTRICAL_PINTYPE::PT_NIC;
 
-                         default:
-                             Expecting( "input, output, bidirectional, tri_state, passive, "
-                                        "unspecified, power_in, power_out, open_collector, "
-                                        "open_emitter, free or no_connect" );
-                             return ELECTRICAL_PINTYPE::PT_UNSPECIFIED;
-                         }
-                     };
+                default:
+                    Expecting( "input, output, bidirectional, tri_state, passive, unspecified, "
+                               "power_in, power_out, open_collector, open_emitter, free or "
+                               "no_connect" );
+                    return ELECTRICAL_PINTYPE::PT_UNSPECIFIED;
+                }
+            };
 
-    auto parseShape = [&]( T token ) -> GRAPHIC_PINSHAPE
-                      {
-                          switch( token )
-                          {
-                          case T_line:            return GRAPHIC_PINSHAPE::LINE;
-                          case T_inverted:        return GRAPHIC_PINSHAPE::INVERTED;
-                          case T_clock:           return GRAPHIC_PINSHAPE::CLOCK;
-                          case T_inverted_clock:  return GRAPHIC_PINSHAPE::INVERTED_CLOCK;
-                          case T_input_low:       return GRAPHIC_PINSHAPE::INPUT_LOW;
-                          case T_clock_low:       return GRAPHIC_PINSHAPE::CLOCK_LOW;
-                          case T_output_low:      return GRAPHIC_PINSHAPE::OUTPUT_LOW;
-                          case T_edge_clock_high: return GRAPHIC_PINSHAPE::FALLING_EDGE_CLOCK;
-                          case T_non_logic:       return GRAPHIC_PINSHAPE::NONLOGIC;
+    auto parseShape =
+            [&]( T token ) -> GRAPHIC_PINSHAPE
+            {
+                switch( token )
+                {
+                case T_line:            return GRAPHIC_PINSHAPE::LINE;
+                case T_inverted:        return GRAPHIC_PINSHAPE::INVERTED;
+                case T_clock:           return GRAPHIC_PINSHAPE::CLOCK;
+                case T_inverted_clock:  return GRAPHIC_PINSHAPE::INVERTED_CLOCK;
+                case T_input_low:       return GRAPHIC_PINSHAPE::INPUT_LOW;
+                case T_clock_low:       return GRAPHIC_PINSHAPE::CLOCK_LOW;
+                case T_output_low:      return GRAPHIC_PINSHAPE::OUTPUT_LOW;
+                case T_edge_clock_high: return GRAPHIC_PINSHAPE::FALLING_EDGE_CLOCK;
+                case T_non_logic:       return GRAPHIC_PINSHAPE::NONLOGIC;
 
-                          default:
-                              Expecting( "line, inverted, clock, inverted_clock, input_low, "
-                                         "clock_low, output_low, edge_clock_high, non_logic" );
-                              return GRAPHIC_PINSHAPE::LINE;
-                          }
-                      };
+                default:
+                    Expecting( "line, inverted, clock, inverted_clock, input_low, clock_low, "
+                               "output_low, edge_clock_high, non_logic" );
+                    return GRAPHIC_PINSHAPE::LINE;
+                }
+            };
 
     wxCHECK_MSG( CurTok() == T_pin, nullptr,
                  wxT( "Cannot parse " ) + GetTokenString( CurTok() ) + wxT( " as a pin token." ) );
@@ -1470,7 +1444,7 @@ LIB_PIN* SCH_IO_KICAD_SEXPR_PARSER::parsePin()
     T                        token;
     wxString                 tmp;
     wxString                 error;
-    std::unique_ptr<LIB_PIN> pin = std::make_unique<LIB_PIN>( nullptr );
+    std::unique_ptr<SCH_PIN> pin = std::make_unique<SCH_PIN>( nullptr );
 
     pin->SetUnit( m_unit );
     pin->SetBodyStyle( m_bodyStyle );
@@ -1499,7 +1473,7 @@ LIB_PIN* SCH_IO_KICAD_SEXPR_PARSER::parsePin()
         switch( token )
         {
         case T_at:
-            pin->SetPosition( parseXY() );
+            pin->SetPosition( parseXY( true ) );
 
             switch( parseInt( "pin orientation" ) )
             {
@@ -1592,7 +1566,7 @@ LIB_PIN* SCH_IO_KICAD_SEXPR_PARSER::parsePin()
 
         case T_alternate:
         {
-            LIB_PIN::ALT alt;
+            SCH_PIN::ALT alt;
 
             token = NextTok();
 
@@ -1666,7 +1640,7 @@ SCH_SHAPE* SCH_IO_KICAD_SEXPR_PARSER::parseSymbolPolyLine()
                 if( token != T_xy )
                     Expecting( "xy" );
 
-                poly->AddPoint( parseXY() );
+                poly->AddPoint( parseXY( true ) );
 
                 NeedRIGHT();
             }
@@ -1724,12 +1698,12 @@ SCH_SHAPE* SCH_IO_KICAD_SEXPR_PARSER::parseSymbolRectangle()
         switch( token )
         {
         case T_start:
-            rectangle->SetPosition( parseXY() );
+            rectangle->SetPosition( parseXY( true ) );
             NeedRIGHT();
             break;
 
         case T_end:
-            rectangle->SetEnd( parseXY() );
+            rectangle->SetEnd( parseXY( true ) );
             NeedRIGHT();
             break;
 
@@ -1790,7 +1764,7 @@ SCH_TEXT* SCH_IO_KICAD_SEXPR_PARSER::parseSymbolText()
         switch( token )
         {
         case T_at:
-            text->SetPosition( parseXY() );
+            text->SetPosition( parseXY( true ) );
             // Yes, LIB_TEXT is really decidegrees even though all the others are degrees. :(
             text->SetTextAngle( EDA_ANGLE( parseDouble( "text angle" ), TENTHS_OF_A_DEGREE_T ) );
             NeedRIGHT();
@@ -1858,24 +1832,24 @@ SCH_TEXTBOX* SCH_IO_KICAD_SEXPR_PARSER::parseSymbolTextBox()
         switch( token )
         {
         case T_start:       // Legacy token during 6.99 development; fails to handle angle
-            pos = parseXY();
+            pos = parseXY( true );
             NeedRIGHT();
             break;
 
         case T_end:         // Legacy token during 6.99 development; fails to handle angle
-            end = parseXY();
+            end = parseXY( true );
             foundEnd = true;
             NeedRIGHT();
             break;
 
         case T_at:
-            pos = parseXY();
+            pos = parseXY( true );
             textBox->SetTextAngle( EDA_ANGLE( parseDouble( "textbox angle" ), DEGREES_T ) );
             NeedRIGHT();
             break;
 
         case T_size:
-            size = parseXY();
+            size = parseXY( true );
             foundSize = true;
             NeedRIGHT();
             break;
@@ -2364,7 +2338,7 @@ void SCH_IO_KICAD_SEXPR_PARSER::parseSchSheetInstances( SCH_SHEET* aRootSheet, S
                     else
                     {
                         // Whitespaces are not permitted
-                        for( wxString ch : whitespaces )
+                        for( const wxString& ch : whitespaces )
                             numReplacements += instance.m_PageNumber.Replace( ch, wxEmptyString );
 
                     }
@@ -2743,6 +2717,10 @@ void SCH_IO_KICAD_SEXPR_PARSER::ParseSchematic( SCH_SHEET* aSheet, bool aIsCopya
             screen->Append( parseSchBezier() );
             break;
 
+        case T_rule_area:
+            screen->Append( parseSchRuleArea() );
+            break;
+
         case T_netclass_flag:       // present only during early development of 7.0
             KI_FALLTHROUGH;
 
@@ -2780,7 +2758,7 @@ void SCH_IO_KICAD_SEXPR_PARSER::ParseSchematic( SCH_SHEET* aSheet, bool aIsCopya
         default:
             Expecting( "symbol, paper, page, title_block, bitmap, sheet, junction, no_connect, "
                        "bus_entry, line, bus, text, label, class_label, global_label, "
-                       "hierarchical_label, symbol_instances, or bus_alias" );
+                       "hierarchical_label, symbol_instances, rule_area, or bus_alias" );
         }
     }
 
@@ -2895,9 +2873,9 @@ SCH_SYMBOL* SCH_IO_KICAD_SEXPR_PARSER::parseSchematicSymbol()
             switch( static_cast<int>( parseDouble( "symbol orientation" ) ) )
             {
             case 0:    transform = TRANSFORM();                 break;
-            case 90:   transform = TRANSFORM( 0, -1, -1, 0 );   break;
-            case 180:  transform = TRANSFORM( -1, 0, 0, 1 );    break;
-            case 270:  transform = TRANSFORM( 0, 1, 1, 0 );     break;
+            case 90:   transform = TRANSFORM( 0, 1, -1, 0 );    break;
+            case 180:  transform = TRANSFORM( -1, 0, 0, -1 );   break;
+            case 270:  transform = TRANSFORM( 0, -1, 1, 0 );    break;
             default:   Expecting( "0, 90, 180, or 270" );
             }
 
@@ -3165,12 +3143,10 @@ SCH_SYMBOL* SCH_IO_KICAD_SEXPR_PARSER::parseSchematicSymbol()
                 }
             }
 
-            symbol->GetRawPins().emplace_back( std::make_unique<SCH_PIN>( symbol.get(),
-                                                                          number, alt ) );
-
-            const_cast<KIID&>( symbol->GetRawPins().back()->m_Uuid ) = uuid;
-        }
+            symbol->GetRawPins().emplace_back( std::make_unique<SCH_PIN>( symbol.get(), number,
+                                                                          alt, uuid ) );
             break;
+        }
 
         default:
             Expecting( "lib_id, lib_name, at, mirror, uuid, on_board, in_bom, dnp, "
@@ -3429,8 +3405,11 @@ SCH_SHEET* SCH_IO_KICAD_SEXPR_PARSER::parseSheet()
                             else
                             {
                                 // Whitespaces are not permitted
-                                std::vector<wxString> whitespaces = { wxT( "\r" ), wxT( "\n" ),
-                                    wxT( "\t" ), wxT( " " ) };
+                                static std::vector<wxString> whitespaces =
+                                        { wxT( "\r" ),
+                                          wxT( "\n" ),
+                                          wxT( "\t" ),
+                                          wxT( " " ) };
 
                                 for( wxString ch : whitespaces )
                                     instance.m_PageNumber.Replace( ch, wxEmptyString );
@@ -3922,6 +3901,43 @@ SCH_SHAPE* SCH_IO_KICAD_SEXPR_PARSER::parseSchRectangle()
     }
 
     return rectangle.release();
+}
+
+
+SCH_RULE_AREA* SCH_IO_KICAD_SEXPR_PARSER::parseSchRuleArea()
+{
+    wxCHECK_MSG( CurTok() == T_rule_area, nullptr,
+                 wxT( "Cannot parse " ) + GetTokenString( CurTok() ) + wxT( " as a rule area." ) );
+
+    T             token;
+    STROKE_PARAMS stroke( schIUScale.MilsToIU( DEFAULT_LINE_WIDTH_MILS ), LINE_STYLE::DEFAULT );
+    FILL_PARAMS   fill;
+    std::unique_ptr<SCH_RULE_AREA> ruleArea = std::make_unique<SCH_RULE_AREA>();
+
+    for( token = NextTok(); token != T_RIGHT; token = NextTok() )
+    {
+        if( token != T_LEFT )
+            Expecting( T_LEFT );
+
+        token = NextTok();
+
+        switch( token )
+        {
+        case T_polyline:
+        {
+            std::unique_ptr<SCH_SHAPE> poly( parseSchPolyLine() );
+            ruleArea->SetPolyShape( poly->GetPolyShape() );
+            ruleArea->SetStroke( poly->GetStroke() );
+            ruleArea->SetFillMode( poly->GetFillMode() );
+            ruleArea->SetFillColor( poly->GetFillColor() );
+            break;
+        }
+        default:
+            Expecting( "polyline" );
+        }
+    }
+
+    return ruleArea.release();
 }
 
 

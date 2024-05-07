@@ -24,6 +24,8 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA
  */
 
+#include <eda_base_frame.h>
+
 #include <advanced_config.h>
 #include <bitmaps.h>
 #include <bitmap_store.h>
@@ -66,6 +68,7 @@
 #include <wx/display.h>
 #include <wx/stdpaths.h>
 #include <wx/string.h>
+#include <wx/msgdlg.h>
 #include <kiplatform/app.h>
 #include <kiplatform/io.h>
 #include <kiplatform/ui.h>
@@ -1366,7 +1369,7 @@ void EDA_BASE_FRAME::CheckForAutoSaveFile( const wxFileName& aFileName )
     wxFileName autoSaveFileName = aFileName;
 
     // Check for auto save file.
-    autoSaveFileName.SetName( GetAutoSaveFilePrefix() + aFileName.GetName() );
+    autoSaveFileName.SetName( FILEEXT::AutoSaveFilePrefix + aFileName.GetName() );
 
     wxLogTrace( traceAutoSave,
                 wxT( "Checking for auto save file " ) + autoSaveFileName.GetFullPath() );
@@ -1413,7 +1416,7 @@ void EDA_BASE_FRAME::DeleteAutoSaveFile( const wxFileName& aFileName )
     wxCHECK_RET( aFileName.IsOk(), wxT( "Invalid file name!" ) );
 
     wxFileName autoSaveFn = aFileName;
-    autoSaveFn.SetName( GetAutoSaveFilePrefix() + aFileName.GetName() );
+    autoSaveFn.SetName( FILEEXT::AutoSaveFilePrefix + aFileName.GetName() );
 
     if( autoSaveFn.FileExists() )
     {

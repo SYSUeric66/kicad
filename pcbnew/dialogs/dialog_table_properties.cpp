@@ -30,6 +30,7 @@
 #include <grid_tricks.h>
 #include <scintilla_tricks.h>
 #include <confirm.h>
+#include <board.h>
 #include <board_commit.h>
 #include <board_design_settings.h>
 #include <footprint.h>
@@ -366,7 +367,7 @@ bool DIALOG_TABLE_PROPERTIES::TransferDataFromWindow()
         m_table->SetSeparatorsStroke( stroke );
     }
 
-    if( !commit.Empty() )
+    if( pushCommit )
         commit.Push( _( "Edit Table" ), SKIP_CONNECTIVITY );
 
     return true;

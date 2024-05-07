@@ -47,8 +47,11 @@
 #include <tool/tool_dispatcher.h>
 #include <tools/ee_actions.h>
 #include <tools/ee_selection_tool.h>
+#include <view/view_controls.h>
 #include <wx/choicdlg.h>
+#include <wx/fswatcher.h>
 #include <wx/log.h>
+#include <wx/msgdlg.h>
 
 #include <navlib/nl_schematic_plugin.h>
 

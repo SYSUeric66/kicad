@@ -533,8 +533,12 @@ void DIALOG_PAD_PROPERTIES::initValues()
     m_layerECO2->SetLabel( m_board->GetLayerName( Eco2_User ) );
     m_layerUserDwgs->SetLabel( m_board->GetLayerName( Dwgs_User ) );
 
+    VECTOR2I absPos;
+
     if( m_currentPad )
     {
+        absPos = m_currentPad->GetPosition();
+
         if( FOOTPRINT* footprint = m_currentPad->GetParentFootprint() )
         {
             VECTOR2I relPos = m_currentPad->GetFPRelativePosition();
@@ -591,8 +595,8 @@ void DIALOG_PAD_PROPERTIES::initValues()
     m_padNetSelector->SetSelectedNetcode( m_previewPad->GetNetCode() );
 
     // Display current pad parameters units:
-    m_posX.ChangeValue( m_previewPad->GetPosition().x );
-    m_posY.ChangeValue( m_previewPad->GetPosition().y );
+    m_posX.ChangeValue( absPos.x );
+    m_posY.ChangeValue( absPos.y );
 
     m_holeX.ChangeValue( m_previewPad->GetDrillSize().x );
     m_holeY.ChangeValue( m_previewPad->GetDrillSize().y );
@@ -740,6 +744,7 @@ void DIALOG_PAD_PROPERTIES::initValues()
     case PAD_PROP::TESTPOINT:        m_choiceFabProperty->SetSelection( 4 ); break;
     case PAD_PROP::HEATSINK:         m_choiceFabProperty->SetSelection( 5 ); break;
     case PAD_PROP::CASTELLATED:      m_choiceFabProperty->SetSelection( 6 ); break;
+    case PAD_PROP::MECHANICAL:       m_choiceFabProperty->SetSelection( 7 ); break;
     }
 
     // Ensure the pad property is compatible with the pad type
@@ -1436,6 +1441,12 @@ bool DIALOG_PAD_PROPERTIES::padValuesOK()
         warning_msgs.Add(  _( "Warning: BGA property is for SMD pads." ) );
     }
 
+    if( m_previewPad->GetProperty() == PAD_PROP::MECHANICAL
+            && m_previewPad->GetAttribute() != PAD_ATTRIB::PTH )
+    {
+        warning_msgs.Add(  _( "Warning: Mechanical property is for PTH pads." ) );
+    }
+
     if( m_previewPad->GetShape() == PAD_SHAPE::ROUNDRECT
             || m_previewPad->GetShape() == PAD_SHAPE::CHAMFERED_RECT )
     {
@@ -1650,17 +1661,13 @@ bool DIALOG_PAD_PROPERTIES::TransferDataFromWindow()
     // define the way the clearance area is defined in zones
     m_currentPad->SetCustomShapeInZoneOpt( m_masterPad->GetCustomShapeInZoneOpt() );
 
-    VECTOR2I relPos = m_masterPad->GetPosition();
-
     if( m_currentPad->GetParentFootprint() && m_currentPad->GetParentFootprint()->IsFlipped() )
     {
         // flip pad (up/down) around its position
-         m_currentPad->Flip( m_currentPad->GetPosition(), false );
-         relPos.y = -relPos.y;
+        m_currentPad->Flip( m_currentPad->GetPosition(), false );
     }
 
-    // Must be done after flipping
-    m_currentPad->SetFPRelativePosition( relPos );
+    m_currentPad->SetPosition( m_masterPad->GetPosition() );
 
     m_parent->SetMsgPanel( m_currentPad );
 
@@ -1686,6 +1693,7 @@ PAD_PROP DIALOG_PAD_PROPERTIES::getSelectedProperty()
     case 4:  prop = PAD_PROP::TESTPOINT;      break;
     case 5:  prop = PAD_PROP::HEATSINK;       break;
     case 6:  prop = PAD_PROP::CASTELLATED;    break;
+    case 7:  prop = PAD_PROP::MECHANICAL;     break;
     }
 
     return prop;
@@ -1813,7 +1821,15 @@ bool DIALOG_PAD_PROPERTIES::transferDataToPad( PAD* aPad )
     case 3: aPad->SetLocalZoneConnection( ZONE_CONNECTION::NONE );      break;
     }
 
-    aPad->SetPosition( VECTOR2I( m_posX.GetIntValue(), m_posY.GetIntValue() ) );
+    VECTOR2I pos( m_posX.GetIntValue(), m_posY.GetIntValue() );
+
+    if( FOOTPRINT* fp = aPad->GetParentFootprint() )
+    {
+        pos -= fp->GetPosition();
+        RotatePoint( pos, -fp->GetOrientation() );
+    }
+
+    aPad->SetPosition( pos );
 
     if( m_holeShapeCtrl->GetSelection() == CHOICE_SHAPE_CIRCLE )
     {

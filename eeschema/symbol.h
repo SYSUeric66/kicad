@@ -33,28 +33,20 @@
 class SYMBOL : public SCH_ITEM
 {
 public:
-    void init()
-    {
-        m_pinNameOffset = 0;
-        m_showPinNames = true;
-        m_showPinNumbers = true;
-        m_excludedFromSim = false;
-        m_excludedFromBOM = false;
-        m_excludedFromBoard = false;
-        m_DNP = false;
-    };
-
     SYMBOL( KICAD_T idType ) :
-            SCH_ITEM( nullptr, idType )
-    {
-        init();
-    };
+            SYMBOL( nullptr, idType )
+    { }
 
     SYMBOL( EDA_ITEM* aParent, KICAD_T idType ) :
-            SCH_ITEM( aParent, idType )
-    {
-        init();
-    };
+            SCH_ITEM( aParent, idType ),
+            m_pinNameOffset( 0 ),
+            m_showPinNames( true ),
+            m_showPinNumbers( true ),
+            m_excludedFromSim( false ),
+            m_excludedFromBOM( false ),
+            m_excludedFromBoard( false ),
+            m_DNP( false )
+    { }
 
     SYMBOL( const SYMBOL& base ) :
             SCH_ITEM( base ),
@@ -63,25 +55,27 @@ public:
             m_showPinNumbers( base.m_showPinNumbers ),
             m_excludedFromSim( base.m_excludedFromSim ),
             m_excludedFromBOM( base.m_excludedFromBOM ),
-            m_excludedFromBoard( base.m_excludedFromBoard )
-    { };
+            m_excludedFromBoard( base.m_excludedFromBoard ),
+            m_DNP( base.m_DNP )
+    { }
 
     SYMBOL& operator=( const SYMBOL& aItem )
     {
         SCH_ITEM::operator=( aItem );
 
-        m_pinNameOffset    = aItem.m_pinNameOffset;
+        m_pinNameOffset     = aItem.m_pinNameOffset;
         m_showPinNames      = aItem.m_showPinNames;
         m_showPinNumbers    = aItem.m_showPinNumbers;
 
         m_excludedFromSim   = aItem.m_excludedFromSim;
         m_excludedFromBOM   = aItem.m_excludedFromBOM;
         m_excludedFromBoard = aItem.m_excludedFromBoard;
+        m_DNP               = aItem.m_DNP;
 
         return *this;
     };
 
-    virtual ~SYMBOL() { };
+    ~SYMBOL() override { };
 
     virtual const LIB_ID& GetLibId() const = 0;
     virtual wxString GetDescription() const = 0;
@@ -126,14 +120,14 @@ public:
     /**
      * Set or clear the pin name visibility flag.
      */
-    void SetShowPinNames( bool aShow ) { m_showPinNames = aShow; }
-    bool GetShowPinNames() const { return m_showPinNames; }
+    virtual void SetShowPinNames( bool aShow ) { m_showPinNames = aShow; }
+    virtual bool GetShowPinNames() const { return m_showPinNames; }
 
     /**
      * Set or clear the pin number visibility flag.
      */
-    void SetShowPinNumbers( bool aShow ) { m_showPinNumbers = aShow; }
-    bool GetShowPinNumbers() const { return m_showPinNumbers; }
+    virtual void SetShowPinNumbers( bool aShow ) { m_showPinNumbers = aShow; }
+    virtual bool GetShowPinNumbers() const { return m_showPinNumbers; }
 
     /**
      * Set or clear the exclude from simulation flag.

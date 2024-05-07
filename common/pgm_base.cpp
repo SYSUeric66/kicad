@@ -34,6 +34,7 @@
 #include <wx/fs_zip.h>
 #include <wx/dir.h>
 #include <wx/filename.h>
+#include <wx/msgdlg.h>
 #include <wx/propgrid/propgrid.h>
 #include <wx/snglinst.h>
 #include <wx/stdpaths.h>
@@ -159,6 +160,9 @@ PGM_BASE::~PGM_BASE()
     }
 
     delete[] m_argvUtf8;
+
+    delete m_locale;
+    m_locale = nullptr;
 }
 
 
@@ -169,10 +173,6 @@ void PGM_BASE::Destroy()
 #ifdef KICAD_USE_SENTRY
     sentry_close();
 #endif
-
-    // unlike a normal destructor, this is designed to be called more than once safely:
-    delete m_locale;
-    m_locale = nullptr;
 
     m_pgm_checker.reset();
 }

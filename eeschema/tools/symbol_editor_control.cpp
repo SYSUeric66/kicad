@@ -36,6 +36,7 @@
 #include <wildcards_and_files_ext.h>
 #include <bitmaps/bitmap_types.h>
 #include <confirm.h>
+#include <kidialog.h>
 #include <gestfich.h> // To open with a text editor
 #include <wx/filedlg.h>
 #include "wx/generic/textdlgg.h"
@@ -131,7 +132,6 @@ bool SYMBOL_EDITOR_CONTROL::Init()
 
         ctxMenu.AddSeparator();
         ctxMenu.AddItem( EE_ACTIONS::importSymbol,       libInferredCondition );
-        ctxMenu.AddItem( EE_ACTIONS::exportSymbol,       symbolSelectedCondition );
 
         // If we've got nothing else to show, at least show a hide tree option
         ctxMenu.AddSeparator();
@@ -192,8 +192,8 @@ int SYMBOL_EDITOR_CONTROL::AddSymbol( const TOOL_EVENT& aEvent )
     {
         SYMBOL_EDIT_FRAME* editFrame = static_cast<SYMBOL_EDIT_FRAME*>( m_frame );
 
-        LIB_ID          sel = editFrame->GetTreeLIBID();
-        const wxString& libName = sel.GetLibNickname();
+        LIB_ID          target = editFrame->GetTargetLibId();
+        const wxString& libName = target.GetLibNickname();
         wxString        msg;
 
         if( libName.IsEmpty() )
@@ -216,7 +216,7 @@ int SYMBOL_EDITOR_CONTROL::AddSymbol( const TOOL_EVENT& aEvent )
         }
         else if( aEvent.IsAction( &EE_ACTIONS::deriveFromExistingSymbol ) )
         {
-            editFrame->CreateNewSymbol( sel.GetLibItemName() );
+            editFrame->CreateNewSymbol( target.GetLibItemName() );
         }
         else if( aEvent.IsAction( &EE_ACTIONS::importSymbol ) )
         {
@@ -252,15 +252,6 @@ int SYMBOL_EDITOR_CONTROL::Revert( const TOOL_EVENT& aEvent )
 {
     if( m_frame->IsType( FRAME_SCH_SYMBOL_EDITOR ) )
         static_cast<SYMBOL_EDIT_FRAME*>( m_frame )->Revert();
-
-    return 0;
-}
-
-
-int SYMBOL_EDITOR_CONTROL::ExportSymbol( const TOOL_EVENT& aEvent )
-{
-    if( m_frame->IsType( FRAME_SCH_SYMBOL_EDITOR ) )
-        static_cast<SYMBOL_EDIT_FRAME*>( m_frame )->ExportSymbol();
 
     return 0;
 }
@@ -559,6 +550,24 @@ int SYMBOL_EDITOR_CONTROL::ToggleSymbolTree( const TOOL_EVENT& aEvent )
 }
 
 
+int SYMBOL_EDITOR_CONTROL::SymbolTreeSearch( const TOOL_EVENT& aEvent )
+{
+    if( m_frame->IsType( FRAME_SCH_SYMBOL_EDITOR ) )
+    {
+        SYMBOL_EDIT_FRAME& sym_edit_frame = static_cast<SYMBOL_EDIT_FRAME&>( *m_frame );
+
+        if( !sym_edit_frame.IsSymbolTreeShown() )
+        {
+            wxCommandEvent dummy;
+            sym_edit_frame.OnToggleSymbolTree( dummy );
+        }
+        sym_edit_frame.FocusSearchTreeInput();
+    }
+
+    return 0;
+}
+
+
 int SYMBOL_EDITOR_CONTROL::ToggleProperties( const TOOL_EVENT& aEvent )
 {
     if( m_frame->IsType( FRAME_SCH_SYMBOL_EDITOR ) )
@@ -809,7 +818,6 @@ void SYMBOL_EDITOR_CONTROL::setTransitions()
     Go( &SYMBOL_EDITOR_CONTROL::CutCopyDelete,         EE_ACTIONS::cutSymbol.MakeEvent() );
     Go( &SYMBOL_EDITOR_CONTROL::CutCopyDelete,         EE_ACTIONS::copySymbol.MakeEvent() );
     Go( &SYMBOL_EDITOR_CONTROL::DuplicateSymbol,       EE_ACTIONS::pasteSymbol.MakeEvent() );
-    Go( &SYMBOL_EDITOR_CONTROL::ExportSymbol,          EE_ACTIONS::exportSymbol.MakeEvent() );
     Go( &SYMBOL_EDITOR_CONTROL::OpenWithTextEditor,    EE_ACTIONS::openWithTextEditor.MakeEvent() );
     Go( &SYMBOL_EDITOR_CONTROL::ExportView,            EE_ACTIONS::exportSymbolView.MakeEvent() );
     Go( &SYMBOL_EDITOR_CONTROL::ExportSymbolAsSVG,     EE_ACTIONS::exportSymbolAsSVG.MakeEvent() );
@@ -824,6 +832,7 @@ void SYMBOL_EDITOR_CONTROL::setTransitions()
     Go( &SYMBOL_EDITOR_CONTROL::UnpinLibrary,          ACTIONS::unpinLibrary.MakeEvent() );
     Go( &SYMBOL_EDITOR_CONTROL::ToggleSymbolTree,      EE_ACTIONS::showSymbolTree.MakeEvent() );
     Go( &SYMBOL_EDITOR_CONTROL::ToggleSymbolTree,      EE_ACTIONS::hideSymbolTree.MakeEvent() );
+    Go( &SYMBOL_EDITOR_CONTROL::SymbolTreeSearch,      EE_ACTIONS::symbolTreeSearch.MakeEvent() );
     Go( &SYMBOL_EDITOR_CONTROL::ToggleSyncedPinsMode,  EE_ACTIONS::toggleSyncedPinsMode.MakeEvent() );
 
     Go( &SYMBOL_EDITOR_CONTROL::ToggleProperties,      ACTIONS::showProperties.MakeEvent() );

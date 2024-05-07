@@ -23,6 +23,7 @@
 #include <algorithm>
 
 #include <bitmaps.h>
+#include <connection_graph.h>
 #include <string_utils.h>   // WildCompareString
 #include <kiway.h>
 #include <refdes_utils.h>
@@ -602,7 +603,17 @@ int DIALOG_CHANGE_SYMBOLS::processSymbols( SCH_COMMIT* aCommit,
         wxCHECK( screen, 0 );
 
         screen->Remove( symbol );
-        aCommit->Modify( symbol, screen );
+        SCH_SYMBOL* symbol_copy = static_cast<SCH_SYMBOL*>( symbol->Clone() );
+        aCommit->Modified( symbol, symbol_copy, screen );
+
+        CONNECTION_GRAPH*           connectionGraph = screen->Schematic()->ConnectionGraph();
+
+        // When we replace the lib symbol below, we free the associated pins if the new symbol has
+        // fewer than the original.  This will cause the connection graph to be out of date unless
+        // we replace references in the graph to the old symbol/pins with references to the ones stored
+        // in the undo stack.
+        if( connectionGraph )
+            connectionGraph->ExchangeItem( symbol, symbol_copy );
     }
 
     for( const auto& [ symbol, symbol_change_info ] : symbols )
@@ -626,6 +637,12 @@ int DIALOG_CHANGE_SYMBOLS::processSymbols( SCH_COMMIT* aCommit,
             symbol->SetExcludedFromSim( symbol->GetLibSymbolRef()->GetExcludedFromSim() );
             symbol->SetExcludedFromBOM( symbol->GetLibSymbolRef()->GetExcludedFromBOM() );
             symbol->SetExcludedFromBoard( symbol->GetLibSymbolRef()->GetExcludedFromBoard() );
+        }
+
+        if( m_resetPinTextVisibility->GetValue() )
+        {
+            symbol->SetShowPinNames( symbol->GetLibSymbolRef()->GetShowPinNames() );
+            symbol->SetShowPinNumbers( symbol->GetLibSymbolRef()->GetShowPinNumbers() );
         }
 
         bool removeExtras = m_removeExtraBox->GetValue();

@@ -49,6 +49,7 @@
 #include <wildcards_and_files_ext.h>
 #include <zone.h>
 #include <confirm.h>
+#include <kidialog.h>
 #include <connectivity/connectivity_data.h>
 #include <core/kicad_algo.h>
 #include <dialogs/hotkey_cycle_popup.h>
@@ -739,8 +740,8 @@ static void pasteFootprintItemsToFootprintEditor( FOOTPRINT* aClipFootprint, BOA
 
     aClipFootprint->Pads().clear();
 
-    // Not all graphic items can be added to the current footprint:
-    // mandatory fields are already existing in the current footprint.
+    // Not all items can be added to the current footprint: mandatory fields are already existing
+    // in the current footprint.
     //
     for( PCB_FIELD* field : aClipFootprint->Fields() )
     {
@@ -775,6 +776,9 @@ static void pasteFootprintItemsToFootprintEditor( FOOTPRINT* aClipFootprint, BOA
             text->SetTextAngle( text->GetTextAngle() - aClipFootprint->GetOrientation() );
             text->SetTextAngle( text->GetTextAngle() + editorFootprint->GetOrientation() );
         }
+
+        item->Rotate( item->GetPosition(), -aClipFootprint->GetOrientation() );
+        item->Rotate( item->GetPosition(), editorFootprint->GetOrientation() );
 
         VECTOR2I pos = item->GetFPRelativePosition();
         item->SetParent( editorFootprint );
@@ -851,14 +855,7 @@ void PCB_CONTROL::pruneItemLayers( std::vector<BOARD_ITEM*>& aItems )
             // NOTE: all traversals from the back as processFPItem() might delete the item
 
             for( int ii = static_cast<int>( fp->Fields().size() ) - 1; ii >= 0; ii-- )
-            {
-                PCB_FIELD* field = fp->Fields()[ii];
-
-                if( field->GetId() == REFERENCE_FIELD || field->GetId() == VALUE_FIELD )
-                    continue;
-
-                processFPItem( fp, field );
-            }
+                processFPItem( fp, fp->Fields()[ii] );
 
             for( int ii = static_cast<int>( fp->Pads().size() ) - 1; ii >= 0; ii-- )
                 processFPItem( fp, fp->Pads()[ii] );
@@ -869,7 +866,10 @@ void PCB_CONTROL::pruneItemLayers( std::vector<BOARD_ITEM*>& aItems )
             for( int ii = static_cast<int>( fp->GraphicalItems().size() ) - 1; ii >= 0; ii-- )
                 processFPItem( fp, fp->GraphicalItems()[ii] );
 
-            if( fp->GraphicalItems().size() || fp->Pads().size() || fp->Zones().size() )
+            if( fp->Fields().size()
+                || fp->GraphicalItems().size()
+                || fp->Pads().size()
+                || fp->Zones().size() )
             {
                 returnItems.push_back( fp );
             }
@@ -1039,7 +1039,7 @@ int PCB_CONTROL::Paste( const TOOL_EVENT& aEvent )
                 cancelled = !placeBoardItems( &commit, pastedItems, true, true,
                                               mode == PASTE_MODE::UNIQUE_ANNOTATIONS );
             }
-            else
+            else    // isBoardEditor
             {
                 if( mode == PASTE_MODE::REMOVE_ANNOTATIONS )
                 {

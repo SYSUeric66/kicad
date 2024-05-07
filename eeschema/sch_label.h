@@ -30,6 +30,8 @@
 #include <sch_field.h>
 #include <sch_connection.h>   // for CONNECTION_TYPE
 
+class SCH_RULE_AREA;
+
 
 /*
  * Spin style for labels of all kinds on schematics
@@ -87,7 +89,7 @@ private:
 /*
  * Label and flag shapes used with text objects.
  */
-enum LABEL_FLAG_SHAPE
+enum LABEL_FLAG_SHAPE : unsigned int
 {
     L_INPUT,
     L_OUTPUT,
@@ -105,7 +107,7 @@ enum LABEL_FLAG_SHAPE
 /*
  * Specific enums for property manager (not used elsewhere)
  */
-enum LABEL_SHAPE
+enum LABEL_SHAPE : unsigned int
 {
     LABEL_INPUT    = L_INPUT,
     LABEL_OUTPUT   = L_OUTPUT,
@@ -114,7 +116,7 @@ enum LABEL_SHAPE
     LABEL_PASSIVE  = L_UNSPECIFIED
 };
 
-enum FLAG_SHAPE
+enum FLAG_SHAPE : unsigned int
 {
     FLAG_DOT       = F_DOT,
     FLAG_CIRCLE    = F_ROUND,
@@ -474,9 +476,24 @@ public:
     void MirrorHorizontally( int aCenter ) override;
     void MirrorVertically( int aCenter ) override;
 
+    /// @brief Adds an entry to the connected rule area cache
+    void AddConnectedRuleArea( SCH_RULE_AREA* aRuleArea );
+
+    /// @brief Removes all rule areas from the cache
+    void ClearConnectedRuleAreas();
+
+    /// @brief Removes a specific rule area from the cache
+    void RemoveConnectedRuleArea( SCH_RULE_AREA* aRuleArea );
+
+    /// @brief Determines dangling state from connectivity and cached connected rule areas
+    virtual bool IsDangling() const override;
+
 private:
     int       m_pinLength;
     int       m_symbolSize;
+
+    /// Cache of any rule areas with borders which this label connects to
+    std::unordered_set<SCH_RULE_AREA*> m_connected_rule_areas;
 };
 
 

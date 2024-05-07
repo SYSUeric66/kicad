@@ -414,8 +414,11 @@ int PCB_SELECTION_TOOL::Main( const TOOL_EVENT& aEvent )
 
             if( m_isFootprintEditor )
             {
-                collector.Collect( board()->GetFirstFootprint(), { PCB_TABLECELL_T },
-                                   evt->DragOrigin(), guide );
+                if( board()->GetFirstFootprint() )
+                {
+                    collector.Collect( board()->GetFirstFootprint(), { PCB_TABLECELL_T },
+                                       evt->DragOrigin(), guide );
+                }
             }
             else
             {
@@ -1047,7 +1050,7 @@ bool PCB_SELECTION_TOOL::selectMultiple()
             greedySelection = !greedySelection;
 
         m_frame->GetCanvas()->SetCurrentCursor( !greedySelection ? KICURSOR::SELECT_WINDOW
-                                                                : KICURSOR::SELECT_LASSO );
+                                                                 : KICURSOR::SELECT_LASSO );
 
         if( evt->IsCancelInteractive() || evt->IsActivate() )
         {
@@ -1905,7 +1908,10 @@ void PCB_SELECTION_TOOL::SelectAllItemsOnNet( int aNetCode, bool aSelect )
 {
     std::shared_ptr<CONNECTIVITY_DATA> conn = board()->GetConnectivity();
 
-    for( BOARD_ITEM* item : conn->GetNetItems( aNetCode, { PCB_TRACE_T, PCB_ARC_T, PCB_VIA_T } ) )
+    for( BOARD_ITEM* item : conn->GetNetItems( aNetCode, { PCB_TRACE_T,
+                                                           PCB_ARC_T,
+                                                           PCB_VIA_T,
+                                                           PCB_SHAPE_T } ) )
     {
         if( itemPassesFilter( item, true ) )
             aSelect ? select( item ) : unselect( item );
@@ -2063,9 +2069,13 @@ void PCB_SELECTION_TOOL::selectConnections( const std::vector<BOARD_ITEM*>& aIte
 
     for( int netCode : netcodeList )
     {
-        for( BOARD_ITEM* item : conn->GetNetItems( netCode,
-                                                   { PCB_TRACE_T, PCB_ARC_T, PCB_VIA_T } ) )
+        for( BOARD_ITEM* item : conn->GetNetItems( netCode, { PCB_TRACE_T,
+                                                              PCB_ARC_T,
+                                                              PCB_VIA_T,
+                                                              PCB_SHAPE_T } ) )
+        {
             localConnectionList.insert( item );
+        }
     }
 
     for( BOARD_ITEM* item : localConnectionList )
@@ -2106,7 +2116,7 @@ void PCB_SELECTION_TOOL::doSyncSelection( const std::vector<BOARD_ITEM*>& aItems
     if( aWithNets )
         selectConnections( aItems );
 
-    BOX2I bbox = m_selection.GetBoundingBox();
+    BOX2I bbox = m_selection.GetBoundingBox( true );
 
     if( bbox.GetWidth() != 0 && bbox.GetHeight() != 0 )
     {
@@ -2192,8 +2202,8 @@ void PCB_SELECTION_TOOL::zoomFitSelection()
     if( selectionBox.GetWidth() != 0 || selectionBox.GetHeight() != 0 )
     {
         VECTOR2D vsize = selectionBox.GetSize();
-        double   scale = view->GetScale()
-                       / std::max( fabs( vsize.x / screenSize.x ), fabs( vsize.y / screenSize.y ) );
+        double   scale = view->GetScale() / std::max( fabs( vsize.x / screenSize.x ),
+                                                      fabs( vsize.y / screenSize.y ) );
         view->SetScale( scale );
         view->SetCenter( selectionBox.Centre() );
         view->Add( &m_selection );
@@ -2266,8 +2276,8 @@ void PCB_SELECTION_TOOL::ZoomFitCrossProbeBBox( const BOX2I& aBBox )
     double ratio = std::max( -1.0, fabs( bbSize.y / screenSize.y ) );
 
     // Original KiCad code for how much to scale the zoom
-    double kicadRatio =
-            std::max( fabs( bbSize.x / screenSize.x ), fabs( bbSize.y / screenSize.y ) );
+    double kicadRatio = std::max( fabs( bbSize.x / screenSize.x ),
+                                  fabs( bbSize.y / screenSize.y ) );
 
     // LUT to scale zoom ratio to provide reasonable schematic context.  Must work
     // with footprints of varying sizes (e.g. 0402 package and 200 pin BGA).
@@ -2275,9 +2285,16 @@ void PCB_SELECTION_TOOL::ZoomFitCrossProbeBBox( const BOX2I& aBBox )
     //
     // "first" = compRatio (footprint height / default text height)
     // "second" = Amount to scale ratio by
-    std::vector<std::pair<double, double>> lut{
-        { 1, 8 },    { 1.5, 5 },  { 3, 3 },    { 4.5, 2.5 }, { 8, 2.0 },
-        { 12, 1.7 }, { 16, 1.5 }, { 24, 1.3 }, { 32, 1.0 },
+    std::vector<std::pair<double, double>> lut {
+        { 1, 8 },
+        { 1.5, 5 },
+        { 3, 3 },
+        { 4.5, 2.5 },
+        { 8, 2.0 },
+        { 12, 1.7 },
+        { 16, 1.5 },
+        { 24, 1.3 },
+        { 32, 1.0 },
     };
 
 
@@ -2376,8 +2393,8 @@ void PCB_SELECTION_TOOL::FindItem( BOARD_ITEM* aItem )
 
             KIGFX::PCB_VIEW* pcbView = canvas()->GetView();
             BOX2D            screenBox = pcbView->GetViewport();
-            VECTOR2I         screenSize = screenBox.GetSize();
-            BOX2I            screenRect( screenBox.GetOrigin(), screenSize / marginFactor );
+            VECTOR2D         screenSize = screenBox.GetSize();
+            BOX2I            screenRect = BOX2ISafe( screenBox.GetOrigin(), screenSize / marginFactor );
 
             if( !screenRect.Contains( aItem->GetBoundingBox() ) )
             {
@@ -2840,8 +2857,22 @@ bool PCB_SELECTION_TOOL::Selectable( const BOARD_ITEM* aItem, bool checkVisibili
     // Most footprint children can only be selected in the footprint editor.
     if( aItem->GetParentFootprint() && !m_isFootprintEditor && !checkVisibilityOnly )
     {
-        if( aItem->Type() != PCB_FIELD_T && aItem->Type() != PCB_PAD_T )
+        if( aItem->Type() == PCB_TEXT_T )
+        {
+            text = static_cast<const PCB_TEXT*>( aItem );
+
+            // Special case for version 8 until we have a consistent way to convert these text
+            // to fields
+            if( !text->GetText().Contains( wxT( "${REFERENCE}" ) )
+                && !text->GetText().Contains( wxT( "${VALUE}" ) ) )
+            {
+                return false;
+            }
+        }
+        else if( aItem->Type() != PCB_FIELD_T && aItem->Type() != PCB_PAD_T )
+        {
             return false;
+        }
     }
 
     switch( aItem->Type() )
@@ -3148,7 +3179,7 @@ int PCB_SELECTION_TOOL::hitTestDistance( const VECTOR2I& aWhere, BOARD_ITEM* aIt
                                          int aMaxDistance ) const
 {
     BOX2D viewportD = getView()->GetViewport();
-    BOX2I viewport( VECTOR2I( viewportD.GetPosition() ), VECTOR2I( viewportD.GetSize() ) );
+    BOX2I viewport = BOX2ISafe( viewportD );
     int   distance = INT_MAX;
     SEG   loc( aWhere, aWhere );
 
@@ -3751,7 +3782,7 @@ void PCB_SELECTION_TOOL::FilterCollectorForFootprints( GENERAL_COLLECTOR& aColle
 {
     const RENDER_SETTINGS* settings = getView()->GetPainter()->GetSettings();
     BOX2D viewport = getView()->GetViewport();
-    BOX2I extents( viewport.GetPosition(), viewport.GetSize() );
+    BOX2I extents = BOX2ISafe( viewport );
 
     bool need_direct_hit = false;
     FOOTPRINT* single_fp = nullptr;

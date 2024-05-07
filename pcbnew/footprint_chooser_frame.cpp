@@ -26,6 +26,7 @@
 #include <kiface_base.h>
 #include <kiway.h>
 #include <kiway_express.h>
+#include <board.h>
 #include <wx/button.h>
 #include <wx/checkbox.h>
 #include <kiplatform/ui.h>
@@ -70,7 +71,7 @@ END_EVENT_TABLE()
 
 
 #define MODAL_FRAME ( wxRESIZE_BORDER | wxSYSTEM_MENU | wxCAPTION | wxCLOSE_BOX | wxCLIP_CHILDREN \
-                      | wxWANTS_CHARS | wxFRAME_NO_TASKBAR | wxSTAY_ON_TOP )
+                      | wxWANTS_CHARS | wxFRAME_NO_TASKBAR | wxFRAME_FLOAT_ON_PARENT )
 
 
 FOOTPRINT_CHOOSER_FRAME::FOOTPRINT_CHOOSER_FRAME( KIWAY* aKiway, wxWindow* aParent ) :

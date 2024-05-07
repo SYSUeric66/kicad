@@ -23,9 +23,10 @@
 #define _CONNECTION_GRAPH_H
 
 #include <mutex>
+#include <utility>
 #include <vector>
 
-#include <erc_settings.h>
+#include <erc/erc_settings.h>
 #include <sch_connection.h>
 #include <sch_item.h>
 #include <wx/treectrl.h>
@@ -122,7 +123,12 @@ public:
     /// Return the candidate net name for a driver.
     const wxString& GetNameForDriver( SCH_ITEM* aItem ) const;
 
-    const wxString GetNetclassForDriver( SCH_ITEM* aItem ) const;
+    /// Return the resolved netclasses for the item, and the source item providing the netclass
+    /// @param aItem the item to query for netclass assignments
+    /// @param returnAll If true, return all assigned netclasses (for ERC). If false, stop on first
+    ///                  netclass (for connectivity).
+    const std::vector<std::pair<wxString, SCH_ITEM*>>
+    GetNetclassesForDriver( SCH_ITEM* aItem, bool returnAll ) const;
 
     /// Combine another subgraph on the same sheet into this one.
     void Absorb( CONNECTION_SUBGRAPH* aOther );
@@ -198,6 +204,11 @@ public:
     }
 
     void RemoveItem( SCH_ITEM* aItem );
+
+    /**
+     * Replaces all references to #aOldItem with #aNewItem in the subgraph.
+    */
+    void ExchangeItem( SCH_ITEM* aOldItem, SCH_ITEM* aNewItem );
 
     // Use this to keep a connection pointer that is not owned by any item
     // This will be destroyed with the subgraph
@@ -455,6 +466,11 @@ public:
     void Merge( CONNECTION_GRAPH& aGraph );
 
     void RemoveItem( SCH_ITEM* aItem );
+
+    /**
+     * Replace all references to #aOldItem with #aNewItem in the graph.
+    */
+    void ExchangeItem( SCH_ITEM* aOldItem, SCH_ITEM* aNewItem );
 
 private:
     /**

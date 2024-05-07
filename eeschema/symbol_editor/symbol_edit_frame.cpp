@@ -66,6 +66,7 @@
 #include <tools/symbol_editor_edit_tool.h>
 #include <tools/symbol_editor_move_tool.h>
 #include <tools/symbol_editor_pin_tool.h>
+#include <view/view_controls.h>
 #include <widgets/app_progress_dialog.h>
 #include <widgets/wx_infobar.h>
 #include <widgets/lib_tree.h>
@@ -77,6 +78,8 @@
 #include <wildcards_and_files_ext.h>
 #include <panel_sym_lib_table.h>
 #include <string_utils.h>
+#include <wx/msgdlg.h>
+#include <wx/log.h>
 
 
 bool SYMBOL_EDIT_FRAME::m_showDeMorgan = false;
@@ -706,6 +709,12 @@ void SYMBOL_EDIT_FRAME::OnToggleSymbolTree( wxCommandEvent& event )
 bool SYMBOL_EDIT_FRAME::IsSymbolTreeShown() const
 {
     return const_cast<wxAuiManager&>( m_auimgr ).GetPane( m_treePane ).IsShown();
+}
+
+
+void SYMBOL_EDIT_FRAME::FocusSearchTreeInput()
+{
+    m_treePane->GetLibTree()->FocusSearchFieldIfExists();
 }
 
 
@@ -1385,7 +1394,7 @@ void SYMBOL_EDIT_FRAME::FocusOnItem( SCH_ITEM* aItem )
 
     if( m_symbol )
     {
-        for( LIB_PIN* pin : m_symbol->GetAllLibPins() )
+        for( SCH_PIN* pin : m_symbol->GetAllLibPins() )
         {
             if( pin->m_Uuid == lastBrightenedItemID )
                 lastItem = pin;
@@ -1652,15 +1661,13 @@ void SYMBOL_EDIT_FRAME::LoadSymbolFromSchematic( SCH_SYMBOL* aSymbol )
         // The inverse transform is mirroring before, rotate after
         switch( mirror )
         {
-        default:; break;
         case SYM_MIRROR_X: pos.y = -pos.y; break;
         case SYM_MIRROR_Y: pos.x = -pos.x; break;
+        default:                           break;
         }
 
         switch( orientation )
         {
-        default:
-        case SYM_ORIENT_0: break;
         case SYM_ORIENT_90:
             std::swap( pos.x, pos.y );
             pos.x = - pos.x;
@@ -1673,9 +1680,11 @@ void SYMBOL_EDIT_FRAME::LoadSymbolFromSchematic( SCH_SYMBOL* aSymbol )
             pos.x = - pos.x;
             pos.y = - pos.y;
             break;
+        default:
+            break;
         }
 
-        libField.SetPosition( VECTOR2I( pos.x, -pos.y ) );
+        libField.SetPosition( pos );
 
         fullSetOfFields.emplace_back( std::move( libField ) );
     }

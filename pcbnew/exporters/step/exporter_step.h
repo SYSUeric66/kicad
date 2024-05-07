@@ -3,7 +3,7 @@
  *
  * Copyright (C) 2022 Mark Roszko <mark.roszko@gmail.com>
  * Copyright (C) 2016 Cirilo Bernardo <cirilo.bernardo@gmail.com>
- * Copyright (C) 2016-2023 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2016-2024 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -28,6 +28,7 @@
 
 #include <geometry/shape_poly_set.h>
 #include <gal/color4d.h>
+#include <layer_ids.h>
 
 // Default value to chain 2 shapes when creating the board outlines
 // from shapes on Edges.Cut layer
@@ -54,8 +55,11 @@ public:
             m_substModels( true ),
             m_BoardOutlinesChainingEpsilon( BOARD_DEFAULT_CHAINING_EPSILON ),
             m_boardOnly( false ),
-            m_exportTracks( false ),
+            m_exportBoardBody( true ),
+            m_exportComponents( true ),
+            m_exportTracksVias( false ),
             m_exportZones( false ),
+            m_exportInnerCopper( false ),
             m_fuseShapes( false ),
             m_optimizeStep( true ),
             m_format( FORMAT::STEP )
@@ -65,10 +69,12 @@ public:
     {
         STEP,
         BREP,
+        XAO,
         GLB
     };
 
     wxString m_outputFile;
+    wxString m_netFilter;
 
     VECTOR2D m_origin;
 
@@ -80,8 +86,11 @@ public:
     bool     m_substModels;
     double   m_BoardOutlinesChainingEpsilon;
     bool     m_boardOnly;
-    bool     m_exportTracks;
+    bool     m_exportBoardBody;
+    bool     m_exportComponents;
+    bool     m_exportTracksVias;
     bool     m_exportZones;
+    bool     m_exportInnerCopper;
     bool     m_fuseShapes;
     bool     m_optimizeStep;
     FORMAT   m_format;
@@ -104,16 +113,12 @@ public:
     void SetFail() { m_fail = true; }
     void SetWarn() { m_warn = true; }
 
-    /// Return rue to export tracks and vias on top and bottom copper layers
-    bool ExportTracksAndVias() { return m_params.m_exportTracks; }
-
 private:
     bool buildBoard3DShapes();
     bool buildFootprint3DShapes( FOOTPRINT* aFootprint, VECTOR2D aOrigin );
     bool buildTrack3DShape( PCB_TRACK* aTrack, VECTOR2D aOrigin );
     void buildZones3DShape( VECTOR2D aOrigin );
     bool buildGraphic3DShape( BOARD_ITEM* aItem, VECTOR2D aOrigin );
-    void calculatePcbThickness();
 
     EXPORTER_STEP_PARAMS m_params;
     std::unique_ptr<FILENAME_RESOLVER> m_resolver;
@@ -130,10 +135,7 @@ private:
     /// used to identify items in step file
     wxString        m_pcbBaseName;
 
-    double          m_boardThickness;
-
-    SHAPE_POLY_SET  m_top_copper_shapes;
-    SHAPE_POLY_SET  m_bottom_copper_shapes;
+    std::map<PCB_LAYER_ID, SHAPE_POLY_SET> m_poly_copper_shapes;
 
     KIGFX::COLOR4D  m_solderMaskColor;
     KIGFX::COLOR4D  m_copperColor;

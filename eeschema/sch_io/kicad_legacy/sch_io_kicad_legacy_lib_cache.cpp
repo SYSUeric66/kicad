@@ -20,8 +20,9 @@
 #include <magic_enum.hpp>
 #include <wx/log.h>
 
+#include <lib_symbol.h>
 #include <sch_shape.h>
-#include <lib_pin.h>
+#include <sch_pin.h>
 #include <sch_text.h>
 #include <macros.h>
 #include <richio.h>
@@ -541,7 +542,9 @@ void SCH_IO_KICAD_LEGACY_LIB_CACHE::loadField( std::unique_ptr<LIB_SYMBOL>& aSym
 
     SCH_FIELD* field;
 
-    if( id >= 0 && id < MANDATORY_FIELDS )
+    // Description was not mandatory until v8.0, so any fields with an index
+    // past this point should be user fields
+    if( id >= 0 && id < DESCRIPTION_FIELD )
     {
         field = aSymbol->GetFieldById( id );
 
@@ -552,6 +555,7 @@ void SCH_IO_KICAD_LEGACY_LIB_CACHE::loadField( std::unique_ptr<LIB_SYMBOL>& aSym
     }
     else
     {
+        id = aSymbol->GetNextAvailableFieldId();
         field = new SCH_FIELD( aSymbol.get(), id );
         aSymbol->AddDrawItem( field, false );
     }
@@ -957,12 +961,18 @@ SCH_TEXT* SCH_IO_KICAD_LEGACY_LIB_CACHE::loadText( LINE_READER& aReader,
     VECTOR2I center;
     VECTOR2I size;
     wxString str;
+    bool     visible;
+    int      unit;
+    int      bodyStyle;
 
     angleInTenths = parseInt( aReader, line, &line );
 
     center.x = schIUScale.MilsToIU( parseInt( aReader, line, &line ) );
     center.y = schIUScale.MilsToIU( parseInt( aReader, line, &line ) );
     size.x = size.y = schIUScale.MilsToIU( parseInt( aReader, line, &line ) );
+    visible = !parseInt( aReader, line, &line );
+    unit = parseInt( aReader, line, &line );
+    bodyStyle = parseInt( aReader, line, &line );
 
     // If quoted string loading fails, load as not quoted string.
     if( *line == '"' )
@@ -988,9 +998,9 @@ SCH_TEXT* SCH_IO_KICAD_LEGACY_LIB_CACHE::loadText( LINE_READER& aReader,
     SCH_TEXT* text = new SCH_TEXT( center, str, LAYER_DEVICE );
     text->SetTextAngle( EDA_ANGLE( angleInTenths, TENTHS_OF_A_DEGREE_T ) );
     text->SetTextSize( size );
-    text->SetVisible( !parseInt( aReader, line, &line ) );
-    text->SetUnit( parseInt( aReader, line, &line ) );
-    text->SetBodyStyle( parseInt( aReader, line, &line ) );
+    text->SetVisible( visible );
+    text->SetUnit( unit );
+    text->SetBodyStyle( bodyStyle );
 
     // Here things are murky and not well defined.  At some point it appears the format
     // was changed to add text properties.  However rather than add the token to the end of
@@ -1074,12 +1084,12 @@ SCH_SHAPE* SCH_IO_KICAD_LEGACY_LIB_CACHE::loadRect( LINE_READER& aReader )
 }
 
 
-LIB_PIN* SCH_IO_KICAD_LEGACY_LIB_CACHE::loadPin( std::unique_ptr<LIB_SYMBOL>& aSymbol,
+SCH_PIN* SCH_IO_KICAD_LEGACY_LIB_CACHE::loadPin( std::unique_ptr<LIB_SYMBOL>& aSymbol,
                                                  LINE_READER&                 aReader )
 {
     const char* line = aReader.Line();
 
-    wxCHECK_MSG( strCompare( "X", line, &line ), nullptr, "Invalid LIB_PIN definition" );
+    wxCHECK_MSG( strCompare( "X", line, &line ), nullptr, "Invalid SCH_PIN definition" );
 
     wxString name;
     wxString number;
@@ -1227,8 +1237,7 @@ LIB_PIN* SCH_IO_KICAD_LEGACY_LIB_CACHE::loadPin( std::unique_ptr<LIB_SYMBOL>& aS
                            aReader.LineNumber(), pos );
     }
 
-
-    LIB_PIN* pin = new LIB_PIN( aSymbol.get(),
+    SCH_PIN* pin = new SCH_PIN( aSymbol.get(),
                                 ConvertToNewOverbarNotation( name ),
                                 ConvertToNewOverbarNotation( number ),
                                 orientation,
@@ -1257,7 +1266,7 @@ LIB_PIN* SCH_IO_KICAD_LEGACY_LIB_CACHE::loadPin( std::unique_ptr<LIB_SYMBOL>& aS
 
         int flags = 0;
 
-        for( int j = tmp.size(); j > 0; )
+        for( int j = (int) tmp.size(); j > 0; )
         {
             switch( tmp[--j].GetValue() )
             {
@@ -1566,8 +1575,8 @@ void SCH_IO_KICAD_LEGACY_LIB_CACHE::SaveSymbol( LIB_SYMBOL* aSymbol, OUTPUTFORMA
         {
             switch( item.Type() )
             {
-            case LIB_PIN_T:
-                savePin( static_cast<LIB_PIN*>( &item ), aFormatter );
+            case SCH_PIN_T:
+                savePin( static_cast<SCH_PIN*>( &item ), aFormatter );
 
                 break;
             case SCH_TEXT_T:
@@ -1717,9 +1726,9 @@ void SCH_IO_KICAD_LEGACY_LIB_CACHE::saveField( const SCH_FIELD* aField,
 }
 
 
-void SCH_IO_KICAD_LEGACY_LIB_CACHE::savePin( const LIB_PIN* aPin, OUTPUTFORMATTER& aFormatter )
+void SCH_IO_KICAD_LEGACY_LIB_CACHE::savePin( const SCH_PIN* aPin, OUTPUTFORMATTER& aFormatter )
 {
-    wxCHECK_RET( aPin && aPin->Type() == LIB_PIN_T, "Invalid LIB_PIN object." );
+    wxCHECK_RET( aPin && aPin->Type() == SCH_PIN_T, "Invalid SCH_PIN object." );
 
     int      Etype;
 
@@ -1778,7 +1787,7 @@ void SCH_IO_KICAD_LEGACY_LIB_CACHE::savePin( const LIB_PIN* aPin, OUTPUTFORMATTE
 
     aFormatter.Print( 0, "\n" );
 
-    const_cast<LIB_PIN*>( aPin )->ClearFlags( IS_CHANGED );
+    const_cast<SCH_PIN*>( aPin )->ClearFlags( IS_CHANGED );
 }
 
 

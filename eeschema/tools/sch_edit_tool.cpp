@@ -41,6 +41,7 @@
 #include <sch_junction.h>
 #include <sch_line.h>
 #include <sch_marker.h>
+#include <sch_rule_area.h>
 #include <sch_symbol.h>
 #include <sch_shape.h>
 #include <sch_sheet.h>
@@ -70,6 +71,7 @@
 #include <settings/settings_manager.h>
 #include <symbol_editor_settings.h>
 #include <core/kicad_algo.h>
+#include <view/view_controls.h>
 #include <wx/textdlg.h>
 #include <project/net_settings.h>
 
@@ -144,7 +146,7 @@ private:
         EE_SELECTION_TOOL* selTool = getToolManager()->GetTool<EE_SELECTION_TOOL>();
         EE_SELECTION&      selection = selTool->GetSelection();
         SCH_PIN*           pin = dynamic_cast<SCH_PIN*>( selection.Front() );
-        LIB_PIN*           libPin = pin ? pin->GetLibPin() : nullptr;
+        SCH_PIN*           libPin = pin ? pin->GetLibPin() : nullptr;
 
         Clear();
 
@@ -192,10 +194,11 @@ private:
         EE_SELECTION_TOOL* selTool = getToolManager()->GetTool<EE_SELECTION_TOOL>();
         EE_SELECTION&      selection = selTool->GetSelection();
         SCH_PIN*           pin = dynamic_cast<SCH_PIN*>( selection.Front() );
+        SCH_SHEET_PIN*     sheetPin = dynamic_cast<SCH_SHEET_PIN*>( selection.Front() );
 
         Clear();
 
-        if( !pin )
+        if( !pin && !sheetPin )
             return;
 
         Add( _( "Wire" ),               ID_POPUP_SCH_PIN_TRICKS_WIRE,         BITMAPS::add_line );
@@ -314,6 +317,7 @@ bool SCH_EDIT_TOOL::Init()
                 case SCH_GLOBAL_LABEL_T:
                 case SCH_HIER_LABEL_T:
                 case SCH_DIRECTIVE_LABEL_T:
+                case SCH_RULE_AREA_T:
                 case SCH_FIELD_T:
                 case SCH_SHAPE_T:
                 case SCH_BITMAP_T:
@@ -583,7 +587,7 @@ bool SCH_EDIT_TOOL::Init()
 
     selToolMenu.AddMenu( makeSymbolUnitMenu( m_selectionTool ),  E_C::SingleMultiUnitSymbol, 1 );
     selToolMenu.AddMenu( makePinFunctionMenu( m_selectionTool ), E_C::SingleMultiFunctionPin, 1 );
-    selToolMenu.AddMenu( makePinTricksMenu( m_selectionTool ),   E_C::AllPins, 1 );
+    selToolMenu.AddMenu( makePinTricksMenu( m_selectionTool ),   E_C::AllPinsOrSheetPins, 1 );
 
     selToolMenu.AddMenu( makeTransformMenu(),          orientCondition, 200 );
     selToolMenu.AddMenu( makeAttributesMenu(),         E_C::HasType( SCH_SYMBOL_T ), 200 );
@@ -619,6 +623,7 @@ bool SCH_EDIT_TOOL::Init()
 
 const std::vector<KICAD_T> SCH_EDIT_TOOL::RotatableItems = {
     SCH_SHAPE_T,
+    SCH_RULE_AREA_T,
     SCH_TEXT_T,
     SCH_TEXTBOX_T,
     SCH_TABLE_T,
@@ -769,6 +774,7 @@ int SCH_EDIT_TOOL::Rotate( const TOOL_EVENT& aEvent )
             break;
         }
 
+        case SCH_RULE_AREA_T:
         case SCH_SHAPE_T:
         case SCH_TEXTBOX_T:
             head->Rotate( rotPoint, !clockwise );
@@ -870,7 +876,7 @@ int SCH_EDIT_TOOL::Rotate( const TOOL_EVENT& aEvent )
                 {
                     SCH_FIELD* field = static_cast<SCH_FIELD*>( item );
 
-                    field->Rotate( rotPoint, false );
+                    field->Rotate( rotPoint, true );
 
                     if( field->GetTextAngle().IsHorizontal() )
                         field->SetTextAngle( ANGLE_VERTICAL );
@@ -883,7 +889,7 @@ int SCH_EDIT_TOOL::Rotate( const TOOL_EVENT& aEvent )
             }
             else
             {
-                item->Rotate( rotPoint, false );
+                item->Rotate( rotPoint, true );
             }
         }
 
@@ -1116,6 +1122,7 @@ int SCH_EDIT_TOOL::Mirror( const TOOL_EVENT& aEvent )
 
 const std::vector<KICAD_T> swappableItems = {
     SCH_SHAPE_T,
+    SCH_RULE_AREA_T,
     SCH_TEXT_T,
     SCH_TEXTBOX_T,
     SCH_LABEL_T,
@@ -1359,6 +1366,7 @@ static std::vector<KICAD_T> deletableItems =
     SCH_BUS_BUS_ENTRY_T,
     SCH_BUS_WIRE_ENTRY_T,
     SCH_SHAPE_T,
+    SCH_RULE_AREA_T,
     SCH_TEXT_T,
     SCH_TEXTBOX_T,
     SCH_TABLECELL_T,    // Clear contents
@@ -1433,6 +1441,11 @@ int SCH_EDIT_TOOL::DoDelete( const TOOL_EVENT& aEvent )
             // Clear contents of table cell
             commit.Modify( item, m_frame->GetScreen() );
             static_cast<SCH_TABLECELL*>( sch_item )->SetText( wxEmptyString );
+        }
+        else if( sch_item->Type() == SCH_RULE_AREA_T )
+        {
+            sch_item->SetFlags( STRUCT_DELETED );
+            commit.Remove( item, m_frame->GetScreen() );
         }
         else
         {
@@ -1997,6 +2010,15 @@ int SCH_EDIT_TOOL::Properties( const TOOL_EVENT& aEvent )
         break;
     }
 
+    case SCH_RULE_AREA_T:
+    {
+        DIALOG_SHAPE_PROPERTIES dlg( m_frame, static_cast<SCH_SHAPE*>( curr_item ) );
+        dlg.SetTitle( _( "Rule Area Properties" ) );
+
+        dlg.ShowModal();
+        break;
+    }
+
     case SCH_LINE_T:
     case SCH_BUS_WIRE_ENTRY_T:
     case SCH_JUNCTION_T:
@@ -2054,6 +2076,7 @@ int SCH_EDIT_TOOL::Properties( const TOOL_EVENT& aEvent )
         break;
 
     case SCH_NO_CONNECT_T:
+    case SCH_PIN_T:
         break;
 
     default:                // Unexpected item
@@ -2218,6 +2241,19 @@ int SCH_EDIT_TOOL::ChangeTextType( const TOOL_EVENT& aEvent )
                 new_label->SetAttributes( *sourceText, false );
                 new_label->SetSpinStyle( spinStyle );
                 new_label->SetHyperlink( href );
+
+                if( item->Type() == SCH_GLOBAL_LABEL_T || item->Type() == SCH_HIER_LABEL_T )
+                {
+                    if( static_cast<SCH_LABEL_BASE*>( item )->GetSpinStyle() == SPIN_STYLE::SPIN::UP )
+                        new_label->MirrorVertically( position.y );
+                    else if( static_cast<SCH_LABEL_BASE*>( item )->GetSpinStyle() == SPIN_STYLE::SPIN::BOTTOM )
+                        new_label->MirrorVertically( position.y );
+                    else if( static_cast<SCH_LABEL_BASE*>( item )->GetSpinStyle() == SPIN_STYLE::SPIN::LEFT )
+                        new_label->MirrorHorizontally( position.x );
+                    else if( static_cast<SCH_LABEL_BASE*>( item )->GetSpinStyle() == SPIN_STYLE::SPIN::RIGHT )
+                        new_label->MirrorHorizontally( position.x );
+                }
+
                 newtext = new_label;
                 break;
             }
@@ -2230,6 +2266,19 @@ int SCH_EDIT_TOOL::ChangeTextType( const TOOL_EVENT& aEvent )
                 new_label->SetAttributes( *sourceText, false );
                 new_label->SetSpinStyle( spinStyle );
                 new_label->SetHyperlink( href );
+
+                if( item->Type() == SCH_LABEL_T )
+                {
+                    if( static_cast<SCH_LABEL_BASE*>( item )->GetSpinStyle() == SPIN_STYLE::SPIN::UP )
+                        new_label->MirrorVertically( position.y );
+                    else if( static_cast<SCH_LABEL_BASE*>( item )->GetSpinStyle() == SPIN_STYLE::SPIN::BOTTOM )
+                        new_label->MirrorVertically( position.y );
+                    else if( static_cast<SCH_LABEL_BASE*>( item )->GetSpinStyle() == SPIN_STYLE::SPIN::LEFT )
+                        new_label->MirrorHorizontally( position.x );
+                    else if( static_cast<SCH_LABEL_BASE*>( item )->GetSpinStyle() == SPIN_STYLE::SPIN::RIGHT )
+                        new_label->MirrorHorizontally( position.x );
+                }
+
                 newtext = new_label;
                 break;
             }
@@ -2242,6 +2291,19 @@ int SCH_EDIT_TOOL::ChangeTextType( const TOOL_EVENT& aEvent )
                 new_label->SetAttributes( *sourceText, false );
                 new_label->SetSpinStyle( spinStyle );
                 new_label->SetHyperlink( href );
+
+                if( item->Type() == SCH_LABEL_T )
+                {
+                    if( static_cast<SCH_LABEL_BASE*>( item )->GetSpinStyle() == SPIN_STYLE::SPIN::UP )
+                        new_label->MirrorVertically( position.y );
+                    else if( static_cast<SCH_LABEL_BASE*>( item )->GetSpinStyle() == SPIN_STYLE::SPIN::BOTTOM )
+                        new_label->MirrorVertically( position.y );
+                    else if( static_cast<SCH_LABEL_BASE*>( item )->GetSpinStyle() == SPIN_STYLE::SPIN::LEFT )
+                        new_label->MirrorHorizontally( position.x );
+                    else if( static_cast<SCH_LABEL_BASE*>( item )->GetSpinStyle() == SPIN_STYLE::SPIN::RIGHT )
+                        new_label->MirrorHorizontally( position.x );
+                }
+
                 newtext = new_label;
                 break;
             }

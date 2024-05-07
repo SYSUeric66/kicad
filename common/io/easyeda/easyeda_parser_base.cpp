@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2023 Alex Shvartzkop <dudesuchamazing@gmail.com>
- * Copyright (C) 2023 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2023-2024 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -68,7 +68,7 @@ double EASYEDA_PARSER_BASE::RelPosY( const wxString& aValue )
 
 
 void EASYEDA_PARSER_BASE::TransformTextToBaseline( EDA_TEXT*       textItem,
-                                                   const wxString& baselineAlign, bool invertY )
+                                                   const wxString& baselineAlign )
 {
     int upOffset = 0;
 
@@ -102,9 +102,6 @@ void EASYEDA_PARSER_BASE::TransformTextToBaseline( EDA_TEXT*       textItem,
 
     VECTOR2I offset( 0, -upOffset );
     RotatePoint( offset, textItem->GetTextAngle() );
-
-    if( invertY )
-        offset.y = -offset.y;
 
     textItem->SetTextPos( textItem->GetTextPos() + offset );
 }
@@ -246,7 +243,7 @@ EASYEDA_PARSER_BASE::ParseLineChains( const wxString& data, int aArcMinSegLen, b
             arc.ConstructFromStartEndCenter( RelPos( start ), RelPos( end ), RelPos( arcCenter ),
                                              !cw );
 
-            chain.Append( arc );
+            chain.Append( arc, aArcMinSegLen );
 
             prevPt = end;
         }

@@ -323,8 +323,17 @@ set( SYNC_SHEET_PIN_SRCS
     sync_sheet_pin/sheet_synchronization_model.cpp
     )
 
+set( EESCHEMA_ERC_SRCS
+    erc/erc.cpp
+    erc/erc_item.cpp
+    erc/erc_report.cpp
+    erc/erc_sch_pin_context.cpp
+    erc/erc_settings.cpp
+    )
+
 set( EESCHEMA_SRCS
     ${EESCHEMA_DLGS}
+    ${EESCHEMA_ERC_SRCS}
     ${EESCHEMA_LIBEDIT_SRCS}
     ${EESCHEMA_SCH_IO}
     ${EESCHEMA_SIM_SRCS}
@@ -342,18 +351,12 @@ set( EESCHEMA_SRCS
     eeschema_helpers.cpp
     eeschema_jobs_handler.cpp
     eeschema_settings.cpp
-    erc.cpp
-    erc_item.cpp
-    erc_report.cpp
-    erc_sch_pin_context.cpp
-    erc_settings.cpp
     fields_data_model.cpp
     fields_grid_table.cpp
     files-io.cpp
     generate_alias_info.cpp
     gfx_import_utils.cpp
     picksymbol.cpp
-    lib_pin.cpp
     lib_symbol.cpp
     libarch.cpp
     menubar.cpp
@@ -384,6 +387,7 @@ set( EESCHEMA_SRCS
     sch_render_settings.cpp
     sch_screen.cpp
     sch_shape.cpp
+    sch_rule_area.cpp
     sch_sheet.cpp
     sch_sheet_path.cpp
     sch_sheet_pin.cpp
@@ -432,6 +436,7 @@ set( EESCHEMA_SRCS
     tools/ee_point_editor.cpp
     tools/ee_selection.cpp
     tools/ee_selection_tool.cpp
+    tools/rule_area_create_helper.cpp
     tools/sch_drawing_tools.cpp
     tools/sch_edit_table_tool.cpp
     tools/sch_edit_tool.cpp

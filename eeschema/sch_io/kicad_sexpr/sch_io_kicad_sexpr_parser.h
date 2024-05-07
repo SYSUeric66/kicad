@@ -37,7 +37,7 @@
 #include <default_values.h>    // For some default values
 
 
-class LIB_PIN;
+class SCH_PIN;
 class PAGE_INFO;
 class SCH_BITMAP;
 class SCH_BUS_WIRE_ENTRY;
@@ -45,6 +45,7 @@ class SCH_SYMBOL;
 class SCH_FIELD;
 class SCH_ITEM;
 class SCH_SHAPE;
+class SCH_RULE_AREA;
 class SCH_JUNCTION;
 class SCH_LINE;
 class SCH_NO_CONNECT;
@@ -87,7 +88,7 @@ public:
     LIB_SYMBOL* ParseSymbol( LIB_SYMBOL_MAP& aSymbolLibMap,
                              int aFileVersion = SEXPR_SYMBOL_LIB_FILE_VERSION );
 
-    SCH_ITEM* ParseDrawItem();
+    SCH_ITEM* ParseSymbolDrawItem();
 
     /**
      * Parse the internal #LINE_READER object into \a aSheet.
@@ -139,17 +140,18 @@ private:
 
     int parseInternalUnits( const char* aExpected );
 
-    inline int parseInternalUnits( TSCHEMATIC_T::T aToken )
+    int parseInternalUnits( TSCHEMATIC_T::T aToken )
     {
         return parseInternalUnits( GetTokenText( aToken ) );
     }
 
-    inline VECTOR2I parseXY()
+    VECTOR2I parseXY( bool aInvertY = false )
     {
         VECTOR2I xy;
 
         xy.x = parseInternalUnits( "X coordinate" );
-        xy.y = parseInternalUnits( "Y coordinate" );
+        xy.y = aInvertY ? -parseInternalUnits( "Y coordinate" )
+                        :  parseInternalUnits( "Y coordinate" );
 
         return xy;
     }
@@ -196,7 +198,7 @@ private:
     SCH_SHAPE* parseSymbolArc();
     SCH_SHAPE* parseSymbolBezier();
     SCH_SHAPE* parseSymbolCircle();
-    LIB_PIN* parsePin();
+    SCH_PIN* parseSymbolPin();
     SCH_SHAPE* parseSymbolPolyLine();
     SCH_SHAPE* parseSymbolRectangle();
     SCH_TEXT* parseSymbolText();
@@ -221,6 +223,7 @@ private:
     SCH_SHAPE* parseSchCircle();
     SCH_SHAPE* parseSchRectangle();
     SCH_SHAPE* parseSchBezier();
+    SCH_RULE_AREA* parseSchRuleArea();
     SCH_TEXT* parseSchText();
     SCH_TEXTBOX* parseSchTextBox();
     void parseSchTextBoxContent( SCH_TEXTBOX* aTextBox );

@@ -37,6 +37,7 @@
 #include <dialogs/dialog_lib_symbol_properties.h>
 #include <dialogs/dialog_lib_edit_pin_table.h>
 #include <dialogs/dialog_update_symbol_fields.h>
+#include <view/view_controls.h>
 #include <sch_io/kicad_sexpr/sch_io_kicad_sexpr.h>
 #include <sch_textbox.h>
 #include "symbol_editor_edit_tool.h"
@@ -165,7 +166,7 @@ int SYMBOL_EDITOR_EDIT_TOOL::Rotate( const TOOL_EVENT& aEvent )
     if( selection.GetSize() == 1 )
         rotPoint = item->GetPosition();
     else
-        rotPoint = m_frame->GetNearestHalfGridPosition( mapCoords( selection.GetCenter(), true ) );
+        rotPoint = m_frame->GetNearestHalfGridPosition( selection.GetCenter() );
 
     for( unsigned ii = 0; ii < selection.GetSize(); ii++ )
     {
@@ -237,7 +238,7 @@ int SYMBOL_EDITOR_EDIT_TOOL::Mirror( const TOOL_EVENT& aEvent )
     }
     else
     {
-        mirrorPoint = m_frame->GetNearestHalfGridPosition( mapCoords( selection.GetCenter(), true ) );
+        mirrorPoint = m_frame->GetNearestHalfGridPosition( selection.GetCenter() );
 
         for( unsigned ii = 0; ii < selection.GetSize(); ii++ )
         {
@@ -274,7 +275,7 @@ static std::vector<KICAD_T> nonFields =
     SCH_SHAPE_T,
     SCH_TEXT_T,
     SCH_TEXTBOX_T,
-    LIB_PIN_T
+    SCH_PIN_T
 };
 
 
@@ -298,9 +299,9 @@ int SYMBOL_EDITOR_EDIT_TOOL::DoDelete( const TOOL_EVENT& aEvent )
 
     for( EDA_ITEM* item : items )
     {
-        if( item->Type() == LIB_PIN_T )
+        if( item->Type() == SCH_PIN_T )
         {
-            LIB_PIN*  curr_pin = static_cast<LIB_PIN*>( item );
+            SCH_PIN*  curr_pin = static_cast<SCH_PIN*>( item );
             VECTOR2I pos = curr_pin->GetPosition();
 
             toDelete.insert( curr_pin );
@@ -313,12 +314,7 @@ int SYMBOL_EDITOR_EDIT_TOOL::DoDelete( const TOOL_EVENT& aEvent )
 
                 got_unit[curr_pin->GetUnit()] = true;
 
-                int curr_bodyStyle = curr_pin->GetBodyStyle();
-                ELECTRICAL_PINTYPE etype = curr_pin->GetType();
-                wxString name = curr_pin->GetName();
-                std::vector<LIB_PIN*> pins = symbol->GetAllLibPins();
-
-                for( LIB_PIN* pin : pins )
+                for( SCH_PIN* pin : symbol->GetAllLibPins() )
                 {
                     if( got_unit[pin->GetUnit()] )
                         continue;
@@ -326,13 +322,13 @@ int SYMBOL_EDITOR_EDIT_TOOL::DoDelete( const TOOL_EVENT& aEvent )
                     if( pin->GetPosition() != pos )
                         continue;
 
-                    if( pin->GetBodyStyle() != curr_bodyStyle )
+                    if( pin->GetBodyStyle() != curr_pin->GetBodyStyle() )
                         continue;
 
-                    if( pin->GetType() != etype )
+                    if( pin->GetType() != curr_pin->GetType() )
                         continue;
 
-                    if( pin->GetName() != name )
+                    if( pin->GetName() != curr_pin->GetName() )
                         continue;
 
                     toDelete.insert( pin );
@@ -480,9 +476,9 @@ int SYMBOL_EDITOR_EDIT_TOOL::Properties( const TOOL_EVENT& aEvent )
 
         switch( item->Type() )
         {
-        case LIB_PIN_T:
+        case SCH_PIN_T:
             if( SYMBOL_EDITOR_PIN_TOOL* pinTool = m_toolMgr->GetTool<SYMBOL_EDITOR_PIN_TOOL>() )
-                pinTool->EditPinProperties( (LIB_PIN*) item );
+                pinTool->EditPinProperties( static_cast<SCH_PIN*>( item ) );
 
             break;
 
@@ -637,7 +633,7 @@ void SYMBOL_EDITOR_EDIT_TOOL::editSymbolProperties()
     }
 }
 
-void SYMBOL_EDITOR_EDIT_TOOL::handlePinDuplication( LIB_PIN* aOldPin, LIB_PIN* aNewPin,
+void SYMBOL_EDITOR_EDIT_TOOL::handlePinDuplication( SCH_PIN* aOldPin, SCH_PIN* aNewPin,
                                                     int& aSymbolLastPinNumber )
 {
     if( !aNewPin->GetNumber().IsEmpty() )
@@ -905,9 +901,9 @@ int SYMBOL_EDITOR_EDIT_TOOL::Duplicate( const TOOL_EVENT& aEvent )
         SCH_ITEM* oldItem = static_cast<SCH_ITEM*>( selection.GetItem( ii ) );
         SCH_ITEM* newItem = oldItem->Duplicate();
 
-        if( newItem->Type() == LIB_PIN_T )
+        if( newItem->Type() == SCH_PIN_T )
         {
-            LIB_PIN* newPin = static_cast<LIB_PIN*>( newItem );
+            SCH_PIN* newPin = static_cast<SCH_PIN*>( newItem );
 
             if( !newPin->GetNumber().IsEmpty() )
                 newPin->SetNumber( wxString::Format( wxT( "%i" ), symbol->GetMaxPinNumber() + 1 ) );
@@ -925,7 +921,7 @@ int SYMBOL_EDITOR_EDIT_TOOL::Duplicate( const TOOL_EVENT& aEvent )
     m_toolMgr->RunAction( EE_ACTIONS::clearSelection );
     m_toolMgr->RunAction<EDA_ITEMS*>( EE_ACTIONS::addItemsToSel, &newItems );
 
-    selection.SetReferencePoint( mapCoords( getViewControls()->GetCursorPosition( true ), true ) );
+    selection.SetReferencePoint( getViewControls()->GetCursorPosition( true ) );
 
     if( m_toolMgr->RunSynchronousAction( EE_ACTIONS::move, &commit ) )
         commit.Push( _( "Duplicate" ) );

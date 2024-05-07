@@ -674,6 +674,8 @@ bool JSON_SETTINGS::Migrate()
 
     while( filever < m_schemaVersion )
     {
+        wxASSERT( m_migrators.count( filever ) > 0 );
+
         if( !m_migrators.count( filever ) )
         {
             wxLogTrace( traceSettings, wxT( "Migrator missing for %s version %d!" ),

@@ -61,6 +61,7 @@
 #include <tools/sch_editor_control.h>
 #include <tools/sch_navigate_tool.h>
 #include <trace_helpers.h>
+#include <widgets/filedlg_import_non_kicad.h>
 #include <widgets/wx_infobar.h>
 #include <wildcards_and_files_ext.h>
 #include <drawing_sheet/ds_data_model.h>
@@ -68,6 +69,7 @@
 #include <wx/ffile.h>
 #include <wx/filedlg.h>
 #include <wx/log.h>
+#include <wx/richmsgdlg.h>
 #include <wx/stdpaths.h>
 #include <tools/ee_actions.h>
 #include <tools/ee_inspection_tool.h>
@@ -715,7 +717,7 @@ void SCH_EDIT_FRAME::OnImportProject( wxCommandEvent& aEvent )
 
         const IO_BASE::IO_FILE_DESC& desc = pi->GetSchematicFileDesc();
 
-        if( desc.m_FileExtensions.empty() )
+        if( desc.m_FileExtensions.empty() || !desc.m_CanRead )
             continue;
 
         if( !fileFiltersStr.IsEmpty() )
@@ -733,8 +735,13 @@ void SCH_EDIT_FRAME::OnImportProject( wxCommandEvent& aEvent )
     wxFileDialog dlg( this, _( "Import Schematic" ), path, wxEmptyString, fileFiltersStr,
                       wxFD_OPEN | wxFD_FILE_MUST_EXIST ); // TODO
 
+    FILEDLG_IMPORT_NON_KICAD importOptions( eeconfig()->m_System.show_import_issues );
+    dlg.SetCustomizeHook( importOptions );
+
     if( dlg.ShowModal() == wxID_CANCEL )
         return;
+
+    eeconfig()->m_System.show_import_issues = importOptions.GetShowIssues();
 
     // Don't leave dangling pointers to previously-opened document.
     m_toolManager->GetTool<EE_SELECTION_TOOL>()->ClearSelection();
@@ -894,7 +901,7 @@ bool SCH_EDIT_FRAME::saveSchematicFile( SCH_SHEET* aSheet, const wxString& aSave
     {
         // Delete auto save file.
         wxFileName autoSaveFileName = schematicFileName;
-        autoSaveFileName.SetName( GetAutoSaveFilePrefix() + schematicFileName.GetName() );
+        autoSaveFileName.SetName( FILEEXT::AutoSaveFilePrefix + schematicFileName.GetName() );
 
         if( autoSaveFileName.FileExists() )
         {
@@ -1324,7 +1331,7 @@ bool SCH_EDIT_FRAME::doAutoSave()
         tmpFileName = fn = screens.GetScreen( i )->GetFileName();
 
         // Auto save file name is the normal file name prefixed with GetAutoSavePrefix().
-        fn.SetName( GetAutoSaveFilePrefix() + fn.GetName() );
+        fn.SetName( FILEEXT::AutoSaveFilePrefix + fn.GetName() );
 
         if( saveSchematicFile( screens.GetSheet( i ), fn.GetFullPath() ) )
         {
@@ -1395,7 +1402,11 @@ bool SCH_EDIT_FRAME::importFile( const wxString& aFileName, int aFileType,
                                    std::placeholders::_1 ) );
             }
 
-            pi->SetReporter( errorReporter.m_Reporter );
+            if( eeconfig()->m_System.show_import_issues )
+                pi->SetReporter( errorReporter.m_Reporter );
+            else
+                pi->SetReporter( &NULL_REPORTER::GetInstance() );
+
             pi->SetProgressReporter( &progressReporter );
 
             SCH_SHEET* loadedSheet =
@@ -1554,7 +1565,7 @@ bool SCH_EDIT_FRAME::updateAutoSaveFile()
         fn = screens.GetScreen( i )->GetFileName();
 
         // Auto save file name is the normal file name prefixed with GetAutoSavePrefix().
-        fn.SetName( GetAutoSaveFilePrefix() + fn.GetName() );
+        fn.SetName( FILEEXT::AutoSaveFilePrefix + fn.GetName() );
         autoSavedFiles.emplace_back( fn.GetFullPath() );
     }
 
@@ -1643,7 +1654,7 @@ void SCH_EDIT_FRAME::CheckForAutoSaveFile( const wxFileName& aFileName )
             wxString tmp = recoveredFn.GetName();
 
             // Strip "_autosave-" prefix from the auto save file name.
-            tmp.Replace( GetAutoSaveFilePrefix(), wxS( "" ), false );
+            tmp.Replace( FILEEXT::AutoSaveFilePrefix, wxS( "" ), false );
             recoveredFn.SetName( tmp );
 
             wxFileName backupFn = recoveredFn;
@@ -1662,7 +1673,8 @@ void SCH_EDIT_FRAME::CheckForAutoSaveFile( const wxFileName& aFileName )
             }
             // Attempt to back up the last schematic file before overwriting it with the auto
             // save file.
-            else if( !wxCopyFile( recoveredFn.GetFullPath(), backupFn.GetFullPath() ) )
+            else if( recoveredFn.Exists()
+                    && !wxCopyFile( recoveredFn.GetFullPath(), backupFn.GetFullPath() ) )
             {
                 unrecoveredFiles.Add( recoveredFn.GetFullPath() );
             }

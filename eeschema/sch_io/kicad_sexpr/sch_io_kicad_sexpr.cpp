@@ -39,8 +39,10 @@
 #include <sch_edit_frame.h>       // SYMBOL_ORIENTATION_T
 #include <sch_junction.h>
 #include <sch_line.h>
+#include <sch_pin.h>
 #include <sch_shape.h>
 #include <sch_no_connect.h>
+#include <sch_rule_area.h>
 #include <sch_text.h>
 #include <sch_textbox.h>
 #include <sch_table.h>
@@ -49,7 +51,6 @@
 #include <sch_sheet_pin.h>
 #include <schematic.h>
 #include <sch_screen.h>
-#include <lib_pin.h>
 #include <io/kicad/kicad_io_utils.h>
 #include <schematic_lexer.h>
 #include <sch_io/kicad_sexpr/sch_io_kicad_sexpr.h>
@@ -470,6 +471,10 @@ void SCH_IO_KICAD_SEXPR::Format( SCH_SHEET* aSheet )
         case SCH_SHAPE_T:
             saveShape( static_cast<SCH_SHAPE*>( item ), 1 );
             break;
+        
+        case SCH_RULE_AREA_T:
+            saveRuleArea( static_cast<SCH_RULE_AREA*>( item ), 1 );
+            break;
 
         case SCH_TEXT_T:
         case SCH_LABEL_T:
@@ -597,6 +602,10 @@ void SCH_IO_KICAD_SEXPR::Format( EE_SELECTION* aSelection, SCH_SHEET_PATH* aSele
 
         case SCH_SHAPE_T:
             saveShape( static_cast<SCH_SHAPE*>( item ), 0 );
+            break;
+
+        case SCH_RULE_AREA_T:
+            saveRuleArea( static_cast<SCH_RULE_AREA*>( item ), 0 );
             break;
 
         case SCH_TEXT_T:
@@ -803,73 +812,77 @@ void SCH_IO_KICAD_SEXPR::saveSymbol( SCH_SYMBOL* aSymbol, const SCHEMATIC& aSche
 
     if( !aSymbol->GetInstances().empty() )
     {
+        std::map<KIID, std::vector<SCH_SYMBOL_INSTANCE>> projectInstances;
+
         m_out->Print( aNestLevel + 1, "(instances\n" );
 
+        wxString projectName;
         KIID lastProjectUuid;
         KIID rootSheetUuid = aSchematic.Root().m_Uuid;
         SCH_SHEET_LIST fullHierarchy = aSchematic.GetSheets();
-        bool project_open = false;
 
-        for( size_t i = 0; i < aSymbol->GetInstances().size(); i++ )
+        for( const SCH_SYMBOL_INSTANCE& inst : aSymbol->GetInstances() )
         {
             // Zero length KIID_PATH objects are not valid and will cause a crash below.
-            wxCHECK2( aSymbol->GetInstances()[i].m_Path.size(), continue );
+            wxCHECK2( inst.m_Path.size(), continue );
 
             // If the instance data is part of this design but no longer has an associated sheet
             // path, don't save it.  This prevents large amounts of orphaned instance data for the
             // current project from accumulating in the schematic files.
-            //
-            // Keep all instance data when copying to the clipboard.  It may be needed on paste.
-            if( !aForClipboard
-              && ( aSymbol->GetInstances()[i].m_Path[0] == rootSheetUuid )
-              && !fullHierarchy.GetSheetPathByKIIDPath( aSymbol->GetInstances()[i].m_Path ) )
-            {
-                if( project_open && ( ( i + 1 == aSymbol->GetInstances().size() )
-                  || lastProjectUuid != aSymbol->GetInstances()[i+1].m_Path[0] ) )
-                {
-                    m_out->Print( aNestLevel + 2, ")\n" );  // Closes `project`.
-                    project_open = false;
-                }
+            bool isOrphaned = ( inst.m_Path[0] == rootSheetUuid )
+                              && !fullHierarchy.GetSheetPathByKIIDPath( inst.m_Path );
 
+            // Keep all instance data when copying to the clipboard.  They may be needed on paste.
+            if( !aForClipboard && isOrphaned )
                 continue;
-            }
 
-            if( lastProjectUuid != aSymbol->GetInstances()[i].m_Path[0] )
+            auto it = projectInstances.find( inst.m_Path[0] );
+
+            if( it == projectInstances.end() )
             {
-                wxString projectName;
-
-                if( aSymbol->GetInstances()[i].m_Path[0] == rootSheetUuid )
-                    projectName = aSchematic.Prj().GetProjectName();
-                else
-                    projectName = aSymbol->GetInstances()[i].m_ProjectName;
-
-                lastProjectUuid = aSymbol->GetInstances()[i].m_Path[0];
-                m_out->Print( aNestLevel + 2, "(project %s\n",
-                              m_out->Quotew( projectName ).c_str() );
-                project_open = true;
+                projectInstances[ inst.m_Path[0] ] = { inst };
             }
-
-            wxString path;
-            KIID_PATH tmp = aSymbol->GetInstances()[i].m_Path;
-
-            if( aForClipboard && aRelativePath )
-                tmp.MakeRelativeTo( aRelativePath->Path() );
-
-            path = tmp.AsString();
-
-            m_out->Print( aNestLevel + 3, "(path %s\n",
-                          m_out->Quotew( path ).c_str() );
-            m_out->Print( aNestLevel + 4, "(reference %s) (unit %d)\n",
-                          m_out->Quotew( aSymbol->GetInstances()[i].m_Reference ).c_str(),
-                          aSymbol->GetInstances()[i].m_Unit );
-            m_out->Print( aNestLevel + 3, ")\n" );
-
-            if( project_open && ( ( i + 1 == aSymbol->GetInstances().size() )
-              || lastProjectUuid != aSymbol->GetInstances()[i+1].m_Path[0] ) )
+            else
             {
-                m_out->Print( aNestLevel + 2, ")\n" );  // Closes `project`.
-                project_open = false;
+                it->second.emplace_back( inst );
             }
+        }
+
+        for( auto& [uuid, instances] : projectInstances )
+        {
+            wxCHECK2( instances.size(), continue );
+
+            // Sort project instances by KIID_PATH.
+            std::sort( instances.begin(), instances.end(),
+                       []( SCH_SYMBOL_INSTANCE& aLhs, SCH_SYMBOL_INSTANCE& aRhs )
+                       {
+                           return aLhs.m_Path < aRhs.m_Path;
+                       } );
+
+            projectName = instances[0].m_ProjectName;
+
+            m_out->Print( aNestLevel + 2, "(project %s\n",
+                          m_out->Quotew( projectName ).c_str() );
+
+            for( const SCH_SYMBOL_INSTANCE& instance : instances )
+            {
+                wxString path;
+                KIID_PATH tmp = instance.m_Path;
+
+                if( aForClipboard && aRelativePath )
+                    tmp.MakeRelativeTo( aRelativePath->Path() );
+
+                path = tmp.AsString();
+
+                m_out->Print( aNestLevel + 3, "(path %s\n",
+                              m_out->Quotew( path ).c_str() );
+                m_out->Print( aNestLevel + 4, "(reference %s) (unit %d)\n",
+                              m_out->Quotew( instance.m_Reference ).c_str(),
+                              instance.m_Unit );
+                m_out->Print( aNestLevel + 3, ")\n" );
+            }
+
+            m_out->Print( aNestLevel + 2, ")\n" );  // Closes `project`.
         }
 
         m_out->Print( aNestLevel + 1, ")\n" );  // Closes `instances`.
@@ -1201,32 +1214,42 @@ void SCH_IO_KICAD_SEXPR::saveShape( SCH_SHAPE* aShape, int aNestLevel )
     {
     case SHAPE_T::ARC:
         formatArc( m_out, aNestLevel, aShape, false, aShape->GetStroke(), aShape->GetFillMode(),
-                   aShape->GetFillColor(), aShape->m_Uuid );
+                   aShape->GetFillColor(), false, aShape->m_Uuid );
         break;
 
     case SHAPE_T::CIRCLE:
         formatCircle( m_out, aNestLevel, aShape, false, aShape->GetStroke(), aShape->GetFillMode(),
-                      aShape->GetFillColor(), aShape->m_Uuid );
+                      aShape->GetFillColor(), false, aShape->m_Uuid );
         break;
 
     case SHAPE_T::RECTANGLE:
         formatRect( m_out, aNestLevel, aShape, false, aShape->GetStroke(), aShape->GetFillMode(),
-                    aShape->GetFillColor(), aShape->m_Uuid );
+                    aShape->GetFillColor(), false, aShape->m_Uuid );
         break;
 
     case SHAPE_T::BEZIER:
         formatBezier( m_out, aNestLevel, aShape, false, aShape->GetStroke(), aShape->GetFillMode(),
-                      aShape->GetFillColor(), aShape->m_Uuid );
+                      aShape->GetFillColor(), false, aShape->m_Uuid );
         break;
 
     case SHAPE_T::POLY:
         formatPoly( m_out, aNestLevel, aShape, false, aShape->GetStroke(), aShape->GetFillMode(),
-                    aShape->GetFillColor(), aShape->m_Uuid );
+                    aShape->GetFillColor(), false, aShape->m_Uuid );
         break;
 
     default:
         UNIMPLEMENTED_FOR( aShape->SHAPE_T_asString() );
     }
+}
+
+
+void SCH_IO_KICAD_SEXPR::saveRuleArea( SCH_RULE_AREA* aRuleArea, int aNestLevel )
+{
+    wxCHECK_RET( aRuleArea != nullptr && m_out != nullptr, "" );
+
+    m_out->Print( aNestLevel, "(rule_area " );
+    saveShape( aRuleArea, aNestLevel + 1 );
+    m_out->Print( aNestLevel, ")\n" );
 }
 
 

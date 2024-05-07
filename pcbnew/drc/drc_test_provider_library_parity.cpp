@@ -307,8 +307,8 @@ bool padNeedsUpdate( const PAD* a, const PAD* b, REPORTER* aReporter )
           wxString::Format( _( "%s fabrication property differs." ), PAD_DESC( a ) ) );
 
     // The pad orientation, for historical reasons is the pad rotation + parent rotation.
-    TEST_D( ( a->GetOrientation() - a->GetParentFootprint()->GetOrientation() ).Normalize().AsDegrees(),
-            ( b->GetOrientation() - b->GetParentFootprint()->GetOrientation() ).Normalize().AsDegrees(),
+    TEST_D( a->GetFPRelativeOrientation().Normalize().AsDegrees(),
+            b->GetFPRelativeOrientation().Normalize().AsDegrees(),
             wxString::Format( _( "%s orientation differs." ), PAD_DESC( a ) ) );
 
     TEST( a->GetSize(), b->GetSize(),
@@ -316,27 +316,14 @@ bool padNeedsUpdate( const PAD* a, const PAD* b, REPORTER* aReporter )
     TEST( a->GetDelta(), b->GetDelta(),
           wxString::Format( _( "%s trapezoid delta differs." ), PAD_DESC( a ) ) );
 
-    if( a->GetRoundRectCornerRadius() != b->GetRoundRectCornerRadius()
-        || a->GetRoundRectRadiusRatio() != b->GetRoundRectRadiusRatio() )
-    {
-        diff = true;
+    TEST_D( a->GetRoundRectRadiusRatio(), b->GetRoundRectRadiusRatio(),
+            wxString::Format( _( "%s rounded corners differ." ), PAD_DESC( a ) ) );
 
-        if( aReporter )
-            aReporter->Report( wxString::Format( _( "%s rounded corners differ." ), PAD_DESC( a ) ) );
-        else
-            return true;
-    }
+    TEST_D( a->GetChamferRectRatio(), b->GetChamferRectRatio(),
+            wxString::Format( _( "%s chamfered corner sizes differ." ), PAD_DESC( a ) ) );
 
-    if( a->GetChamferRectRatio() != b->GetChamferRectRatio()
-        || a->GetChamferPositions() != b->GetChamferPositions() )
-    {
-        diff = true;
-
-        if( aReporter )
-            aReporter->Report( wxString::Format( _( "%s chamfered corners differ." ), PAD_DESC( a ) ) );
-        else
-            return true;
-    }
+    TEST( a->GetChamferPositions(), b->GetChamferPositions(),
+          wxString::Format( _( "%s chamfered corners differ." ), PAD_DESC( a ) ) );
 
     TEST_PT( a->GetOffset(), b->GetOffset(),
              wxString::Format( _( "%s shape offset from hole differs." ), PAD_DESC( a ) ) );
@@ -547,7 +534,8 @@ bool zoneNeedsUpdate( const ZONE* a, const ZONE* b, REPORTER* aReporter )
 }
 
 
-bool FOOTPRINT::FootprintNeedsUpdate( const FOOTPRINT* aLibFP, REPORTER* aReporter )
+bool FOOTPRINT::FootprintNeedsUpdate( const FOOTPRINT* aLibFP, int aCompareFlags,
+                                      REPORTER* aReporter )
 {
     UNITS_PROVIDER unitsProvider( pcbIUScale, EDA_UNITS::MILLIMETRES );
 
@@ -594,34 +582,29 @@ bool FOOTPRINT::FootprintNeedsUpdate( const FOOTPRINT* aLibFP, REPORTER* aReport
                wxString::Format( _( "'%s' settings differ." ),
                                  _( "Allow bridged solder mask apertures between pads" ) ) );
 
-    TEST_ATTR( GetAttributes(), aLibFP->GetAttributes(), FP_BOARD_ONLY,
-               wxString::Format( _( "'%s' settings differ." ),
-                                 _( "Not in schematic" ) ) );
-
-    TEST_ATTR( GetAttributes(), aLibFP->GetAttributes(), FP_EXCLUDE_FROM_POS_FILES,
-               wxString::Format( _( "'%s' settings differ." ),
-                                 _( "Exclude from position files" ) ) );
-
-    // this test is skipped: EXCLUDE_FROM_BOM attribute is related to a given design,
-    // not to a lib footprint. EXCLUDE_FROM_BOM must be tested only in Schematic Parity
-    #if 0
-    TEST_ATTR( GetAttributes(), aLibFP->GetAttributes(), FP_EXCLUDE_FROM_BOM,
-               wxString::Format( _( "'%s' settings differ." ),
-                                 _( "Exclude from bill of materials" ) ) );
-    #endif
-
     TEST_ATTR( GetAttributes(), aLibFP->GetAttributes(), FP_ALLOW_MISSING_COURTYARD,
                wxString::Format( _( "'%s' settings differ." ),
                                  _( "Exempt From Courtyard Requirement" ) ) );
 
-    // this test is skipped: Do No Place attribute is related to a given design,
-    // not to a lib footprint. DNP must be tested only in Schematic Parity
-    #if 0
-    TEST_ATTR( GetAttributes(), aLibFP->GetAttributes(), FP_DNP,
-               wxString::Format( _( "'%s' settings differ." ),
-                                 _( "Do not populate" ) ) );
-    #endif
+    if( !( aCompareFlags & COMPARE_FLAGS::DRC ) )
+    {
+        // These tests are skipped for DRC: they are presumed to relate to a given design.
+        TEST_ATTR( GetAttributes(), aLibFP->GetAttributes(), FP_BOARD_ONLY,
+                   wxString::Format( _( "'%s' settings differ." ),
+                                     _( "Not in schematic" ) ) );
 
+        TEST_ATTR( GetAttributes(), aLibFP->GetAttributes(), FP_EXCLUDE_FROM_POS_FILES,
+                   wxString::Format( _( "'%s' settings differ." ),
+                                     _( "Exclude from position files" ) ) );
+
+        TEST_ATTR( GetAttributes(), aLibFP->GetAttributes(), FP_EXCLUDE_FROM_BOM,
+                   wxString::Format( _( "'%s' settings differ." ),
+                                     _( "Exclude from bill of materials" ) ) );
+
+        TEST_ATTR( GetAttributes(), aLibFP->GetAttributes(), FP_DNP,
+                   wxString::Format( _( "'%s' settings differ." ),
+                                     _( "Do not populate" ) ) );
+    }
 
     // Clearance and zone connection overrides are as likely to be set at the board level as in
     // the library.
@@ -904,7 +887,7 @@ bool DRC_TEST_PROVIDER_LIBRARY_PARITY::Run()
                 reportViolation( drcItem, footprint->GetCenter(), UNDEFINED_LAYER );
             }
         }
-        else if( footprint->FootprintNeedsUpdate( libFootprint.get() ) )
+        else if( footprint->FootprintNeedsUpdate( libFootprint.get(), BOARD_ITEM::COMPARE_FLAGS::DRC ) )
         {
             if( !m_drcEngine->IsErrorLimitExceeded( DRCE_LIB_FOOTPRINT_MISMATCH ) )
             {

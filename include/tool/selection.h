@@ -30,8 +30,9 @@
 #include <optional>
 #include <core/typeinfo.h>
 #include <deque>
-#include <eda_item.h>
 #include <view/view_group.h>
+
+class EDA_ITEM;
 
 
 class SELECTION : public KIGFX::VIEW_GROUP
@@ -130,49 +131,12 @@ public:
     /**
      * Returns a copy of this selection of items sorted by their X then Y position.
      *
-     * @return Vector of sorted items
+     * @return std::vector of sorted items
      */
-    const std::vector<EDA_ITEM*> GetItemsSortedByTypeAndXY( bool leftBeforeRight = true,
-                                                            bool topBeforeBottom = true ) const
-    {
-        std::vector<EDA_ITEM*> sorted_items = std::vector<EDA_ITEM*>( m_items.begin(),
-                                                                      m_items.end() );
+    std::vector<EDA_ITEM*> GetItemsSortedByTypeAndXY( bool leftBeforeRight = true,
+                                                      bool topBeforeBottom = true ) const;
 
-        std::sort( sorted_items.begin(), sorted_items.end(),
-                [&]( EDA_ITEM* a, EDA_ITEM* b )
-                {
-                    if( a->Type() == b->Type() )
-                    {
-                        if( a->GetSortPosition().x == b->GetSortPosition().x )
-                        {
-                            // Ensure deterministic sort
-                            if( a->GetSortPosition().y == b->GetSortPosition().y )
-                                return a->m_Uuid < b->m_Uuid;
-
-                            if( topBeforeBottom )
-                                return a->GetSortPosition().y < b->GetSortPosition().y;
-                            else
-                                return a->GetSortPosition().y > b->GetSortPosition().y;
-                        }
-                        else if( leftBeforeRight )
-                        {
-                            return a->GetSortPosition().x < b->GetSortPosition().x;
-                        }
-                        else
-                        {
-                            return a->GetSortPosition().x > b->GetSortPosition().x;
-                        }
-                    }
-                    else
-                    {
-                        return a->Type() < b->Type();
-                    }
-                } );
-
-        return sorted_items;
-    }
-
-    const std::vector<EDA_ITEM*> GetItemsSortedBySelectionOrder() const;
+    std::vector<EDA_ITEM*> GetItemsSortedBySelectionOrder() const;
 
     /// Returns the center point of the selection area bounding box.
     virtual VECTOR2I GetCenter() const;
@@ -190,7 +154,7 @@ public:
         return GetBoundingBox().GetPosition();
     }
 
-    virtual BOX2I GetBoundingBox() const;
+    virtual BOX2I GetBoundingBox( bool aOnlyVisible = false ) const;
 
     virtual EDA_ITEM* GetTopLeftItem( bool onlyModules = false ) const
     {

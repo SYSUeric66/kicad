@@ -236,13 +236,6 @@ TOOL_ACTION EE_ACTIONS::importSymbol( TOOL_ACTION_ARGS()
         .Tooltip( _( "Import a symbol to the current library" ) )
         .Icon( BITMAPS::import_part ) );
 
-TOOL_ACTION EE_ACTIONS::exportSymbol( TOOL_ACTION_ARGS()
-        .Name( "eeschema.SymbolLibraryControl.exportSymbol" )
-        .Scope( AS_GLOBAL )
-        .FriendlyName( _( "Export..." ) )
-        .Tooltip( _( "Export a symbol to a new library file" ) )
-        .Icon( BITMAPS::export_part ) );
-
 TOOL_ACTION EE_ACTIONS::openWithTextEditor( TOOL_ACTION_ARGS()
         .Name( "eeschema.SymbolLibraryControl.openWithTextEditor" )
         .Scope( AS_GLOBAL )
@@ -296,6 +289,12 @@ TOOL_ACTION EE_ACTIONS::hideSymbolTree( TOOL_ACTION_ARGS()
         .FriendlyName( _( "Hide Symbol Tree" ) )
         .Icon( BITMAPS::search_tree ) );
 
+TOOL_ACTION EE_ACTIONS::symbolTreeSearch( TOOL_ACTION_ARGS()
+        .Name( "eeschema.SymbolLibraryControl.symbolTreeSearch" )
+        .Scope( AS_GLOBAL )
+        .FriendlyName( _( "Focus Symbol Tree Search Field" ) )
+        .DefaultHotkey( MD_CTRL + 'L' ) );
+
 TOOL_ACTION EE_ACTIONS::exportSymbolView( TOOL_ACTION_ARGS()
         .Name( "eeschema.SymbolLibraryControl.exportSymbolView" )
         .Scope( AS_GLOBAL )
@@ -345,7 +344,7 @@ TOOL_ACTION EE_ACTIONS::placeSymbolPin( TOOL_ACTION_ARGS()
         .Tooltip( _( "Add a pin" ) )
         .Icon( BITMAPS::pin )
         .Flags( AF_ACTIVATE )
-        .Parameter( LIB_PIN_T ) );
+        .Parameter( SCH_PIN_T ) );
 
 TOOL_ACTION EE_ACTIONS::placeSymbolText( TOOL_ACTION_ARGS()
         .Name( "eeschema.SymbolDrawing.placeSymbolText" )
@@ -606,6 +605,29 @@ TOOL_ACTION EE_ACTIONS::placeImage( TOOL_ACTION_ARGS()
         .Icon( BITMAPS::image )
         .Flags( AF_ACTIVATE )
         .Parameter<SCH_BITMAP*>( nullptr ) );
+
+TOOL_ACTION EE_ACTIONS::drawRuleArea( TOOL_ACTION_ARGS()
+        .Name( "eeschema.InteractiveDrawing.drawRuleArea" )
+        .Scope( AS_GLOBAL )
+        .FriendlyName( _( "Add Rule Area" ) )
+        .Tooltip( _( "Draw rule area" ) )
+        .Icon( BITMAPS::add_keepout_area )
+        .Flags( AF_ACTIVATE )
+        .Parameter( SHAPE_T::RECTANGLE ) );
+
+TOOL_ACTION EE_ACTIONS::deleteLastPoint( TOOL_ACTION_ARGS()
+        .Name( "eeschema.InteractiveDrawing.deleteLastPoint" )
+        .Scope( AS_CONTEXT )
+        .FriendlyName( _( "Delete Last Point" ) )
+        .Tooltip( _( "Delete the last point added to the current item" ) )
+        .Icon( BITMAPS::undo ) );
+
+TOOL_ACTION EE_ACTIONS::closeOutline( TOOL_ACTION_ARGS()
+        .Name( "eeschema.InteractiveDrawing.closeOutline" )
+        .Scope( AS_CONTEXT )
+        .FriendlyName( _( "Close Outline" ) )
+        .Tooltip( _( "Close the in progress outline" ) )
+        .Icon( BITMAPS::checked_ok ) );
 
 
 // SCH_EDIT_TOOL

@@ -54,14 +54,16 @@ struct HTTP_LIB_PART
 
     std::time_t lastCached = 0;
 
-    std::map<std::string, std::tuple<std::string, bool>> fields; ///< additional generic fields
+    std::vector<std::pair<std::string, std::tuple<std::string, bool>>>
+            fields; ///< additional generic fields
 };
 
 
 struct HTTP_LIB_CATEGORY
 {
-    std::string id;   ///< id of category
-    std::string name; ///< name of category
+    std::string id;          ///< id of category
+    std::string name;        ///< name of category
+    std::string description; ///< description of category
 
     std::time_t lastCached = 0;
 

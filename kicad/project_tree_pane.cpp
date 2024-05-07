@@ -712,7 +712,8 @@ bool PROJECT_TREE_PANE::hasChangedFiles()
     if( !repo )
         return false;
 
-    git_status_options opts = GIT_STATUS_OPTIONS_INIT;
+    git_status_options opts;
+    git_status_init_options( &opts, GIT_STATUS_OPTIONS_VERSION );
 
     opts.show = GIT_STATUS_SHOW_INDEX_AND_WORKDIR;
     opts.flags = GIT_STATUS_OPT_INCLUDE_UNTRACKED | GIT_STATUS_OPT_RENAMES_HEAD_TO_INDEX
@@ -1407,10 +1408,22 @@ void PROJECT_TREE_PANE::FileWatcherReset()
     // see  http://docs.wxwidgets.org/trunk/classwx_file_system_watcher.htm
     // under unix, the file watcher needs more work to be efficient
     // moreover, under wxWidgets 2.9.4, AddTree does not work properly.
+    {
+        wxLogNull logNo;    // avoid log messages
 #ifdef __WINDOWS__
-    m_watcher->AddTree( fn );
+        if( ! m_watcher->AddTree( fn ) )
+        {
+            wxLogTrace( tracePathsAndFiles, "%s: failed to add '%s'\n", __func__, TO_UTF8( fn.GetFullPath() ) );
+            return;
+        }
+    }
 #else
-    m_watcher->Add( fn );
+        if( !m_watcher->Add( fn ) )
+        {
+            wxLogTrace( tracePathsAndFiles, "%s: failed to add '%s'\n", __func__, TO_UTF8( fn.GetFullPath() ) );
+            return;
+        }
+    }
 
     if( m_TreeProject->IsEmpty() )
         return;
@@ -1474,7 +1487,7 @@ void PROJECT_TREE_PANE::FileWatcherReset()
     for( unsigned ii = 0; ii < paths.GetCount(); ii++ )
         wxLogTrace( tracePathsAndFiles, " %s\n", TO_UTF8( paths[ii] ) );
 #endif
-}
+    }
 
 
 void PROJECT_TREE_PANE::EmptyTreePrj()
@@ -1947,7 +1960,8 @@ void PROJECT_TREE_PANE::updateGitStatusIcons()
         }
     }
 
-    git_status_options status_options = GIT_STATUS_OPTIONS_INIT;
+    git_status_options status_options;
+    git_status_init_options( &status_options, GIT_STATUS_OPTIONS_VERSION );
     status_options.show = GIT_STATUS_SHOW_INDEX_AND_WORKDIR;
     status_options.flags = GIT_STATUS_OPT_INCLUDE_UNTRACKED | GIT_STATUS_OPT_INCLUDE_UNMODIFIED;
 
@@ -2097,7 +2111,8 @@ void PROJECT_TREE_PANE::onGitCommit( wxCommandEvent& aEvent )
     git_config_free( config );
 
     // Collect modified files in the repository
-    git_status_options status_options = GIT_STATUS_OPTIONS_INIT;
+    git_status_options status_options;
+    git_status_init_options( &status_options, GIT_STATUS_OPTIONS_VERSION );
     status_options.show = GIT_STATUS_SHOW_INDEX_AND_WORKDIR;
     status_options.flags = GIT_STATUS_OPT_INCLUDE_UNTRACKED;
 

@@ -26,7 +26,7 @@
 #include <widgets/msgpanel.h>
 #include <bitmaps.h>
 #include <core/mirror.h>
-#include <lib_pin.h>
+#include <sch_pin.h>
 #include <sch_shape.h>
 #include <pgm_base.h>
 #include <sch_symbol.h>
@@ -195,6 +195,11 @@ SCH_SYMBOL::SCH_SYMBOL( const SCH_SYMBOL& aSymbol ) :
 }
 
 
+SCH_SYMBOL::~SCH_SYMBOL()
+{
+}
+
+
 void SCH_SYMBOL::Init( const VECTOR2I& pos )
 {
     m_layer     = LAYER_DEVICE;
@@ -312,7 +317,7 @@ void SCH_SYMBOL::UpdatePins()
     std::map<wxString, wxString>            altPinMap;
     std::map<wxString, std::set<SCH_PIN*>>  pinUuidMap;
     std::set<SCH_PIN*>                      unassignedSchPins;
-    std::set<LIB_PIN*>                      unassignedLibPins;
+    std::set<SCH_PIN*>                      unassignedLibPins;
 
     for( const std::unique_ptr<SCH_PIN>& pin : m_pins )
     {
@@ -331,9 +336,7 @@ void SCH_SYMBOL::UpdatePins()
     if( !m_part )
         return;
 
-    std::vector<LIB_PIN*> pins = m_part->GetAllLibPins();
-
-    for( LIB_PIN* libPin : pins )
+    for( SCH_PIN* libPin : m_part->GetAllLibPins() )
     {
         // NW: Don't filter by unit: this data-structure is used for all instances,
         // some of which might have different units.
@@ -367,7 +370,7 @@ void SCH_SYMBOL::UpdatePins()
     }
 
     // Add any pins that were not found in the symbol
-    for( LIB_PIN* libPin : unassignedLibPins )
+    for( SCH_PIN* libPin : unassignedLibPins )
     {
         SCH_PIN* pin = nullptr;
 
@@ -381,7 +384,7 @@ void SCH_SYMBOL::UpdatePins()
         else
         {
             // This is a pin that was not found in the symbol, so create a new one.
-            pin = m_pins.emplace_back( std::make_unique<SCH_PIN>( SCH_PIN( libPin, this ) ) ).get();
+            pin = m_pins.emplace_back( std::make_unique<SCH_PIN>( SCH_PIN( this, libPin ) ) ).get();
         }
 
         m_pinMap[ libPin ] = pin;
@@ -503,18 +506,15 @@ void SCH_SYMBOL::Print( const SCH_RENDER_SETTINGS* aSettings, int aUnit, int aBo
 
     if( m_part )
     {
-        std::vector<LIB_PIN*>  libPins;
-        m_part->GetPins( libPins, m_unit, m_bodyStyle );
-
-        LIB_SYMBOL tempSymbol( *m_part );
-        std::vector<LIB_PIN*> tempPins;
-        tempSymbol.GetPins( tempPins, m_unit, m_bodyStyle );
+        std::vector<SCH_PIN*> libPins = m_part->GetPins( m_unit, m_bodyStyle );
+        LIB_SYMBOL            tempSymbol( *m_part );
+        std::vector<SCH_PIN*> tempPins = tempSymbol.GetPins( m_unit, m_bodyStyle );
 
         // Copy the pin info from the symbol to the temp pins
         for( unsigned i = 0; i < tempPins.size(); ++ i )
         {
             SCH_PIN* symbolPin = GetPin( libPins[ i ] );
-            LIB_PIN* tempPin = tempPins[ i ];
+            SCH_PIN* tempPin = tempPins[ i ];
 
             tempPin->SetName( symbolPin->GetShownName() );
             tempPin->SetType( symbolPin->GetType() );
@@ -1108,25 +1108,54 @@ SCH_PIN* SCH_SYMBOL::GetPin( const wxString& aNumber ) const
 }
 
 
-void SCH_SYMBOL::GetLibPins( std::vector<LIB_PIN*>& aPinsList ) const
+const SCH_PIN* SCH_SYMBOL::GetPin( const VECTOR2I& aPos ) const
 {
-    if( m_part )
-        m_part->GetPins( aPinsList, m_unit, m_bodyStyle );
+    for( const std::unique_ptr<SCH_PIN>& pin : m_pins )
+    {
+        int pin_unit      = pin->GetLibPin() ? pin->GetLibPin()->GetUnit()
+                                             : GetUnit();
+        int pin_bodyStyle = pin->GetLibPin() ? pin->GetLibPin()->GetBodyStyle()
+                                             : GetBodyStyle();
+
+        if( pin_unit > 0 && pin_unit != GetUnit() )
+            continue;
+
+        if( pin_bodyStyle > 0 && pin_bodyStyle != GetBodyStyle() )
+            continue;
+
+        if( pin->IsPointClickableAnchor( aPos ) )
+            return pin.get();
+    }
+
+    return nullptr;
 }
 
 
-std::vector<LIB_PIN*> SCH_SYMBOL::GetAllLibPins() const
+std::vector<SCH_PIN*> SCH_SYMBOL::GetLibPins() const
 {
-    std::vector<LIB_PIN*> pinList;
-
     if( m_part )
-        m_part->GetPins( pinList, 0, 0 );
+        return m_part->GetPins( m_unit, m_bodyStyle );
 
-    return pinList;
+    return std::vector<SCH_PIN*>();
 }
 
 
-SCH_PIN* SCH_SYMBOL::GetPin( LIB_PIN* aLibPin ) const
+std::vector<SCH_PIN*> SCH_SYMBOL::GetAllLibPins() const
+{
+    if( m_part )
+        return m_part->GetAllLibPins();
+
+    return std::vector<SCH_PIN*>();
+}
+
+
+size_t SCH_SYMBOL::GetFullPinCount() const
+{
+    return m_part ? m_part->GetPinCount() : 0;
+}
+
+
+SCH_PIN* SCH_SYMBOL::GetPin( SCH_PIN* aLibPin ) const
 {
     auto it = m_pinMap.find( aLibPin );
 
@@ -1563,36 +1592,38 @@ void SCH_SYMBOL::SetOrientation( int aOrientation )
     {
     case SYM_ORIENT_0:
     case SYM_NORMAL:                    // default transform matrix
-        m_transform.x1 = 1;
-        m_transform.y2 = -1;
-        m_transform.x2 = m_transform.y1 = 0;
+        m_transform = TRANSFORM();
         break;
 
     case SYM_ROTATE_COUNTERCLOCKWISE:  // Rotate + (incremental rotation)
-        temp.x1   = temp.y2 = 0;
+        temp.x1   = 0;
         temp.y1   = 1;
         temp.x2   = -1;
+        temp.y2   = 0;
         transform = true;
         break;
 
     case SYM_ROTATE_CLOCKWISE:          // Rotate - (incremental rotation)
-        temp.x1   = temp.y2 = 0;
+        temp.x1   = 0;
         temp.y1   = -1;
         temp.x2   = 1;
+        temp.y2   = 0;
         transform = true;
         break;
 
-    case SYM_MIRROR_Y:                  // Mirror Y (incremental rotation)
+    case SYM_MIRROR_Y:                  // Mirror Y (incremental transform)
         temp.x1   = -1;
+        temp.y1   = 0;
+        temp.x2   = 0;
         temp.y2   = 1;
-        temp.y1   = temp.x2 = 0;
         transform = true;
         break;
 
-    case SYM_MIRROR_X:                  // Mirror X (incremental rotation)
+    case SYM_MIRROR_X:                  // Mirror X (incremental transform)
         temp.x1   = 1;
+        temp.y1   = 0;
+        temp.x2   = 0;
         temp.y2   = -1;
-        temp.y1   = temp.x2 = 0;
         transform = true;
         break;
 
@@ -1793,25 +1824,7 @@ BOX2I SCH_SYMBOL::doGetBoundingBox( bool aIncludePins, bool aIncludeFields ) con
     else
         bBox = dummy()->GetBodyBoundingBox( m_unit, m_bodyStyle, aIncludePins, false );
 
-    int x0 = bBox.GetX();
-    int xm = bBox.GetRight();
-
-    // We must reverse Y values, because matrix orientation
-    // suppose Y axis normal for the library items coordinates,
-    // m_transform reverse Y values, but bBox is already reversed!
-    int y0 = -bBox.GetY();
-    int ym = -bBox.GetBottom();
-
-    // Compute the real Boundary box (rotated, mirrored ...)
-    int x1 = m_transform.x1 * x0 + m_transform.y1 * y0;
-    int y1 = m_transform.x2 * x0 + m_transform.y2 * y0;
-    int x2 = m_transform.x1 * xm + m_transform.y1 * ym;
-    int y2 = m_transform.x2 * xm + m_transform.y2 * ym;
-
-    bBox.SetX( x1 );
-    bBox.SetY( y1 );
-    bBox.SetWidth( x2 - x1 );
-    bBox.SetHeight( y2 - y1 );
+    bBox = m_transform.TransformCoordinate( bBox );
     bBox.Normalize();
 
     bBox.Offset( m_pos );
@@ -2019,9 +2032,9 @@ void SCH_SYMBOL::Rotate( const VECTOR2I& aCenter, bool aRotateCCW )
 {
     VECTOR2I prev = m_pos;
 
-    RotatePoint( m_pos, aCenter, aRotateCCW ? ANGLE_270 : ANGLE_90 );
+    RotatePoint( m_pos, aCenter, aRotateCCW ? ANGLE_90 : ANGLE_270 );
 
-    SetOrientation( aRotateCCW ? SYM_ROTATE_CLOCKWISE : SYM_ROTATE_COUNTERCLOCKWISE );
+    SetOrientation( aRotateCCW ? SYM_ROTATE_COUNTERCLOCKWISE : SYM_ROTATE_CLOCKWISE );
 
     for( SCH_FIELD& field : m_fields )
     {
@@ -2045,7 +2058,7 @@ void SCH_SYMBOL::GetEndPoints( std::vector <DANGLING_END_ITEM>& aItemList )
 {
     for( std::unique_ptr<SCH_PIN>& pin : m_pins )
     {
-        LIB_PIN* lib_pin = pin->GetLibPin();
+        SCH_PIN* lib_pin = pin->GetLibPin();
 
         if( lib_pin && lib_pin->GetUnit() && m_unit && ( m_unit != lib_pin->GetUnit() ) )
             continue;
@@ -2109,9 +2122,9 @@ bool SCH_SYMBOL::UpdateDanglingState( std::vector<DANGLING_END_ITEM>& aItemListB
 }
 
 
-VECTOR2I SCH_SYMBOL::GetPinPhysicalPosition( const LIB_PIN* Pin ) const
+VECTOR2I SCH_SYMBOL::GetPinPhysicalPosition( const SCH_PIN* Pin ) const
 {
-    wxCHECK_MSG( Pin != nullptr && Pin->Type() == LIB_PIN_T, VECTOR2I( 0, 0 ),
+    wxCHECK_MSG( Pin != nullptr && Pin->Type() == SCH_PIN_T, VECTOR2I( 0, 0 ),
                  wxT( "Cannot get physical position of pin." ) );
 
     return m_transform.TransformCoordinate( Pin->GetPosition() ) + m_pos;
@@ -2429,19 +2442,17 @@ void SCH_SYMBOL::Plot( PLOTTER* aPlotter, bool aBackground, const SCH_PLOT_OPTS&
 
     if( m_part )
     {
-        std::vector<LIB_PIN*>  libPins;
-        m_part->GetPins( libPins, GetUnit(), GetBodyStyle() );
+        std::vector<SCH_PIN*> libPins = m_part->GetPins( GetUnit(), GetBodyStyle() );
 
         // Copy the source so we can re-orient and translate it.
-        LIB_SYMBOL tempSymbol( *m_part );
-        std::vector<LIB_PIN*> tempPins;
-        tempSymbol.GetPins( tempPins, GetUnit(), GetBodyStyle() );
+        LIB_SYMBOL            tempSymbol( *m_part );
+        std::vector<SCH_PIN*> tempPins = tempSymbol.GetPins( GetUnit(), GetBodyStyle() );
 
         // Copy the pin info from the symbol to the temp pins
         for( unsigned i = 0; i < tempPins.size(); ++ i )
         {
             SCH_PIN* symbolPin = GetPin( libPins[ i ] );
-            LIB_PIN* tempPin = tempPins[ i ];
+            SCH_PIN* tempPin = tempPins[ i ];
 
             tempPin->SetName( symbolPin->GetShownName() );
             tempPin->SetType( symbolPin->GetType() );
@@ -2544,21 +2555,18 @@ void SCH_SYMBOL::PlotPins( PLOTTER* aPlotter ) const
         TRANSFORM            savedTransform = renderSettings->m_Transform;
         renderSettings->m_Transform = GetTransform();
 
-        std::vector<LIB_PIN*>  libPins;
-        m_part->GetPins( libPins, GetUnit(), GetBodyStyle() );
+        std::vector<SCH_PIN*> libPins = m_part->GetPins( GetUnit(), GetBodyStyle() );
 
         // Copy the source to stay const
-        LIB_SYMBOL tempSymbol( *m_part );
-        std::vector<LIB_PIN*> tempPins;
-        tempSymbol.GetPins( tempPins, GetUnit(), GetBodyStyle() );
-
-        SCH_PLOT_OPTS plotOpts;
+        LIB_SYMBOL            tempSymbol( *m_part );
+        std::vector<SCH_PIN*> tempPins = tempSymbol.GetPins( GetUnit(), GetBodyStyle() );
+        SCH_PLOT_OPTS         plotOpts;
 
         // Copy the pin info from the symbol to the temp pins
         for( unsigned i = 0; i < tempPins.size(); ++ i )
         {
             SCH_PIN* symbolPin = GetPin( libPins[ i ] );
-            LIB_PIN* tempPin = tempPins[ i ];
+            SCH_PIN* tempPin = tempPins[ i ];
 
             tempPin->SetName( symbolPin->GetShownName() );
             tempPin->SetType( symbolPin->GetType() );
@@ -2587,6 +2595,36 @@ void SCH_SYMBOL::ClearBrightenedPins()
 {
     for( std::unique_ptr<SCH_PIN>& pin : m_pins )
         pin->ClearBrightened();
+}
+
+
+/*
+ * When modified at the schematic level, we still store the values of these flags in the
+ * associated m_part.  If m_part now diverges from other usages, a new derived LIB_SYMBOL
+ * will be created and stored locally in the schematic.
+ */
+bool SCH_SYMBOL::GetShowPinNames() const
+{
+    wxCHECK( m_part, false );
+    return m_part->GetShowPinNames();
+}
+
+void SCH_SYMBOL::SetShowPinNames( bool aShow )
+{
+    wxCHECK( m_part, /* void */ );
+    m_part->SetShowPinNames( aShow );
+}
+
+bool SCH_SYMBOL::GetShowPinNumbers() const
+{
+    wxCHECK( m_part, false );
+    return m_part->GetShowPinNumbers();
+}
+
+void SCH_SYMBOL::SetShowPinNumbers( bool aShow )
+{
+    wxCHECK( m_part, /* void */ );
+    m_part->SetShowPinNumbers( aShow );
 }
 
 
@@ -2622,7 +2660,7 @@ bool SCH_SYMBOL::IsSymbolLikePowerGlobalLabel() const
     if( !GetLibSymbolRef() || !GetLibSymbolRef()->IsPower() )
         return false;
 
-    std::vector<LIB_PIN*> pin_list = GetAllLibPins();
+    std::vector<SCH_PIN*> pin_list = GetAllLibPins();
 
     if( pin_list.size() != 1 )
         return false;

@@ -28,7 +28,7 @@
 #include <core/kicad_algo.h>
 #include <common.h>
 #include <core/kicad_algo.h>
-#include <erc.h>
+#include <erc/erc.h>
 #include <pin_type.h>
 #include <sch_bus_entry.h>
 #include <sch_symbol.h>
@@ -36,6 +36,7 @@
 #include <sch_line.h>
 #include <sch_marker.h>
 #include <sch_pin.h>
+#include <sch_rule_area.h>
 #include <sch_sheet.h>
 #include <sch_sheet_path.h>
 #include <sch_sheet_pin.h>
@@ -82,6 +83,47 @@ void CONNECTION_SUBGRAPH::RemoveItem( SCH_ITEM* aItem )
 
     if( aItem->Type() == SCH_HIER_LABEL_T )
         m_hier_ports.erase( static_cast<SCH_HIERLABEL*>( aItem ) );
+}
+
+
+void CONNECTION_SUBGRAPH::ExchangeItem( SCH_ITEM* aOldItem, SCH_ITEM* aNewItem )
+{
+    m_items.erase( aOldItem );
+    m_items.insert( aNewItem );
+
+    m_drivers.erase( aOldItem );
+    m_drivers.insert( aNewItem );
+
+    if( aOldItem == m_driver )
+    {
+        m_driver = aNewItem;
+        m_driver_connection = aNewItem->GetOrInitConnection( m_sheet, m_graph );
+    }
+
+    SCH_CONNECTION* old_conn = aOldItem->Connection( &m_sheet );
+    SCH_CONNECTION* new_conn = aNewItem->GetOrInitConnection( m_sheet, m_graph );
+
+    if( old_conn && new_conn )
+    {
+        new_conn->Clone( *old_conn );
+
+        if( old_conn->IsDriver() )
+            new_conn->SetDriver( aNewItem );
+
+        new_conn->ClearDirty();
+    }
+
+    if( aOldItem->Type() == SCH_SHEET_PIN_T )
+    {
+        m_hier_pins.erase( static_cast<SCH_SHEET_PIN*>( aOldItem ) );
+        m_hier_pins.insert( static_cast<SCH_SHEET_PIN*>( aNewItem ) );
+    }
+
+    if( aOldItem->Type() == SCH_HIER_LABEL_T )
+    {
+        m_hier_ports.erase( static_cast<SCH_HIERLABEL*>( aOldItem ) );
+        m_hier_ports.insert( static_cast<SCH_HIERLABEL*>( aNewItem ) );
+    }
 }
 
 
@@ -389,10 +431,35 @@ const wxString& CONNECTION_SUBGRAPH::GetNameForDriver( SCH_ITEM* aItem ) const
 }
 
 
-const wxString CONNECTION_SUBGRAPH::GetNetclassForDriver( SCH_ITEM* aItem ) const
+const std::vector<std::pair<wxString, SCH_ITEM*>>
+CONNECTION_SUBGRAPH::GetNetclassesForDriver( SCH_ITEM* aItem, bool returnAll ) const
 {
-    wxString netclass;
+    std::vector<std::pair<wxString, SCH_ITEM*>> foundNetclasses;
 
+    const std::unordered_set<SCH_RULE_AREA*>& ruleAreaCache = aItem->GetRuleAreaCache();
+
+    // Get netclasses on attached rule areas
+    for( SCH_RULE_AREA* ruleArea : ruleAreaCache )
+    {
+        const std::vector<std::pair<wxString, SCH_ITEM*>> ruleNetclasses =
+                ruleArea->GetResolvedNetclasses();
+
+        if( ruleNetclasses.size() > 0 )
+        {
+            if( returnAll )
+            {
+                foundNetclasses.insert( foundNetclasses.end(), ruleNetclasses.begin(),
+                                        ruleNetclasses.end() );
+            }
+            else
+            {
+                foundNetclasses.push_back( ruleNetclasses[0] );
+                return foundNetclasses;
+            }
+        }
+    }
+
+    // Get netclasses on child fields
     aItem->RunOnChildren(
             [&]( SCH_ITEM* aChild )
             {
@@ -402,15 +469,19 @@ const wxString CONNECTION_SUBGRAPH::GetNetclassForDriver( SCH_ITEM* aItem ) cons
 
                     if( field->GetCanonicalName() == wxT( "Netclass" ) )
                     {
-                        netclass = field->GetText();
-                        return false;
+                        wxString netclass = field->GetText();
+
+                        if( netclass != wxEmptyString )
+                            foundNetclasses.push_back( { field->GetText(), aItem } );
+
+                        return returnAll;
                     }
                 }
 
                 return true;
             } );
 
-    return netclass;
+    return foundNetclasses;
 }
 
 
@@ -580,6 +651,53 @@ void CONNECTION_GRAPH::Merge( CONNECTION_GRAPH& aGraph )
 }
 
 
+void CONNECTION_GRAPH::ExchangeItem( SCH_ITEM* aOldItem, SCH_ITEM* aNewItem )
+{
+    wxCHECK2( aOldItem->Type() == aNewItem->Type(), return );
+
+    auto exchange = [&]( SCH_ITEM* aOld, SCH_ITEM* aNew )
+    {
+        auto it = m_item_to_subgraph_map.find( aOld );
+
+        if( it == m_item_to_subgraph_map.end() )
+            return;
+
+        CONNECTION_SUBGRAPH* sg = it->second;
+
+        sg->ExchangeItem( aOld, aNew );
+
+        m_item_to_subgraph_map.erase( it );
+        m_item_to_subgraph_map.emplace( aNew, sg );
+
+        for( auto it2 = m_items.begin(); it2 != m_items.end(); ++it2 )
+        {
+            if( *it2 == aOld )
+            {
+                *it2 = aNew;
+                break;
+            }
+        }
+    };
+
+    exchange( aOldItem, aNewItem );
+
+    if( aOldItem->Type() == SCH_SYMBOL_T )
+    {
+        SCH_SYMBOL* oldSymbol = static_cast<SCH_SYMBOL*>( aOldItem );
+        SCH_SYMBOL* newSymbol = static_cast<SCH_SYMBOL*>( aNewItem );
+        std::vector<SCH_PIN*> oldPins = oldSymbol->GetPins( &m_schematic->CurrentSheet() );
+        std::vector<SCH_PIN*> newPins = newSymbol->GetPins( &m_schematic->CurrentSheet() );
+
+        wxCHECK2( oldPins.size() == newPins.size(), return );
+
+        for( size_t ii = 0; ii < oldPins.size(); ii++ )
+        {
+            exchange( oldPins[ii], newPins[ii] );
+        }
+    }
+}
+
+
 void CONNECTION_GRAPH::Reset()
 {
     for( auto& subgraph : m_subgraphs )
@@ -654,9 +772,9 @@ void CONNECTION_GRAPH::Recalculate( const SCH_SHEET_LIST& aSheetList, bool aUnco
             }
             else if( item->Type() == SCH_SHEET_T )
             {
-                SCH_SHEET* sheet = static_cast<SCH_SHEET*>( item );
+                SCH_SHEET* sheetItem = static_cast<SCH_SHEET*>( item );
 
-                for( SCH_SHEET_PIN* pin : sheet->GetPins() )
+                for( SCH_SHEET_PIN* pin : sheetItem->GetPins() )
                 {
                     if( pin->IsConnectivityDirty() )
                     {
@@ -976,7 +1094,7 @@ void CONNECTION_GRAPH::removeSubgraphs( std::set<CONNECTION_SUBGRAPH*>& aSubgrap
 
     for( auto it = m_net_name_to_code_map.begin(); it != m_net_name_to_code_map.end(); )
     {
-        if( codes_to_remove.find( it->second ) != codes_to_remove.end() )
+        if( codes_to_remove.contains( it->second ) )
             it = m_net_name_to_code_map.erase( it );
         else
             ++it;
@@ -984,7 +1102,7 @@ void CONNECTION_GRAPH::removeSubgraphs( std::set<CONNECTION_SUBGRAPH*>& aSubgrap
 
     for( auto it = m_bus_name_to_code_map.begin(); it != m_bus_name_to_code_map.end(); )
     {
-        if( codes_to_remove.find( it->second ) != codes_to_remove.end() )
+        if( codes_to_remove.contains( it->second ) )
             it = m_bus_name_to_code_map.erase( it );
         else
             ++it;
@@ -1657,7 +1775,7 @@ void CONNECTION_GRAPH::processSubGraphs()
             {
                 wxString new_name = create_new_name( connection );
 
-                while( m_net_name_to_subgraphs_map.count( new_name ) )
+                while( m_net_name_to_subgraphs_map.contains( new_name ) )
                     new_name = create_new_name( connection );
 
                 wxLogTrace( ConnTrace,
@@ -2261,10 +2379,14 @@ void CONNECTION_GRAPH::buildConnectionGraph( std::function<void( SCH_ITEM* )>* a
                 {
                     for( SCH_ITEM* item : subgraph->m_items )
                     {
-                        netclass = subgraph->GetNetclassForDriver( item );
+                        const std::vector<std::pair<wxString, SCH_ITEM*>> netclassesWithProviders =
+                                subgraph->GetNetclassesForDriver( item, false );
 
-                        if( !netclass.IsEmpty() )
+                        if( netclassesWithProviders.size() > 0 )
+                        {
+                            netclass = netclassesWithProviders[0].first;
                             break;
+                        }
                     }
 
                     if( !netclass.IsEmpty() )
@@ -2388,7 +2510,7 @@ void CONNECTION_GRAPH::propagateToNeighbors( CONNECTION_SUBGRAPH* aSubgraph, boo
             {
                 if( !candidate->m_strong_driver
                     || candidate->m_hier_ports.empty()
-                    || visited.count( candidate ) )
+                    || visited.contains( candidate ) )
                 {
                     continue;
                 }
@@ -2425,7 +2547,7 @@ void CONNECTION_GRAPH::propagateToNeighbors( CONNECTION_SUBGRAPH* aSubgraph, boo
             for( CONNECTION_SUBGRAPH* candidate : it->second )
             {
                 if( candidate->m_hier_pins.empty()
-                    || visited.count( candidate )
+                    || visited.contains( candidate )
                     || candidate->m_driver_connection->Type() != aParent->m_driver_connection->Type() )
                 {
                     continue;
@@ -3102,40 +3224,52 @@ bool CONNECTION_GRAPH::ercCheckNetclassConflicts( const std::vector<CONNECTION_S
     wxString              firstNetclass;
     SCH_ITEM*             firstNetclassDriver = nullptr;
     const SCH_SHEET_PATH* firstNetclassDriverSheet = nullptr;
+    bool                  conflictFound = false;
 
     for( const CONNECTION_SUBGRAPH* subgraph : subgraphs )
     {
         for( SCH_ITEM* item : subgraph->m_items )
         {
-            const wxString netclass = subgraph->GetNetclassForDriver( item );
+            const std::vector<std::pair<wxString, SCH_ITEM*>> netclassesWithProvider =
+                    subgraph->GetNetclassesForDriver( item, true );
 
-            if( netclass.IsEmpty() )
+            if( netclassesWithProvider.size() == 0 )
                 continue;
 
-            if( netclass != firstNetclass )
+            auto checkNetclass = [&]( const std::pair<wxString, SCH_ITEM*>& netclass )
             {
-                if( !firstNetclassDriver )
+                if( netclass.first != firstNetclass )
                 {
-                    firstNetclass = netclass;
-                    firstNetclassDriver = item;
-                    firstNetclassDriverSheet = &subgraph->GetSheet();
-                    continue;
+                    if( !firstNetclassDriver )
+                    {
+                        firstNetclass = netclass.first;
+                        firstNetclassDriver = netclass.second;
+                        firstNetclassDriverSheet = &subgraph->GetSheet();
+                    }
+                    else
+                    {
+                        conflictFound = true;
+
+                        std::shared_ptr<ERC_ITEM> ercItem =
+                                ERC_ITEM::Create( ERCE_NETCLASS_CONFLICT );
+                        ercItem->SetItems( firstNetclassDriver, netclass.second );
+                        ercItem->SetSheetSpecificPath( subgraph->GetSheet() );
+                        ercItem->SetItemsSheetPaths( *firstNetclassDriverSheet,
+                                                     subgraph->GetSheet() );
+
+                        SCH_MARKER* marker =
+                                new SCH_MARKER( ercItem, netclass.second->GetPosition() );
+                        subgraph->m_sheet.LastScreen()->Append( marker );
+                    }
                 }
+            };
 
-                std::shared_ptr<ERC_ITEM> ercItem = ERC_ITEM::Create( ERCE_NETCLASS_CONFLICT );
-                ercItem->SetItems( firstNetclassDriver, item );
-                ercItem->SetSheetSpecificPath( subgraph->GetSheet() );
-                ercItem->SetItemsSheetPaths( *firstNetclassDriverSheet, subgraph->GetSheet() );
-
-                SCH_MARKER* marker = new SCH_MARKER( ercItem, item->GetPosition() );
-                subgraph->m_sheet.LastScreen()->Append( marker );
-
-                return false;
-            }
+            for( const std::pair<wxString, SCH_ITEM*>& netclass : netclassesWithProvider )
+                checkNetclass( netclass );
         }
     }
 
-    return true;
+    return conflictFound;
 }
 
 
@@ -3470,7 +3604,7 @@ bool CONNECTION_GRAPH::ercCheckNoConnects( const CONNECTION_SUBGRAPH* aSubgraph 
             if( pin )
             {
                 ercItem->SetItems( pin, aSubgraph->m_no_connect );
-                pos = pin->GetTransformedPosition();
+                pos = pin->GetPosition();
             }
             else
             {
@@ -3586,7 +3720,7 @@ bool CONNECTION_GRAPH::ercCheckNoConnects( const CONNECTION_SUBGRAPH* aSubgraph 
             ercItem->SetItemsSheetPaths( sheet );
             ercItem->SetItems( pin );
 
-            SCH_MARKER* marker = new SCH_MARKER( ercItem, pin->GetTransformedPosition() );
+            SCH_MARKER* marker = new SCH_MARKER( ercItem, pin->GetPosition() );
             screen->Append( marker );
 
             ok = false;
@@ -3611,8 +3745,7 @@ bool CONNECTION_GRAPH::ercCheckNoConnects( const CONNECTION_SUBGRAPH* aSubgraph 
                     ercItem->SetItemsSheetPaths( sheet );
                     ercItem->SetItems( testPin );
 
-                    SCH_MARKER* marker = new SCH_MARKER( ercItem,
-                                                         testPin->GetTransformedPosition() );
+                    SCH_MARKER* marker = new SCH_MARKER( ercItem, testPin->GetPosition() );
                     screen->Append( marker );
 
                     ok = false;

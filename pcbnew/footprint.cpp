@@ -1053,6 +1053,7 @@ void FOOTPRINT::Remove( BOARD_ITEM* aBoardItem, REMOVE_MODE aMode )
     case PCB_DIM_LEADER_T:
     case PCB_SHAPE_T:
     case PCB_TEXTBOX_T:
+    case PCB_TABLE_T:
     case PCB_REFERENCE_IMAGE_T:
         for( auto it = m_drawings.begin(); it != m_drawings.end(); ++it )
         {
@@ -1144,6 +1145,7 @@ int FOOTPRINT::GetLikelyAttribute() const
 
         case PAD_PROP::HEATSINK:
         case PAD_PROP::CASTELLATED:
+        case PAD_PROP::MECHANICAL:
             continue;
 
         case PAD_PROP::NONE:
@@ -1439,13 +1441,13 @@ SHAPE_POLY_SET FOOTPRINT::GetBoundingHull() const
         if( !isFPEdit && m_privateLayers.test( item->GetLayer() ) )
             continue;
 
-        if( item->Type() != PCB_TEXT_T && item->Type() != PCB_REFERENCE_IMAGE_T )
+        if( item->Type() != PCB_FIELD_T && item->Type() != PCB_REFERENCE_IMAGE_T )
         {
             item->TransformShapeToPolygon( rawPolys, UNDEFINED_LAYER, 0, ARC_LOW_DEF,
                                            ERROR_OUTSIDE );
         }
 
-        // We intentionally exclude footprint text from the bounding hull.
+        // We intentionally exclude footprint fields from the bounding hull.
     }
 
     for( PAD* pad : m_pads )
@@ -1809,6 +1811,22 @@ PAD* FOOTPRINT::GetPad( const VECTOR2I& aPosition, LSET aLayerMask )
     }
 
     return nullptr;
+}
+
+
+std::vector<const PAD*> FOOTPRINT::GetPads( const wxString& aPadNumber, const PAD* aIgnore ) const
+{
+    std::vector<const PAD*> retv;
+
+    for( const PAD* pad : m_pads )
+    {
+        if( aIgnore && aIgnore == pad )
+            continue;
+
+        retv.push_back( pad );
+    }
+
+    return retv;
 }
 
 

@@ -174,9 +174,11 @@ void SCH_IO_KICAD_SEXPR_LIB_CACHE::SaveSymbol( LIB_SYMBOL* aSymbol, OUTPUTFORMAT
             aFormatter.Print( 0, " (pin_names" );
 
             if( aSymbol->GetPinNameOffset() != schIUScale.MilsToIU( DEFAULT_PIN_NAME_OFFSET ) )
+            {
                 aFormatter.Print( 0, " (offset %s)",
                                   EDA_UNIT_UTILS::FormatInternalUnits( schIUScale,
                                                                        aSymbol->GetPinNameOffset() ).c_str() );
+            }
 
             if( !aSymbol->GetShowPinNames() )
                 aFormatter.Print( 0, " hide" );
@@ -344,23 +346,23 @@ void SCH_IO_KICAD_SEXPR_LIB_CACHE::saveSymbolDrawItem( SCH_ITEM* aItem, OUTPUTFO
         switch( shape->GetShape() )
         {
         case SHAPE_T::ARC:
-            formatArc( &aFormatter, aNestLevel, shape, isPrivate, stroke, fillMode, fillColor );
+            formatArc( &aFormatter, aNestLevel, shape, isPrivate, stroke, fillMode, fillColor, true );
             break;
 
         case SHAPE_T::CIRCLE:
-            formatCircle( &aFormatter, aNestLevel, shape, isPrivate, stroke, fillMode, fillColor );
+            formatCircle( &aFormatter, aNestLevel, shape, isPrivate, stroke, fillMode, fillColor, true );
             break;
 
         case SHAPE_T::RECTANGLE:
-            formatRect( &aFormatter, aNestLevel, shape, isPrivate, stroke, fillMode, fillColor );
+            formatRect( &aFormatter, aNestLevel, shape, isPrivate, stroke, fillMode, fillColor, true );
             break;
 
         case SHAPE_T::BEZIER:
-            formatBezier(&aFormatter, aNestLevel, shape, isPrivate, stroke, fillMode, fillColor );
+            formatBezier(&aFormatter, aNestLevel, shape, isPrivate, stroke, fillMode, fillColor, true );
             break;
 
         case SHAPE_T::POLY:
-            formatPoly( &aFormatter, aNestLevel, shape, isPrivate, stroke, fillMode, fillColor );
+            formatPoly( &aFormatter, aNestLevel, shape, isPrivate, stroke, fillMode, fillColor, true );
             break;
 
         default:
@@ -370,8 +372,8 @@ void SCH_IO_KICAD_SEXPR_LIB_CACHE::saveSymbolDrawItem( SCH_ITEM* aItem, OUTPUTFO
         break;
     }
 
-    case LIB_PIN_T:
-        savePin( static_cast<LIB_PIN*>( aItem ), aFormatter, aNestLevel );
+    case SCH_PIN_T:
+        savePin( static_cast<SCH_PIN*>( aItem ), aFormatter, aNestLevel );
         break;
 
     case SCH_TEXT_T:
@@ -404,7 +406,7 @@ void SCH_IO_KICAD_SEXPR_LIB_CACHE::saveField( SCH_FIELD* aField, OUTPUTFORMATTER
                       EDA_UNIT_UTILS::FormatInternalUnits( schIUScale,
                                                            aField->GetPosition().x ).c_str(),
                       EDA_UNIT_UTILS::FormatInternalUnits( schIUScale,
-                                                           aField->GetPosition().y ).c_str(),
+                                                           -aField->GetPosition().y ).c_str(),
                       aField->GetTextAngle().AsDegrees() );
 
     if( aField->IsNameShown() )
@@ -419,10 +421,10 @@ void SCH_IO_KICAD_SEXPR_LIB_CACHE::saveField( SCH_FIELD* aField, OUTPUTFORMATTER
 }
 
 
-void SCH_IO_KICAD_SEXPR_LIB_CACHE::savePin( LIB_PIN* aPin, OUTPUTFORMATTER& aFormatter,
+void SCH_IO_KICAD_SEXPR_LIB_CACHE::savePin( SCH_PIN* aPin, OUTPUTFORMATTER& aFormatter,
                                             int aNestLevel )
 {
-    wxCHECK_RET( aPin && aPin->Type() == LIB_PIN_T, "Invalid LIB_PIN object." );
+    wxCHECK_RET( aPin && aPin->Type() == SCH_PIN_T, "Invalid SCH_PIN object." );
 
     aPin->ClearFlags( IS_CHANGED );
 
@@ -432,7 +434,7 @@ void SCH_IO_KICAD_SEXPR_LIB_CACHE::savePin( LIB_PIN* aPin, OUTPUTFORMATTER& aFor
                       EDA_UNIT_UTILS::FormatInternalUnits( schIUScale,
                                                            aPin->GetPosition().x ).c_str(),
                       EDA_UNIT_UTILS::FormatInternalUnits( schIUScale,
-                                                           aPin->GetPosition().y ).c_str(),
+                                                           -aPin->GetPosition().y ).c_str(),
                       EDA_UNIT_UTILS::FormatAngle( getPinAngle( aPin->GetOrientation() ) ).c_str(),
                       EDA_UNIT_UTILS::FormatInternalUnits( schIUScale,
                                                            aPin->GetLength() ).c_str() );
@@ -458,7 +460,7 @@ void SCH_IO_KICAD_SEXPR_LIB_CACHE::savePin( LIB_PIN* aPin, OUTPUTFORMATTER& aFor
                                                            aPin->GetNumberTextSize() ).c_str() );
 
 
-    for( const std::pair<const wxString, LIB_PIN::ALT>& alt : aPin->GetAlternates() )
+    for( const std::pair<const wxString, SCH_PIN::ALT>& alt : aPin->GetAlternates() )
     {
         aFormatter.Print( aNestLevel + 1, "(alternate %s %s %s)\n",
                           aFormatter.Quotew( alt.second.m_Name ).c_str(),
@@ -481,7 +483,7 @@ void SCH_IO_KICAD_SEXPR_LIB_CACHE::saveText( SCH_TEXT* aText, OUTPUTFORMATTER& a
                       EDA_UNIT_UTILS::FormatInternalUnits( schIUScale,
                                                            aText->GetPosition().x ).c_str(),
                       EDA_UNIT_UTILS::FormatInternalUnits( schIUScale,
-                                                           aText->GetPosition().y ).c_str(),
+                                                           -aText->GetPosition().y ).c_str(),
                       (double) aText->GetTextAngle().AsTenthsOfADegree() );
 
     aText->EDA_TEXT::Format( &aFormatter, aNestLevel, 0 );
@@ -503,10 +505,10 @@ void SCH_IO_KICAD_SEXPR_LIB_CACHE::saveTextBox( SCH_TEXTBOX* aTextBox, OUTPUTFOR
 
     aFormatter.Print( aNestLevel + 1, "(at %s %s %s) (size %s %s) (margins %s %s %s %s)\n",
                       EDA_UNIT_UTILS::FormatInternalUnits( schIUScale, pos.x ).c_str(),
-                      EDA_UNIT_UTILS::FormatInternalUnits( schIUScale, pos.y ).c_str(),
+                      EDA_UNIT_UTILS::FormatInternalUnits( schIUScale, -pos.y ).c_str(),
                       EDA_UNIT_UTILS::FormatAngle( aTextBox->GetTextAngle() ).c_str(),
                       EDA_UNIT_UTILS::FormatInternalUnits( schIUScale, size.x ).c_str(),
-                      EDA_UNIT_UTILS::FormatInternalUnits( schIUScale, size.y ).c_str(),
+                      EDA_UNIT_UTILS::FormatInternalUnits( schIUScale, -size.y ).c_str(),
                       EDA_UNIT_UTILS::FormatInternalUnits( schIUScale, aTextBox->GetMarginLeft() ).c_str(),
                       EDA_UNIT_UTILS::FormatInternalUnits( schIUScale, aTextBox->GetMarginTop() ).c_str(),
                       EDA_UNIT_UTILS::FormatInternalUnits( schIUScale, aTextBox->GetMarginRight() ).c_str(),

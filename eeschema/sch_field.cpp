@@ -204,15 +204,30 @@ wxString SCH_FIELD::GetShownText( const SCH_SHEET_PATH* aPath, bool aAllowExtraT
                 return symbol->ResolveTextVar( aPath, token, aDepth + 1 );
             };
 
+    std::function<bool( wxString* )> schematicResolver =
+            [&]( wxString* token ) -> bool
+            {
+                if( SCHEMATIC* schematic = Schematic() )
+                    return schematic->ResolveTextVar( aPath, token, aDepth + 1 );
+
+                return false;
+            };
+
     std::function<bool( wxString* )> sheetResolver =
             [&]( wxString* token ) -> bool
             {
                 SCH_SHEET* sheet = static_cast<SCH_SHEET*>( m_parent );
 
+                SCHEMATIC* schematic = Schematic();
                 SCH_SHEET_PATH path = *aPath;
                 path.push_back( sheet );
 
-                return sheet->ResolveTextVar( &path, token, aDepth + 1 );
+                bool retval = sheet->ResolveTextVar( &path, token, aDepth + 1 );
+
+                if( schematic )
+                    retval |= schematic->ResolveTextVar( &path, token, aDepth + 1 );
+
+                return retval;
             };
 
     std::function<bool( wxString* )> labelResolver =
@@ -234,7 +249,8 @@ wxString SCH_FIELD::GetShownText( const SCH_SHEET_PATH* aPath, bool aAllowExtraT
     {
         text = wxS( "" );
     }
-    else if( HasTextVars() )
+
+    for( int ii = 0; ii < 10 && text.Contains( wxT( "${" ) ); ++ii )
     {
         if( aDepth < 10 )
         {
@@ -245,7 +261,10 @@ wxString SCH_FIELD::GetShownText( const SCH_SHEET_PATH* aPath, bool aAllowExtraT
             else if( m_parent && m_parent->IsType( { SCH_LABEL_LOCATE_ANY_T } ) )
                 text = ExpandTextVars( text, &labelResolver );
             else if( Schematic() )
+            {
                 text = ExpandTextVars( text, &Schematic()->Prj() );
+                text = ExpandTextVars( text, &schematicResolver );
+            }
         }
     }
 
@@ -566,67 +585,36 @@ EDA_ANGLE SCH_FIELD::GetDrawRotation() const
 
 const BOX2I SCH_FIELD::GetBoundingBox() const
 {
-    BOX2I bbox;
+    BOX2I bbox = GetTextBox();
 
-    if( m_parent && m_parent->Type() == LIB_SYMBOL_T )
+    // Calculate the bounding box position relative to the parent:
+    VECTOR2I origin = GetParentPosition();
+    VECTOR2I pos = GetTextPos() - origin;
+    VECTOR2I begin = bbox.GetOrigin() - origin;
+    VECTOR2I end = bbox.GetEnd() - origin;
+    RotatePoint( begin, pos, GetTextAngle() );
+    RotatePoint( end, pos, GetTextAngle() );
+
+    // Now, apply the symbol transform (mirror/rot)
+    TRANSFORM transform;
+
+    if( m_parent && m_parent->Type() == SCH_SYMBOL_T )
     {
-        /*
-         * Y coordinates for LIB_ITEMS are bottom to top, so we must invert the Y position
-         * when calling GetTextBox() that works using top to bottom Y axis orientation.
-         */
-        bbox = GetTextBox( -1, true );
-        bbox.RevertYAxis();
+        SCH_SYMBOL* parentSymbol = static_cast<SCH_SYMBOL*>( m_parent );
 
-        // We are using now a bottom to top Y axis.
-        VECTOR2I orig = bbox.GetOrigin();
-        VECTOR2I end = bbox.GetEnd();
+        // Due to the Y axis direction, we must mirror the bounding box, relative to the
+        // text position:
+        MIRROR( begin.y, pos.y );
+        MIRROR( end.y,   pos.y );
 
-        RotatePoint( orig, GetTextPos(), -GetTextAngle() );
-        RotatePoint( end, GetTextPos(), -GetTextAngle() );
-
-        bbox.SetOrigin( orig );
-        bbox.SetEnd( end );
-
-        // We are using now a top to bottom Y axis:
-        bbox.RevertYAxis();
+        transform = parentSymbol->GetTransform();
     }
-    else
-    {
-        bbox = GetTextBox();
 
-        // Calculate the bounding box position relative to the parent:
-        VECTOR2I origin = GetParentPosition();
-        VECTOR2I pos = GetTextPos() - origin;
-        VECTOR2I begin = bbox.GetOrigin() - origin;
-        VECTOR2I end = bbox.GetEnd() - origin;
-        RotatePoint( begin, pos, GetTextAngle() );
-        RotatePoint( end, pos, GetTextAngle() );
+    bbox.SetOrigin( transform.TransformCoordinate( begin ) );
+    bbox.SetEnd( transform.TransformCoordinate( end ) );
 
-        // Now, apply the symbol transform (mirror/rot)
-        TRANSFORM transform;
-
-        if( m_parent && m_parent->Type() == SCH_SYMBOL_T )
-        {
-            SCH_SYMBOL* parentSymbol = static_cast<SCH_SYMBOL*>( m_parent );
-
-            // Due to the Y axis direction, we must mirror the bounding box, relative to the
-            // text position:
-            MIRROR( begin.y, pos.y );
-            MIRROR( end.y,   pos.y );
-
-            transform = parentSymbol->GetTransform();
-        }
-        else
-        {
-            transform = TRANSFORM( 1, 0, 0, 1 );  // identity transform
-        }
-
-        bbox.SetOrigin( transform.TransformCoordinate( begin ) );
-        bbox.SetEnd( transform.TransformCoordinate( end ) );
-
-        bbox.Move( origin );
-        bbox.Normalize();
-    }
+    bbox.Move( origin );
+    bbox.Normalize();
 
     return bbox;
 }
@@ -1523,7 +1511,13 @@ int SCH_FIELD::compare( const SCH_ITEM& aOther, int aCompareFlags ) const
 {
     wxASSERT( aOther.Type() == SCH_FIELD_T );
 
-    int retv = SCH_ITEM::compare( aOther, aCompareFlags );
+    int compareFlags = aCompareFlags;
+
+    // For ERC tests, the field position has no matter, so do not test it
+    if( aCompareFlags & SCH_ITEM::COMPARE_FLAGS::ERC )
+        compareFlags |= SCH_ITEM::COMPARE_FLAGS::SKIP_TST_POS;
+
+    int retv = SCH_ITEM::compare( aOther, compareFlags );
 
     if( retv )
         return retv;
@@ -1580,11 +1574,15 @@ int SCH_FIELD::compare( const SCH_ITEM& aOther, int aCompareFlags ) const
             return GetTextPos().y - tmp->GetTextPos().y;
     }
 
-    if( GetTextWidth() != tmp->GetTextWidth() )
-        return GetTextWidth() - tmp->GetTextWidth();
+    // For ERC tests, the field size has no matter, so do not test it
+    if( !( aCompareFlags & SCH_ITEM::COMPARE_FLAGS::ERC ) )
+    {
+        if( GetTextWidth() != tmp->GetTextWidth() )
+            return GetTextWidth() - tmp->GetTextWidth();
 
-    if( GetTextHeight() != tmp->GetTextHeight() )
-        return GetTextHeight() - tmp->GetTextHeight();
+        if( GetTextHeight() != tmp->GetTextHeight() )
+            return GetTextHeight() - tmp->GetTextHeight();
+    }
 
     return 0;
 }

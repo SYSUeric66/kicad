@@ -45,17 +45,16 @@
 #include <title_block.h>
 
 #include <lib_id.h>
-#include <sch_symbol.h>         // SCH_SYMBOL_INSTANCE
 #include <sch_reference_list.h>
 #include <sch_rtree.h>
 #include <sch_sheet.h>
 #include <sch_label.h>
-#include <sch_sheet_path.h>
+#include <sch_sheet_path.h>     // SCH_SYMBOL_INSTANCE
 
 class BUS_ALIAS;
 class EDA_ITEM;
 class LIB_SYMBOL;
-class LIB_PIN;
+class SCH_PIN;
 class SCH_SYMBOL;
 class SCH_LINE;
 class SCH_LABEL_BASE;
@@ -368,7 +367,7 @@ public:
      *                      point of the pin.
      * @return The pin item if found, otherwise NULL.
      */
-    LIB_PIN* GetPin( const VECTOR2I& aPosition, SCH_SYMBOL** aSymbol = nullptr,
+    SCH_PIN* GetPin( const VECTOR2I& aPosition, SCH_SYMBOL** aSymbol = nullptr,
                      bool aEndPointOnly = false ) const;
 
     /**
@@ -811,19 +810,6 @@ public:
      * built the list of sheet paths sharing a screen for each screen in use
      */
     void BuildClientSheetPathList();
-
-    /**
-     * Check \a aSchematicFileName for a potential file name case sensitivity issue.
-     *
-     * On platforms where file names are case sensitive, it is possible to schematic sheet
-     * file names that would cause issues on platforms where file name are case insensitive.
-     * File names foo.sch and Foo.sch are unique files on Linux and MacOS but on Windows
-     * this would result in a broken schematic.
-     *
-     * @param[in] aSchematicFileName is the absolute path and file name of the file to test.
-     * @return true if \a aSchematicFileName would cause an issue.
-     */
-    bool CanCauseCaseSensitivityIssue( const wxString& aSchematicFileName ) const;
 
     /**
      * Update the symbol value and footprint instance data for legacy designs.

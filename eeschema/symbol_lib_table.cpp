@@ -104,6 +104,15 @@ void SYMBOL_LIB_TABLE_ROW::GetSubLibraryNames( std::vector<wxString>& aNames ) c
 }
 
 
+wxString SYMBOL_LIB_TABLE_ROW::GetSubLibraryDescription( const wxString& aName ) const
+{
+    if( !plugin )
+        return wxEmptyString;
+
+    return plugin->GetSubLibraryDescription( aName );
+}
+
+
 void SYMBOL_LIB_TABLE_ROW::ShowSettingsDialog( wxWindow* aParent ) const
 {
     wxCHECK( plugin, /* void */ );
@@ -359,10 +368,9 @@ SYMBOL_LIB_TABLE_ROW* SYMBOL_LIB_TABLE::FindRow( const wxString& aNickname, bool
     // instantiate a PLUGIN of the proper kind if it is not already in this
     // SYMBOL_LIB_TABLE_ROW.
     if( !row->plugin )
-    {
         row->setPlugin( SCH_IO_MGR::FindPlugin( row->type ) );
-        row->plugin->SetLibTable( this );
-    }
+
+    row->plugin->SetLibTable( this );
 
     return row;
 }

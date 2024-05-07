@@ -104,6 +104,9 @@ public:
     static TOOL_ACTION placeImage;
     static TOOL_ACTION undoLastSegment;
     static TOOL_ACTION switchSegmentPosture;
+    static TOOL_ACTION drawRuleArea;
+    static TOOL_ACTION deleteLastPoint;
+    static TOOL_ACTION closeOutline;
 
     // Symbol Tools
     static TOOL_ACTION placeSymbolPin;
@@ -248,6 +251,7 @@ public:
     static TOOL_ACTION showPinNumbers;
     static TOOL_ACTION showSymbolTree;
     static TOOL_ACTION hideSymbolTree;
+    static TOOL_ACTION symbolTreeSearch;
     static TOOL_ACTION drawSheetOnClipboard;
     static TOOL_ACTION importGraphics;
     static TOOL_ACTION exportSymbolView;

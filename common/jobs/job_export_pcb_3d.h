@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2022 Mark Roszko <mark.roszko@gmail.com>
- * Copyright (C) 1992-2023 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2024 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software: you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -35,6 +35,7 @@ public:
         UNKNOWN, // defefer to arg
         STEP,
         BREP,
+        XAO,
         GLB,
         VRML
     };
@@ -56,13 +57,17 @@ public:
     bool                      m_includeDNP;
     bool                      m_substModels;
     bool                      m_optimizeStep;
+    wxString                  m_netFilter;
     wxString                  m_filename;
     wxString                  m_outputFile;
     double                    m_xOrigin;
     double                    m_yOrigin;
     double                    m_BoardOutlinesChainingEpsilon;
+    bool                      m_exportBoardBody;
+    bool                      m_exportComponents;
     bool                      m_exportTracks;
     bool                      m_exportZones;
+    bool                      m_exportInnerCopper;
     bool                      m_fuseShapes;
     JOB_EXPORT_PCB_3D::FORMAT m_format;
 

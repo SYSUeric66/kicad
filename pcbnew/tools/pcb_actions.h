@@ -162,6 +162,8 @@ public:
     static TOOL_ACTION healShapes;
     /// Extend selected lines to meet at a point
     static TOOL_ACTION extendLines;
+    /// Simplify polygon outlines
+    static TOOL_ACTION simplifyPolygons;
 
     /// Merge multiple polygons into a single polygon
     static TOOL_ACTION mergePolygons;
@@ -205,6 +207,7 @@ public:
     static TOOL_ACTION spacingDecrease;
     static TOOL_ACTION amplIncrease;
     static TOOL_ACTION amplDecrease;
+    static TOOL_ACTION lengthTunerSettings;
     static TOOL_ACTION drawAlignedDimension;
     static TOOL_ACTION drawCenterDimension;
     static TOOL_ACTION drawRadialDimension;
@@ -306,8 +309,10 @@ public:
     static TOOL_ACTION alignRight;
     static TOOL_ACTION alignCenterX;
     static TOOL_ACTION alignCenterY;
-    static TOOL_ACTION distributeHorizontally;
-    static TOOL_ACTION distributeVertically;
+    static TOOL_ACTION distributeHorizontallyCenters;
+    static TOOL_ACTION distributeHorizontallyGaps;
+    static TOOL_ACTION distributeVerticallyCenters;
+    static TOOL_ACTION distributeVerticallyGaps;
 
     // Position Relative Tool
     /// Activation of the position relative tool
@@ -444,6 +449,7 @@ public:
 
     static TOOL_ACTION showFootprintTree;
     static TOOL_ACTION hideFootprintTree;
+    static TOOL_ACTION footprintTreeSearch;
 
     // We don't use ACTION::new here because we need to distinguish between New Library
     // and New Footprint.

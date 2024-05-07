@@ -27,8 +27,10 @@
 #include <string>
 
 #include <confirm.h>
+#include <kidialog.h>
 #include <core/arraydim.h>
 #include <core/thread_pool.h>
+#include <dialog_HTML_reporter_base.h>
 #include <gestfich.h>
 #include <pcb_edit_frame.h>
 #include <board_design_settings.h>
@@ -67,6 +69,8 @@
 #include "footprint_info_impl.h"
 #include <board_commit.h>
 #include <zone_filler.h>
+#include <widgets/filedlg_import_non_kicad.h>
+#include <widgets/wx_html_report_box.h>
 #include <wx_filename.h>  // For ::ResolvePossibleSymlinks()
 
 #include <kiplatform/io.h>
@@ -112,7 +116,7 @@ bool AskLoadBoardFileName( PCB_EDIT_FRAME* aParent, wxString* aFileName, int aCt
 
         const IO_BASE::IO_FILE_DESC& desc = pi->GetBoardFileDesc();
 
-        if( desc.m_FileExtensions.empty() )
+        if( desc.m_FileExtensions.empty() || !desc.m_CanRead )
             continue;
 
         descriptions.emplace_back( desc );
@@ -169,15 +173,25 @@ bool AskLoadBoardFileName( PCB_EDIT_FRAME* aParent, wxString* aFileName, int aCt
         // leave name empty
     }
 
+    bool kicadFormat = ( aCtl & KICTL_KICAD_ONLY );
+
     wxFileDialog dlg( aParent,
-                      ( aCtl & KICTL_KICAD_ONLY ) ? _( "Open Board File" )
-                                                  : _( "Import Non KiCad Board File" ),
+                      kicadFormat ? _( "Open Board File" ) : _( "Import Non KiCad Board File" ),
                       path, name, fileFiltersStr, wxFD_OPEN | wxFD_FILE_MUST_EXIST );
+
+    FILEDLG_IMPORT_NON_KICAD importOptions( aParent->config()->m_System.show_import_issues );
+
+    if( !kicadFormat )
+        dlg.SetCustomizeHook( importOptions );
 
     if( dlg.ShowModal() == wxID_OK )
     {
         *aFileName = dlg.GetPath();
         aParent->SetMruPath( wxFileName( dlg.GetPath() ).GetPath() );
+
+        if( !kicadFormat )
+            aParent->config()->m_System.show_import_issues = importOptions.GetShowIssues();
+
         return true;
     }
     else
@@ -291,7 +305,7 @@ bool PCB_EDIT_FRAME::Files_io_from_id( int id )
         wxFileName currfn = Prj().AbsolutePath( GetBoard()->GetFileName() );
         wxFileName fn = currfn;
 
-        wxString rec_name = GetAutoSaveFilePrefix() + fn.GetName();
+        wxString rec_name = FILEEXT::AutoSaveFilePrefix + fn.GetName();
         fn.SetName( rec_name );
 
         if( !fn.FileExists() )
@@ -645,6 +659,7 @@ bool PCB_EDIT_FRAME::OpenProjectFiles( const std::vector<wxString>& aFileSet, in
             CheckForAutoSaveFile( fullFileName );
         }
 
+        DIALOG_HTML_REPORTER errorReporter( this );
         bool failedLoad = false;
 
         try
@@ -681,6 +696,10 @@ bool PCB_EDIT_FRAME::OpenProjectFiles( const std::vector<wxString>& aFileSet, in
             // measure the time to load a BOARD.
             int64_t startTime = GetRunningMicroSecs();
 #endif
+            if( config()->m_System.show_import_issues )
+                pi->SetReporter( errorReporter.m_Reporter );
+            else
+                pi->SetReporter( &NULL_REPORTER::GetInstance() );
 
             pi->SetProgressReporter( &progressReporter );
             loadedBoard = pi->LoadBoard( fullFileName, nullptr, &props, &Prj() );
@@ -730,6 +749,12 @@ bool PCB_EDIT_FRAME::OpenProjectFiles( const std::vector<wxString>& aFileSet, in
         // cause any issues on macOS and Windows.  If it does, it will have to be conditionally
         // compiled.
         Raise();
+
+        if( errorReporter.m_Reporter->HasMessage() )
+        {
+            errorReporter.m_Reporter->Flush(); // Build HTML messages
+            errorReporter.ShowModal();
+        }
 
         // Skip (possibly expensive) connectivity build here; we build it below after load
         SetBoard( loadedBoard, false, &progressReporter );
@@ -1061,7 +1086,7 @@ bool PCB_EDIT_FRAME::SavePcbFile( const wxString& aFileName, bool addToHistory,
     // Delete auto save file on successful save.
     wxFileName autoSaveFileName = pcbFileName;
 
-    autoSaveFileName.SetName( GetAutoSaveFilePrefix() + pcbFileName.GetName() );
+    autoSaveFileName.SetName( FILEEXT::AutoSaveFilePrefix + pcbFileName.GetName() );
 
     if( autoSaveFileName.FileExists() )
         wxRemoveFile( autoSaveFileName.GetFullPath() );
@@ -1169,7 +1194,7 @@ bool PCB_EDIT_FRAME::doAutoSave()
     wxFileName autoSaveFileName = tmpFileName;
 
     // Auto save file name is the board file name prepended with autosaveFilePrefix string.
-    autoSaveFileName.SetName( GetAutoSaveFilePrefix() + autoSaveFileName.GetName() );
+    autoSaveFileName.SetName( FILEEXT::AutoSaveFilePrefix + autoSaveFileName.GetName() );
 
     if( !autoSaveFileName.IsOk() )
         return false;

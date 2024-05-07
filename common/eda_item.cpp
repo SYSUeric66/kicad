@@ -374,6 +374,7 @@ static struct EDA_ITEM_DESC
             .Map( SCH_LINE_T,              _HKI( "Line" ) )
             .Map( SCH_BITMAP_T,            _HKI( "Bitmap" ) )
             .Map( SCH_SHAPE_T,             _HKI( "Graphic" ) )
+            .Map( SCH_RULE_AREA_T,         _HKI( "Rule Area" ) )
             .Map( SCH_TEXT_T,              _HKI( "Text" ) )
             .Map( SCH_TEXTBOX_T,           _HKI( "Text Box" ) )
             .Map( SCH_TABLE_T,             _HKI( "Table" ) )
@@ -396,7 +397,6 @@ static struct EDA_ITEM_DESC
             .Map( SCH_SCREEN_T,            _HKI( "SCH Screen" ) )
 
             .Map( LIB_SYMBOL_T,            _HKI( "Symbol" ) )
-            .Map( LIB_PIN_T,               _HKI( "Pin" ) )
 
             .Map( GERBER_LAYOUT_T,         _HKI( "Gerber Layout" ) )
             .Map( GERBER_DRAW_ITEM_T,      _HKI( "Draw Item" ) )

@@ -29,13 +29,14 @@
 
 #include <sch_io/sch_io_mgr.h>
 #include <pin_type.h>
+#include <core/typeinfo.h>
 #include <layer_ids.h>
 #include <plotters/plotter.h>
 #include <sch_io/ltspice/ltspice_schematic.h>
 
 
 class EDA_TEXT;
-class LIB_PIN;
+class SCH_PIN;
 class SCH_LABEL_BASE;
 class SCH_SYMBOL;
 class SCH_TEXT;
@@ -79,7 +80,6 @@ public:
      */
     int ToKicadCoords( int aCoordinate );
     VECTOR2I ToKicadCoords( const VECTOR2I& aPos );
-    VECTOR2I ToInvertedKicadCoords( const VECTOR2I& aPos );
 
     VECTOR2I ToKicadFontSize( int aLTFontSize );
 
@@ -212,7 +212,7 @@ public:
     /**
      * Create schematic text.
      */
-    SCH_TEXT* CreateSCH_TEXT( VECTOR2I aOffset, const wxString& aText, int aFontSize,
+    SCH_TEXT* CreateSCH_TEXT( const VECTOR2I& aOffset, const wxString& aText, int aFontSize,
                           LTSPICE_SCHEMATIC::JUSTIFICATION aJustification );
 
     /**
@@ -252,7 +252,7 @@ public:
     /**
      * Create a pin from an asy file.
      */
-    void CreatePin( LTSPICE_SCHEMATIC::LT_SYMBOL& aLTSymbol, int aIndex, LIB_PIN* aPin );
+    void CreatePin( LTSPICE_SCHEMATIC::LT_SYMBOL& aLTSymbol, int aIndex, SCH_PIN* aPin );
 
     /**
      * Create a symbol arc.

@@ -343,7 +343,7 @@ public:
      * Return the rotation angle of the pad.
      */
     EDA_ANGLE GetOrientation() const { return m_orient; }
-    EDA_ANGLE GetFPRelativeOrientation();
+    EDA_ANGLE GetFPRelativeOrientation() const;
 
     // For property system
     void SetOrientationDegrees( double aOrientation )
@@ -816,8 +816,8 @@ private:
                                     //   one end and half expands the other.  It is only valid
                                     //   to have a single axis be non-0.
 
-    PAD_ATTRIB  m_attribute;        // PAD_ATTRIB_NORMAL, PAD_ATTRIB::SMD, PAD_ATTRIB::CONN,
-                                    //   PAD_ATTRIB::NPTH
+    PAD_ATTRIB  m_attribute = PAD_ATTRIB::PTH;
+
     PAD_PROP    m_property;         // Property in fab files (BGA, FIDUCIAL, TESTPOINT, etc.)
 
     EDA_ANGLE   m_orient;

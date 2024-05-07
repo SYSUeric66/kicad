@@ -153,6 +153,7 @@ private:
     void ParseHarnessType( const std::map<wxString, wxString>& aProperties );
     void ParseHarnessPort( const ASCH_PORT& aElem );
     void ParseHyperlink( const std::map<wxString, wxString>& aProperties, std::vector<LIB_SYMBOL*>& aSymbol  = nullsym);
+    void ParsePieChart( const std::map<wxString, wxString>& aProperties, std::vector<LIB_SYMBOL*>& aSymbol  = nullsym);
     void ParseRectangle( const std::map<wxString, wxString>& aProperties, std::vector<LIB_SYMBOL*>& aSymbol  = nullsym);
     void ParseSheetSymbol( int aIndex, const std::map<wxString, wxString>& aProperties );
     void ParseSheetEntry( const std::map<wxString, wxString>& aProperties );
@@ -178,6 +179,9 @@ private:
     void ParseLibHeader( const ALTIUM_COMPOUND_FILE& aAltiumSchFile, std::vector<int>& aFontSizes );
     std::map<wxString,LIB_SYMBOL*> ParseLibFile( const ALTIUM_COMPOUND_FILE& aAltiumSchFile );
     std::vector<LIB_SYMBOL*> ParseLibComponent( const std::map<wxString, wxString>& aProperties );
+
+    void doEnumerateSymbolLib( const wxString& aLibraryPath, const STRING_UTF8_MAP* aProperties,
+                               std::function<void(const wxString&, LIB_SYMBOL*)> aInserter );
 
 private:
     SCH_SHEET* m_rootSheet;      // The root sheet of the schematic being loaded..

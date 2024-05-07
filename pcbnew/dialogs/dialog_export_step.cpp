@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2016 Cirilo Bernardo
- * Copyright (C) 2016-2023 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2016-2024 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -31,7 +31,7 @@
 #include <pgm_base.h>
 #include <board.h>
 #include <confirm.h>
-#include <bitmaps.h>
+#include <kidialog.h>
 #include <widgets/std_bitmap_button.h>
 #include "dialog_export_step_base.h"
 #include "dialog_export_step_process.h"
@@ -117,9 +117,13 @@ private:
     bool               m_noUnspecified;  // remember last preference for No Unspecified Component
     bool               m_noDNP;          // remember last preference for No DNP Component
     static bool        m_optimizeStep;   // remember last preference for Optimize STEP file (stored only for the session)
+    static bool        m_exportBoardBody;     // remember last preference to export board body (stored only for the session)
+    static bool        m_exportComponents; // remember last preference to export components (stored only for the session)
     static bool        m_exportTracks;   // remember last preference to export tracks (stored only for the session)
-    static bool        m_exportZones;    // remember last preference to export tracks (stored only for the session)
-    static bool        m_fuseShapes;     // remember last preference to export tracks (stored only for the session)
+    static bool        m_exportZones;    // remember last preference to export zones (stored only for the session)
+    static bool        m_fuseShapes;     // remember last preference to fuse shapes (stored only for the session)
+    static bool        m_exportInnerCopper; // remember last preference to export inner layers (stored only for the session)
+    wxString           m_netFilter;      // filter copper nets
     wxString           m_boardPath;      // path to the exported board file
     static int         m_toleranceLastChoice;  // Store m_tolerance option during a session
 };
@@ -127,8 +131,11 @@ private:
 
 int  DIALOG_EXPORT_STEP::m_toleranceLastChoice = -1;     // Use default
 bool DIALOG_EXPORT_STEP::m_optimizeStep = true;
+bool DIALOG_EXPORT_STEP::m_exportBoardBody = true;
+bool DIALOG_EXPORT_STEP::m_exportComponents = true;
 bool DIALOG_EXPORT_STEP::m_exportTracks = false;
 bool DIALOG_EXPORT_STEP::m_exportZones = false;
+bool DIALOG_EXPORT_STEP::m_exportInnerCopper = false;
 bool DIALOG_EXPORT_STEP::m_fuseShapes = false;
 
 DIALOG_EXPORT_STEP::DIALOG_EXPORT_STEP( PCB_EDIT_FRAME* aParent, const wxString& aBoardPath ) :
@@ -179,9 +186,13 @@ DIALOG_EXPORT_STEP::DIALOG_EXPORT_STEP( PCB_EDIT_FRAME* aParent, const wxString&
     m_noUnspecified = cfg->m_ExportStep.no_unspecified;
     m_noDNP       = cfg->m_ExportStep.no_dnp;
 
+    m_txtNetFilter->SetValue( m_netFilter );
     m_cbOptimizeStep->SetValue( m_optimizeStep );
+    m_cbExportBody->SetValue( m_exportBoardBody );
+    m_cbExportComponents->SetValue( m_exportComponents );
     m_cbExportTracks->SetValue( m_exportTracks );
     m_cbExportZones->SetValue( m_exportZones );
+    m_cbExportInnerCopper->SetValue( m_exportInnerCopper );
     m_cbFuseShapes->SetValue( m_fuseShapes );
     m_cbRemoveUnspecified->SetValue( m_noUnspecified );
     m_cbRemoveDNP->SetValue( m_noDNP );
@@ -274,10 +285,14 @@ DIALOG_EXPORT_STEP::~DIALOG_EXPORT_STEP()
         cfg->m_ExportStep.no_dnp = m_cbRemoveDNP->GetValue();
     }
 
+    m_netFilter = m_txtNetFilter->GetValue();
     m_toleranceLastChoice = m_choiceTolerance->GetSelection();
     m_optimizeStep = m_cbOptimizeStep->GetValue();
+    m_exportBoardBody = m_cbExportBody->GetValue();
+    m_exportComponents = m_cbExportComponents->GetValue();
     m_exportTracks = m_cbExportTracks->GetValue();
     m_exportZones = m_cbExportZones->GetValue();
+    m_exportInnerCopper = m_cbExportInnerCopper->GetValue();
     m_fuseShapes = m_cbFuseShapes->GetValue();
 }
 
@@ -313,7 +328,7 @@ void PCB_EDIT_FRAME::OnExportSTEP( wxCommandEvent& event )
         }
 
         // Use auto-saved board for export
-        brdFile.SetName( GetAutoSaveFilePrefix() + brdFile.GetName() );
+        brdFile.SetName( FILEEXT::AutoSaveFilePrefix + brdFile.GetName() );
     }
 
     DIALOG_EXPORT_STEP dlg( this, brdFile.GetFullPath() );
@@ -382,11 +397,16 @@ void DIALOG_EXPORT_STEP::onExportButton( wxCommandEvent& aEvent )
         return;
     }
 
+    m_netFilter = m_txtNetFilter->GetValue();
+
     double tolerance;   // default value in mm
     m_toleranceLastChoice = m_choiceTolerance->GetSelection();
     m_optimizeStep = m_cbOptimizeStep->GetValue();
+    m_exportBoardBody = m_cbExportBody->GetValue();
+    m_exportComponents = m_cbExportComponents->GetValue();
     m_exportTracks = m_cbExportTracks->GetValue();
     m_exportZones = m_cbExportZones->GetValue();
+    m_exportInnerCopper = m_cbExportInnerCopper->GetValue();
     m_fuseShapes = m_cbFuseShapes->GetValue();
 
     switch( m_choiceTolerance->GetSelection() )
@@ -460,6 +480,8 @@ void DIALOG_EXPORT_STEP::onExportButton( wxCommandEvent& aEvent )
         cmdK2S.Append( wxT( " glb" ) );
     else if( fn.GetExt() == FILEEXT::BrepFileExtension )
         cmdK2S.Append( wxT( " brep" ) );
+    else if( fn.GetExt() == FILEEXT::XaoFileExtension )
+        cmdK2S.Append( wxT( " xao" ) );
     else
         cmdK2S.Append( wxT( " step" ) );
 
@@ -475,11 +497,20 @@ void DIALOG_EXPORT_STEP::onExportButton( wxCommandEvent& aEvent )
     if( !m_optimizeStep )
         cmdK2S.Append( wxT( " --no-optimize-step" ) );
 
+    if( !m_exportBoardBody )
+        cmdK2S.Append( wxT( " --no-board-body" ) );
+
+    if( !m_exportComponents )
+        cmdK2S.Append( wxT( " --no-components" ) );
+
     if( m_exportTracks )
         cmdK2S.Append( wxT( " --include-tracks" ) );
 
     if( m_exportZones )
         cmdK2S.Append( wxT( " --include-zones" ) );
+
+    if( m_exportInnerCopper )
+        cmdK2S.Append( wxT( " --include-inner-copper" ) );
 
     if( m_fuseShapes )
         cmdK2S.Append( wxT( " --fuse-shapes" ) );
@@ -488,6 +519,12 @@ void DIALOG_EXPORT_STEP::onExportButton( wxCommandEvent& aEvent )
     // wxString::Format does not work. So use a %c format in string
     int quote = '\'';
     int dblquote = '"';
+
+    if( !m_netFilter.empty() )
+    {
+        cmdK2S.Append( wxString::Format( wxT( " --net-filter %c%s%c" ), dblquote, m_netFilter,
+                                         dblquote ) );
+    }
 
     switch( GetOriginOption() )
     {
@@ -523,7 +560,7 @@ void DIALOG_EXPORT_STEP::onExportButton( wxCommandEvent& aEvent )
 
     case STEP_ORIGIN_BOARD_CENTER:
     {
-        BOX2I     bbox = m_parent->GetBoard()->ComputeBoundingBox( true );
+        BOX2I     bbox = m_parent->GetBoard()->ComputeBoundingBox( true, false );
         double    xOrg = pcbIUScale.IUTomm( bbox.GetCenter().x );
         double    yOrg = pcbIUScale.IUTomm( bbox.GetCenter().y );
         LOCALE_IO dummy;

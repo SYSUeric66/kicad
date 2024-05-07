@@ -33,6 +33,7 @@
 #include <sch_no_connect.h>
 #include <sch_bus_entry.h>
 #include <sch_line.h>
+#include <sch_rule_area.h>
 #include <sch_shape.h>
 #include <sch_bitmap.h>
 #include <sch_text.h>
@@ -43,17 +44,16 @@
 #include <sch_symbol.h>
 #include <sch_sheet_pin.h>
 #include <sch_sheet.h>
+#include <sch_pin.h>
 
-#include <lib_pin.h>
-
-#include <erc_settings.h>
+#include <erc/erc_settings.h>
 
 class TEST_EE_ITEM_FIXTURE
 {
 public:
     SCH_SHEET                 m_sheet;
     LIB_SYMBOL                m_symbol;
-    LIB_PIN                   m_pin;
+    SCH_PIN                   m_pin;
     std::shared_ptr<ERC_ITEM> m_ercItem;
 
     TEST_EE_ITEM_FIXTURE() :
@@ -82,6 +82,24 @@ public:
         case SCH_BUS_WIRE_ENTRY_T:  return new SCH_BUS_WIRE_ENTRY();
         case SCH_BUS_BUS_ENTRY_T:   return new SCH_BUS_BUS_ENTRY();
         case SCH_LINE_T:            return new SCH_LINE();
+        case SCH_RULE_AREA_T:
+        {
+            SHAPE_POLY_SET ruleShape;
+
+            ruleShape.NewOutline();
+            auto& outline = ruleShape.Outline( 0 );
+            outline.Append( VECTOR2I( 20000, 20000) );
+            outline.Append( VECTOR2I( 22000, 20000) );
+            outline.Append( VECTOR2I( 22000, 22000) );
+            outline.Append( VECTOR2I( 20000, 22000) );
+            outline.SetClosed( true );
+            outline.Simplify( true );
+
+            SCH_RULE_AREA* ruleArea = new SCH_RULE_AREA();
+            ruleArea->SetPolyShape( ruleShape );
+
+            return ruleArea;
+        }
         case SCH_SHAPE_T:           return new SCH_SHAPE( SHAPE_T::ARC, LAYER_NOTES );
         case SCH_BITMAP_T:          return new SCH_BITMAP();
         case SCH_TEXT_T:            return new SCH_TEXT( VECTOR2I( 0, 0 ), "test text" );
@@ -113,10 +131,9 @@ public:
                                       "test aPin" );
 
         case SCH_SHEET_T:           return new SCH_SHEET();
-        case LIB_PIN_T:             return new LIB_PIN( &m_symbol );
+        case SCH_PIN_T:             return new SCH_PIN( &m_symbol );
 
         case SCHEMATIC_T:
-        case SCH_PIN_T:
         case LIB_SYMBOL_T:          return nullptr;
 
         default:

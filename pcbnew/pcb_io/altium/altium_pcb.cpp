@@ -44,6 +44,7 @@
 #include <convert_basic_shapes_to_polygon.h>
 #include <font/outline_font.h>
 #include <project.h>
+#include <reporter.h>
 #include <trigo.h>
 #include <utf.h>
 #include <wx/docview.h>
@@ -252,9 +253,13 @@ std::vector<PCB_LAYER_ID> ALTIUM_PCB::GetKicadLayersToIterate( ALTIUM_LAYER aAlt
 
     if( klayer == UNDEFINED_LAYER )
     {
-        wxLogWarning( _( "Altium layer (%d) has no KiCad equivalent. It has been moved to KiCad "
-                         "layer Eco1_User." ),
-                      aAltiumLayer );
+        if( m_reporter )
+        {
+            m_reporter->Report( wxString::Format(
+                    _( "Altium layer (%d) has no KiCad equivalent. It has been moved to KiCad "
+                       "layer Eco1_User." ), aAltiumLayer ), RPT_SEVERITY_INFO );
+        }
+
         klayer = Eco1_User;
     }
 
@@ -262,11 +267,12 @@ std::vector<PCB_LAYER_ID> ALTIUM_PCB::GetKicadLayersToIterate( ALTIUM_LAYER aAlt
 }
 
 
-ALTIUM_PCB::ALTIUM_PCB( BOARD* aBoard, PROGRESS_REPORTER* aProgressReporter,
+ALTIUM_PCB::ALTIUM_PCB( BOARD* aBoard, PROGRESS_REPORTER* aProgressReporter, REPORTER* aReporter,
                         const wxString& aLibrary, const wxString& aFootprintName )
 {
     m_board = aBoard;
     m_progressReporter = aProgressReporter;
+    m_reporter = aReporter;
     m_doneCount = 0;
     m_lastProgressCount = 0;
     m_totalCount = 0;
@@ -440,7 +446,13 @@ void ALTIUM_PCB::Parse( const ALTIUM_COMPOUND_FILE&                  altiumPcbFi
 
             if( reader.HasParsingError() )
             {
-                wxLogError( _( "'%s' was not parsed correctly." ), FormatPath( mappedFile ) );
+                if( m_reporter )
+                {
+                    m_reporter->Report( wxString::Format( _( "'%s' was not parsed correctly." ),
+                                                          FormatPath( mappedFile ) ),
+                                        RPT_SEVERITY_ERROR );
+                }
+
                 continue;
             }
 
@@ -448,7 +460,13 @@ void ALTIUM_PCB::Parse( const ALTIUM_COMPOUND_FILE&                  altiumPcbFi
 
             if( reader.GetRemainingBytes() != 0 )
             {
-                wxLogError( _( "'%s' was not fully parsed." ), FormatPath( mappedFile ) );
+                if( m_reporter )
+                {
+                    m_reporter->Report( wxString::Format( _( "'%s' was not fully parsed." ),
+                                                          FormatPath( mappedFile ) ),
+                                        RPT_SEVERITY_ERROR );
+                }
+
                 continue;
             }
         }
@@ -503,8 +521,13 @@ void ALTIUM_PCB::Parse( const ALTIUM_COMPOUND_FILE&                  altiumPcbFi
         }
         else if( isRequired )
         {
-            wxLogError( _( "File not found: '%s' for directory '%s'." ), FormatPath( mappedFile ),
-                        magic_enum::enum_name( directory ) );
+            if( m_reporter )
+            {
+                m_reporter->Report( wxString::Format( _( "File not found: '%s' for directory '%s'." ),
+                                                      FormatPath( mappedFile ),
+                                                      magic_enum::enum_name( directory ) ),
+                                    RPT_SEVERITY_ERROR );
+            }
         }
     }
 
@@ -687,7 +710,13 @@ FOOTPRINT* ALTIUM_PCB::ParseFootprint( ALTIUM_COMPOUND_FILE& altiumLibFile,
     }
     else
     {
-        wxLogError( _( "File not found: '%s'." ), FormatPath( parametersStreamName ) );
+        if( m_reporter )
+        {
+            m_reporter->Report( wxString::Format( _( "File not found: '%s'." ),
+                                                  FormatPath( parametersStreamName ) ),
+                                RPT_SEVERITY_ERROR );
+        }
+
         footprint->SetLibDescription( wxT( "" ) );
     }
 
@@ -858,6 +887,7 @@ void ALTIUM_PCB::ParseFileHeader( const ALTIUM_COMPOUND_FILE&     aAltiumPcbFile
     //    THROW_IO_ERROR( "FileHeader stream is not fully parsed" );
 }
 
+
 void ALTIUM_PCB::ParseExtendedPrimitiveInformationData( const ALTIUM_COMPOUND_FILE& aAltiumPcbFile,
                                                         const CFB::COMPOUND_FILE_ENTRY* aEntry )
 {
@@ -878,6 +908,7 @@ void ALTIUM_PCB::ParseExtendedPrimitiveInformationData( const ALTIUM_COMPOUND_FI
     if( reader.GetRemainingBytes() != 0 )
         THROW_IO_ERROR( wxT( "ExtendedPrimitiveInformation stream is not fully parsed" ) );
 }
+
 
 void ALTIUM_PCB::ParseBoard6Data( const ALTIUM_COMPOUND_FILE&     aAltiumPcbFile,
                                   const CFB::COMPOUND_FILE_ENTRY* aEntry )
@@ -1021,6 +1052,7 @@ void ALTIUM_PCB::ParseBoard6Data( const ALTIUM_COMPOUND_FILE&     aAltiumPcbFile
     HelperCreateBoardOutline( elem.board_vertices );
 }
 
+
 void ALTIUM_PCB::HelperCreateBoardOutline( const std::vector<ALTIUM_VERTICE>& aVertices )
 {
     SHAPE_LINE_CHAIN lineChain;
@@ -1061,6 +1093,7 @@ void ALTIUM_PCB::HelperCreateBoardOutline( const std::vector<ALTIUM_VERTICE>& aV
     }
 }
 
+
 void ALTIUM_PCB::ParseClasses6Data( const ALTIUM_COMPOUND_FILE&     aAltiumPcbFile,
                                     const CFB::COMPOUND_FILE_ENTRY* aEntry )
 {
@@ -1091,8 +1124,13 @@ void ALTIUM_PCB::ParseClasses6Data( const ALTIUM_COMPOUND_FILE&     aAltiumPcbFi
             {
                 // Name conflict, happens in some unknown circumstances
                 // unique_ptr will delete nc on this code path
-                wxLogWarning( _( "More than one Altium netclass with name '%s' found. "
-                                 "Only the first one will be imported." ), elem.name );
+                if( m_reporter )
+                {
+                    wxString msg;
+                    msg.Printf( _( "More than one Altium netclass with name '%s' found. "
+                                   "Only the first one will be imported." ), elem.name );
+                    m_reporter->Report( msg, RPT_SEVERITY_ERROR );
+                }
             }
             else
             {
@@ -1106,6 +1144,7 @@ void ALTIUM_PCB::ParseClasses6Data( const ALTIUM_COMPOUND_FILE&     aAltiumPcbFi
 
     m_board->m_LegacyNetclassesLoaded = true;
 }
+
 
 void ALTIUM_PCB::ParseComponents6Data( const ALTIUM_COMPOUND_FILE&     aAltiumPcbFile,
                                        const CFB::COMPOUND_FILE_ENTRY* aEntry )
@@ -1200,9 +1239,14 @@ void ALTIUM_PCB::ParseComponentsBodies6Data( const ALTIUM_COMPOUND_FILE&     aAl
 
         if( modelTuple == m_models.end() )
         {
-            wxLogError( wxT( "ComponentsBodies6 stream tries to access model id %s which does not "
-                             "exist" ),
-                        elem.modelId );
+            if( m_reporter )
+            {
+                wxString msg;
+                msg.Printf( wxT( "ComponentsBodies6 stream tries to access model id %s which does "
+                                 "not exist" ), elem.modelId );
+                m_reporter->Report( msg, RPT_SEVERITY_ERROR );
+            }
+
             continue;
         }
 
@@ -1252,9 +1296,14 @@ void ALTIUM_PCB::HelperParseDimensions6Linear( const ADIMENSION6& aElem )
 
     if( klayer == UNDEFINED_LAYER )
     {
-        wxLogWarning( _( "Dimension found on an Altium layer (%d) with no KiCad equivalent. "
-                         "It has been moved to KiCad layer Eco1_User." ),
-                      aElem.layer );
+        if( m_reporter )
+        {
+            m_reporter->Report( wxString::Format(
+                    _( "Dimension found on an Altium layer (%d) with no KiCad equivalent. "
+                           "It has been moved to KiCad layer Eco1_User." ), aElem.layer ),
+                        RPT_SEVERITY_INFO );
+        }
+
         klayer = Eco1_User;
     }
 
@@ -1354,9 +1403,14 @@ void ALTIUM_PCB::HelperParseDimensions6Radial(const ADIMENSION6 &aElem)
 
     if( klayer == UNDEFINED_LAYER )
     {
-        wxLogWarning( _( "Dimension found on an Altium layer (%d) with no KiCad equivalent. "
-                         "It has been moved to KiCad layer Eco1_User." ),
-                      aElem.layer );
+        if( m_reporter )
+        {
+            m_reporter->Report( wxString::Format(
+                _( "Dimension found on an Altium layer (%d) with no KiCad equivalent. "
+                   "It has been moved to KiCad layer Eco1_User." ),
+                aElem.layer ), RPT_SEVERITY_INFO );
+        }
+
         klayer = Eco1_User;
     }
 
@@ -1396,7 +1450,12 @@ void ALTIUM_PCB::HelperParseDimensions6Radial(const ADIMENSION6 &aElem)
 
     if( aElem.textPoint.empty() )
     {
-        wxLogError( wxT( "No text position present for leader dimension object" ) );
+        if( m_reporter )
+        {
+            m_reporter->Report( wxT( "No text position present for leader dimension object" ),
+                                RPT_SEVERITY_ERROR );
+        }
+
         return;
     }
 
@@ -1432,9 +1491,14 @@ void ALTIUM_PCB::HelperParseDimensions6Leader( const ADIMENSION6& aElem )
 
     if( klayer == UNDEFINED_LAYER )
     {
-        wxLogWarning( _( "Dimension found on an Altium layer (%d) with no KiCad equivalent. "
-                         "It has been moved to KiCad layer Eco1_User." ),
-                      aElem.layer );
+        if( m_reporter )
+        {
+            wxString msg;
+            msg.Printf( _( "Dimension found on an Altium layer (%d) with no KiCad equivalent. "
+                          "It has been moved to KiCad layer Eco1_User." ), aElem.layer );
+            m_reporter->Report( msg, RPT_SEVERITY_ERROR );
+        }
+
         klayer = Eco1_User;
     }
 
@@ -1500,7 +1564,12 @@ void ALTIUM_PCB::HelperParseDimensions6Leader( const ADIMENSION6& aElem )
 
     if( aElem.textPoint.empty() )
     {
-        wxLogError( wxT( "No text position present for leader dimension object" ) );
+        if( m_reporter )
+        {
+            m_reporter->Report( wxT( "No text position present for leader dimension object" ),
+                                RPT_SEVERITY_ERROR );
+        }
+
         return;
     }
 
@@ -1524,9 +1593,14 @@ void ALTIUM_PCB::HelperParseDimensions6Datum( const ADIMENSION6& aElem )
 
     if( klayer == UNDEFINED_LAYER )
     {
-        wxLogWarning( _( "Dimension found on an Altium layer (%d) with no KiCad equivalent. "
-                         "It has been moved to KiCad layer Eco1_User." ),
-                      aElem.layer );
+        if( m_reporter )
+        {
+            wxString msg;
+            msg.Printf( _( "Dimension found on an Altium layer (%d) with no KiCad equivalent. "
+                           "It has been moved to KiCad layer Eco1_User." ), aElem.layer );
+            m_reporter->Report( msg, RPT_SEVERITY_INFO );
+        }
+
         klayer = Eco1_User;
     }
 
@@ -1550,9 +1624,14 @@ void ALTIUM_PCB::HelperParseDimensions6Center( const ADIMENSION6& aElem )
 
     if( klayer == UNDEFINED_LAYER )
     {
-        wxLogWarning( _( "Dimension found on an Altium layer (%d) with no KiCad equivalent. "
-                         "It has been moved to KiCad layer Eco1_User." ),
-                      aElem.layer );
+        if( m_reporter )
+        {
+            wxString msg;
+            msg.Printf( _( "Dimension found on an Altium layer (%d) with no KiCad equivalent. "
+                           "It has been moved to KiCad layer Eco1_User." ), aElem.layer );
+            m_reporter->Report( msg, RPT_SEVERITY_INFO );
+        }
+
         klayer = Eco1_User;
     }
 
@@ -1588,6 +1667,14 @@ void ALTIUM_PCB::ParseDimensions6Data( const ALTIUM_COMPOUND_FILE&     aAltiumPc
         case ALTIUM_DIMENSION_KIND::LINEAR:
             HelperParseDimensions6Linear( elem );
             break;
+        case ALTIUM_DIMENSION_KIND::ANGULAR:
+            if( m_reporter )
+            {
+                m_reporter->Report(
+                        wxString::Format( _( "Ignored Angular dimension (not yet supported)." ) ),
+                        RPT_SEVERITY_INFO );
+            }
+            break;
         case ALTIUM_DIMENSION_KIND::RADIAL:
             HelperParseDimensions6Radial( elem );
             break;
@@ -1595,14 +1682,48 @@ void ALTIUM_PCB::ParseDimensions6Data( const ALTIUM_COMPOUND_FILE&     aAltiumPc
             HelperParseDimensions6Leader( elem );
             break;
         case ALTIUM_DIMENSION_KIND::DATUM:
-            wxLogError( _( "Ignored dimension of kind %d (not yet supported)." ), elem.kind );
+            if( m_reporter )
+            {
+                m_reporter->Report(
+                        wxString::Format( _( "Ignored Datum dimension (not yet supported)." ) ),
+                        RPT_SEVERITY_INFO );
+            }
             // HelperParseDimensions6Datum( elem );
+            break;
+        case ALTIUM_DIMENSION_KIND::BASELINE:
+            if( m_reporter )
+            {
+                m_reporter->Report(
+                        wxString::Format( _( "Ignored Baseline dimension (not yet supported)." ) ),
+                        RPT_SEVERITY_INFO );
+            }
             break;
         case ALTIUM_DIMENSION_KIND::CENTER:
             HelperParseDimensions6Center( elem );
             break;
+        case ALTIUM_DIMENSION_KIND::LINEAR_DIAMETER:
+            if( m_reporter )
+            {
+                m_reporter->Report(
+                        wxString::Format( _( "Ignored Linear dimension (not yet supported)." ) ),
+                        RPT_SEVERITY_INFO );
+            }
+            break;
+        case ALTIUM_DIMENSION_KIND::RADIAL_DIAMETER:
+            if( m_reporter )
+            {
+                m_reporter->Report(
+                        wxString::Format( _( "Ignored Radial dimension (not yet supported)." ) ),
+                        RPT_SEVERITY_INFO );
+            }
+            break;
         default:
-            wxLogError( _( "Ignored dimension of kind %d (not yet supported)." ), elem.kind );
+            if( m_reporter )
+            {
+                wxString msg;
+                msg.Printf( _( "Ignored dimension of kind %d (not yet supported)." ), elem.kind );
+                m_reporter->Report( msg, RPT_SEVERITY_INFO );
+            }
             break;
         }
     }
@@ -1642,9 +1763,15 @@ void ALTIUM_PCB::ParseModelsData( const ALTIUM_COMPOUND_FILE&     aAltiumPcbFile
     {
         if( !altiumModelsPath.Mkdir() )
         {
-            wxLogError( _( "Failed to create folder '%s'." ) + wxS( " " )
-                      + _( "No 3D-models will be imported." ),
-                        altiumModelsPath.GetFullPath() );
+            if( m_reporter )
+            {
+                wxString msg;
+                msg.Printf( _( "Failed to create folder '%s'." ) + wxS( " " )
+                          + _( "No 3D-models will be imported." ),
+                            altiumModelsPath.GetFullPath() );
+                m_reporter->Report( msg, RPT_SEVERITY_ERROR );
+            }
+
             return;
         }
     }
@@ -1672,8 +1799,14 @@ void ALTIUM_PCB::ParseModelsData( const ALTIUM_COMPOUND_FILE&     aAltiumPcbFile
 
         if( stepEntry == nullptr )
         {
-            wxLogError( _( "File not found: '%s'. 3D-model not imported." ),
-                        FormatPath( stepPath ) );
+            if( m_reporter )
+            {
+                wxString msg;
+                msg.Printf( _( "File not found: '%s'. 3D-model not imported." ),
+                            FormatPath( stepPath ) );
+                m_reporter->Report( msg, RPT_SEVERITY_ERROR );
+            }
+
             continue;
         }
 
@@ -1686,8 +1819,14 @@ void ALTIUM_PCB::ParseModelsData( const ALTIUM_COMPOUND_FILE&     aAltiumPcbFile
 
         if( !storagePath.IsDirWritable() )
         {
-            wxLogError( _( "Insufficient permissions to save file '%s'." ),
-                        storagePath.GetFullPath() );
+            if( m_reporter )
+            {
+                wxString msg;
+                msg.Printf( _( "Insufficient permissions to save file '%s'." ),
+                            storagePath.GetFullPath() );
+                m_reporter->Report( msg, RPT_SEVERITY_ERROR );
+            }
+
             continue;
         }
 
@@ -1698,7 +1837,13 @@ void ALTIUM_PCB::ParseModelsData( const ALTIUM_COMPOUND_FILE&     aAltiumPcbFile
 
         if( !outputStream.IsOk() )
         {
-            wxLogError( _( "Unable to write file '%s'." ), storagePath.GetFullPath() );
+            if( m_reporter )
+            {
+                wxString msg;
+                msg.Printf( _( "Unable to write file '%s'." ), storagePath.GetFullPath() );
+                m_reporter->Report( msg, RPT_SEVERITY_ERROR );
+            }
+
             continue;
         }
 
@@ -1722,6 +1867,7 @@ void ALTIUM_PCB::ParseNets6Data( const ALTIUM_COMPOUND_FILE&     aAltiumPcbFile,
     ALTIUM_BINARY_PARSER reader( aAltiumPcbFile, aEntry );
 
     wxASSERT( m_altiumToKicadNetcodes.empty() );
+
     while( reader.GetRemainingBytes() >= 4 /* TODO: use Header section of file */ )
     {
         checkpoint();
@@ -2058,10 +2204,14 @@ void ALTIUM_PCB::ConvertShapeBasedRegions6ToBoardItem( const AREGION6& aElem )
 
         if( klayer == UNDEFINED_LAYER )
         {
-            wxLogWarning(
-                    _( "Dashed outline found on an Altium layer (%d) with no KiCad equivalent. "
-                       "It has been moved to KiCad layer Eco1_User." ),
-                    aElem.layer );
+            if( m_reporter )
+            {
+                wxString msg;
+                msg.Printf( _( "Dashed outline found on an Altium layer (%d) with no KiCad equivalent. "
+                               "It has been moved to KiCad layer Eco1_User." ), aElem.layer );
+                m_reporter->Report( msg, RPT_SEVERITY_ERROR );
+            }
+
             klayer = Eco1_User;
         }
 
@@ -2100,7 +2250,12 @@ void ALTIUM_PCB::ConvertShapeBasedRegions6ToBoardItem( const AREGION6& aElem )
     }
     else
     {
-        wxLogError( _( "Ignored polygon shape of kind %d (not yet supported)." ), aElem.kind );
+        if( m_reporter )
+        {
+            wxString msg;
+            msg.Printf( _( "Ignored polygon shape of kind %d (not yet supported)." ), aElem.kind );
+            m_reporter->Report( msg, RPT_SEVERITY_ERROR );
+        }
     }
 }
 
@@ -2172,19 +2327,29 @@ void ALTIUM_PCB::ConvertShapeBasedRegions6ToFootprintItem( FOOTPRINT*      aFoot
         {
             if( !m_footprintName.IsEmpty() )
             {
-                wxLogWarning( _( "Loading library '%s':\n"
+                if( m_reporter )
+                {
+                    wxString msg;
+                    msg.Printf( _( "Loading library '%s':\n"
                                  "Footprint %s contains a dashed outline on Altium layer (%d) with "
                                  "no KiCad equivalent. It has been moved to KiCad layer Eco1_User." ),
                               m_library,
                               m_footprintName,
                               aElem.layer );
+                    m_reporter->Report( msg, RPT_SEVERITY_ERROR );
+                }
             }
             else
             {
-                wxLogWarning( _( "Footprint %s contains a dashed outline on Altium layer (%d) with "
+                if( m_reporter )
+                {
+                    wxString msg;
+                    msg.Printf( _( "Footprint %s contains a dashed outline on Altium layer (%d) with "
                                  "no KiCad equivalent. It has been moved to KiCad layer Eco1_User." ),
                               aFootprint->GetReference(),
                               aElem.layer );
+                    m_reporter->Report( msg, RPT_SEVERITY_ERROR );
+                }
             }
 
             klayer = Eco1_User;
@@ -2219,17 +2384,27 @@ void ALTIUM_PCB::ConvertShapeBasedRegions6ToFootprintItem( FOOTPRINT*      aFoot
     {
         if( !m_footprintName.IsEmpty() )
         {
-            wxLogError( _( "Error loading library '%s':\n"
+            if( m_reporter )
+            {
+                wxString msg;
+                msg.Printf( _( "Error loading library '%s':\n"
                            "Footprint %s contains polygon shape of kind %d (not yet supported)." ),
                         m_library,
                         m_footprintName,
                         aElem.kind );
+                m_reporter->Report( msg, RPT_SEVERITY_ERROR );
+            }
         }
         else
         {
-            wxLogError( _( "Footprint %s contains polygon shape of kind %d (not yet supported)." ),
+            if( m_reporter )
+            {
+                wxString msg;
+                msg.Printf( _( "Footprint %s contains polygon shape of kind %d (not yet supported)." ),
                         aFootprint->GetReference(),
                         aElem.kind );
+                m_reporter->Report( msg, RPT_SEVERITY_ERROR );
+            }
         }
     }
 }
@@ -2321,6 +2496,7 @@ void ALTIUM_PCB::ConvertShapeBasedRegions6ToFootprintItemOnLayer( FOOTPRINT*    
         pad->SetKeepTopBottom( false ); // TODO: correct? This seems to be KiCad default on import
         pad->SetAttribute( PAD_ATTRIB::SMD );
         pad->SetShape( PAD_SHAPE::CUSTOM );
+        pad->SetThermalSpokeAngle( ANGLE_90 );
 
         int      anchorSize = 1;
         VECTOR2I anchorPos = linechain.CPoint( 0 );
@@ -2773,6 +2949,7 @@ void ALTIUM_PCB::ConvertPads6ToFootprintItemOnCopper( FOOTPRINT* aFootprint, con
     pad->SetPosition( aElem.position );
     pad->SetOrientationDegrees( aElem.direction );
     pad->SetSize( aElem.topsize );
+    pad->SetThermalSpokeAngle( ANGLE_90 );
 
     if( aElem.holesize == 0 )
     {
@@ -2785,17 +2962,27 @@ void ALTIUM_PCB::ConvertPads6ToFootprintItemOnCopper( FOOTPRINT* aFootprint, con
             // TODO: I assume other values are possible as well?
             if( !m_footprintName.IsEmpty() )
             {
-                wxLogError( _( "Error loading library '%s':\n"
+                if( m_reporter )
+                {
+                    wxString msg;
+                    msg.Printf( _( "Error loading library '%s':\n"
                                "Footprint %s pad %s is not marked as multilayer, but is a TH pad." ),
                             m_library,
                             m_footprintName,
                             aElem.name );
+                    m_reporter->Report( msg, RPT_SEVERITY_ERROR );
+                }
             }
             else
             {
-                wxLogError( _( "Footprint %s pad %s is not marked as multilayer, but is a TH pad." ),
+                if( m_reporter )
+                {
+                    wxString msg;
+                    msg.Printf( _( "Footprint %s pad %s is not marked as multilayer, but is a TH pad." ),
                             aFootprint->GetReference(),
                             aElem.name );
+                    m_reporter->Report( msg, RPT_SEVERITY_ERROR );
+                }
             }
         }
 
@@ -2817,17 +3004,27 @@ void ALTIUM_PCB::ConvertPads6ToFootprintItemOnCopper( FOOTPRINT* aFootprint, con
             case ALTIUM_PAD_HOLE_SHAPE::SQUARE:
                 if( !m_footprintName.IsEmpty() )
                 {
-                    wxLogWarning( _( "Loading library '%s':\n"
+                    if( m_reporter )
+                    {
+                        wxString msg;
+                        msg.Printf( _( "Loading library '%s':\n"
                                      "Footprint %s pad %s has a square hole (not yet supported)." ),
                                   m_library,
                                   m_footprintName,
                                   aElem.name );
+                        m_reporter->Report( msg, RPT_SEVERITY_DEBUG );
+                    }
                 }
                 else
                 {
-                    wxLogWarning( _( "Footprint %s pad %s has a square hole (not yet supported)." ),
+                    if( m_reporter )
+                    {
+                        wxString msg;
+                        msg.Printf( _( "Footprint %s pad %s has a square hole (not yet supported)." ),
                                   aFootprint->GetReference(),
                                   aElem.name );
+                        m_reporter->Report( msg, RPT_SEVERITY_DEBUG );
+                    }
                 }
 
                 pad->SetDrillShape( PAD_DRILL_SHAPE_T::PAD_DRILL_SHAPE_CIRCLE );
@@ -2855,21 +3052,31 @@ void ALTIUM_PCB::ConvertPads6ToFootprintItemOnCopper( FOOTPRINT* aFootprint, con
                 {
                     if( !m_footprintName.IsEmpty() )
                     {
-                        wxLogWarning( _( "Loading library '%s':\n"
+                        if( m_reporter )
+                        {
+                            wxString msg;
+                            msg.Printf( _( "Loading library '%s':\n"
                                          "Footprint %s pad %s has a hole-rotation of %f degrees. "
                                          "KiCad only supports 90 degree rotations." ),
                                       m_library,
                                       m_footprintName,
                                       aElem.name,
                                       slotRotation.AsDegrees() );
+                            m_reporter->Report( msg, RPT_SEVERITY_DEBUG );
+                        }
                     }
                     else
                     {
-                        wxLogWarning( _( "Footprint %s pad %s has a hole-rotation of %f degrees. "
+                        if( m_reporter )
+                        {
+                            wxString msg;
+                            msg.Printf( _( "Footprint %s pad %s has a hole-rotation of %f degrees. "
                                          "KiCad only supports 90 degree rotations." ),
                                       aFootprint->GetReference(),
                                       aElem.name,
                                       slotRotation.AsDegrees() );
+                            m_reporter->Report( msg, RPT_SEVERITY_DEBUG );
+                        }
                     }
                 }
 
@@ -2880,19 +3087,29 @@ void ALTIUM_PCB::ConvertPads6ToFootprintItemOnCopper( FOOTPRINT* aFootprint, con
             case ALTIUM_PAD_HOLE_SHAPE::UNKNOWN:
                 if( !m_footprintName.IsEmpty() )
                 {
-                    wxLogError( _( "Error loading library '%s':\n"
+                    if( m_reporter )
+                    {
+                        wxString msg;
+                        msg.Printf( _( "Error loading library '%s':\n"
                                    "Footprint %s pad %s uses a hole of unknown kind %d." ),
                                 m_library,
                                 m_footprintName,
                                 aElem.name,
                                 aElem.sizeAndShape->holeshape );
+                        m_reporter->Report( msg, RPT_SEVERITY_DEBUG );
+                    }
                 }
                 else
                 {
-                    wxLogError( _( "Footprint %s pad %s uses a hole of unknown kind %d." ),
+                    if( m_reporter )
+                    {
+                        wxString msg;
+                        msg.Printf( _( "Footprint %s pad %s uses a hole of unknown kind %d." ),
                                 aFootprint->GetReference(),
                                 aElem.name,
                                 aElem.sizeAndShape->holeshape );
+                        m_reporter->Report( msg, RPT_SEVERITY_DEBUG );
+                    }
                 }
 
                 pad->SetDrillShape( PAD_DRILL_SHAPE_T::PAD_DRILL_SHAPE_CIRCLE );
@@ -2909,17 +3126,27 @@ void ALTIUM_PCB::ConvertPads6ToFootprintItemOnCopper( FOOTPRINT* aFootprint, con
     {
         if( !m_footprintName.IsEmpty() )
         {
-            wxLogError( _( "Error loading library '%s':\n"
+            if( m_reporter )
+            {
+                wxString msg;
+                msg.Printf( _( "Error loading library '%s':\n"
                            "Footprint %s pad %s uses a complex pad stack (not yet supported)." ),
                         m_library,
                         m_footprintName,
                         aElem.name );
+                m_reporter->Report( msg, RPT_SEVERITY_DEBUG );
+            }
         }
         else
         {
-            wxLogError( _( "Footprint %s pad %s uses a complex pad stack (not yet supported)." ),
+            if( m_reporter )
+            {
+                wxString msg;
+                msg.Printf( _( "Footprint %s pad %s uses a complex pad stack (not yet supported)." ),
                         aFootprint->GetReference(),
                         aElem.name );
+                m_reporter->Report( msg, RPT_SEVERITY_DEBUG );
+            }
         }
     }
 
@@ -2958,17 +3185,27 @@ void ALTIUM_PCB::ConvertPads6ToFootprintItemOnCopper( FOOTPRINT* aFootprint, con
     default:
         if( !m_footprintName.IsEmpty() )
         {
-            wxLogError( _( "Error loading library '%s':\n"
+            if( m_reporter )
+            {
+                wxString msg;
+                msg.Printf( _( "Error loading library '%s':\n"
                            "Footprint %s pad %s uses an unknown pad-shape." ),
                         m_library,
                         m_footprintName,
                         aElem.name );
+                m_reporter->Report( msg, RPT_SEVERITY_DEBUG );
+            }
         }
         else
         {
-            wxLogError( _( "Footprint %s pad %s uses an unknown pad-shape." ),
+            if( m_reporter )
+            {
+                wxString msg;
+                msg.Printf( _( "Footprint %s pad %s uses an unknown pad-shape." ),
                         aFootprint->GetReference(),
                         aElem.name );
+                m_reporter->Report( msg, RPT_SEVERITY_DEBUG );
+            }
         }
         break;
     }
@@ -3026,9 +3263,15 @@ void ALTIUM_PCB::ConvertPads6ToBoardItemOnNonCopper( const APAD6& aElem )
 
     if( klayer == UNDEFINED_LAYER )
     {
-        wxLogWarning( _( "Non-copper pad %s found on an Altium layer (%d) with no KiCad "
+        if( m_reporter )
+        {
+            wxString msg;
+            msg.Printf( _( "Non-copper pad %s found on an Altium layer (%d) with no KiCad "
                          "equivalent. It has been moved to KiCad layer Eco1_User." ),
                       aElem.name, aElem.layer );
+            m_reporter->Report( msg, RPT_SEVERITY_INFO );
+        }
+
         klayer = Eco1_User;
     }
 
@@ -3048,21 +3291,31 @@ void ALTIUM_PCB::ConvertPads6ToFootprintItemOnNonCopper( FOOTPRINT* aFootprint, 
     {
         if( !m_footprintName.IsEmpty() )
         {
-            wxLogWarning( _( "Loading library '%s':\n"
+            if( m_reporter )
+            {
+                wxString msg;
+                msg.Printf( _( "Loading library '%s':\n"
                              "Footprint %s non-copper pad %s found on an Altium layer (%d) with no "
                              "KiCad equivalent. It has been moved to KiCad layer Eco1_User." ),
                           m_library,
                           m_footprintName,
                           aElem.name,
                           aElem.layer );
+                m_reporter->Report( msg, RPT_SEVERITY_INFO );
+            }
         }
         else
         {
-            wxLogWarning( _( "Footprint %s non-copper pad %s found on an Altium layer (%d) with no "
+            if( m_reporter )
+            {
+                wxString msg;
+                msg.Printf( _( "Footprint %s non-copper pad %s found on an Altium layer (%d) with no "
                              "KiCad equivalent. It has been moved to KiCad layer Eco1_User." ),
                           aFootprint->GetReference(),
                           aElem.name,
                           aElem.layer );
+                m_reporter->Report( msg, RPT_SEVERITY_INFO );
+            }
         }
 
         klayer = Eco1_User;
@@ -3081,19 +3334,34 @@ void ALTIUM_PCB::HelperParsePad6NonCopper( const APAD6& aElem, PCB_LAYER_ID aLay
 {
     if( aElem.net != ALTIUM_NET_UNCONNECTED )
     {
-        wxLogError( _( "Non-copper pad %s is connected to a net, which is not supported." ),
+        if( m_reporter )
+        {
+            wxString msg;
+            msg.Printf( _( "Non-copper pad %s is connected to a net, which is not supported." ),
                     aElem.name );
+            m_reporter->Report( msg, RPT_SEVERITY_DEBUG );
+        }
     }
 
     if( aElem.holesize != 0 )
     {
-        wxLogError( _( "Non-copper pad %s has a hole, which is not supported." ), aElem.name );
+        if( m_reporter )
+        {
+            wxString msg;
+            msg.Printf( _( "Non-copper pad %s has a hole, which is not supported." ), aElem.name );
+            m_reporter->Report( msg, RPT_SEVERITY_DEBUG );
+        }
     }
 
     if( aElem.padmode != ALTIUM_PAD_MODE::SIMPLE )
     {
-        wxLogWarning( _( "Non-copper pad %s has a complex pad stack (not yet supported)." ),
-                      aElem.name );
+        if( m_reporter )
+        {
+            wxString msg;
+            msg.Printf( _( "Non-copper pad %s has a complex pad stack (not yet supported)." ),
+                        aElem.name );
+            m_reporter->Report( msg, RPT_SEVERITY_DEBUG );
+        }
     }
 
     switch( aElem.topshape )
@@ -3234,7 +3502,13 @@ void ALTIUM_PCB::HelperParsePad6NonCopper( const APAD6& aElem, PCB_LAYER_ID aLay
 
     case ALTIUM_PAD_SHAPE::UNKNOWN:
     default:
-        wxLogError( _( "Non-copper pad %s uses an unknown pad-shape." ), aElem.name );
+        if( m_reporter )
+        {
+            wxString msg;
+            msg.Printf( _( "Non-copper pad %s uses an unknown pad-shape." ), aElem.name );
+            m_reporter->Report( msg, RPT_SEVERITY_DEBUG );
+        }
+
         break;
     }
 }
@@ -3284,10 +3558,16 @@ void ALTIUM_PCB::ParseVias6Data( const ALTIUM_COMPOUND_FILE&     aAltiumPcbFile,
 
         if( !IsCopperLayer( start_klayer ) || !IsCopperLayer( end_klayer ) )
         {
-            wxLogError( _( "Via from layer %d to %d uses a non-copper layer, which is not "
-                           "supported." ),
+            if( m_reporter )
+            {
+                wxString msg;
+                msg.Printf( _( "Via from layer %d to %d uses a non-copper layer, which is not "
+                               "supported." ),
                         elem.layer_start,
                         elem.layer_end );
+                m_reporter->Report( msg, RPT_SEVERITY_DEBUG );
+            }
+
             continue; // just assume through-hole instead.
         }
 
@@ -3337,10 +3617,16 @@ void ALTIUM_PCB::ConvertTracks6ToBoardItem( const ATRACK6& aElem, const int aPri
         if( m_polygons.size() <= aElem.polygon )
         {
             // Can happen when reading old Altium files: just skip this item
-            wxLogError( "ATRACK6 stream tries to access polygon id %u "
-                        "of %u existing polygons. Skip it",
-                        (unsigned) aElem.polygon,
-                        (unsigned)m_polygons.size() );
+            if( m_reporter )
+            {
+                wxString msg;
+                msg.Printf( wxT( "ATRACK6 stream tries to access polygon id %u "
+                                 "of %u existing polygons; skipping it" ),
+                            static_cast<unsigned>( aElem.polygon ),
+                            static_cast<unsigned>( m_polygons.size() ) );
+                m_reporter->Report( msg, RPT_SEVERITY_DEBUG );
+            }
+
             return;
         }
 
@@ -3556,7 +3842,14 @@ void ALTIUM_PCB::ConvertTexts6ToBoardItem( const ATEXT6& aElem )
 {
     if( aElem.fonttype == ALTIUM_TEXT_TYPE::BARCODE )
     {
-        wxLogError( _( "Ignored barcode on Altium layer %d (not yet supported)." ), aElem.layer );
+        if( m_reporter )
+        {
+            wxString msg;
+            msg.Printf( _( "Ignored barcode on Altium layer %d (not yet supported)." ),
+                        aElem.layer );
+            m_reporter->Report( msg, RPT_SEVERITY_DEBUG );
+        }
+
         return;
     }
 
@@ -3571,17 +3864,27 @@ void ALTIUM_PCB::ConvertTexts6ToFootprintItem( FOOTPRINT* aFootprint, const ATEX
     {
         if( !m_footprintName.IsEmpty() )
         {
-            wxLogError( _( "Error loading library '%s':\n"
+            if( m_reporter )
+            {
+                wxString msg;
+                msg.Printf( _( "Error loading library '%s':\n"
                            "Footprint %s contains barcode on Altium layer %d (not yet supported)." ),
                         m_library,
                         m_footprintName,
                         aElem.layer );
+                m_reporter->Report( msg, RPT_SEVERITY_DEBUG );
+            }
         }
         else
         {
-            wxLogError( _( "Footprint %s contains barcode on Altium layer %d (not yet supported)." ),
+            if( m_reporter )
+            {
+                wxString msg;
+                msg.Printf( _( "Footprint %s contains barcode on Altium layer %d (not yet supported)." ),
                         aFootprint->GetReference(),
                         aElem.layer );
+                m_reporter->Report( msg, RPT_SEVERITY_DEBUG );
+            }
         }
 
         return;

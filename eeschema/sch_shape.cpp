@@ -29,7 +29,7 @@
 #include <widgets/msgpanel.h>
 #include <bitmaps.h>
 #include <eda_draw_frame.h>
-#include <general.h>
+#include <gr_basic.h>
 #include <schematic.h>
 #include <sch_shape.h>
 
@@ -76,20 +76,15 @@ void SCH_SHAPE::Normalize()
 {
     if( GetShape() == SHAPE_T::RECTANGLE )
     {
-        bool invertY = m_layer == LAYER_DEVICE;
-
         VECTOR2I size = GetEnd() - GetPosition();
-        bool     swapY = invertY ? size.y > 0
-                                 : size.y < 0;
-        bool     swapX = size.x < 0;
 
-        if( swapY )
+        if( size.y < 0 )
         {
             SetStartY( GetStartY() + size.y );
             SetEndY( GetStartY() - size.y );
         }
 
-        if( swapX )
+        if( size.x < 0 )
         {
             SetStartX( GetStartX() + size.x );
             SetEndX( GetStartX() - size.x );
@@ -112,27 +107,22 @@ void SCH_SHAPE::MirrorVertically( int aCenter )
 
 void SCH_SHAPE::Rotate( const VECTOR2I& aCenter, bool aRotateCCW )
 {
-    rotate( aCenter, aRotateCCW ? ANGLE_270 : ANGLE_90 );
+    rotate( aCenter, aRotateCCW ? ANGLE_90 : ANGLE_270 );
 }
 
 
 bool SCH_SHAPE::HitTest( const VECTOR2I& aPosition, int aAccuracy ) const
 {
-    if( m_layer == LAYER_DEVICE )
-        return hitTest( DefaultTransform.TransformCoordinate( aPosition ), aAccuracy );
-    else
-        return hitTest( aPosition, aAccuracy );
+    return hitTest( aPosition, aAccuracy );
 }
+
 
 bool SCH_SHAPE::HitTest( const BOX2I& aRect, bool aContained, int aAccuracy ) const
 {
     if( m_flags & (STRUCT_DELETED | SKIP_STRUCT ) )
         return false;
 
-    if( m_layer == LAYER_DEVICE )
-        return hitTest( DefaultTransform.TransformCoordinate( aRect ), aContained, aAccuracy );
-    else
-        return hitTest( aRect, aContained, aAccuracy );
+    return hitTest( aRect, aContained, aAccuracy );
 }
 
 
@@ -152,24 +142,14 @@ void SCH_SHAPE::Plot( PLOTTER* aPlotter, bool aBackground, const SCH_PLOT_OPTS& 
         ptList.clear();
 
         for( const VECTOR2I& pt : m_poly.Outline( 0 ).CPoints() )
-        {
-            if( m_layer == LAYER_DEVICE )
-                ptList.push_back( renderSettings->TransformCoordinate( pt ) + aOffset );
-            else
-                ptList.push_back( pt );
-        }
+            ptList.push_back( renderSettings->TransformCoordinate( pt ) + aOffset );
     }
     else if( GetShape() == SHAPE_T::BEZIER )
     {
         ptList.clear();
 
         for( const VECTOR2I& pt : m_bezierPoints )
-        {
-            if( m_layer == LAYER_DEVICE )
-                ptList.push_back( renderSettings->TransformCoordinate( pt ) + aOffset );
-            else
-                ptList.push_back( pt );
-        }
+            ptList.push_back( renderSettings->TransformCoordinate( pt ) + aOffset );
     }
 
     COLOR4D    color = GetStroke().GetColor();
@@ -231,33 +211,19 @@ void SCH_SHAPE::Plot( PLOTTER* aPlotter, bool aBackground, const SCH_PLOT_OPTS& 
     aPlotter->SetCurrentLineWidth( pen_size );
     aPlotter->SetDash( pen_size, lineStyle );
 
-    VECTOR2I start = m_start;
-    VECTOR2I end = m_end;
+    VECTOR2I start = renderSettings->TransformCoordinate( m_start ) + aOffset;
+    VECTOR2I end = renderSettings->TransformCoordinate( m_end ) + aOffset;
     VECTOR2I mid, center;
-
-    if( m_layer == LAYER_DEVICE )
-    {
-        start = renderSettings->TransformCoordinate( start ) + aOffset;
-        end = renderSettings->TransformCoordinate( end ) + aOffset;
-    }
 
     switch( GetShape() )
     {
     case SHAPE_T::ARC:
-        mid = GetArcMid();
-
-        if( m_layer == LAYER_DEVICE )
-            mid = renderSettings->TransformCoordinate( mid ) + aOffset;
-
+        mid = renderSettings->TransformCoordinate( GetArcMid() ) + aOffset;
         aPlotter->Arc( start, mid, end, fill, pen_size );
         break;
 
     case SHAPE_T::CIRCLE:
-        center = getCenter();
-
-        if( m_layer == LAYER_DEVICE )
-            center = renderSettings->TransformCoordinate( center ) + aOffset;
-
+        center = renderSettings->TransformCoordinate( getCenter() ) + aOffset;
         aPlotter->Circle( center, GetRadius() * 2, fill, pen_size );
         break;
 
@@ -298,12 +264,7 @@ int SCH_SHAPE::GetEffectiveWidth() const
 
 const BOX2I SCH_SHAPE::GetBoundingBox() const
 {
-    BOX2I bbox = getBoundingBox();
-
-    if( m_layer == LAYER_DEVICE )   // TODO: nuke symbol editor's upside-down coordinate system
-        bbox.RevertYAxis();
-
-    return bbox;
+    return getBoundingBox();
 }
 
 
@@ -323,24 +284,14 @@ void SCH_SHAPE::PrintBackground( const SCH_RENDER_SETTINGS* aSettings, int aUnit
         ptList.clear();
 
         for( const VECTOR2I& pt : m_poly.Outline( 0 ).CPoints() )
-        {
-            if( m_layer == LAYER_DEVICE )
-                ptList.push_back( aSettings->TransformCoordinate( pt ) + aOffset );
-            else
-                ptList.push_back( pt );
-        }
+            ptList.push_back( aSettings->TransformCoordinate( pt ) + aOffset );
     }
     else if( GetShape() == SHAPE_T::BEZIER )
     {
         ptList.clear();
 
         for( const VECTOR2I& pt : m_bezierPoints )
-        {
-            if( m_layer == LAYER_DEVICE )
-                ptList.push_back( aSettings->TransformCoordinate( pt ) + aOffset );
-            else
-                ptList.push_back( pt );
-        }
+            ptList.push_back( aSettings->TransformCoordinate( pt ) + aOffset );
     }
 
     if( GetFillMode() == FILL_T::FILLED_WITH_COLOR )
@@ -409,31 +360,21 @@ void SCH_SHAPE::Print( const SCH_RENDER_SETTINGS* aSettings, int aUnit, int aBod
         ptList.clear();
 
         for( const VECTOR2I& pt : m_poly.Outline( 0 ).CPoints() )
-        {
-            if( m_layer == LAYER_DEVICE )
-                ptList.push_back( aSettings->TransformCoordinate( pt ) + aOffset );
-            else
-                ptList.push_back( pt );
-        }
+            ptList.push_back( aSettings->TransformCoordinate( pt ) + aOffset );
     }
     else if( GetShape() == SHAPE_T::BEZIER )
     {
         ptList.clear();
 
         for( const VECTOR2I& pt : m_bezierPoints )
-        {
-            if( m_layer == LAYER_DEVICE )
-                ptList.push_back( aSettings->TransformCoordinate( pt ) + aOffset );
-            else
-                ptList.push_back( pt );
-        }
+            ptList.push_back( aSettings->TransformCoordinate( pt ) + aOffset );
     }
 
     VECTOR2I start = GetStart();
     VECTOR2I end = GetEnd();
     VECTOR2I center = ( GetShape() == SHAPE_T::ARC ) ? getCenter() : VECTOR2I( 0, 0 );
 
-    if( m_layer == LAYER_DEVICE )
+    if( aSettings->m_Transform != TRANSFORM() || aOffset != VECTOR2I() )
     {
         start = aSettings->TransformCoordinate( start ) + aOffset;
         end = aSettings->TransformCoordinate( end ) + aOffset;
@@ -542,16 +483,9 @@ void SCH_SHAPE::Print( const SCH_RENDER_SETTINGS* aSettings, int aUnit, int aBod
                 STROKE_PARAMS::Stroke( shape, GetEffectiveLineStyle(), penWidth, aSettings,
                         [&]( const VECTOR2I& a, const VECTOR2I& b )
                         {
-                            if( m_layer == LAYER_DEVICE )
-                            {
-                                VECTOR2I ptA = aSettings->TransformCoordinate( a ) + aOffset;
-                                VECTOR2I ptB = aSettings->TransformCoordinate( b ) + aOffset;
-                                GRLine( DC, ptA.x, ptA.y, ptB.x, ptB.y, penWidth, color );
-                            }
-                            else
-                            {
-                                GRLine( DC, a.x, a.y, b.x, b.y, penWidth, color );
-                            }
+                            VECTOR2I ptA = aSettings->TransformCoordinate( a ) + aOffset;
+                            VECTOR2I ptB = aSettings->TransformCoordinate( b ) + aOffset;
+                            GRLine( DC, ptA.x, ptA.y, ptB.x, ptB.y, penWidth, color );
                         } );
             }
 

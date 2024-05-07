@@ -783,6 +783,9 @@ public:
      */
     PAD* GetPad( const VECTOR2I& aPosition, LSET aLayerMask = LSET::AllLayersMask() );
 
+    std::vector<const PAD*> GetPads( const wxString& aPadNumber,
+                                     const PAD* aIgnore = nullptr ) const;
+
     /**
      * Return the number of pads.
      *
@@ -901,7 +904,8 @@ public:
     /**
      * Return true if a board footprint differs from the library version.
      */
-    bool FootprintNeedsUpdate( const FOOTPRINT* aLibFP, REPORTER* aReporter = nullptr );
+    bool FootprintNeedsUpdate( const FOOTPRINT* aLibFP, int aCompareFlags = 0,
+                               REPORTER* aReporter = nullptr );
 
     /**
      * Take ownership of caller's heap allocated aInitialComments block.

@@ -130,7 +130,7 @@ VECTOR2I SELECTION::GetCenter() const
 }
 
 
-BOX2I SELECTION::GetBoundingBox() const
+BOX2I SELECTION::GetBoundingBox( bool aOnlyVisible ) const
 {
     BOX2I bbox;
 
@@ -201,28 +201,70 @@ const std::vector<KIGFX::VIEW_ITEM*> SELECTION::updateDrawList() const
 
 bool SELECTION::AreAllItemsIdentical() const
 {
-    return ( std::all_of( m_items.begin() + 1, m_items.end(),
-                    [&]( const EDA_ITEM* r )
-                    {
-                        return r->Type() == m_items.front()->Type();
-                    } ) );
+    return std::all_of( m_items.begin() + 1, m_items.end(),
+            [&]( const EDA_ITEM* r )
+            {
+                return r->Type() == m_items.front()->Type();
+            } );
 }
 
 
 bool SELECTION::OnlyContains( std::vector<KICAD_T> aList ) const
 {
-    return ( std::all_of( m_items.begin(), m_items.end(),
+    return std::all_of( m_items.begin(), m_items.end(),
             [&]( const EDA_ITEM* r )
             {
                 return r->IsType( aList );
-            } ) );
+            } );
 }
 
 
-const std::vector<EDA_ITEM*> SELECTION::GetItemsSortedBySelectionOrder() const
+std::vector<EDA_ITEM*> SELECTION::GetItemsSortedByTypeAndXY( bool leftBeforeRight,
+                                                             bool topBeforeBottom ) const
 {
-    using pairedIterators =
-            std::pair<decltype( m_items.begin() ), decltype( m_itemsOrders.begin() )>;
+    std::vector<EDA_ITEM*> sorted_items = std::vector<EDA_ITEM*>( m_items.begin(), m_items.end() );
+
+    std::sort( sorted_items.begin(), sorted_items.end(),
+               [&]( EDA_ITEM* a, EDA_ITEM* b )
+               {
+                   if( a->Type() == b->Type() )
+                   {
+                       const VECTOR2I aPos = a->GetSortPosition();
+                       const VECTOR2I bPos = b->GetSortPosition();
+
+                       if( aPos.x == bPos.x )
+                       {
+                           // Ensure deterministic sort
+                           if( aPos.y == bPos.y )
+                               return a->m_Uuid < b->m_Uuid;
+
+                           if( topBeforeBottom )
+                               return aPos.y < bPos.y;
+                           else
+                               return aPos.y > bPos.y;
+                       }
+                       else if( leftBeforeRight )
+                       {
+                           return aPos.x < bPos.x;
+                       }
+                       else
+                       {
+                           return aPos.x > bPos.x;
+                       }
+                   }
+                   else
+                   {
+                       return a->Type() < b->Type();
+                   }
+               } );
+    return sorted_items;
+}
+
+
+std::vector<EDA_ITEM*> SELECTION::GetItemsSortedBySelectionOrder() const
+{
+    using pairedIterators = std::pair<decltype( m_items.begin() ),
+                                      decltype( m_itemsOrders.begin() )>;
 
     // Create a vector of all {selection item, selection order} iterator pairs
     std::vector<pairedIterators> pairs;

@@ -811,26 +811,33 @@ void PAD::SetAttribute( PAD_ATTRIB aAttribute )
         switch( aAttribute )
         {
         case PAD_ATTRIB::PTH:
+            // Plump up to all copper layers
             m_layerMask |= LSET::AllCuMask();
             break;
 
         case PAD_ATTRIB::SMD:
         case PAD_ATTRIB::CONN:
-            if( m_layerMask.test( F_Cu ) )
+        {
+            // Trim down to no more than one copper layer
+            LSET copperLayers = m_layerMask & LSET::AllCuMask();
+
+            if( copperLayers.count() > 1 )
             {
                 m_layerMask &= ~LSET::AllCuMask();
-                m_layerMask.set( F_Cu );
-            }
-            else
-            {
-                m_layerMask &= ~LSET::AllCuMask();
-                m_layerMask.set( B_Cu );
+
+                if( copperLayers.test( B_Cu ) )
+                    m_layerMask.set( B_Cu );
+                else
+                    m_layerMask.set( copperLayers.Seq().front() );
             }
 
+            // No hole
             m_drill = VECTOR2I( 0, 0 );
             break;
+        }
 
         case PAD_ATTRIB::NPTH:
+            // No number; no net
             m_number = wxEmptyString;
             SetNetCode( NETINFO_LIST::UNCONNECTED );
             break;
@@ -867,7 +874,7 @@ void PAD::SetFPRelativeOrientation( const EDA_ANGLE& aAngle )
 }
 
 
-EDA_ANGLE PAD::GetFPRelativeOrientation()
+EDA_ANGLE PAD::GetFPRelativeOrientation() const
 {
     if( FOOTPRINT* parentFP = GetParentFootprint() )
         return GetOrientation() - parentFP->GetOrientation();
@@ -1222,6 +1229,7 @@ void PAD::GetMsgPanelInfo( EDA_DRAW_FRAME* aFrame, std::vector<MSG_PANEL_ITEM>& 
     case PAD_PROP::TESTPOINT:      props += _( "Test point" );      break;
     case PAD_PROP::HEATSINK:       props += _( "Heat sink" );       break;
     case PAD_PROP::CASTELLATED:    props += _( "Castellated" );     break;
+    case PAD_PROP::MECHANICAL:     props += _( "Mechanical" );      break;
     }
 
     aList.emplace_back( ShowPadShape(), props );
@@ -1679,8 +1687,12 @@ const BOX2I PAD::ViewBBox() const
 void PAD::ImportSettingsFrom( const PAD& aMasterPad )
 {
     SetShape( aMasterPad.GetShape() );
+    // Layer Set should be updated before calling SetAttribute()
     SetLayerSet( aMasterPad.GetLayerSet() );
     SetAttribute( aMasterPad.GetAttribute() );
+    // Unfortunately, SetAttribute() can change m_layerMask.
+    // Be sure we keep the original mask by calling SetLayerSet() after SetAttribute()
+    SetLayerSet( aMasterPad.GetLayerSet() );
     SetProperty( aMasterPad.GetProperty() );
 
     // Must be after setting attribute and layerSet
@@ -2101,7 +2113,8 @@ static struct PAD_DESC
                 .Map( PAD_PROP::FIDUCIAL_LOCAL,    _HKI( "Fiducial, local to footprint" ) )
                 .Map( PAD_PROP::TESTPOINT,         _HKI( "Test point pad" ) )
                 .Map( PAD_PROP::HEATSINK,          _HKI( "Heatsink pad" ) )
-                .Map( PAD_PROP::CASTELLATED,       _HKI( "Castellated pad" ) );
+                .Map( PAD_PROP::CASTELLATED,       _HKI( "Castellated pad" ) )
+                .Map( PAD_PROP::MECHANICAL,        _HKI( "Mechanical pad" ) );
 
         ENUM_MAP<ZONE_CONNECTION>& zcMap = ENUM_MAP<ZONE_CONNECTION>::Instance();
 

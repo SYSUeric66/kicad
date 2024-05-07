@@ -26,11 +26,11 @@
 #ifndef NETLIST_EXPORTER_H
 #define NETLIST_EXPORTER_H
 
-#include <lib_pin.h>
-#include <sch_symbol.h>
-#include <sch_label.h>
-#include <sch_sheet.h>
 #include <schematic.h>
+
+class SCH_SYMBOL;
+class LIB_SYMBOL;
+class REPORTER;
 
 /**
  * Track unique wxStrings and is useful in telling if a string has been seen before.
@@ -65,11 +65,7 @@ public:
 struct LIB_SYMBOL_LESS_THAN
 {
     // a "less than" test on two LIB_SYMBOLs (.m_name wxStrings)
-    bool operator()( LIB_SYMBOL* const& libsymbol1, LIB_SYMBOL* const& libsymbol2 ) const
-    {
-        // Use case specific GetName() wxString compare
-        return libsymbol1->GetLibId() < libsymbol2->GetLibId();
-    }
+    bool operator()( LIB_SYMBOL* const& libsymbol1, LIB_SYMBOL* const& libsymbol2 ) const;
 };
 
 
@@ -91,10 +87,6 @@ struct PIN_INFO
 class NETLIST_EXPORTER_BASE
 {
 public:
-    /**
-     * @param aMasterList we take ownership of this here.
-     * @param aLibTable is the symbol library table of the project.
-     */
     NETLIST_EXPORTER_BASE( SCHEMATIC_IFACE* aSchematic ) :
         m_schematic( aSchematic )
     {

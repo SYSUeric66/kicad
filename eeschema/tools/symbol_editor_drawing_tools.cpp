@@ -34,6 +34,7 @@
 #include <sch_shape.h>
 #include <sch_textbox.h>
 #include <pgm_base.h>
+#include <view/view_controls.h>
 #include <symbol_editor/symbol_editor_settings.h>
 #include <settings/settings_manager.h>
 #include <string_utils.h>
@@ -81,7 +82,7 @@ int SYMBOL_EDITOR_DRAWING_TOOLS::TwoClickPlace( const TOOL_EVENT& aEvent )
 {
     KICAD_T type = aEvent.Parameter<KICAD_T>();
     auto*   settings = Pgm().GetSettingsManager().GetAppSettings<SYMBOL_EDITOR_SETTINGS>();
-    auto*   pinTool = type == LIB_PIN_T ? m_toolMgr->GetTool<SYMBOL_EDITOR_PIN_TOOL>() : nullptr;
+    auto*   pinTool = type == SCH_PIN_T ? m_toolMgr->GetTool<SYMBOL_EDITOR_PIN_TOOL>() : nullptr;
 
     if( m_inTwoClickPlace )
         return 0;
@@ -208,16 +209,15 @@ int SYMBOL_EDITOR_DRAWING_TOOLS::TwoClickPlace( const TOOL_EVENT& aEvent )
 
                 switch( type )
                 {
-                case LIB_PIN_T:
+                case SCH_PIN_T:
                 {
-                    item = pinTool->CreatePin( VECTOR2I( cursorPos.x, -cursorPos.y ), symbol );
+                    item = pinTool->CreatePin( cursorPos, symbol );
                     g_lastPinWeakPtr = item;
                     break;
                 }
                 case SCH_TEXT_T:
                 {
-                    SCH_TEXT* text = new SCH_TEXT( VECTOR2I( cursorPos.x, -cursorPos.y ),
-                                                   wxEmptyString, LAYER_DEVICE );
+                    SCH_TEXT* text = new SCH_TEXT( cursorPos, wxEmptyString, LAYER_DEVICE );
 
                     text->SetParent( symbol );
 
@@ -281,8 +281,8 @@ int SYMBOL_EDITOR_DRAWING_TOOLS::TwoClickPlace( const TOOL_EVENT& aEvent )
 
                 switch( item->Type() )
                 {
-                case LIB_PIN_T:
-                    pinTool->PlacePin( static_cast<LIB_PIN*>( item ) );
+                case SCH_PIN_T:
+                    pinTool->PlacePin( static_cast<SCH_PIN*>( item ) );
                     item->ClearEditFlags();
                     commit.Push( _( "Add Pin" ) );
                     break;
@@ -312,7 +312,7 @@ int SYMBOL_EDITOR_DRAWING_TOOLS::TwoClickPlace( const TOOL_EVENT& aEvent )
         }
         else if( item && ( evt->IsAction( &ACTIONS::refreshPreview ) || evt->IsMotion() ) )
         {
-            item->SetPosition( VECTOR2I( cursorPos.x, -cursorPos.y ) );
+            item->SetPosition( VECTOR2I( cursorPos.x, cursorPos.y ) );
             m_view->ClearPreview();
             m_view->AddToPreview( item->Clone() );
         }
@@ -487,7 +487,7 @@ int SYMBOL_EDITOR_DRAWING_TOOLS::doDrawShape( const TOOL_EVENT& aEvent, std::opt
             item->SetFillColor( m_lastFillColor );
 
             item->SetFlags( IS_NEW );
-            item->BeginEdit( VECTOR2I( cursorPos.x, -cursorPos.y ) );
+            item->BeginEdit( cursorPos );
 
             if( m_drawSpecificUnit )
                 item->SetUnit( m_frame->GetUnit() );
@@ -560,7 +560,7 @@ int SYMBOL_EDITOR_DRAWING_TOOLS::doDrawShape( const TOOL_EVENT& aEvent, std::opt
         }
         else if( item && ( evt->IsAction( &ACTIONS::refreshPreview ) || evt->IsMotion() ) )
         {
-            item->CalcEdit( VECTOR2I( cursorPos.x, -cursorPos.y ) );
+            item->CalcEdit( cursorPos );
             m_view->ClearPreview();
             m_view->AddToPreview( item->Clone() );
         }
@@ -632,15 +632,11 @@ int SYMBOL_EDITOR_DRAWING_TOOLS::PlaceAnchor( const TOOL_EVENT& aEvent )
                 continue;
 
             VECTOR2I cursorPos = getViewControls()->GetCursorPosition( !evt->DisableGridSnapping() );
-            VECTOR2I offset( -cursorPos.x, cursorPos.y );
 
-            symbol->Move( offset );
+            symbol->Move( -cursorPos );
 
             // Refresh the view without changing the viewport
-            auto center = m_view->GetCenter();
-            center.x += offset.x;
-            center.y -= offset.y;
-            m_view->SetCenter( center );
+            m_view->SetCenter( m_view->GetCenter() + cursorPos );
             m_view->RecacheAllItems();
             m_frame->OnModify();
         }
@@ -779,7 +775,7 @@ int SYMBOL_EDITOR_DRAWING_TOOLS::ImportGraphics( const TOOL_EVENT& aEvent )
         }
         else if( evt->IsMotion() )
         {
-            delta = VECTOR2I( cursorPos.x, -cursorPos.y ) - currentOffset;
+            delta = cursorPos - currentOffset;
 
             for( SCH_ITEM* item : selectedItems )
                 item->Move( delta );
@@ -830,15 +826,13 @@ int SYMBOL_EDITOR_DRAWING_TOOLS::RepeatDrawItem( const TOOL_EVENT& aEvent )
 {
     SYMBOL_EDITOR_PIN_TOOL* pinTool = m_toolMgr->GetTool<SYMBOL_EDITOR_PIN_TOOL>();
     LIB_SYMBOL*   symbol = m_frame->GetCurSymbol();
-    LIB_PIN*      sourcePin = nullptr;
+    SCH_PIN*      sourcePin = nullptr;
 
     if( !symbol )
         return 0;
 
     // See if we have a pin matching our weak ptr
-    std::vector<LIB_PIN*> pins = symbol->GetAllLibPins();
-
-    for( LIB_PIN* test : pins )
+    for( SCH_PIN* test : symbol->GetAllLibPins() )
     {
         if( (void*) test == g_lastPinWeakPtr )
         {
@@ -849,7 +843,7 @@ int SYMBOL_EDITOR_DRAWING_TOOLS::RepeatDrawItem( const TOOL_EVENT& aEvent )
 
     if( sourcePin )
     {
-        LIB_PIN* pin = pinTool->RepeatPin( sourcePin );
+        SCH_PIN* pin = pinTool->RepeatPin( sourcePin );
         g_lastPinWeakPtr = pin;
 
         m_toolMgr->RunAction( EE_ACTIONS::clearSelection );

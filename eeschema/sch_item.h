@@ -26,6 +26,7 @@
 #define SCH_ITEM_H
 
 #include <unordered_map>
+#include <unordered_set>
 #include <map>
 #include <set>
 
@@ -44,6 +45,7 @@ class SCHEMATIC;
 class SYMBOL;
 class LINE_READER;
 class SCH_EDIT_FRAME;
+class SCH_RULE_AREA;
 struct SCH_PLOT_OPTS;
 
 namespace KIFONT
@@ -629,22 +631,43 @@ public:
     }
 
     /**
+     * Reset the cache of rule areas (called prior to schematic connectivity recomputation)
+     */
+    void ClearRuleAreasCache() { m_rule_areas_cache.clear(); }
+
+    /**
+     * Adds a rule area to the item's cache
+     */
+    void AddRuleAreaToCache( SCH_RULE_AREA* aRuleArea ) { m_rule_areas_cache.insert( aRuleArea ); }
+
+    /**
+     * Gets the cache of rule areas enclosing this item
+     */
+    const std::unordered_set<SCH_RULE_AREA*>& GetRuleAreaCache() const
+    {
+        return m_rule_areas_cache;
+    }
+
+    /**
      * The list of flags used by the #compare function.
      *
      * UNIT  This flag relaxes unit, body-style and pin-number constraints.  It is used for
      *       #SCH_ITEM object unit comparisons.
      *
-     * EQUALITY  This flag relaxes ordering contstraints so that fields, etc. don't have to
+     * EQUALITY  This flag relaxes ordering constraints so that fields, etc. don't have to
      *           appear in the same order to be considered equal.
      *
      * ERC  This flag relaxes constraints on data that is settable in the schematic editor.
      *      It compares only symbol-editor-only data.
+     *
+     * SKIP_TST_POS   This flag relaxes comparisons on position (mainly for fields) for ERC.
      */
     enum COMPARE_FLAGS : int
     {
-        UNIT     = 0x01,
-        EQUALITY = 0x02,
-        ERC      = 0x04
+        UNIT          = 0x01,
+        EQUALITY      = 0x02,
+        ERC           = 0x04,
+        SKIP_TST_POS  = 0x08
     };
 
     virtual bool operator==( const SCH_ITEM& aOther ) const;
@@ -720,6 +743,9 @@ protected:
     std::unordered_map<SCH_SHEET_PATH, SCH_CONNECTION*>    m_connection_map;
 
     bool                                                   m_connectivity_dirty;
+
+    /// Store pointers to rule areas which this item is contained within
+    std::unordered_set<SCH_RULE_AREA*> m_rule_areas_cache;
 
 private:
     friend class LIB_SYMBOL;

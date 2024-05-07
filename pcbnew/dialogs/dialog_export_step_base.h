@@ -68,12 +68,17 @@ class DIALOG_EXPORT_STEP_BASE : public DIALOG_SHIM
 		wxCheckBox* m_cbOptimizeStep;
 		wxCheckBox* m_cbExportCompound_hidden;
 		wxStaticLine* m_staticline1;
+		wxCheckBox* m_cbExportBody;
+		wxCheckBox* m_cbExportComponents;
 		wxCheckBox* m_cbExportTracks;
 		wxCheckBox* m_cbExportZones;
+		wxCheckBox* m_cbExportInnerCopper;
 		wxCheckBox* m_cbFuseShapes;
 		wxCheckBox* m_cbExportSilkscreen_hidden;
 		wxCheckBox* m_cbExportSoldermask_hidden;
 		wxCheckBox* m_cbExportSolderpaste_hidden;
+		wxStaticText* m_staticTextNetFilter;
+		wxTextCtrl* m_txtNetFilter;
 		wxStaticText* m_staticTextTolerance;
 		wxChoice* m_choiceTolerance;
 		wxStdDialogButtonSizer* m_sdbSizer;
@@ -90,7 +95,7 @@ class DIALOG_EXPORT_STEP_BASE : public DIALOG_SHIM
 
 	public:
 
-		DIALOG_EXPORT_STEP_BASE( wxWindow* parent, wxWindowID id = wxID_ANY, const wxString& title = _("Export STEP / BREP / GLTF"), const wxPoint& pos = wxDefaultPosition, const wxSize& size = wxSize( -1,-1 ), long style = wxDEFAULT_DIALOG_STYLE|wxRESIZE_BORDER );
+		DIALOG_EXPORT_STEP_BASE( wxWindow* parent, wxWindowID id = wxID_ANY, const wxString& title = _("Export STEP / BREP / XAO / GLTF"), const wxPoint& pos = wxDefaultPosition, const wxSize& size = wxSize( -1,-1 ), long style = wxDEFAULT_DIALOG_STYLE|wxRESIZE_BORDER );
 
 		~DIALOG_EXPORT_STEP_BASE();
 

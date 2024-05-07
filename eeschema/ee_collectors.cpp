@@ -51,7 +51,8 @@ const std::vector<KICAD_T> EE_COLLECTOR::EditableItems = {
     SCH_BITMAP_T,
     SCH_LINE_T,
     SCH_BUS_WIRE_ENTRY_T,
-    SCH_JUNCTION_T
+    SCH_JUNCTION_T,
+    SCH_RULE_AREA_T
 };
 
 
@@ -76,7 +77,8 @@ const std::vector<KICAD_T> EE_COLLECTOR::MovableItems =
     SCH_FIELD_T,
     SCH_SYMBOL_T,
     SCH_SHEET_PIN_T,
-    SCH_SHEET_T
+    SCH_SHEET_T,
+    SCH_RULE_AREA_T
 };
 
 
@@ -96,7 +98,7 @@ INSPECT_RESULT EE_COLLECTOR::Inspect( EDA_ITEM* aItem, void* aTestData )
         // Special selection rules apply to pins of different units when edited in synchronized
         // pins mode.  Leave it to EE_SELECTION_TOOL::Selectable() to decide what to do with them.
 
-        if( schItem && schItem->Type() != LIB_PIN_T )
+        if( schItem && schItem->Type() != SCH_PIN_T )
         {
             if( m_Unit && schItem->GetUnit() && schItem->GetUnit() != m_Unit )
                 return INSPECT_RESULT::CONTINUE;

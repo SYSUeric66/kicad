@@ -44,11 +44,12 @@ using namespace std::placeholders;
 #include <dialogs/dialog_track_via_size.h>
 #include <math/vector2wx.h>
 #include <paths.h>
+#include <confirm.h>
+#include <kidialog.h>
 #include <widgets/wx_infobar.h>
 #include <widgets/appearance_controls.h>
 #include <connectivity/connectivity_data.h>
 #include <connectivity/connectivity_algo.h>
-#include <confirm.h>
 #include <gal/graphics_abstraction_layer.h>
 #include <bitmaps.h>
 #include <string_utils.h>
@@ -62,6 +63,7 @@ using namespace std::placeholders;
 #include <tools/drc_tool.h>
 #include <tools/zone_filler_tool.h>
 #include <drc/drc_interactive_courtyard_clearance.h>
+#include <view/view_controls.h>
 
 #include <project.h>
 #include <project/project_file.h>
@@ -658,7 +660,7 @@ void ROUTER_TOOL::handleCommonEvents( TOOL_EVENT& aEvent )
     if( aEvent.Category() == TC_VIEW || aEvent.Category() == TC_MOUSE )
     {
         BOX2D viewAreaD = getView()->GetGAL()->GetVisibleWorldExtents();
-        m_router->SetVisibleViewArea( BOX2I( viewAreaD.GetOrigin(), viewAreaD.GetSize() ) );
+        m_router->SetVisibleViewArea( BOX2ISafe( viewAreaD ) );
     }
 
     if( !ADVANCED_CFG::GetCfg().m_EnableRouterDump )
@@ -1406,10 +1408,9 @@ void ROUTER_TOOL::performRouting()
         {
             updateEndItem( *evt );
             bool needLayerSwitch = m_router->IsPlacingVia();
-            bool forceFinish = evt->Modifier( MD_SHIFT );
             bool forceCommit = false;
 
-            if( m_router->FixRoute( m_endSnapPoint, m_endItem, forceFinish, forceCommit ) )
+            if( m_router->FixRoute( m_endSnapPoint, m_endItem, false, forceCommit ) )
                 break;
 
             if( needLayerSwitch )
@@ -2239,7 +2240,7 @@ int ROUTER_TOOL::InlineDrag( const TOOL_EVENT& aEvent )
     }
 
     GAL*     gal = m_toolMgr->GetView()->GetGAL();
-    VECTOR2I p0 = controls()->GetCursorPosition( false );
+    VECTOR2I p0 = GetClampedCoords( controls()->GetCursorPosition( false ), COORDS_PADDING );
     VECTOR2I p = p0;
 
     m_gridHelper->SetUseGrid( gal->GetGridSnapping() && !aEvent.DisableGridSnapping()  );
@@ -2266,7 +2267,8 @@ int ROUTER_TOOL::InlineDrag( const TOOL_EVENT& aEvent )
         if( editFrame->GetMoveWarpsCursor() )
             tweakedMousePos = footprint->GetPosition(); // Use footprint anchor to warp mouse
         else
-            tweakedMousePos = controls()->GetCursorPosition(); // Just use current mouse pos
+            tweakedMousePos = GetClampedCoords( controls()->GetCursorPosition(),
+                                                COORDS_PADDING ); // Just use current mouse pos
 
         // We tweak the mouse position using the value from above, and then use that as the
         // start position to prevent the footprint from jumping when we start dragging.
@@ -2318,7 +2320,7 @@ int ROUTER_TOOL::InlineDrag( const TOOL_EVENT& aEvent )
 
     // Set the initial visible area
     BOX2D viewAreaD = getView()->GetGAL()->GetVisibleWorldExtents();
-    m_router->SetVisibleViewArea( BOX2I( viewAreaD.GetOrigin(), viewAreaD.GetSize() ) );
+    m_router->SetVisibleViewArea( BOX2ISafe( viewAreaD ) );
 
     // Send an initial movement to prime the collision detection
     m_router->Move( p, nullptr );
@@ -2551,7 +2553,8 @@ int ROUTER_TOOL::InlineBreakTrack( const TOOL_EVENT& aEvent )
     {
         // If we're here from a hotkey, then get the current mouse position so we know
         // where to break the track.
-        m_startSnapPoint = snapToItem( m_startItem, controls()->GetCursorPosition() );
+        m_startSnapPoint = snapToItem(
+                m_startItem, GetClampedCoords( controls()->GetCursorPosition(), COORDS_PADDING ) );
     }
 
     if( m_startItem && m_startItem->IsLocked() )

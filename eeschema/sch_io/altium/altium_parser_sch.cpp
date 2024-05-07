@@ -199,7 +199,6 @@ ASCH_PIN::ASCH_PIN( const std::map<wxString, wxString>& aProps ) :
 {
     wxASSERT( ReadRecord( aProps ) == ALTIUM_SCH_RECORD::PIN );
 
-    isKiCadLibPin = ALTIUM_PROPS_UTILS::ReadBool( aProps, "ISKICADLIBPIN", false );
     ownerpartdisplaymode = ALTIUM_PROPS_UTILS::ReadInt( aProps, "OWNERPARTDISPLAYMODE", 0 );
 
     name       = ALTIUM_PROPS_UTILS::ReadString( aProps, "NAME", "" );
@@ -249,12 +248,6 @@ ASCH_PIN::ASCH_PIN( const std::map<wxString, wxString>& aProps ) :
 
     int offsetY = p;
     int offsetYfrac = pfrac;
-
-    if( isKiCadLibPin )
-    {
-        offsetY = -offsetY;
-        offsetYfrac = -offsetYfrac;
-    }
 
     switch( orientation )
     {
@@ -451,22 +444,23 @@ ASCH_ROUND_RECTANGLE::ASCH_ROUND_RECTANGLE( const std::map<wxString, wxString>& 
     BottomLeft = VECTOR2I( ReadKiCadUnitFrac( aProps, "LOCATION.X" ),
                            -ReadKiCadUnitFrac( aProps, "LOCATION.Y" ) );
     TopRight = VECTOR2I( ReadKiCadUnitFrac( aProps, "CORNER.X" ),
-                           -ReadKiCadUnitFrac( aProps, "CORNER.Y" ) );
+                         -ReadKiCadUnitFrac( aProps, "CORNER.Y" ) );
 
     CornerRadius = VECTOR2I( ReadKiCadUnitFrac( aProps, "CORNERXRADIUS" ),
-                           -ReadKiCadUnitFrac( aProps, "CORNERYRADIUS" ) );
+                             -ReadKiCadUnitFrac( aProps, "CORNERYRADIUS" ) );
 }
 
 
 ASCH_ARC::ASCH_ARC( const std::map<wxString, wxString>& aProps ) :
         ASCH_OWNER_INTERFACE( aProps ),
-        ASCH_BORDER_INTERFACE( aProps )
+        ASCH_BORDER_INTERFACE( aProps ),
+        ASCH_FILL_INTERFACE( aProps )
 {
     m_IsElliptical = ReadRecord( aProps ) == ALTIUM_SCH_RECORD::ELLIPTICAL_ARC;
     wxASSERT( ReadRecord( aProps ) == ALTIUM_SCH_RECORD::ARC || m_IsElliptical );
 
     m_Center = VECTOR2I( ReadKiCadUnitFrac( aProps, "LOCATION.X" ),
-                       -ReadKiCadUnitFrac( aProps, "LOCATION.Y" ) );
+                         -ReadKiCadUnitFrac( aProps, "LOCATION.Y" ) );
     m_Radius = ReadKiCadUnitFrac( aProps, "RADIUS" );
     m_SecondaryRadius = m_Radius;
 
@@ -476,6 +470,11 @@ ASCH_ARC::ASCH_ARC( const std::map<wxString, wxString>& aProps ) :
     m_StartAngle = ALTIUM_PROPS_UTILS::ReadDouble( aProps, "STARTANGLE", 0 );
     m_EndAngle   = ALTIUM_PROPS_UTILS::ReadDouble( aProps, "ENDANGLE", 0 );
 }
+
+
+ASCH_PIECHART::ASCH_PIECHART( const std::map<wxString, wxString>& aProps ) :
+        ASCH_ARC( aProps )
+{}
 
 
 ASCH_ELLIPSE::ASCH_ELLIPSE( const std::map<wxString, wxString>& aProps ) :
@@ -617,7 +616,7 @@ ASCH_SHEET_SYMBOL::ASCH_SHEET_SYMBOL( const std::map<wxString, wxString>& aProps
     location = VECTOR2I( ReadKiCadUnitFrac( aProps, "LOCATION.X" ),
                          -ReadKiCadUnitFrac( aProps, "LOCATION.Y" ) );
     size     = VECTOR2I( ReadKiCadUnitFrac( aProps, "XSIZE" ),
-                        ReadKiCadUnitFrac( aProps, "YSIZE" ) );
+                         ReadKiCadUnitFrac( aProps, "YSIZE" ) );
 
     isSolid = ALTIUM_PROPS_UTILS::ReadBool( aProps, "ISSOLID", false );
 

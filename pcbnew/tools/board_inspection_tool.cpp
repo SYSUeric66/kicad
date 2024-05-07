@@ -45,6 +45,7 @@
 #include <drc/drc_item.h>
 #include <pad.h>
 #include <project_pcb.h>
+#include <view/view_controls.h>
 
 
 BOARD_INSPECTION_TOOL::BOARD_INSPECTION_TOOL() :
@@ -716,33 +717,24 @@ int BOARD_INSPECTION_TOOL::InspectClearance( const TOOL_EVENT& aEvent )
     }
 
     // a or b could be null after group tests above.
-    wxCHECK( a && b, 0 );
+    if( !a || !b )
+        return 0;
 
     auto checkFootprint =
             [&]( FOOTPRINT* footprint ) -> BOARD_ITEM*
             {
-                if( footprint->Pads().empty() )
-                {
-                    m_frame->ShowInfoBarError( _( "Cannot generate clearance report on footprint "
-                                                  "with no pads." ) );
-                    return nullptr;
-                }
-
                 PAD* foundPad = nullptr;
 
                 for( PAD* pad : footprint->Pads() )
                 {
                     if( !foundPad || pad->SameLogicalPadAs( foundPad ) )
-                    {
                         foundPad = pad;
-                    }
                     else
-                    {
-                        m_frame->ShowInfoBarError( _( "Cannot generate clearance report on footprint "
-                                                      "with multiple pads.  Select a single pad." ) );
-                        return nullptr;
-                    }
+                        return footprint;
                 }
+
+                if( !foundPad )
+                    return footprint;
 
                 return foundPad;
             };
@@ -754,7 +746,8 @@ int BOARD_INSPECTION_TOOL::InspectClearance( const TOOL_EVENT& aEvent )
         b = checkFootprint( static_cast<FOOTPRINT*>( b ) );
 
     // a or b could be null after footprint tests above.
-    wxCHECK( a && b, 0 );
+    if( !a || !b )
+        return 0;
 
     DIALOG_BOOK_REPORTER* dialog = m_frame->GetInspectClearanceDialog();
 
@@ -1610,7 +1603,7 @@ void BOARD_INSPECTION_TOOL::DiffFootprint( FOOTPRINT* aFootprint )
         }
         else
         {
-            if( !aFootprint->FootprintNeedsUpdate( libFootprint.get(), r ) )
+            if( !aFootprint->FootprintNeedsUpdate( libFootprint.get(), 0, r ) )
                 r->Report( _( "No relevant differences detected." ) );
 
             wxPanel*               panel = dialog->AddBlankPage( _( "Visual" ) );
