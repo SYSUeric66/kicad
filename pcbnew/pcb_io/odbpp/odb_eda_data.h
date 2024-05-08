@@ -47,7 +47,12 @@ public:
         friend EDAData;
 
     public:
-        enum class Type { COPPER, LAMINATE, HOLE };
+        enum class Type
+        { 
+            COPPER,
+            LAMINATE,
+            HOLE
+        };
 
         FeatureID(Type t, unsigned int l, unsigned int fid) : type(t), layer(l), feature_id(fid)
         {

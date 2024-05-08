@@ -57,8 +57,7 @@
 #include "odb_defines.h"
 #include "odb_feature.h"
 #include "odb_util.h"
-#include "odb_plugin.h"
-#include "odb_eda_data.h"
+#include "pcb_io_odbpp.h"
 
 
 
@@ -446,7 +445,7 @@ bool ODB_MATRIX_ENTITY::GenerateMatrixFile( ODB_TREE_WRITER& writer )
     return fileproxy.CloseFile();
 }
 
-ODB_LAYER_ENTITY::ODB_LAYER_ENTITY( BOARD* aBoard, ODB_PLUGIN* aPlugin,
+ODB_LAYER_ENTITY::ODB_LAYER_ENTITY( BOARD* aBoard, PCB_IO_ODBPP* aPlugin,
       std::map<int, std::vector<BOARD_ITEM*>>& aMap,
       const PCB_LAYER_ID& aLayerID, const wxString& aLayerName )
        : ODB_ENTITY_BASE( aBoard, aPlugin ),
@@ -934,12 +933,10 @@ bool ODB_STEP_ENTITY::GenerateNetlistsFiles( ODB_TREE_WRITER& writer )
     return true;
 }
 
-ODB_STEP_ENTITY::ODB_STEP_ENTITY( BOARD* aBoard, ODB_PLUGIN* aPlugin )
-     : ODB_ENTITY_BASE( aBoard, aPlugin )
+ODB_STEP_ENTITY::ODB_STEP_ENTITY( BOARD* aBoard, PCB_IO_ODBPP* aPlugin )
+     : ODB_ENTITY_BASE( aBoard, aPlugin ), m_netlist( aBoard ), m_profile( nullptr )
 {
-    m_profile = nullptr;
-    m_edaData = EDAData();
-    m_netlist = ODB_NET_LIST( aBoard );
+    
 }
 
 bool ODB_STEP_ENTITY::CreateDirectiryTree( ODB_TREE_WRITER& writer )

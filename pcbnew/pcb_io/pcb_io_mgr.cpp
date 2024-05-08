@@ -305,4 +305,9 @@ static PCB_IO_MGR::REGISTER_PLUGIN registerIPC2581Plugin(
         PCB_IO_MGR::IPC2581,
         wxT( "IPC-2581" ),
         []() -> PCB_IO* { return new PCB_IO_IPC2581; } );
+
+static PCB_IO_MGR::REGISTER_PLUGIN registerODBPPPlugin(
+        PCB_IO_MGR::ODBPP,
+        wxT( "ODB Plus Plus" ),
+        []() -> PCB_IO* { return new PCB_IO_ODBPP; } );
 // clang-format on

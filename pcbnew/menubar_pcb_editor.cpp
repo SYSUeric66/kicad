@@ -168,7 +168,7 @@ void PCB_EDIT_FRAME::doReCreateMenuBar()
     submenuFabOutputs->Add( PCB_ACTIONS::generateDrillFiles );
 
     if( ADVANCED_CFG::GetCfg().m_EnableODB )
-        submenuFabOutputs->Add( PCB_ACTIONS::generateODBFile );
+        submenuFabOutputs->Add( PCB_ACTIONS::generateODBPPFile );
 
     submenuFabOutputs->Add( PCB_ACTIONS::generateIPC2581File );
     submenuFabOutputs->Add( PCB_ACTIONS::generatePosFile );

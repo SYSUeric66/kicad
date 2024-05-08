@@ -31,7 +31,7 @@
 #include "board_design_settings.h"
 #include "geometry/eda_angle.h"
 #include "odb_eda_data.h"
-#include "odb_plugin.h"
+#include "pcb_io_odbpp.h"
 #include <map>
 #include "wx/log.h"
 

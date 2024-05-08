@@ -62,8 +62,7 @@ class ODB_NET_LIST
 {
 public:
     
-    ODB_NET_LIST( BOARD* aBoard ) : m_board( aBoard )
-    {}
+    ODB_NET_LIST( BOARD* aBoard ) : m_board( aBoard ) {}
 
     virtual ~ODB_NET_LIST() {}
 

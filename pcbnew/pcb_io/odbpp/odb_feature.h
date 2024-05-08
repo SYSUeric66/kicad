@@ -55,13 +55,13 @@ class ODB_ARC;
 class ODB_PAD;
 class ODB_SURFACE;
 class ODB_FEATURE;
-class ODB_PLUGIN;
+class PCB_IO_ODBPP;
 class PCB_VIA;
 
 class FEATURES_MANAGER : public AttributeProvider
 {
 public:
-    FEATURES_MANAGER(  BOARD* aBoard, ODB_PLUGIN* aPlugin, const wxString& aLayerName )
+    FEATURES_MANAGER(  BOARD* aBoard, PCB_IO_ODBPP* aPlugin, const wxString& aLayerName )
         : m_board( aBoard ), m_plugin( aPlugin ), m_layerName( aLayerName ) {}
 
     virtual ~FEATURES_MANAGER()
@@ -174,10 +174,10 @@ private:
 
     }
 
-    inline ODB_PLUGIN* GetODBPlugin() { return m_plugin; }
+    inline PCB_IO_ODBPP* GetODBPlugin() { return m_plugin; }
 
     BOARD*   m_board;
-    ODB_PLUGIN* m_plugin;
+    PCB_IO_ODBPP* m_plugin;
     wxString m_layerName;
     uint32_t m_symIndex = 0;
 

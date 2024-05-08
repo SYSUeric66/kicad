@@ -190,7 +190,7 @@ void ODB_NET_LIST::InitViaNetPoints( BOARD *aBoard, std::map<size_t, std::vector
                 else
                     net_point.netname = net->GetNetname();
 
-                net_point.refdes = wxT("VIA");
+                net_point.refdes = "VIA";
                 net_point.is_via = true;
                 net_point.drill_radius = via->GetDrillValue();
                 net_point.mechanical = false;
@@ -218,57 +218,6 @@ void ODB_NET_LIST::InitViaNetPoints( BOARD *aBoard, std::map<size_t, std::vector
     }
 }
 
-// /* Add a new netname to the d356 canonicalized list */
-// const wxString ODB_NET_LIST::intern_new_d356_netname( const wxString &aNetname,
-//         std::map<wxString, wxString> &aMap, std::set<wxString> &aSet )
-// {
-//     wxString canon;
-
-//     for( size_t ii = 0; ii < aNetname.Len(); ++ii )
-//     {
-//         // Rule: we can only use the standard ASCII, control excluded
-//         wxUniChar ch = aNetname[ii];
-
-//         if( ch > 126 || !std::isgraph( static_cast<unsigned char>( ch ) ) )
-//             ch = '?';
-
-//         canon += ch;
-//     }
-
-//     // Rule: only uppercase (unofficial, but known to give problems
-//     // otherwise)
-//     canon.MakeUpper();
-
-//     // Rule: maximum length is 14 characters, otherwise we keep the tail
-//     if( canon.size() > 14 )
-//     {
-//         canon = canon.Right( 14 );
-//     }
-
-//     // Check if it's still unique
-//     if( aSet.count( canon ) )
-//     {
-//         // Nope, need to uniquify it, trim it more and add a number
-//         wxString base( canon );
-//         if( base.size() > 10 )
-//         {
-//             base = base.Right( 10 );
-//         }
-
-//         int ctr = 0;
-//         do
-//         {
-//             ++ctr;
-//             canon = base;
-//             canon << '#' << ctr;
-//         } while ( aSet.count( canon ) );
-//     }
-
-//     // Register it
-//     aMap[aNetname] = canon;
-//     aSet.insert( canon );
-//     return canon;
-// }
 
 /* Write all the accumuled data to the file in D356 format */
 void ODB_NET_LIST::WriteNetPointRecords( std::map<size_t, std::vector<ODB_NET_RECORD>>& aRecords,
@@ -277,7 +226,7 @@ void ODB_NET_LIST::WriteNetPointRecords( std::map<size_t, std::vector<ODB_NET_RE
     aStream << "H optimize n staggered n" << std::endl;
     for( const auto& [key, vec] : aRecords )
     {
-        aStream << "$" << key << " " << ODB:GenODBString( vec.front().netname ) << std::endl;
+        aStream << "$" << key << " " << ODB::GenODBString( vec.front().netname ) << std::endl;
     }
     
     aStream << "#" << std::endl
@@ -328,7 +277,7 @@ void ODB_NET_LIST::WriteNetPointRecords( std::map<size_t, std::vector<ODB_NET_RE
 
 void ODB_NET_LIST::Write( std::ostream& aStream )
 {
-    std::map<size_t, std::vector<ODB_NET_RECORD>>& net_point_records;
+    std::map<size_t, std::vector<ODB_NET_RECORD>> net_point_records;
 
     InitViaNetPoints( m_board, net_point_records );
 
@@ -338,25 +287,3 @@ void ODB_NET_LIST::Write( std::ostream& aStream )
 }
 
 
-// void ODB_NET_LIST::GenD356File( wxCommandEvent& aEvent )
-// {
-//     wxFileName  fn = GetBoard()->GetFileName();
-//     wxString    ext, wildcard;
-
-//     ext = FILEEXT::IpcD356FileExtension;
-//     wildcard = FILEEXT::IpcD356FileWildcard();
-//     fn.SetExt( ext );
-
-//     wxString pro_dir = wxPathOnly( Prj().GetProjectFullName() );
-
-//     wxFileDialog dlg( this, _( "Export D-356 Test File" ), pro_dir,
-//                       fn.GetFullName(), wildcard,
-//                       wxFD_SAVE | wxFD_OVERWRITE_PROMPT );
-
-//     if( dlg.ShowModal() == wxID_CANCEL )
-//         return;
-
-//     IPC356D_WRITER writer( GetBoard(), this );
-
-//     writer.Write( dlg.GetPath() );
-// }

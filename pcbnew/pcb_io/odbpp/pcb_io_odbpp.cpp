@@ -18,7 +18,7 @@
  * with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include "odb_plugin.h"
+#include "pcb_io_odbpp.h"
 #include "odb_util.h"
 #include "odb_attribute.h"
 
@@ -28,19 +28,19 @@
 #include "wx/log.h"
 
 
-ODB_PLUGIN::~ODB_PLUGIN()
+PCB_IO_ODBPP::~PCB_IO_ODBPP()
 {
     ClearLoadedFootprints();
 }
 
 
-void ODB_PLUGIN::ClearLoadedFootprints()
+void PCB_IO_ODBPP::ClearLoadedFootprints()
 {
     m_loaded_footprints.clear();
 }
 
 
-bool ODB_PLUGIN::CreateEntity( ODB_TREE_WRITER& writer )
+bool PCB_IO_ODBPP::CreateEntity( ODB_TREE_WRITER& writer )
 {
     Make<ODB_FONTS_ENTITY>();
     Make<ODB_INPUT_ENTITY>();
@@ -54,7 +54,7 @@ bool ODB_PLUGIN::CreateEntity( ODB_TREE_WRITER& writer )
     return true;
 }        
 
-bool ODB_PLUGIN::GenerateFiles( ODB_TREE_WRITER &writer )
+bool PCB_IO_ODBPP::GenerateFiles( ODB_TREE_WRITER &writer )
 {
     for( const auto entity : m_entities )
     {
@@ -73,7 +73,7 @@ bool ODB_PLUGIN::GenerateFiles( ODB_TREE_WRITER &writer )
     return true;
 
 }
-bool ODB_PLUGIN::ExportODB( const wxString& aFileName )
+bool PCB_IO_ODBPP::ExportODB( const wxString& aFileName )
 {
     try
     {
@@ -105,7 +105,7 @@ bool ODB_PLUGIN::ExportODB( const wxString& aFileName )
 }
 
 
-void ODB_PLUGIN::InitEntityData()
+void PCB_IO_ODBPP::InitEntityData()
 {
     for( auto const& entity : m_entities )
     {
@@ -114,7 +114,7 @@ void ODB_PLUGIN::InitEntityData()
 
 }
 
-std::vector<FOOTPRINT*> ODB_PLUGIN::GetImportedCachedLibraryFootprints()
+std::vector<FOOTPRINT*> PCB_IO_ODBPP::GetImportedCachedLibraryFootprints()
 {
     std::vector<FOOTPRINT*> retval;
     retval.reserve( m_loaded_footprints.size() );
@@ -129,7 +129,7 @@ std::vector<FOOTPRINT*> ODB_PLUGIN::GetImportedCachedLibraryFootprints()
 
 
 
-void ODB_PLUGIN::SaveBoard( const wxString& aFileName, BOARD* aBoard,
+void PCB_IO_ODBPP::SaveBoard( const wxString& aFileName, BOARD* aBoard,
                                 const STRING_UTF8_MAP* aProperties )
 {
     m_board = aBoard;

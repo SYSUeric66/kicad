@@ -19,8 +19,8 @@
  */
 
 
-#ifndef _ODB_PLUGIN_H_
-#define _ODB_PLUGIN_H_
+#ifndef _PCB_IO_ODBPP_H_
+#define _PCB_IO_ODBPP_H_
 
 #include <pcb_io/pcb_io.h>
 #include <pcb_io/pcb_io_mgr.h>
@@ -52,14 +52,14 @@ class EDAData::Subnet;
 
 
 
-class ODB_PLUGIN : public PCB_IO, public LAYER_REMAPPABLE_PLUGIN
+class PCB_IO_ODBPP : public PCB_IO, public LAYER_REMAPPABLE_PLUGIN
 {
 public:
     /**
-     * @brief ODB_PLUGIN
+     * @brief PCB_IO_ODBPP
      *
     */
-    ODB_PLUGIN() : PCB_IO( wxS( "ODBPlusPlus" ) )
+    PCB_IO_ODBPP() : PCB_IO( wxS( "ODBPlusPlus" ) )
     {
         // m_show_layer_mapping_warnings = false;
         // m_total_bytes = 0;
@@ -77,7 +77,7 @@ public:
         // m_xml_root = nullptr;
     }
 
-    ~ODB_PLUGIN() override;
+    ~PCB_IO_ODBPP() override;
 
     void SaveBoard( const wxString& aFileName, BOARD* aBoard,
                 const STRING_UTF8_MAP* aProperties = nullptr ) override;
@@ -298,4 +298,4 @@ private:
 
 };
 
-#endif // _ODB_PLUGIN_H_
+#endif // _PCB_IO_ODBPP_H_

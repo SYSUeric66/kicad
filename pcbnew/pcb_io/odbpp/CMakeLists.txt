@@ -13,7 +13,7 @@ set( ODBPP_SRCS
     odb_eda_data.cpp
     odb_fonts.cpp
     odb_entity.cpp
-    odb_plugin.cpp
+    pcb_io_odbpp.cpp
     )
 
 add_library( odbpp STATIC ${ODBPP_SRCS} )

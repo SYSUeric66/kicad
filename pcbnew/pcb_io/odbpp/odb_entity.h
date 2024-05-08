@@ -37,12 +37,12 @@
 class BOARD;
 class ODB_TREE_WRITER;
 class BOARD_ITEM;
-class ODB_PLUGIN;
+class PCB_IO_ODBPP;
 
 class ODB_ENTITY_BASE
 {
 public:
-	ODB_ENTITY_BASE( BOARD* aBoard, ODB_PLUGIN* aPlugin )
+	ODB_ENTITY_BASE( BOARD* aBoard, PCB_IO_ODBPP* aPlugin )
         : m_board( aBoard ), m_plugin( aPlugin ) {}
 
     ODB_ENTITY_BASE() : m_board( nullptr ), m_plugin( nullptr ) {}
@@ -60,7 +60,7 @@ protected:
     BOARD*                        m_board;
     // std::string                   m_entityName;
     std::vector<std::string>      m_fileName;
-    ODB_PLUGIN*                   m_plugin;
+    PCB_IO_ODBPP*                   m_plugin;
 //     ODB_BOARD_MANAGER* m_boardManager;
 
 };
@@ -73,7 +73,7 @@ enum class ODB_TYPE;
 class ODB_MATRIX_ENTITY : public ODB_ENTITY_BASE
 {
 public:
-	ODB_MATRIX_ENTITY( BOARD* aBoard, ODB_PLUGIN* aPlugin )
+	ODB_MATRIX_ENTITY( BOARD* aBoard, PCB_IO_ODBPP* aPlugin )
          : ODB_ENTITY_BASE( aBoard, aPlugin ) {}
 
 	virtual ~ODB_MATRIX_ENTITY() = default;
@@ -151,7 +151,7 @@ class ODB_LAYER_ENTITY;
 class ODB_STEP_ENTITY : public ODB_ENTITY_BASE
 {
 public:
-    ODB_STEP_ENTITY( BOARD* aBoard, ODB_PLUGIN* aPlugin );
+    ODB_STEP_ENTITY( BOARD* aBoard, PCB_IO_ODBPP* aPlugin );
     virtual ~ODB_STEP_ENTITY() = default;
 
     inline virtual std::string GetEntityName()
@@ -199,11 +199,11 @@ private:
 class ODB_LAYER_ENTITY : public ODB_ENTITY_BASE
 {
 public:
-    ODB_LAYER_ENTITY( BOARD* aBoard, ODB_PLUGIN* aPlugin,
+    ODB_LAYER_ENTITY( BOARD* aBoard, PCB_IO_ODBPP* aPlugin,
                       std::map<int, std::vector<BOARD_ITEM*>>& aMap,
                       const PCB_LAYER_ID& aLayerID, const wxString& aLayerName );
 
-    // ODB_LAYER_ENTITY( BOARD* aBoard, ODB_PLUGIN* aPlugin )
+    // ODB_LAYER_ENTITY( BOARD* aBoard, PCB_IO_ODBPP* aPlugin )
     //              : ODB_ENTITY_BASE( aBoard, aPlugin )
     // {
     //     m_featuresMgr = std::make_unique<FEATURES_MANAGER>( aBoard );
