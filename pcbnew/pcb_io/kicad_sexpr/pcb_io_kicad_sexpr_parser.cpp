@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2012 CERN
- * Copyright (C) 2012-2023 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2012-2024 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -487,9 +487,12 @@ void PCB_IO_KICAD_SEXPR_PARSER::parseEDA_TEXT( EDA_TEXT* aText )
     wxCHECK_RET( CurTok() == T_effects,
                  wxT( "Cannot parse " ) + GetTokenString( CurTok() ) + wxT( " as EDA_TEXT." ) );
 
-    // These are not written out if center/center, so we have to make sure we start that way.
+    // These are not written out if center/center and/or no mirror,
+    // so we have to make sure we start that way.
+    // (these parameters will be set in T_justify section, when existing)
     aText->SetHorizJustify( GR_TEXT_H_ALIGN_CENTER );
     aText->SetVertJustify( GR_TEXT_V_ALIGN_CENTER );
+    aText->SetMirrored( false );
 
     // In version 20210606 the notation for overbars was changed from `~...~` to `~{...}`.
     // We need to convert the old syntax to the new one.
@@ -3196,6 +3199,7 @@ void PCB_IO_KICAD_SEXPR_PARSER::parsePCB_TEXT_effects( PCB_TEXT* aText )
     FOOTPRINT* parentFP = dynamic_cast<FOOTPRINT*>( aText->GetParent() );
     bool hasAngle       = false;    // Old files do not have a angle specified.
                                     // in this case it is 0 expected to be 0
+    bool hasPos         = false;
 
     // By default, texts in footprints have a locked rotation (i.e. rot = -90 ... 90 deg)
     if( parentFP )
@@ -3212,6 +3216,7 @@ void PCB_IO_KICAD_SEXPR_PARSER::parsePCB_TEXT_effects( PCB_TEXT* aText )
         {
             VECTOR2I pt;
 
+            hasPos = true;
             pt.x = parseBoardUnits( "X coordinate" );
             pt.y = parseBoardUnits( "Y coordinate" );
             aText->SetTextPos( pt );
@@ -3318,7 +3323,12 @@ void PCB_IO_KICAD_SEXPR_PARSER::parsePCB_TEXT_effects( PCB_TEXT* aText )
 
         // Move and rotate the text to its board coordinates
         aText->Rotate( { 0, 0 }, parentFP->GetOrientation() );
-        aText->Move( parentFP->GetPosition() );
+
+        // Only move offset from parent position if we read a position from the file.
+        // These positions are relative to the parent footprint. If we don't have a position
+        // then the text defaults to the parent position and moving again will double it.
+        if (hasPos)
+            aText->Move( parentFP->GetPosition() );
     }
 }
 

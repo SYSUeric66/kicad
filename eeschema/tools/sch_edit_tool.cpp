@@ -189,10 +189,11 @@ private:
         EE_SELECTION_TOOL* selTool = getToolManager()->GetTool<EE_SELECTION_TOOL>();
         EE_SELECTION&      selection = selTool->GetSelection();
         SCH_PIN*           pin = dynamic_cast<SCH_PIN*>( selection.Front() );
+        SCH_SHEET_PIN*     sheetPin = dynamic_cast<SCH_SHEET_PIN*>( selection.Front() );
 
         Clear();
 
-        if( !pin )
+        if( !pin && !sheetPin )
             return;
 
         Add( _( "Wire" ),               ID_POPUP_SCH_PIN_TRICKS_WIRE,         BITMAPS::add_line );
@@ -578,7 +579,7 @@ bool SCH_EDIT_TOOL::Init()
 
     selToolMenu.AddMenu( makeSymbolUnitMenu( m_selectionTool ),  E_C::SingleMultiUnitSymbol, 1 );
     selToolMenu.AddMenu( makePinFunctionMenu( m_selectionTool ), E_C::SingleMultiFunctionPin, 1 );
-    selToolMenu.AddMenu( makePinTricksMenu( m_selectionTool ),   E_C::AllPins, 1 );
+    selToolMenu.AddMenu( makePinTricksMenu( m_selectionTool ),   E_C::AllPinsOrSheetPins, 1 );
 
     selToolMenu.AddMenu( makeTransformMenu(),          orientCondition, 200 );
     selToolMenu.AddMenu( makeAttributesMenu(),         E_C::HasType( SCH_SYMBOL_T ), 200 );
@@ -1556,20 +1557,27 @@ void SCH_EDIT_TOOL::editFieldText( SCH_FIELD* aField )
 
 int SCH_EDIT_TOOL::EditField( const TOOL_EVENT& aEvent )
 {
-    EE_SELECTION sel;
-
-    if( aEvent.IsAction( &EE_ACTIONS::editReference ) )
-        sel = m_selectionTool->RequestSelection( { SCH_FIELD_LOCATE_REFERENCE_T, SCH_SYMBOL_T } );
-    else if( aEvent.IsAction( &EE_ACTIONS::editValue ) )
-        sel = m_selectionTool->RequestSelection( { SCH_FIELD_LOCATE_VALUE_T, SCH_SYMBOL_T } );
-    else if( aEvent.IsAction( &EE_ACTIONS::editFootprint ) )
-        sel = m_selectionTool->RequestSelection( { SCH_FIELD_LOCATE_FOOTPRINT_T, SCH_SYMBOL_T } );
+    EE_SELECTION sel = m_selectionTool->RequestSelection( { SCH_FIELD_T, SCH_SYMBOL_T } );
 
     if( sel.Size() != 1 )
         return 0;
 
     bool      clearSelection = sel.IsHover();
     EDA_ITEM* item = sel.Front();
+
+    if( item->Type() == SCH_FIELD_T )
+    {
+        SCH_FIELD* field = static_cast<SCH_FIELD*>( item );
+
+        if( ( aEvent.IsAction( &EE_ACTIONS::editReference ) && field->GetId() != REFERENCE_FIELD )
+         || ( aEvent.IsAction( &EE_ACTIONS::editValue )     && field->GetId() != VALUE_FIELD     )
+         || ( aEvent.IsAction( &EE_ACTIONS::editFootprint ) && field->GetId() != FOOTPRINT_FIELD ) )
+        {
+            item = field->GetParent();
+            m_selectionTool->ClearSelection( true );
+            m_selectionTool->AddItemToSel( item );
+        }
+    }
 
     if( item->Type() == SCH_SYMBOL_T )
     {
@@ -2018,6 +2026,8 @@ int SCH_EDIT_TOOL::Properties( const TOOL_EVENT& aEvent )
         break;
 
     case SCH_NO_CONNECT_T:
+    case SCH_PIN_T:
+
         break;
 
     default:                // Unexpected item

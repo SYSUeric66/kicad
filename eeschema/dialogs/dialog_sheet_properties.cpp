@@ -501,7 +501,7 @@ bool DIALOG_SHEET_PROPERTIES::onSheetFilenameChanged( const wxString& aNewFilena
 
     if( m_sheet->GetScreen() == nullptr )      // New just created sheet.
     {
-        if( !m_frame->AllowCaseSensitiveFileNameClashes( newAbsoluteFilename ) )
+        if( !m_frame->AllowCaseSensitiveFileNameClashes( m_sheet->GetFileName(), newAbsoluteFilename ) )
             return false;
 
         if( useScreen || loadFromFile )     // Load from existing file.
@@ -526,7 +526,7 @@ bool DIALOG_SHEET_PROPERTIES::onSheetFilenameChanged( const wxString& aNewFilena
     {
         isExistingSheet = true;
 
-        if( !m_frame->AllowCaseSensitiveFileNameClashes( newAbsoluteFilename ) )
+        if( !m_frame->AllowCaseSensitiveFileNameClashes( m_sheet->GetFileName(), newAbsoluteFilename ) )
             return false;
 
         // We are always using here a case insensitive comparison to avoid issues
@@ -640,7 +640,7 @@ bool DIALOG_SHEET_PROPERTIES::onSheetFilenameChanged( const wxString& aNewFilena
 
         SCH_SHEET_LIST sheetHierarchy( m_sheet );  // The hierarchy of the loaded file.
 
-        sheetHierarchy.AddNewSymbolInstances( currentSheet );
+        sheetHierarchy.AddNewSymbolInstances( currentSheet, m_frame->Prj().GetProjectName() );
         sheetHierarchy.AddNewSheetInstances( currentSheet,
                                              fullHierarchy.GetLastVirtualPageNumber() );
     }

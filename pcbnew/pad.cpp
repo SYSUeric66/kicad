@@ -649,10 +649,45 @@ const BOX2I PAD::GetBoundingBox() const
 
 void PAD::SetAttribute( PAD_ATTRIB aAttribute )
 {
-    m_attribute = aAttribute;
+    if( m_attribute != aAttribute )
+    {
+        m_attribute = aAttribute;
 
-    if( aAttribute == PAD_ATTRIB::SMD )
-        m_drill = VECTOR2I( 0, 0 );
+        switch( aAttribute )
+        {
+        case PAD_ATTRIB::PTH:
+            // Plump up to all copper layers
+            m_layerMask |= LSET::AllCuMask();
+            break;
+
+        case PAD_ATTRIB::SMD:
+        case PAD_ATTRIB::CONN:
+        {
+            // Trim down to no more than one copper layer
+            LSET copperLayers = m_layerMask & LSET::AllCuMask();
+
+            if( copperLayers.count() > 1 )
+            {
+                m_layerMask &= ~LSET::AllCuMask();
+
+                if( copperLayers.test( B_Cu ) )
+                    m_layerMask.set( B_Cu );
+                else
+                    m_layerMask.set( copperLayers.Seq().front() );
+            }
+
+            // No hole
+            m_drill = VECTOR2I( 0, 0 );
+            break;
+        }
+
+        case PAD_ATTRIB::NPTH:
+            // No number; no net
+            m_number = wxEmptyString;
+            SetNetCode( NETINFO_LIST::UNCONNECTED );
+            break;
+        }
+    }
 
     SetDirty();
 }
