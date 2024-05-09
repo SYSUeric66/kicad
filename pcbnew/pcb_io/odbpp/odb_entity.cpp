@@ -678,11 +678,11 @@ bool ODB_LAYER_ENTITY::GenComponents( ODB_TREE_WRITER &writer )
     
     if( m_compTop.has_value() )
     {
-        m_compTop->write( fileproxy.GetStream() );
+        m_compTop->Write( fileproxy.GetStream() );
     }
     else if( m_compBot.has_value() )
     {
-        m_compBot->write( fileproxy.GetStream() );
+        m_compBot->Write( fileproxy.GetStream() );
     }
 
     return true;
@@ -921,7 +921,7 @@ bool ODB_STEP_ENTITY::GenerateEdaFiles( ODB_TREE_WRITER& writer )
 {
     auto fileproxy = writer.CreateFileProxy( "data" );
     
-    m_edaData.write( fileproxy.GetStream() );
+    m_edaData.Write( fileproxy.GetStream() );
     return true;
 }
 

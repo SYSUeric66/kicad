@@ -121,7 +121,7 @@ public:
 
     // void add_matrix_layer(const std::string &name);
     // ODB_STEP_ENTITY &add_step(const std::string &name);
-    // void write( std::shared_ptr<ODB_TREE_WRITER> aTreeWriter ) const;
+    // void Write( std::shared_ptr<ODB_TREE_WRITER> aTreeWriter ) const;
 
 
     /**

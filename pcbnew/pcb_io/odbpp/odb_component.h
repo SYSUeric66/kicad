@@ -41,7 +41,7 @@ public:
 
     ODB_COMPONENT& AddComponent( FOOTPRINT* aFp, EDAData& eda_data );
 
-    void write(std::ostream &ost) const;
+    void Write(std::ostream &ost) const;
 private:
     std::list<ODB_COMPONENT> m_compList;
 
@@ -81,13 +81,13 @@ public:
         unsigned int subnet_num = 0;
         wxString toeprint_name;
 
-        void write(std::ostream &ost) const;
+        void Write(std::ostream &ost) const;
     };
 
 
     std::list<Toeprint> toeprints;
 
-    void write(std::ostream &ost) const;
+    void Write(std::ostream &ost) const;
 };
 
 

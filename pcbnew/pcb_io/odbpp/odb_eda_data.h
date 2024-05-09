@@ -37,13 +37,16 @@
 // enum class ODB_FID_TYPE;
 
 
-class EDAData : public AttributeProvider {
+class EDAData : public AttributeProvider
+{
 public:
     EDAData();
 
-    void write(std::ostream &ost) const;
+    void Write(std::ostream &ost) const;
     unsigned int GetLyrIdx( const wxString& aLayerName );
-    class FeatureID {
+    
+    class FeatureID
+    {
         friend EDAData;
 
     public:
@@ -62,16 +65,17 @@ public:
         unsigned int layer;
         unsigned int feature_id;
 
-        void write(std::ostream &ost) const;
+        void Write(std::ostream &ost) const;
     };
 
-    class Subnet {
+    class Subnet
+    {
     public:
         Subnet(unsigned int i, EDAData *eda) : index(i), m_edadata( eda )
         {
         }
         const unsigned int index;
-        void write(std::ostream &ost) const;
+        void Write(std::ostream &ost) const;
 
         std::list<FeatureID> feature_ids;
         void AddFeatureID( FeatureID::Type type,
@@ -105,7 +109,8 @@ public:
         void write_subnet(std::ostream &ost) const override;
     };
 
-    class SubnetPlane : public Subnet {
+    class SubnetPlane : public Subnet
+    {
     public:
         enum class FillType { SOLID, OUTLINE };
         enum class CutoutType { CIRCLE, RECT, OCTAGON, EXACT };
@@ -122,7 +127,8 @@ public:
         void write_subnet(std::ostream &ost) const override;
     };
 
-    class SubnetToeprint : public Subnet {
+    class SubnetToeprint : public Subnet
+    {
     public:
         enum class Side { TOP, BOTTOM };
 
@@ -143,7 +149,8 @@ public:
         void write_subnet(std::ostream &ost) const override;
     };
 
-    class Net : public ATTR_RECORD_WRITER {
+    class Net : public ATTR_RECORD_WRITER
+    {
     public:
         // template <typename T> using check_type = attribute::is_net<T>;
 
@@ -162,7 +169,7 @@ public:
             return r;
         }
 
-        void write(std::ostream &ost) const;
+        void Write(std::ostream &ost) const;
     };
 
     void AddNET( const NETINFO_ITEM* aNet );
@@ -172,7 +179,8 @@ public:
     }
 
 
-    class Pin {
+    class Pin
+    {
     public:
         Pin(unsigned int i, const wxString &n);
         wxString name;
@@ -198,24 +206,25 @@ public:
         };
         MountType mtype = MountType::UNDEFINED;
 
-        // std::list<std::unique_ptr<Outline>> outline;
+        std::list<std::unique_ptr<PKG_OUTLINE>> m_pinOutlines;
 
-        void write(std::ostream &ost) const;
+        void Write(std::ostream &ost) const;
     };
 
-    class Package : public ATTR_RECORD_WRITER {
+    class Package : public ATTR_RECORD_WRITER
+    {
     public:
         // template <typename T> using check_type = attribute::is_pkg<T>;
 
         Package(const unsigned int i, const wxString &n)
-         : index( i ), name( n ) {}
-        const unsigned int index;
-        wxString name;
+         : m_index( i ), m_name( n ) {}
+        const unsigned int m_index;
+        wxString m_name;
 
-        uint64_t pitch;
-        int64_t xmin, ymin, xmax, ymax;
+        uint64_t m_pitch;
+        int64_t m_xmin, m_ymin, m_xmax, m_ymax;
 
-        // std::list<std::unique_ptr<Outline>> outline;
+        std::list<std::unique_ptr<PKG_OUTLINE>> m_pkgOutlines;
 
         Pin &add_pin( PAD* pad, size_t ii );
         const Pin &GetEdaPkgPin( size_t aHash ) const
@@ -223,7 +232,7 @@ public:
             return pins_map.at( aHash );
         }
 
-        void write(std::ostream &ost) const;
+        void Write(std::ostream &ost) const;
 
 
     private:
@@ -249,63 +258,76 @@ public:
 
 };
 
-// class Outline
-// {
-// public:
-//     virtual void write(std::ostream &ost) const = 0;
+class PKG_OUTLINE
+{
+public:
+    virtual void Write(std::ostream &ost) const = 0;
 
-//     virtual ~Outline() = default;
-// };
+    virtual ~PKG_OUTLINE() = default;
+};
 
-// class OutlineRectangle : public Outline
-// {
-// public:
-//     OutlineRectangle(const Coordi &l, uint64_t w, uint64_t h) : lower(l), width(w), height(h)
-//     {
-//     }
-//     OutlineRectangle(const std::pair<Coordi, Coordi> &bb)
-//         : OutlineRectangle(bb.first, bb.second.x - bb.first.x, bb.second.y - bb.first.y)
-//     {
-//     }
+class OutlineRectangle : public PKG_OUTLINE
+{
+public:
+    OutlineRectangle(const Coordi &l, uint64_t w, uint64_t h) : lower(l), width(w), height(h)
+    {
+    }
+    OutlineRectangle(const std::pair<Coordi, Coordi> &bb)
+        : OutlineRectangle(bb.first, bb.second.x - bb.first.x, bb.second.y - bb.first.y)
+    {
+    }
 
-//     Coordi lower;
-//     uint64_t width;
-//     uint64_t height;
+    Coordi lower;
+    uint64_t width;
+    uint64_t height;
 
-//     void write(std::ostream &ost) const override;
-// };
+    void Write(std::ostream &ost) const override;
+};
 
-// class OutlineContour : public Outline
-// {
-// public:
-//     SurfaceData data;
+class ODB_SURFACE_DATA;
+class OUTLINE_CONTOUR : public PKG_OUTLINE
+{
+public:
+    OUTLINE_CONTOUR( const SHAPE_POLY_SET::POLYGON &aPolygon, FILL_T aFillType = FILL_T::FILLED_SHAPE )
+    {
+        if( !aPolygon.empty() && aPolygon[0].PointCount() >= 3 )
+        {
+            m_surfaces = std::make_unique<ODB_SURFACE_DATA>( aPolygon );
+            if( aFillType != FILL_T::NO_FILL )
+            {
+                m_surfaces->AddPolygonHoles( aPolygon );
+            }
+        }
+    }
 
-//     void write(std::ostream &ost) const override;
-// };
+    std::unique_ptr<ODB_SURFACE_DATA> m_surfaces;
 
-// class OutlineSquare : public Outline
-// {
-// public:
-//     OutlineSquare(const Coordi &c, uint64_t s) : center(c), half_side(s)
-//     {
-//     }
-//     Coordi center;
-//     uint64_t half_side;
+    void Write(std::ostream &ost) const override;
+};
 
-//     void write(std::ostream &ost) const override;
-// };
+class OutlineSquare : public PKG_OUTLINE
+{
+public:
+    OutlineSquare(const Coordi &c, uint64_t s) : center(c), half_side(s)
+    {
+    }
+    Coordi center;
+    uint64_t half_side;
 
-// class OutlineCircle : public Outline
-// {
-// public:
-//     OutlineCircle(const Coordi &c, uint64_t r) : center(c), radius(r)
-//     {
-//     }
-//     Coordi center;
-//     uint64_t radius;
+    void Write(std::ostream &ost) const override;
+};
 
-//     void write(std::ostream &ost) const override;
-// };
+class OutlineCircle : public PKG_OUTLINE
+{
+public:
+    OutlineCircle(const Coordi &c, uint64_t r) : center(c), radius(r)
+    {
+    }
+    Coordi center;
+    uint64_t radius;
+
+    void Write(std::ostream &ost) const override;
+};
 
 
 

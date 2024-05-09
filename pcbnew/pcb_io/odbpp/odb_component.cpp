@@ -52,16 +52,16 @@ ODB_COMPONENT& COMPONENTS_MANAGER::AddComponent( FOOTPRINT* aFp, EDAData& eda_da
             
     return comp;
 }
-void COMPONENTS_MANAGER::write(std::ostream &ost) const
+void COMPONENTS_MANAGER::Write(std::ostream &ost) const
 {
     ost << "UNITS=MM" << std::endl;
     write_attributes(ost);
     for (const auto &comp : m_compList) {
-        comp.write(ost);
+        comp.Write(ost);
     }
 }
 
-void ODB_COMPONENT::write( std::ostream &ost ) const
+void ODB_COMPONENT::Write( std::ostream &ost ) const
 {
     ost << "# CMP " << m_index << std::endl;
     ost << "CMP " << m_pkg_ref << " " <<  m_center.first << " "
@@ -73,12 +73,12 @@ void ODB_COMPONENT::write( std::ostream &ost ) const
     ost << std::endl;
 
     for (const auto &toep : toeprints) {
-        toep.write(ost);
+        toep.Write(ost);
     }
     ost << "#" << std::endl;
 }
 
-void ODB_COMPONENT::Toeprint::write( std::ostream &ost ) const
+void ODB_COMPONENT::Toeprint::Write( std::ostream &ost ) const
 {
     ost << "TOP " << pin_num << " " << m_center.first << " "
         << m_center.second << " " << m_rot << " "

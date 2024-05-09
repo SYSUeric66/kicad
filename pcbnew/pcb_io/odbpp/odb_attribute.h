@@ -367,7 +367,7 @@ private:
 //     //     unsigned int subnet_num = 0;
 //     //     std::string toeprint_name = 0;
 
-//     //     void write(std::ostream &ost) const;
+//     //     void Write(std::ostream &ost) const;
 //     // };
 
 //     struct COMPONENT
@@ -386,7 +386,7 @@ private:
 
 //         std::list<Toeprint> toeprints;
 
-//         void write(std::ostream &ost) const;
+//         void Write(std::ostream &ost) const;
 //     };
 
 //     std::list<COMPONENT> components;
