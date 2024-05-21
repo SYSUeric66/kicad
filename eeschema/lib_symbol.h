@@ -293,6 +293,8 @@ public:
      */
     void SetFields( const std::vector<LIB_FIELD>& aFieldsList );
 
+    void SetHqPartsFields( const std::vector<LIB_FIELD>& aFields );
+
     /**
      * Return a list of fields within this symbol.
      *
