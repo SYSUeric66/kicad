@@ -51,35 +51,63 @@ namespace ODB
         return str;
     }
 
+    wxString GenLegalNetName( const wxString& aStr )
+    {
+        std::string str = aStr.ToStdString();
+        wxString out;
+        out.reserve( str.size() );
+
+        for( auto c : str )
+        {
+            if( ( c >= 33 && c <= 126 ) && c != ';' )
+            {
+                out.append( 1, c );
+            }
+            else
+            {
+                out.append( 1, '_' ); // Replace invalid characters with underscore
+            }
+        }
+
+        return out;
+    }
+
 
     // The names of these ODB++ entities must comply with
     // the rules for legal entity names: 
     // product, model, step, layer, symbol, and attribute.
-    std::string GenLegalEntityName( const wxString& aStr )
+    wxString GenLegalEntityName( const wxString& aStr )
     {
-        std::string s = aStr.ToStdString();
-        std::locale loc;
-        std::string out;
-        out.reserve(s.size());
+        std::string str = aStr.ToStdString();
+        wxString out;
+        out.reserve( str.size() );
+        
+        for( auto c : str )
+        {
+            if( isalpha( c ) )
+                c = tolower( c );
+            else if( isdigit( c ) || c == '-' || c == '_' || c == '+' || c == '.' )
+                ;
+            else
+                c = '_';
 
-        std::transform(s.begin(), s.end(), std::back_inserter(out),
-            [&loc](unsigned char c) -> unsigned char
-            {
-                if (std::isalnum(c, loc) || (c == '-') || (c == '_') || (c == '+'))
-                {
-                    return c;
-                }
-                return '_';
-            } );
+            out.append(1, c);
+        }
 
-        std::transform(out.begin(), out.end(), out.begin(),
-            [&loc](unsigned char c) -> unsigned char
-            {
-                if (std::isalpha(c, loc)) {
-                    return std::tolower(c, loc);
-                }
-                return c;
-            } );
+        if( out.length() > 64 )
+        {
+            out.Truncate( 64 );
+        }
+
+        while( !out.IsEmpty() && ( out[0] == '.' || out[0] == '-' || out[0] == '+' ) )
+        {
+            out.erase( 0, 1 );
+        }
+
+        while( !out.IsEmpty() && out.Last() == '.' )
+        {
+            out.RemoveLast();
+        }
 
         return out;
     }
@@ -140,23 +168,22 @@ namespace ODB
 void ODB_TREE_WRITER::CreateEntityDirectory( const wxString& aPareDir,
                                              const wxString& aSubDir /*= wxEmptyString*/ )
 {
-    wxFileName path;
+    wxFileName path = wxFileName::DirName( aPareDir );
 
-    path.AssignDir( aPareDir );
-    path.AppendDir( aSubDir.Lower() );
+    wxArrayString subDirs = wxFileName::DirName( aSubDir.Lower() ).GetDirs();
+
+    for( size_t i = 0; i < subDirs.GetCount(); i++ )
+        path.AppendDir( subDirs[i] );
 
     if( !path.DirExists() )
     {
-        if( !wxMkdir( path.GetPath() ) )
+        if( !path.Mkdir( wxS_DIR_DEFAULT, wxPATH_MKDIR_FULL ) )
         {
             throw( std::runtime_error( "Could not create directory" + path.GetPath() ) );
         }
-        else
-        {
-            m_currentPath = path.GetPath();
-        }
     }
 
+    m_currentPath = path.GetPath();
 }
 
 ODB_FILE_WRITER::ODB_FILE_WRITER( ODB_TREE_WRITER& aTreeWriter,
@@ -185,8 +212,8 @@ void ODB_FILE_WRITER::CreateFile( const wxString& aFileName )
     if( !fn.IsDirWritable() || ( fn.Exists() && !fn.IsFileWritable() ) )
         return;
 
-    if ( m_ostream.is_open() )
-        throw std::runtime_error( fn.GetFullPath() + " is already open" );
+    if( m_ostream.is_open() )
+        m_ostream.close();
 
     m_ostream.open( TO_UTF8( fn.GetFullPath() ),                                
                 std::ios_base::out | std::ios_base::trunc | std::ios_base::binary );
@@ -194,18 +221,21 @@ void ODB_FILE_WRITER::CreateFile( const wxString& aFileName )
     m_ostream.imbue( std::locale::classic() );
 
     if ( !m_ostream.is_open() || !m_ostream.good() )
-        throw std::runtime_error( fn.GetFullPath() + " open failed");
+        throw std::runtime_error( "Failed to open file: " + fn.GetFullPath() );
     
 }
 
 bool ODB_FILE_WRITER::CloseFile()
 {
-    m_ostream.close();
-
-    if ( !m_ostream.good() )
+    if( m_ostream.is_open() )
     {
-        throw std::runtime_error( "close file failed");
-        return false;
+        m_ostream.close();
+
+        if( !m_ostream.good() )
+        {
+            throw std::runtime_error( "close file failed");
+            return false;
+        }
     }
 
     return true;

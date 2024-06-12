@@ -63,6 +63,7 @@
 #include <pcb_io/cadstar/pcb_io_cadstar_archive.h>
 #include <pcb_io/kicad_sexpr/pcb_io_kicad_sexpr.h>
 #include <dialogs/dialog_export_2581.h>
+#include <dialogs/dialog_export_odbpp.h>
 #include <dialogs/dialog_imported_layers.h>
 #include <dialogs/dialog_import_choose_project.h>
 #include <tools/pcb_actions.h>
@@ -1395,14 +1396,7 @@ void PCB_EDIT_FRAME::GenIPC2581File( wxCommandEvent& event )
 
 void PCB_EDIT_FRAME::GenODBPPFiles( wxCommandEvent& event )
 {
-    // DIALOG_EXPORT_2581 dlg( this );
-
-    // if( dlg.ShowModal() != wxID_OK )
-    //     return;
-    
-    // wxString path = m_parent->GetPcbNewSettings()->m_PlaceFile.output_directory;
-
-    DIALOG_EXPORT_2581 dlg( this );
+    DIALOG_EXPORT_ODBPP dlg( this );
 
     if( dlg.ShowModal() != wxID_OK )
         return;
@@ -1412,11 +1406,12 @@ void PCB_EDIT_FRAME::GenODBPPFiles( wxCommandEvent& event )
     // Write through symlinks, don't replace them
     WX_FILENAME::ResolvePossibleSymlinks( pcbFileName );
 
-    if( pcbFileName.GetName().empty() )
-    {
-        DisplayErrorMessage( this, _( "The board must be saved before generating ODB files." ) );
-        return;
-    }
+    // if( !EnsureFileDirectoryExists( &pcbFileName, boardFilename ) )
+    // {
+    //     msg.Printf( _( "Could not write ODB++ files to folder '%s'." ), outputDir.GetPath() );
+    //     DisplayErrorMessage( this, msg );
+    //     return;
+    // }
 
     if( !IsWritable( pcbFileName ) )
     {
@@ -1426,74 +1421,30 @@ void PCB_EDIT_FRAME::GenODBPPFiles( wxCommandEvent& event )
         DisplayErrorMessage( this, msg );
         return;
     }
-    // wxString path = "D:/CodeBranch/kicad_master";
 
-    // wxFileName  outputfile = wxFileName::DirName( path );
-    // // Write through symlinks, don't replace them
-    // WX_FILENAME::ResolvePossibleSymlinks( outputfile );
-    // wxString    boardFilename = wxFileName( GetBoard()->GetFileName() ).GetName();
-    // outputfile.SetName( boardFilename );
-    // m_reporter = &m_messagesPanel->Reporter();
     wxString   msg;
-    // if( !EnsureFileDirectoryExists( &outputDir, boardFilename ) )
-    // {
-    //     msg.Printf( _( "Could not write ODB++ files to folder '%s'." ), outputDir.GetPath() );
-    //     DisplayErrorMessage( this, msg );
-    //     return;
-    // }
 
-    // wxFileName fn = GetBoard()->GetFileName();
-    // fn.SetPath( outputDir.GetPath() );
-    // wxString outputPath( aTargetFullFileName->GetPath() );
-    wxFileName  outputfile = pcbFileName;
-
-    if( !wxFileName::DirExists( outputfile.GetFullPath() ) )
+    if( !wxFileName::DirExists( pcbFileName.GetFullPath() ) )
     {
         // Make every directory provided when the provided path doesn't exist
-        if( !wxFileName::Mkdir( outputfile.GetFullPath(), wxS_DIR_DEFAULT, wxPATH_MKDIR_FULL ) )
+        if( !wxFileName::Mkdir( pcbFileName.GetFullPath(), wxS_DIR_DEFAULT, wxPATH_MKDIR_FULL ) )
         {
             msg.Printf( _( "Cannot create output directory '%s'." ),
-                            outputfile.GetFullPath() );
+                            pcbFileName.GetFullPath() );
 
             DisplayErrorMessage( this, msg );
         }
 
     }
 
-    // TODO
-    // wxFileName odbFileName = outputDir.GetFullPath() + wxS("odb-test");
-
-
-
-    if( outputfile.GetName().empty() )
-    {
-        DisplayErrorMessage( this, _( "The board must be saved before generating ODB++ files." ) );
-        return;
-    }
-
-    if( !IsWritable( outputfile ) )
-    {
-        msg = wxString::Format( _( "Insufficient permissions to write file '%s'." ),
-                                         outputfile.GetFullPath() );
-
-        DisplayErrorMessage( this, msg );
-        return;
-    }
-
-    // wxString   tempFile = wxFileName::CreateTempFileName( wxS( "pcbnew_odb" ) );
+    wxString   tempFile = wxFileName::CreateTempFileName( wxS( "pcbnew_odb" ) );
     wxString   upperTxt;
     wxString   lowerTxt;
-    WX_PROGRESS_REPORTER reporter( this, _( "Generating ODB++ output files" ), 5 );
-    // STRING_UTF8_MAP props;
+    STRING_UTF8_MAP props;
 
-    // props["units"] = dlg.GetUnitsString();
-    // props["sigfig"] = dlg.GetPrecision();
-    // props["version"] = dlg.GetVersion();
-    // props["OEMRef"] = dlg.GetOEM();
-    // props["mpn"] = dlg.GetMPN();
-    // props["mfg"] = dlg.GetMfg();
-    // props["dist"] = dlg.GetDist();
-    // props["distpn"] = dlg.GetDistPN();
+    props["units"] = dlg.GetUnitsString();
+    props["sigfig"] = dlg.GetPrecision();
+    WX_PROGRESS_REPORTER reporter( this, _( "Generating ODB++ output files" ), 5 );
 
     auto saveFile = [&]() -> bool
     {
@@ -1501,20 +1452,20 @@ void PCB_EDIT_FRAME::GenODBPPFiles( wxCommandEvent& event )
         {
             IO_RELEASER<PCB_IO> pi( PCB_IO_MGR::PluginFind( PCB_IO_MGR::ODBPP ) );
             pi->SetProgressReporter( &reporter );
-            pi->SaveBoard( outputfile.GetFullPath(), GetBoard(), nullptr );
+            pi->SaveBoard( pcbFileName.GetFullPath(), GetBoard(), &props );
             return true;
         }
         catch( const IO_ERROR& ioe )
         {
             DisplayError( this, wxString::Format( _( "Error generating ODBPP files '%s'.\n%s" ),
-                                                  outputfile.GetFullPath(), ioe.What() ) );
+                                                  pcbFileName.GetFullPath(), ioe.What() ) );
 
-            lowerTxt.Printf( _( "Failed to create temporary file '%s'." ), outputfile.GetFullPath() );
+            lowerTxt.Printf( _( "Failed to create temporary file '%s'." ), pcbFileName.GetFullPath() );
 
             SetMsgPanel( upperTxt, lowerTxt );
 
             // In case we started a file but didn't fully write it, clean up
-            wxRemoveFile( outputfile.GetFullPath() );
+            wxRemoveFile( pcbFileName.GetFullPath() );
 
             return false;
         }
@@ -1545,34 +1496,34 @@ void PCB_EDIT_FRAME::GenODBPPFiles( wxCommandEvent& event )
     }
 
     // Preserve the permissions of the current file
-    // KIPLATFORM::IO::DuplicatePermissions( odbFileName.GetFullPath(), tempFile );
+    // KIPLATFORM::IO::DuplicatePermissions( pcbFileName.GetFullPath(), tempFile );
 
     // if( dlg.GetCompress() )
     // {
+    //     wxFileName zipfn = pcbFileName.GetFullPath();
+    //     zipfn.SetName( "odb" );
+    //     zipfn.SetExt( "zip" );
 
-    // wxFileName zipfn = outputfile.GetFullPath();
-    // zipfn.SetExt( "zip" );
+    //     wxFFileOutputStream fnout( zipfn.GetFullPath() );
+    //     wxZipOutputStream zip( fnout );
+    //     wxFFileInputStream fnin( pcbFileName.GetFullPath() );
 
-    // wxFFileOutputStream fnout( zipfn.GetFullPath() );
-    // wxZipOutputStream zip( fnout );
-    // wxFFileInputStream fnin( outputfile.GetFullPath() );
+    //     zip.PutNextEntry( zipfn.GetFullName() );
+    //     fnin.Read( zip );
+    //     zip.Close();
+    //     fnout.Close();
 
-    // zip.PutNextEntry( zipfn.GetFullName() );
-    // fnin.Read( zip );
-    // zip.Close();
-    // fnout.Close();
-
-    // wxRemoveFile( outputfile.GetFullPath() );
-    // tempFile = zipfn.GetFullPath();
+    //     wxRemoveFile( pcbFileName.GetFullPath() );
+    //     tempFile = zipfn.GetFullPath();
     // }
 
 
     // If save succeeded, replace the original with what we just wrote
-    // if( !wxRenameFile( tempFile, odbFileName.GetFullPath() ) )
+    // if( !wxRenameFile( tempFile, pcbFileName.GetFullPath() ) )
     // {
     //     DisplayError( this, wxString::Format( _( "Error generating ODB++ file '%s'.\n"
     //                                              "Failed to rename temporary file '%s." ),
-    //                                           odbFileName.GetFullPath(),
+    //                                           pcbFileName.GetFullPath(),
     //                                           tempFile ) );
 
     //     lowerTxt.Printf( _( "Failed to rename temporary file '%s'." ),

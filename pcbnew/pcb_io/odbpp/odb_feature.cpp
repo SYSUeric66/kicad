@@ -219,7 +219,10 @@ void FEATURES_MANAGER::AddPadShape( const PAD& aPad, PCB_LAYER_ID aLayer )
             expansion = 2 * aPad.GetSolderPasteMargin();
     }
 
-    VECTOR2I center = aPad.ShapePos();
+    VECTOR2I center = aPad.GetPosition();
+
+    if( aPad.GetOffset().x != 0 || aPad.GetOffset().y != 0 )
+        center += aPad.GetOffset();
 
     switch( aPad.GetShape() )
     {
@@ -464,6 +467,7 @@ void FEATURES_MANAGER::InitFeatureList( PCB_LAYER_ID aLayer,
     {
         FOOTPRINT* fp = pad->GetParentFootprint();
         
+        // TODO: WHY NEED FlipLayer?
         if( fp && fp->IsFlipped() )
             AddPadShape( *pad, FlipLayer( aLayer ) );
         else

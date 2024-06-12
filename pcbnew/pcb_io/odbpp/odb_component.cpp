@@ -23,13 +23,9 @@
 #include "hash_eda.h"
 // #include "board/board_package.hpp"
 
-ODB_COMPONENT& COMPONENTS_MANAGER::AddComponent( FOOTPRINT* aFp, EDAData& eda_data )
+ODB_COMPONENT& COMPONENTS_MANAGER::AddComponent( const FOOTPRINT* aFp, const EDAData::Package& aPkg )
 {
-    size_t hash = hash_fp_item( aFp, HASH_POS | REL_COORD );
-
-    auto &pkg = eda_data.get_package( hash );
-
-    auto &comp = m_compList.emplace_back( m_compList.size(), pkg.index );
+    auto &comp = m_compList.emplace_back( m_compList.size(), aPkg.m_index );
 
     comp.m_center = ODB::AddXY( aFp->GetPosition() );
 
@@ -80,9 +76,9 @@ void ODB_COMPONENT::Write( std::ostream &ost ) const
 
 void ODB_COMPONENT::Toeprint::Write( std::ostream &ost ) const
 {
-    ost << "TOP " << pin_num << " " << m_center.first << " "
+    ost << "TOP " << m_pin_num << " " << m_center.first << " "
         << m_center.second << " " << m_rot << " "
-        << m_mirror << " " << net_num << " "
-        << subnet_num << " " << toeprint_name << std::endl;
+        << m_mirror << " " << m_net_num << " "
+        << m_subnet_num << " " << m_toeprint_name << std::endl;
 }
 

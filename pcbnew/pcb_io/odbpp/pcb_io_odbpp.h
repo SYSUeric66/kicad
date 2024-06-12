@@ -181,7 +181,7 @@ public:
         return m_drill_layers;
     }
     
-    inline std::map<std::pair<PCB_LAYER_ID, PCB_LAYER_ID>, std::vector<PAD*>>&
+    inline std::map<std::pair<PCB_LAYER_ID, PCB_LAYER_ID>, std::vector<BOARD_ITEM*>>&
            GetSlotHolesMap()
     {
         return m_slot_holes;
@@ -211,7 +211,7 @@ public:
     // inline const double GetODBScale() const { return m_ODBScale; }
     bool GenerateFiles( ODB_TREE_WRITER& writer );
     bool ExportODB( const wxString& aFileName );
-    bool CreateEntity( ODB_TREE_WRITER& writer );
+    bool CreateEntity();
     void InitEntityData();
     
     bool CreateDirectories( ODB_TREE_WRITER& writer );
@@ -276,7 +276,7 @@ private:
     std::map<std::pair<PCB_LAYER_ID, PCB_LAYER_ID>, std::vector<BOARD_ITEM*>>
             m_drill_layers; //<! Drill sets are output as layers (to/from pairs)
 
-    std::map<std::pair<PCB_LAYER_ID, PCB_LAYER_ID>, std::vector<PAD*>>
+    std::map<std::pair<PCB_LAYER_ID, PCB_LAYER_ID>, std::vector<BOARD_ITEM*>>
             m_slot_holes; //<! Storage vector of slotted holes that need to be output as cutouts
     
     std::map<PCB_LAYER_ID, std::map<int, std::vector<BOARD_ITEM*>>> 

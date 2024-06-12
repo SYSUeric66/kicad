@@ -39,7 +39,7 @@ public:
         m_compList.clear();
     }
 
-    ODB_COMPONENT& AddComponent( FOOTPRINT* aFp, EDAData& eda_data );
+    ODB_COMPONENT& AddComponent( const FOOTPRINT* aFp, const EDAData::Package& aPkg );
 
     void Write(std::ostream &ost) const;
 private:
@@ -51,35 +51,42 @@ private:
 class ODB_COMPONENT : public ATTR_RECORD_WRITER 
 {
 public:
-    ODB_COMPONENT(unsigned int i, unsigned int r) : m_index(i), m_pkg_ref(r)
+    ODB_COMPONENT( size_t aIndex, size_t r ) : m_index( aIndex ), m_pkg_ref( r )
     {
     }
-    const unsigned int m_index;
-    unsigned int m_pkg_ref;
+    const size_t m_index;  ///<! CMP index number on board to be used in SNT(TOP), 0~n-1
+    size_t m_pkg_ref;   ///<! package ref number from PKG in eda/data file, 0~n-1
     std::pair<wxString, wxString> m_center;
     wxString m_rot = wxT( "0" );
     wxString m_mirror = wxT( "N" );
 
-    wxString m_comp_name;
-    wxString m_part_name;
+    wxString m_comp_name;  ///<! Unique reference designator (component name)
+    
+    wxString m_part_name;  ///<! Part identification is a single string of ASCII characters without spaces
 
     std::vector<std::pair<wxString, wxString>> m_prp;   // !< Component Property Record
 
     struct Toeprint
     {
     public:
-        Toeprint(const EDAData::Pin &pin) : pin_num(pin.index), toeprint_name(pin.name)
+        Toeprint( const EDAData::Pin &pin )
+         : m_pin_num( pin.m_index ), m_toeprint_name( pin.m_name )
         {
         }
 
-        unsigned int pin_num;
+        const size_t m_pin_num;  ///<! index of PIN record in the eda/data file, 0~n-1.
 
-        std::pair<wxString, wxString> m_center;
-        wxString m_rot = wxT( "0" );
-        wxString m_mirror = wxT( "N" );
-        unsigned int net_num = 0;
-        unsigned int subnet_num = 0;
-        wxString toeprint_name;
+        std::pair<wxString, wxString> m_center; ///<! Board location of the pin.
+
+        wxString m_rot;  ///<! Rotation, clockwise, equal to the CMP m_rot.
+
+        wxString m_mirror;  ///<! equal to CMP m_mirror.
+
+        size_t m_net_num = 0;   ///<! Number of NET record in the eda/data file.
+        
+        size_t m_subnet_num = 0;  ///<! Number of subnet (SNT record TOP) in the referenced net
+        
+        wxString m_toeprint_name;  ///<! Name of the pad in PIN record
 
         void Write(std::ostream &ost) const;
     };

@@ -105,13 +105,22 @@ void EDAData::SubnetTrace::write_subnet(std::ostream &ost) const
 
 void EDAData::SubnetPlane::write_subnet(std::ostream &ost) const
 {
-    static const std::map<FillType, std::string> fill_type_map = {
-            {FillType::SOLID, "S"},
+    static const std::map<FillType, std::string> fill_type_map = 
+    {
+        {FillType::SOLID, "S"},
+        {FillType::OUTLINE, "O"}
     };
-    static const std::map<CutoutType, std::string> cutout_type_map = {
-            {CutoutType::CIRCLE, "C"},
+
+    static const std::map<CutoutType, std::string> cutout_type_map = 
+    {
+        {CutoutType::CIRCLE, "C"},
+        {CutoutType::RECT, "R"},
+        {CutoutType::OCTAGON, "O"},
+        {CutoutType::EXACT, "E"}
     };
-    ost << "PLN " << fill_type_map.at( fill_type ) << " " << cutout_type_map.at(cutout_type) << " " << fill_size;
+
+    ost << "PLN " << fill_type_map.at( fill_type ) << " "
+        << cutout_type_map.at( cutout_type ) << " " << fill_size;
 }
 
 void EDAData::SubnetToeprint::write_subnet( std::ostream &ost ) const
@@ -124,7 +133,7 @@ void EDAData::SubnetToeprint::write_subnet( std::ostream &ost ) const
 }
 
 void EDAData::Subnet::AddFeatureID( FeatureID::Type type,
-                         const wxString &layer, unsigned int feature_id )
+                         const wxString& layer, unsigned int feature_id )
 {
     feature_ids.emplace_back( type, m_edadata->GetLyrIdx( layer ), feature_id );
 }
@@ -152,7 +161,7 @@ static std::unique_ptr<PKG_OUTLINE> InitOutlineContourByPolygon( const SHAPE_POL
     auto r = std::make_unique<OUTLINE_CONTOUR>( aPolygon );
 
     // TODO: to check if need mirror and reverse ploygon when fp flip
-    // r->m_surfaces->append_polygon_auto_orientation( aPolygon);
+
     return r;
 }
 
@@ -161,384 +170,267 @@ static std::unique_ptr<PKG_OUTLINE> InitOutlineByPolygon( const SHAPE_POLY_SET::
     return InitOutlineContourByPolygon( aPolygon );
 }
 
-// void OutlineSquare::Write(std::ostream &ost) const
-// {
-//     ost << "SQ " << center << " " << Dim{half_side} << endl;
-// }
+void OUTLINE_SQUARE::Write( std::ostream &ost ) const
+{                                     
+    ost << "SQ " << ODB::Float2StrVal( m_ODBScale * m_center.x )
+        << " " << ODB::Float2StrVal( m_ODBScale * m_center.y )
+        << " " << ODB::Float2StrVal( m_ODBScale * m_halfSide ) << std::endl;
+}
 
-// void OutlineCircle::Write(std::ostream &ost) const
-// {
-//     ost << "CR " << center << " " << Dim{radius} << endl;
-// }
+void OUTLINE_CIRCLE::Write( std::ostream &ost ) const
+{
+    ost << "CR " << ODB::Float2StrVal( m_ODBScale * m_center.x )
+        << " " << ODB::Float2StrVal( m_ODBScale * m_center.y )
+        << " " << ODB::Float2StrVal( m_ODBScale * m_radius ) << std::endl;
+}
 
-// void OutlineRectangle::Write( std::ostream &ost ) const
-// {
-//     ost << "RC " << lower << " " << Dim{width} << " " << Dim{height} << endl;
-// }
+void OUTLINE_RECT::Write( std::ostream &ost ) const
+{
+    ost << "RC " << ODB::Float2StrVal( m_ODBScale * m_lower_left.x )
+        << " " << ODB::Float2StrVal( m_ODBScale * m_lower_left.y )
+        << " " << ODB::Float2StrVal( m_ODBScale * m_width )
+        << " " << ODB::Float2StrVal( m_ODBScale * m_height ) << std::endl;
+}
 
 void OUTLINE_CONTOUR::Write( std::ostream &ost ) const
 {
     ost << "CT" << std::endl;
-    m_surfaces->Write(ost);
+    m_surfaces->WriteData( ost );
     ost << "CE" << std::endl;
 }
 
 
-EDAData::Package &EDAData::add_package( FOOTPRINT* aFp )
+void EDAData::AddPackage( const FOOTPRINT* aFp )
 {
-    wxString fp_name = aFp->GetFPID().GetLibItemName().wx_str();
-    auto &x = packages_map.emplace(
-        std::piecewise_construct,
-        std::forward_as_tuple( hash_fp_item( aFp, HASH_POS | REL_COORD ) ),
-        std::forward_as_tuple( packages.size(), fp_name ) )
-            .first->second;
+    // ODBPP only need unique Package in PKG record in eda/data file.
+    // the PKG index can repeat to be ref in CMP record in component file.
+    std::unique_ptr<FOOTPRINT> fp( static_cast<FOOTPRINT*>( aFp->Clone() ) );
+    fp->SetParentGroup( nullptr );
+    fp->SetPosition( { 0, 0 } );
 
-    packages.push_back( &x );
+    if( fp->GetLayer() != F_Cu )
+        fp->Flip( fp->GetPosition(), false );
 
-    // SHAPE_POLY_SET& zone_shape = *zone->GetFilledPolysList( aLayer );
+    fp->SetOrientation( ANGLE_0 );
 
-    // for( int ii = 0; ii < zone_shape.OutlineCount(); ++ii )
-    // {
-    //     AddContour( zone_shape, ii );
-    // }
-
-    // std::map<PCB_LAYER_ID, std::vector<BOARD_ITEM*>> elements;
-
-    // for( BOARD_ITEM* item : aFp->GraphicalItems() )
-    // {
-    //     PCB_LAYER_ID layer = item->GetLayer();
-
-    //     /// only supports the documentation layers for production and post-production
-    //     /// All other layers are ignored
-    //     if( layer != F_Fab && layer != B_Fab )
-    //         continue;
-
-    //     // if( item->Type() == PCB_SHAPE_T )
-    //     // {
-    //     //     PCB_SHAPE* shape = static_cast<PCB_SHAPE*>( item );
-
-    //     //     // Circles and Rectanges only have size information so we need to place them in
-    //     //     // a separate node that has a location
-    //     //     if( shape->GetShape() == SHAPE_T::CIRCLE || shape->GetShape() == SHAPE_T::RECTANGLE )
-    //     //         is_abs = false;
-    //     // }
-
-    //     elements[item->GetLayer()].push_back( item );
-    // }
-
-    // auto add_base_node = [&]( PCB_LAYER_ID aLayer ) -> wxXmlNode*
-    // {
-    //     wxXmlNode* parent = packageNode;
-    //     bool is_back = aLayer == B_SilkS || aLayer == B_Fab;
-
-    //     if( is_back )
-    //     {
-    //         if( !otherSideViewNode )
-    //             otherSideViewNode = new wxXmlNode( wxXML_ELEMENT_NODE, "OtherSideView" );
-
-    //         parent = otherSideViewNode;
-    //     }
-
-    //     wxString name;
-
-    //     if( aLayer == F_SilkS || aLayer == B_SilkS )
-    //         name = "SilkScreen";
-    //     else if( aLayer == F_Fab || aLayer == B_Fab )
-    //         name = "AssemblyDrawing";
-    //     else
-    //         wxASSERT( false );
-
-    //     wxXmlNode* new_node = appendNode( parent, name );
-    //     return new_node;
-    // };
-
-
-    // std::map<PCB_LAYER_ID, wxXmlNode*> layer_nodes;
-    // std::map<PCB_LAYER_ID, BOX2I> layer_bbox;
-
-    // for( auto layer : { F_Fab, B_Fab } )
-    // {
-    //     if( elements.find( layer ) != elements.end() )
-    //     {
-    //         if( elements[layer].size() > 0 )
-    //             layer_bbox[layer] = elements[layer][0]->GetBoundingBox();
-
-    //     }
-    // }
-
-    // for( auto& [layer, vec] : elements )
-    // {
-    //     for( BOARD_ITEM* item : vec )
-    //     {
-    //         layer_bbox[layer].Merge( item->GetBoundingBox() );
-
-    //         switch( item->Type() )
-    //         {
-    //         case PCB_TEXT_T:
-    //         {
-    //             PCB_TEXT* text = static_cast<PCB_TEXT*>( item );
-    //             addText( output_node, text, text->GetFontMetrics() );
-    //             break;
-    //         }
-
-    //         case PCB_TEXTBOX_T:
-    //         {
-    //             PCB_TEXTBOX* text = static_cast<PCB_TEXTBOX*>( item );
-    //             addText( output_node, text, text->GetFontMetrics() );
-
-    //             // We want to force this to be a polygon to get absolute coordinates
-    //             if( text->IsBorderEnabled() )
-    //             {
-    //                 SHAPE_POLY_SET poly_set;
-    //                 text->GetEffectiveShape()->TransformToPolygon( poly_set, 0, ERROR_INSIDE );
-    //                 addContourNode( output_node, poly_set, 0, FILL_T::NO_FILL,
-    //                                 text->GetBorderWidth() );
-    //             }
-
-    //             break;
-    //         }
-
-    //         case PCB_SHAPE_T:
-    //         {
-    //             if( !is_abs )
-    //                 addLocationNode( output_node, *static_cast<PCB_SHAPE*>( item ) );
-
-    //             addShape( output_node, *static_cast<PCB_SHAPE*>( item ) );
-
-    //             break;
-    //         }
-
-    //         default: break;
-    //         }
-    //     }
+    size_t hash = hash_fp_item( fp.get(), HASH_POS | REL_COORD );
+    size_t pkg_index = packages_map.size();
+    wxString fp_name = fp->GetFPID().GetLibItemName().wx_str();
     
-
-    //     if( group_node->GetChildren() == nullptr )
-    //     {
-    //         marking_node->RemoveChild( group_node );
-    //         layer_node->RemoveChild( marking_node );
-    //         delete group_node;
-    //         delete marking_node;
-    //     }
-    // }
-
-    // for( auto&[layer, bbox] : layer_bbox)
-    // {
-    //     if( bbox.GetWidth() > 0 )
-    //     {
-    //         wxXmlNode* outlineNode = insertNode( layer_nodes[layer], "PKG_OUTLINE" );
-
-    //         SHAPE_POLY_SET::POLYGON outline( 1 );
-    //         std::vector<VECTOR2I> points( 4 );
-    //         points[0] = bbox.GetPosition();
-    //         points[2] = bbox.GetEnd();
-    //         points[1].x = points[0].x;
-    //         points[1].y = points[2].y;
-    //         points[3].x = points[2].x;
-    //         points[3].y = points[0].y;
-
-    //         outline[0].Append( points );
-    //         addPolygonNode( outlineNode, outline, FILL_T::NO_FILL, 0 );
-    //         addLineDesc( outlineNode, 0, LINE_STYLE::SOLID );
-    //     }
-    // }
-
-    for( size_t ii = 0; ii < fp->Pads().size(); ++ii )
+    auto [ iter, success ] = packages_map.emplace( hash, Package( pkg_index, fp_name ) );
+    if( !success )
     {
-        PAD* pad = fp->Pads()[ii];
-        wxXmlNode* pinNode = appendNode( packageNode, "Pin" );
-        wxString name = pinName( pad );
-
-        addAttribute( pinNode,  "number", name );
-
-        m_net_pin_dict[pad->GetNetCode()].emplace_back(
-                genString( fp->GetReference(), "CMP" ), name );
-
-        if( pad->GetAttribute() == PAD_ATTRIB::NPTH )
-            addAttribute( pinNode,  "electricalType", "MECHANICAL" );
-        else if( pad->IsOnCopperLayer() )
-            addAttribute( pinNode,  "electricalType", "ELECTRICAL" );
-        else
-            addAttribute( pinNode,  "electricalType", "UNDEFINED" );
-
-        if( pad->HasHole() )
-            addAttribute( pinNode,  "type", "THRU" );
-        else
-            addAttribute( pinNode,  "type", "SURFACE" );
-
-        if( pad->GetFPRelativeOrientation() != ANGLE_0 )
-        {
-            wxXmlNode* xformNode = appendNode( pinNode, "Xform" );
-            xformNode->AddAttribute(
-                    "rotation",
-                    floatVal( pad->GetFPRelativeOrientation().Normalize().AsDegrees() ) );
-        }
-
-        addLocationNode( pinNode, *pad, true );
-        addShape( pinNode, *pad, pad->GetLayer() );
-
-        // We just need the padstack, we don't need the reference here.  The reference will be created
-        // in the LayerFeature set
-        wxXmlNode dummy;
-        addPadStack( &dummy, pad );
+        return;
     }
 
+    Package* pkg = &( iter->second );
 
-    BOX2I bbox = aFp->GetBoundingBox();
-    x.xmin = bbox.GetPosition().x;
-    x.ymin = bbox.GetPosition().y;
-    x.xmax = bbox.GetEnd().x;
-    x.ymax = bbox.GetEnd().y;
-    if( aFp->Pads().size() < 2 )
-        x.pitch = pcbIUScale.mmToIU( 1.0 ); // placeholder value
+    packages.push_back( pkg );
 
-    for( auto it = aFp->Pads().begin(); it != aFp->Pads().end(); it++ )
+    BOX2I bbox = fp->GetBoundingBox();
+    pkg->m_xmin = bbox.GetPosition().x;
+    pkg->m_ymin = bbox.GetPosition().y;
+    pkg->m_xmax = bbox.GetEnd().x;
+    pkg->m_ymax = bbox.GetEnd().y;
+    pkg->m_pitch = UINT64_MAX;
+
+    if( fp->Pads().size() < 2 )
+        pkg->m_pitch = pcbIUScale.mmToIU( 1.0 ); // placeholder value
+
+    for( size_t i = 0; i < fp->Pads().size(); ++i )
     {
-        auto it2 = it;
-        it2++;
-        for(; it2 != aFp.pads.end(); it2++)
+        const PAD* pad1 = fp->Pads()[i];
+        for( size_t j = i + 1; j < fp->Pads().size(); ++j )
         {
-            const uint64_t pin_dist = Coordd(it->second.placement.shift - it2->second.placement.shift).mag();
-            x.pitch = std::min(x.pitch, pin_dist);
+            const PAD* pad2 = fp->Pads()[j];
+            const uint64_t pin_dist = KiROUND( EuclideanNorm( pad1->GetCenter() - pad2->GetCenter() ) );
+            pkg->m_pitch = std::min( pkg->m_pitch, pin_dist );
         }
     }
 
-    SHAPE_POLY_SET& pkg_polygons = aFp->GetBoundingHull();
+    const SHAPE_POLY_SET& courtyard = fp->GetCourtyard( F_CrtYd );
+    const SHAPE_POLY_SET& courtyard_back = fp->GetCourtyard( B_CrtYd );
+    SHAPE_POLY_SET pkg_outline;
+    if( courtyard.OutlineCount() > 0 )
+        pkg_outline = courtyard;
 
-    // TODO: Here we put rect, square, and circle all as polygon,
-    // we need to add them when OutlineCount() equals to 1
-    if( pkg_polygons.OutlineCount() >= 1 )
+    if( courtyard_back.OutlineCount() > 0 )
     {
-        for( int ii = 0; ii < pkg_polygons.OutlineCount(); ++ii )
-        {
-            x.m_pkgOutlines.push_back( InitOutlineByPolygon( pkg_polygons.Polygon(ii) ) );
-        }
+        pkg_outline = courtyard_back;
     }
-    else
+
+    if( !courtyard.OutlineCount() && !courtyard_back.OutlineCount() )
     {
-        x.outline.push_back(std::make_unique<OutlineRectangle>( bbox ));
+        pkg_outline = fp->GetBoundingHull();
+    }
+
+    // TODO: Here we put rect, square, and circle all as polygon
+    if( pkg_outline.OutlineCount() > 0 )
+    {
+        for( int ii = 0; ii < pkg_outline.OutlineCount(); ++ii )
+        {
+            pkg->m_pkgOutlines.push_back( std::make_unique<OUTLINE_CONTOUR>( pkg_outline.Polygon(ii) ) );
+        }
     }
     
-
-    for( size_t ii = 0; ii < aFp->Pads().size(); ++ii )
+    
+    for( size_t i = 0; i < fp->Pads().size(); ++i )
     {
-        PAD* pad = aFp->Pads()[ii];
-        x.add_pin( pad, ii );
+        const PAD* pad = fp->Pads()[i];
+        pkg->AddPin( pad, i );
     }
 
-    return x;
+    return;
 }
 
-EDAData::Pin::Pin(unsigned int i, const wxString &n) : name(n), index(i)
-{
-}
 
-EDAData::Pin &EDAData::Package::add_pin( PAD* pad, size_t ii )
+EDAData::Pin& EDAData::Package::AddPin( const PAD* aPad, size_t aPinNum )
 {
-    wxString name = pad->GetNumber();
+    wxString name = aPad->GetNumber();
 
     // Pins are required to have names, so if our pad doesn't have a name, we need to
     // generate one that is unique
-    if( pad->GetAttribute() == PAD_ATTRIB::NPTH )
-        name = wxString::Format( "NPTH%zu", ii );
+    if( aPad->GetAttribute() == PAD_ATTRIB::NPTH )
+        name = wxString::Format( "NPTH%zu", aPinNum );
     else if( name.empty() )
-        name = wxString::Format( "PAD%zu", ii );
+        name = wxString::Format( "PAD%zu", aPinNum );
 
-    size_t hash = hash_fp_item( pad, 0 );
+    size_t hash = hash_fp_item( aPad, HASH_POS | REL_COORD );
 
-    auto &pin = pins_map.emplace(
+    auto& pin = m_pinsMap.emplace(
         std::piecewise_construct, std::forward_as_tuple( hash ),
-        std::forward_as_tuple( pins.size(), name ))
+        std::forward_as_tuple( m_pinsList.size(), name ) )
             .first->second;
 
-    pins.push_back(&pin);
-    pin.center = ODB::AddXY( pad->GetCenter() );
+    // // for SNT record, pad, net, pin
+    // m_net_pin_dict[aPad->GetNetCode()].emplace_back(
+    //         genString( fp->GetReference(), "CMP" ), name );
 
-    if( pad->HasHole() )
+    m_pinsList.push_back( &pin );
+
+    VECTOR2D relpos = aPad->GetFPRelativePosition();
+
+    if( aPad->GetOffset().x != 0 || aPad->GetOffset().y != 0 )
+        relpos += aPad->GetOffset();
+
+    pin.m_center = ODB::AddXY( relpos );
+
+    if( aPad->HasHole() )
     {
         pin.type = Pin::Type::THROUGH_HOLE;
-        pin.mtype = Pin::MountType::THROUGH_HOLE;
     }
     else
     {
         pin.type = Pin::Type::SURFACE;
-        pin.mtype = Pin::MountType::SMT;
     }
 
-    if( pad->GetAttribute() == PAD_ATTRIB::NPTH )
+    if( aPad->GetAttribute() == PAD_ATTRIB::NPTH )
         pin.etype = Pin::ElectricalType::MECHANICAL;
-    else if( pad->IsOnCopperLayer() )
+    else if( aPad->IsOnCopperLayer() )
         pin.etype = Pin::ElectricalType::ELECTRICAL;
     else
         pin.etype = Pin::ElectricalType::UNDEFINED;
 
 
+    if( ( aPad->HasHole() && aPad->IsOnCopperLayer() ) || aPad->GetAttribute() == PAD_ATTRIB::PTH )
+    {
+        pin.mtype = Pin::MountType::THROUGH_HOLE;
+    }
+    else if( aPad->HasHole() && aPad->GetAttribute() == PAD_ATTRIB::NPTH )
+    {
+        pin.mtype = Pin::MountType::HOLE;
+    }
+    else if( aPad->GetAttribute() == PAD_ATTRIB::SMD )
+    {
+        pin.mtype = Pin::MountType::SMT;
+    }
+    else
+    {
+        pin.mtype = Pin::MountType::UNDEFINED;
+    }
 
-    // const auto &ps = pad.padstack;
-    // std::set<const Shape *> shapes_top;
-    // for (const auto &[uu, sh] : ps.shapes) {
-    //     if (sh.layer == BoardLayers::TOP_COPPER)
-    //         shapes_top.insert(&sh);
+    // int maxError = m_board->GetDesignSettings().m_MaxError;
+
+    // VECTOR2I expansion{ 0, 0 };
+
+    // if( LSET( 2, F_Mask, B_Mask ).Contains( aPad->GetLayer() ) )
+    //     expansion.x = expansion.y = 2 * aPad->GetSolderMaskExpansion();
+
+    // if( LSET( 2, F_Paste, B_Paste ).Contains( aPad->GetLayer() ) )
+    //     expansion = 2 * aPad->GetSolderPasteMargin();
+
+
+    SHAPE_POLY_SET polygons;
+    aPad->MergePrimitivesAsPolygon( &polygons );
+
+    // if( expansion != VECTOR2I( 0, 0 ) )
+    // {
+    //     shape.InflateWithLinkedHoles( std::max( expansion.x, expansion.y ),
+    //                                     CORNER_STRATEGY::ROUND_ALL_CORNERS, maxError,
+    //                                     SHAPE_POLY_SET::PM_FAST );
     // }
-    // const auto n_polys_top = std::count_if(ps.polygons.begin(), ps.polygons.end(),
-    //                                        [](auto &it) { return it.second.layer == BoardLayers::TOP_COPPER; });
-    // if (shapes_top.size() == 1 && n_polys_top == 0 && (*shapes_top.begin())->form == Shape::Form::CIRCLE) {
-    //     const auto &sh = **shapes_top.begin();
-    //     pin.outline.push_back(
-    //             std::make_unique<OutlineCircle>(pad.placement.transform(sh.placement.shift), sh.params.at(0) / 2));
-    // }
-    // else {
-    //     const auto bb = ps.get_bbox(true);
-    //     pin.outline.push_back(std::make_unique<OutlineRectangle>(pad.placement.transform_bb(bb)));
-    // }
+
+    // TODO: Here we put all pad shapes as polygonl, we should switch by pad shape
+    // Note:pad only use polygons->Polygon(0),
+    if( polygons.OutlineCount() > 0 )
+    {
+        pin.m_pinOutlines.push_back( 
+            std::make_unique<OUTLINE_CONTOUR>( polygons.Polygon( 0 ) ) );
+    }
+
     return pin;
 }
 
 void EDAData::Pin::Write( std::ostream &ost ) const
 {
-    static const std::map<Type, std::string> type_map = {
+    static const std::map<Type, std::string> type_map =
+    {
             {Type::SURFACE, "S"},
             {Type::THROUGH_HOLE, "T"},
             {Type::BLIND, "B"},
     };
 
-    static const std::map<ElectricalType, std::string> etype_map = {
+    static const std::map<ElectricalType, std::string> etype_map =
+    {
             {ElectricalType::ELECTRICAL, "E"},
             {ElectricalType::MECHANICAL, "M"},
             {ElectricalType::UNDEFINED, "U"},
     };
-    static const std::map<MountType, std::string> mtype_map = {
+    static const std::map<MountType, std::string> mtype_map =
+    {
             {MountType::THROUGH_HOLE, "T"},
+            {MountType::HOLE, "H"},
             {MountType::SMT, "S"},
             {MountType::UNDEFINED, "U"},
     };
 
-    ost << "PIN " << name << " " << type_map.at( type ) << " "
-        << center.first << " " << center.second
+    ost << "PIN " << m_name << " " << type_map.at( type ) << " "
+        << m_center.first << " " << m_center.second
         << " 0 " << etype_map.at( etype ) << " "
         << mtype_map.at( mtype ) << std::endl;
 
-    // for (const auto &ol : outline) {
-    //     ol->Write(ost);
-    // }
+    for( const auto& outline : m_pinOutlines )
+    {
+        outline->Write(ost);
+    }
 }
 
 
 void EDAData::Package::Write( std::ostream &ost ) const
 {
-    ost << "PKG " << name << " "
-        << ODB::Float2StrVal( m_ODBScale * pitch ) << " "
-        << ODB::Float2StrVal( m_ODBScale * xmin ) << " "
-        << ODB::Float2StrVal( m_ODBScale * ymin ) << " "
-        << ODB::Float2StrVal( m_ODBScale * xmax ) << " "
-        << ODB::Float2StrVal( m_ODBScale * ymax ) << std::endl;
+    ost << "PKG " << m_name << " "
+        << ODB::Float2StrVal( m_ODBScale * m_pitch ) << " "
+        << ODB::Float2StrVal( m_ODBScale * m_xmin ) << " "
+        << ODB::Float2StrVal( m_ODBScale * m_ymin ) << " "
+        << ODB::Float2StrVal( m_ODBScale * m_xmax ) << " "
+        << ODB::Float2StrVal( m_ODBScale * m_ymax ) << std::endl;
 
-    // for (const auto &ol : outline)
-    // {
-    //     ol->Write(ost);
-    // }
+    for ( const auto& outline : m_pkgOutlines )
+    {
+        outline->Write(ost);
+    }
 
-    for (const auto &pin : pins)
+    for ( const auto &pin : m_pinsList )
     {
         pin->Write(ost);
     }
@@ -566,7 +458,7 @@ void EDAData::Write( std::ostream &ost ) const
     }
     
     size_t i = 0;
-    for (const auto pkg : packages)
+    for( const auto* pkg : packages )
     {
         ost << "# PKG " << i << std::endl;
         i++;

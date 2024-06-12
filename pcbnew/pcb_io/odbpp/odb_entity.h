@@ -96,15 +96,12 @@ public:
         ODB_POLARITY m_polarity = ODB_POLARITY::POSITIVE;
 
         MATRIX_LAYER( uint32_t aRow, const wxString& aLayerName )
-                    : m_rowNumber( aRow ), m_layerName( aLayerName )
+                    : m_rowNumber( aRow ), 
+                    m_layerName( ODB::GenLegalEntityName( aLayerName ) )
         {
-            m_layerName.Replace( wxT( "." ), wxT( "_" ) );
-            m_layerName.MakeUpper();
         }
     };
 
-
-    bool GenerateMatrixFile( ODB_TREE_WRITER& writer );
     virtual bool GenerateFiles( ODB_TREE_WRITER& writer );
     virtual void InitEntityData();
     void InitMatrixLayerData();
@@ -217,7 +214,7 @@ public:
     }
     virtual void InitEntityData();
     void InitFeatureData();
-    ODB_COMPONENT& InitComponentData( FOOTPRINT* aFp, EDAData& aEDAData );
+    ODB_COMPONENT& InitComponentData( const FOOTPRINT* aFp, const EDAData::Package& aPkg );
     void InitDrillData();
     void InitSlotData();
     
@@ -241,8 +238,7 @@ private:
     std::optional<COMPONENTS_MANAGER> m_compTop;
     std::optional<COMPONENTS_MANAGER> m_compBot;
     std::unique_ptr<FEATURES_MANAGER> m_featuresMgr;
-     std::map<size_t, wxString>
-            m_footprint_dict; //<! Map between the footprint hash values and reference id string (<fpid>_##)
+    // std::map<size_t, size_t> m_footprint_dict; //<! Map between the footprint hash values and PKG index
 
 
 

@@ -68,6 +68,8 @@ set( PCBNEW_DIALOGS
     dialogs/dialog_export_idf.cpp
     dialogs/dialog_export_idf_base.cpp
     dialogs/dialog_export_step.cpp
+    dialogs/dialog_export_odbpp.cpp
+    dialogs/dialog_export_odbpp_base.cpp
     dialogs/dialog_export_step_base.cpp
     dialogs/dialog_export_step_process.cpp
     dialogs/dialog_export_step_process_base.cpp

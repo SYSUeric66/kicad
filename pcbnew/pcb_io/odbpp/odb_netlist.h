@@ -33,7 +33,7 @@ struct ODB_NET_RECORD
     bool            smd;
     bool            hole;
     bool            is_via;
-    std::string     netname;
+    wxString        netname;
     std::string     refdes;
     int             drill_radius;
     bool            mechanical;

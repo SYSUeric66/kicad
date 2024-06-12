@@ -95,7 +95,10 @@ void ODB_NET_LIST::InitPadNetPoints( BOARD *aBoard, std::map<size_t, std::vector
             // It could be a mask only pad, we only handle pads with copper here
             if( !net_point.side.empty() && net_point.side != "I" )
             {
-                net_point.netname = pad->GetNetname();
+                if( pad->GetNetCode() == 0 )
+                    net_point.netname = "$NONE$";
+                else
+                    net_point.netname = pad->GetNetname();
                 // net_point.pin = pad->GetNumber();
                 net_point.refdes = footprint->GetReference();
                 const VECTOR2I& drill = pad->GetDrillSize();
@@ -226,7 +229,8 @@ void ODB_NET_LIST::WriteNetPointRecords( std::map<size_t, std::vector<ODB_NET_RE
     aStream << "H optimize n staggered n" << std::endl;
     for( const auto& [key, vec] : aRecords )
     {
-        aStream << "$" << key << " " << ODB::GenODBString( vec.front().netname ) << std::endl;
+        aStream << "$" << key << " " 
+        << ODB::GenLegalNetName( vec.front().netname ) << std::endl;
     }
     
     aStream << "#" << std::endl
@@ -261,7 +265,7 @@ void ODB_NET_LIST::WriteNetPointRecords( std::map<size_t, std::vector<ODB_NET_RE
             else if( net_point.soldermask == 0 )
                 exp = "e";            
 
-            aStream << net_point.epoint << " " << exp << " " ;
+            aStream << net_point.epoint << " " << exp;
             
             if( net_point.hole )
                 aStream << " staggered 0 0 0" ;

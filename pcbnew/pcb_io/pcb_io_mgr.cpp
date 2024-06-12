@@ -45,6 +45,8 @@
 #include <pcb_io/easyeda/pcb_io_easyeda_plugin.h>
 #include <pcb_io/easyedapro/pcb_io_easyedapro.h>
 #include <pcb_io/ipc2581/pcb_io_ipc2581.h>
+#include <pcb_io/odbpp/pcb_io_odbpp.h>
+
 
 #define FMT_UNIMPLEMENTED   _( "Plugin \"%s\" does not implement the \"%s\" function." )
 #define FMT_NOTFOUND        _( "Plugin type \"%s\" is not found." )

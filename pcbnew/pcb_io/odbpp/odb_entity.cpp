@@ -84,7 +84,7 @@ ODB_MISC_ENTITY::ODB_MISC_ENTITY( const std::vector<wxString>& aValue )
     m_info = 
     {
         { wxS( ODB_JOB_NAME ), wxS( "job" ) },
-        { wxS( ODB_UNITS ), wxS( "MM" ) },
+        { wxS( ODB_UNITS ), aValue.at( 0 ) },
         { wxS( "ODB_VERSION_MAJOR" ), wxS( "8" ) },
         { wxS( "ODB_VERSION_MINOR" ), wxS( "0" ) },
         { wxS( "ODB_SOURCE" ), wxS( "KiCad EDA" + GetMajorMinorPatchVersion() ) },
@@ -95,15 +95,6 @@ ODB_MISC_ENTITY::ODB_MISC_ENTITY( const std::vector<wxString>& aValue )
         { wxS( "MAX_UID" ), wxS( "" ) }
     };
 
-    if( !aValue.at( 0 ).IsEmpty() )
-    {
-        m_info[ wxS( ODB_JOB_NAME ) ] = aValue.at( 0 );
-    }
-
-    if( !aValue.at( 1 ).IsEmpty() )
-    {
-        m_info[ wxS( ODB_UNITS ) ] = aValue.at( 1 );
-    }
 }
 
 bool ODB_MISC_ENTITY::GenerateInfoFile( ODB_TREE_WRITER& writer )
@@ -168,29 +159,29 @@ void ODB_MATRIX_ENTITY::InitMatrixLayerData()
                     ly_name = wxString::Format( "DIELECTRIC_%d", stackup_item->GetDielectricLayerId() );
             }
 
-            MATRIX_LAYER mLayer( m_row++, ly_name );
+            MATRIX_LAYER matrix( m_row++, ly_name );
 
             if( stackup_item->GetType() == BS_ITEM_TYPE_DIELECTRIC )
             {
                 if( stackup_item->GetTypeName() == KEY_CORE )
-                    mLayer.m_diType.emplace( ODB_DIELECTRIC_TYPE::CORE );
+                    matrix.m_diType.emplace( ODB_DIELECTRIC_TYPE::CORE );
                 else
-                    mLayer.m_diType.emplace( ODB_DIELECTRIC_TYPE::PREPREG );
+                    matrix.m_diType.emplace( ODB_DIELECTRIC_TYPE::PREPREG );
                 
-                mLayer.m_type = ODB_TYPE::DIELECTRIC;
-                mLayer.m_context = ODB_CONTEXT::BOARD;
-                mLayer.m_polarity = ODB_POLARITY::POSITIVE;
-                m_matrixLayers.push_back( mLayer );
+                matrix.m_type = ODB_TYPE::DIELECTRIC;
+                matrix.m_context = ODB_CONTEXT::BOARD;
+                matrix.m_polarity = ODB_POLARITY::POSITIVE;
+                m_matrixLayers.push_back( matrix );
                 m_plugin->GetLayerNameList().emplace_back( 
                     std::make_pair( PCB_LAYER_ID::UNDEFINED_LAYER,
-                                    mLayer.m_layerName ) );
+                                    matrix.m_layerName ) );
 
                 continue;
             }
             else
             {
                 added_layers.insert( stackup_item->GetBrdLayerId() );
-                AddMatrixLayerField( mLayer, stackup_item->GetBrdLayerId() );
+                AddMatrixLayerField( matrix, stackup_item->GetBrdLayerId() );
             }
         }
     }
@@ -202,9 +193,9 @@ void ODB_MATRIX_ENTITY::InitMatrixLayerData()
         if( added_layers.find( layer ) != added_layers.end() )
             continue;
 
-        MATRIX_LAYER mLayer( m_row++, m_board->GetLayerName( layer ) );
+        MATRIX_LAYER matrix( m_row++, m_board->GetLayerName( layer ) );
         added_layers.insert( layer );
-        AddMatrixLayerField( mLayer, layer );
+        AddMatrixLayerField( matrix, layer );
     }
 
     AddDrillMatrixLayer();
@@ -229,10 +220,10 @@ void ODB_MATRIX_ENTITY::AddMatrixLayerField( MATRIX_LAYER& aMLayer, PCB_LAYER_ID
     case B_Mask:
         aMLayer.m_type = ODB_TYPE::SOLDER_MASK;
         break;
-    // case B_CrtYd:
-    // case F_CrtYd:
-    // case B_Fab:
-    // case F_Fab:
+    case B_CrtYd:
+    case F_CrtYd:
+    case B_Fab:
+    case F_Fab:
     case F_Adhes:
     case B_Adhes:
     case Dwgs_User:
@@ -283,7 +274,7 @@ void ODB_MATRIX_ENTITY::AddDrillMatrixLayer()
     std::map<std::pair<PCB_LAYER_ID, PCB_LAYER_ID>, std::vector<BOARD_ITEM*>>&
             drill_layers = m_plugin->GetDrillLayerItemsMap();
 
-    std::map<std::pair<PCB_LAYER_ID, PCB_LAYER_ID>, std::vector<PAD*>>&
+    std::map<std::pair<PCB_LAYER_ID, PCB_LAYER_ID>, std::vector<BOARD_ITEM*>>&
             slot_holes = m_plugin->GetSlotHolesMap();
 
     for( BOARD_ITEM* item : m_board->Tracks() )
@@ -314,65 +305,103 @@ void ODB_MATRIX_ENTITY::AddDrillMatrixLayer()
         }
     }
 
-    // TODO: FUNCTIONAL
-    for( const auto& [layer_pair, vec] : drill_layers )
+    auto InitDrillMatrix = [&]( const wxString& aLayerName )
     {
-        wxString dLayerName = wxString::Format( "DRILL_%s-%s",
-                        m_board->GetLayerName( layer_pair.first ),
-                        m_board->GetLayerName( layer_pair.second ) );
-        MATRIX_LAYER mLayer( m_row++, dLayerName );
-        mLayer.m_type = ODB_TYPE::DRILL;
-        mLayer.m_context = ODB_CONTEXT::BOARD;
-        mLayer.m_polarity = ODB_POLARITY::POSITIVE;
-        mLayer.m_span.emplace( 
-            std::make_pair( m_board->GetLayerName( layer_pair.first ),
-                            m_board->GetLayerName( layer_pair.second ) ) );
-        m_matrixLayers.push_back( mLayer );
-        m_plugin->GetLayerNameList().emplace_back( 
-                std::make_pair( PCB_LAYER_ID::UNDEFINED_LAYER,
-                                mLayer.m_layerName ) );
+        std::map<std::pair<PCB_LAYER_ID, PCB_LAYER_ID>,
+                    std::vector<BOARD_ITEM *>>* layermap = nullptr;
+        if( aLayerName.Contains( "DRILL") )
+            layermap = &drill_layers;
+        else
+            layermap = &slot_holes;
+        
+        for( const auto& [layer_pair, vec] : *layermap )
+        {
+            wxString dLayerName = wxString::Format( "%s_%s-%s",
+                            aLayerName,
+                            m_board->GetLayerName( layer_pair.first ),
+                            m_board->GetLayerName( layer_pair.second ) );
+            MATRIX_LAYER matrix( m_row++, dLayerName );
+            if( aLayerName.Contains( "DRILL") )
+                matrix.m_type = ODB_TYPE::DRILL;
+            else
+                matrix.m_type = ODB_TYPE::ROUT;
+            matrix.m_context = ODB_CONTEXT::BOARD;
+            matrix.m_polarity = ODB_POLARITY::POSITIVE;
+            matrix.m_span.emplace( 
+                std::make_pair( ODB::GenLegalEntityName( m_board->GetLayerName( layer_pair.first ) ),
+                                ODB::GenLegalEntityName( m_board->GetLayerName( layer_pair.second ) ) ) );
+            m_matrixLayers.push_back( matrix );
+            m_plugin->GetLayerNameList().emplace_back( 
+                    std::make_pair( PCB_LAYER_ID::UNDEFINED_LAYER,
+                                    matrix.m_layerName ) );
 
-    }
+        }
 
-    for( const auto& [layer_pair, vec] : slot_holes )
-    {
-        wxString dLayerName = wxString::Format( "SLOT_%s-%s",
-                        m_board->GetLayerName( layer_pair.first ),
-                        m_board->GetLayerName( layer_pair.second ) );
-        MATRIX_LAYER mLayer( m_row++, dLayerName );
-        mLayer.m_type = ODB_TYPE::ROUT;
-        mLayer.m_context = ODB_CONTEXT::BOARD;
-        mLayer.m_polarity = ODB_POLARITY::POSITIVE;
-        mLayer.m_span.emplace( 
-                std::make_pair( m_board->GetLayerName( layer_pair.first ),
-                                m_board->GetLayerName( layer_pair.second ) ) );
-        m_matrixLayers.push_back( mLayer );
-        m_plugin->GetLayerNameList().emplace_back( 
-                std::make_pair( PCB_LAYER_ID::UNDEFINED_LAYER,
-                                mLayer.m_layerName ) );
+    };
 
-    }
+    InitDrillMatrix( "DRILL" );
+    InitDrillMatrix( "SLOT" );
+
+    // // TODO: FUNCTIONAL
+    // for( const auto& [layer_pair, vec] : drill_layers )
+    // {
+    //     wxString dLayerName = wxString::Format( "DRILL_%s-%s",
+    //                     m_board->GetLayerName( layer_pair.first ),
+    //                     m_board->GetLayerName( layer_pair.second ) );
+    //     MATRIX_LAYER matrix( m_row++, dLayerName );
+    //     matrix.m_type = ODB_TYPE::DRILL;
+    //     matrix.m_context = ODB_CONTEXT::BOARD;
+    //     matrix.m_polarity = ODB_POLARITY::POSITIVE;
+    //     matrix.m_span.emplace( 
+    //         std::make_pair( ODB::GenLegalEntityName( m_board->GetLayerName( layer_pair.first ) ),
+    //                         ODB::GenLegalEntityName( m_board->GetLayerName( layer_pair.second ) ) ) );
+    //     m_matrixLayers.push_back( matrix );
+    //     m_plugin->GetLayerNameList().emplace_back( 
+    //             std::make_pair( PCB_LAYER_ID::UNDEFINED_LAYER,
+    //                             matrix.m_layerName ) );
+
+    // }
+
+    // for( const auto& [layer_pair, vec] : slot_holes )
+    // {
+    //     wxString dLayerName = wxString::Format( "SLOT_%s-%s",
+    //                     m_board->GetLayerName( layer_pair.first ),
+    //                     m_board->GetLayerName( layer_pair.second ) );
+    //     MATRIX_LAYER matrix( m_row++, dLayerName );
+    //     matrix.m_type = ODB_TYPE::ROUT;
+    //     matrix.m_context = ODB_CONTEXT::BOARD;
+    //     matrix.m_polarity = ODB_POLARITY::POSITIVE;
+    //     matrix.m_span.emplace( 
+    //             std::make_pair( ODB::GenLegalEntityName( m_board->GetLayerName( layer_pair.first ) ),
+    //                             ODB::GenLegalEntityName( m_board->GetLayerName( layer_pair.second ) ) ) );
+    //     m_matrixLayers.push_back( matrix );
+    //     m_plugin->GetLayerNameList().emplace_back( 
+    //             std::make_pair( PCB_LAYER_ID::UNDEFINED_LAYER,
+    //                             matrix.m_layerName ) );
+
+    // }
 }
 
 
 void ODB_MATRIX_ENTITY::AddCOMPMatrixLayer()
 {
-    MATRIX_LAYER mLayer( m_row++, "COMP_+_TOP" );
-    mLayer.m_type = ODB_TYPE::COMPONENT;
-    mLayer.m_context = ODB_CONTEXT::BOARD;
+    MATRIX_LAYER matrix( m_row++, "COMP_+_TOP" );
+    matrix.m_type = ODB_TYPE::COMPONENT;
+    matrix.m_context = ODB_CONTEXT::BOARD;
     
-    m_matrixLayers.push_back( mLayer );
+    m_matrixLayers.push_back( matrix );
     m_plugin->GetLayerNameList().emplace_back( std::make_pair(
                             PCB_LAYER_ID::UNDEFINED_LAYER,
-                            mLayer.m_layerName ) );
+                            matrix.m_layerName ) );
 
     if( m_hasBotComp )
     {
-        mLayer.m_layerName = "COMP_+_BOT";
-        m_matrixLayers.push_back( mLayer );
+        matrix.m_layerName = ODB::GenLegalEntityName( "COMP_+_BOT" );
+        matrix.m_rowNumber = m_row++;
+        m_matrixLayers.push_back( matrix );
         m_plugin->GetLayerNameList().emplace_back( std::make_pair(
                             PCB_LAYER_ID::UNDEFINED_LAYER,
-                            mLayer.m_layerName ) );
+                            matrix.m_layerName ) );
     }
 }
 
@@ -381,17 +410,6 @@ void ODB_MATRIX_ENTITY::AddCOMPMatrixLayer()
 
 
 bool ODB_MATRIX_ENTITY::GenerateFiles( ODB_TREE_WRITER& writer )
-{
-    if( !GenerateMatrixFile( writer ) )
-    {
-        return false;
-    }
-
-    return true;
-}
-
-
-bool ODB_MATRIX_ENTITY::GenerateMatrixFile( ODB_TREE_WRITER& writer )
 {
     auto fileproxy = writer.CreateFileProxy( "matrix" );
     
@@ -416,7 +434,7 @@ bool ODB_MATRIX_ENTITY::GenerateMatrixFile( ODB_TREE_WRITER& writer )
             twriter.write_line_enum( "ADD_TYPE", layer.m_addType.value() );
         }
 
-        twriter.write_line( "NAME", layer.m_layerName );
+        twriter.write_line( "NAME", layer.m_layerName.Upper() );
         twriter.write_line( "OLD_NAME", wxEmptyString );
         twriter.write_line_enum( "POLARITY", layer.m_polarity );
 
@@ -431,8 +449,8 @@ bool ODB_MATRIX_ENTITY::GenerateMatrixFile( ODB_TREE_WRITER& writer )
         twriter.write_line( "REF", wxEmptyString );
         if ( layer.m_span.has_value() )
         {
-            twriter.write_line( "START_NAME", layer.m_span->first );
-            twriter.write_line( "END_NAME", layer.m_span->second );
+            twriter.write_line( "START_NAME", layer.m_span->first.Upper() );
+            twriter.write_line( "END_NAME", layer.m_span->second.Upper() );
         }
         else
         {
@@ -443,7 +461,9 @@ bool ODB_MATRIX_ENTITY::GenerateMatrixFile( ODB_TREE_WRITER& writer )
     }
 
     return fileproxy.CloseFile();
+
 }
+
 
 ODB_LAYER_ENTITY::ODB_LAYER_ENTITY( BOARD* aBoard, PCB_IO_ODBPP* aPlugin,
       std::map<int, std::vector<BOARD_ITEM*>>& aMap,
@@ -505,7 +525,7 @@ void ODB_LAYER_ENTITY::InitFeatureData()
 }
 
 
-ODB_COMPONENT& ODB_LAYER_ENTITY::InitComponentData( FOOTPRINT* aFp, EDAData& aEDAData )
+ODB_COMPONENT& ODB_LAYER_ENTITY::InitComponentData( const FOOTPRINT* aFp, const EDAData::Package& aPkg )
 {   
     if( m_matrixLayerName == "COMP_+_BOT" )
     {
@@ -513,7 +533,7 @@ ODB_COMPONENT& ODB_LAYER_ENTITY::InitComponentData( FOOTPRINT* aFp, EDAData& aED
         {
             m_compBot.emplace();
         }
-        return m_compBot.value().AddComponent( aFp, aEDAData );
+        return m_compBot.value().AddComponent( aFp, aPkg );
     }
     else
     {
@@ -522,7 +542,7 @@ ODB_COMPONENT& ODB_LAYER_ENTITY::InitComponentData( FOOTPRINT* aFp, EDAData& aED
             m_compTop.emplace();
         }
 
-        return m_compTop.value().AddComponent( aFp, aEDAData );
+        return m_compTop.value().AddComponent( aFp, aPkg );
     }
 }
 
@@ -586,7 +606,7 @@ void ODB_LAYER_ENTITY::InitDrillData()
 
 void ODB_LAYER_ENTITY::InitSlotData()
 {
-    std::map<std::pair<PCB_LAYER_ID, PCB_LAYER_ID>, std::vector<PAD*>>&
+    std::map<std::pair<PCB_LAYER_ID, PCB_LAYER_ID>, std::vector<BOARD_ITEM*>>&
         slot_holes = m_plugin->GetSlotHolesMap();
 
     if( !m_layerItems.empty() )
@@ -606,8 +626,9 @@ void ODB_LAYER_ENTITY::InitSlotData()
 
         if( sLayerName == m_matrixLayerName )
         {
-            for( PAD* pad : vec )
+            for( BOARD_ITEM * item : vec )
             {
+                PAD* pad = static_cast<PAD*>( item );
                 //for slot tools
                 m_tools.value().AddDrillTools(
                     pad->GetAttribute() == PAD_ATTRIB::PTH ? "PLATED" : "NON_PLATED",
@@ -637,9 +658,9 @@ void ODB_STEP_ENTITY::InitEntityData()
 
 void ODB_STEP_ENTITY::InitPackage()
 {
-    for( FOOTPRINT* fp : m_board->Footprints() )
+    for( const FOOTPRINT* fp : m_board->Footprints() )
     {
-        m_edaData.add_package( fp );
+        m_edaData.AddPackage( fp );
     }
     
 }
@@ -717,7 +738,7 @@ void ODB_STEP_ENTITY::InitEdaData()
     }
 
     // for CMP
-    for( FOOTPRINT* fp : m_board->Footprints() )
+    for( const FOOTPRINT* fp : m_board->Footprints() )
     {
         wxString compName = "COMP_+_TOP";
         if( fp->IsFlipped() )
@@ -730,12 +751,25 @@ void ODB_STEP_ENTITY::InitEdaData()
             return;
         }
 
-        ODB_COMPONENT& comp = iter->second->InitComponentData( fp, m_edaData );
+        // ODBPP only need unique Package in PKG record in eda/data file.
+        // the PKG index can repeat to be ref in CMP record in component file.
+        std::unique_ptr<FOOTPRINT> fp_pkg( static_cast<FOOTPRINT*>( fp->Clone() ) );
+        fp_pkg->SetParentGroup( nullptr );
+        fp_pkg->SetPosition( { 0, 0 } );
 
-        const EDAData::Package& eda_pkg = m_edaData.get_package( hash_fp_item( fp, HASH_POS | REL_COORD ) );
+        if( fp_pkg->GetLayer() != F_Cu )
+            fp_pkg->Flip( fp_pkg->GetPosition(), false );
 
-        for( PAD* pad : fp->Pads() )
+        fp_pkg->SetOrientation( ANGLE_0 );
+
+        const EDAData::Package& eda_pkg = m_edaData.GetPackage( 
+            hash_fp_item( fp_pkg.get(), HASH_POS | REL_COORD ) );
+
+        ODB_COMPONENT& comp = iter->second->InitComponentData( fp, eda_pkg );
+        
+        for( int i = 0; i < fp->Pads().size(); ++i )
         {
+            PAD* pad = fp->Pads()[i];
             auto& eda_net = m_edaData.GetNet( pad->GetNetCode() );
 
             auto& subnet = eda_net.AddSubnet<EDAData::SubnetToeprint>(
@@ -743,22 +777,28 @@ void ODB_STEP_ENTITY::InitEdaData()
                     fp->IsFlipped() ? EDAData::SubnetToeprint::Side::BOTTOM 
                                     : EDAData::SubnetToeprint::Side::TOP,
                     comp.m_index, comp.toeprints.size() );
-
-            m_plugin->GetPadSubnetMap().emplace( pad, &subnet );
             
-            auto &toep = comp.toeprints.emplace_back(
-                            eda_pkg.GetEdaPkgPin( hash_fp_item( pad, 0 ) ) );
+            // Note: hash from pad which relative coord to fp_pkg locate at (0,0)
+            size_t pad_hash = hash_fp_item( fp_pkg->Pads()[i], HASH_POS | REL_COORD );
+            
+            m_plugin->GetPadSubnetMap().emplace( pad, &subnet );
 
-            toep.net_num = eda_net.index;
-            toep.subnet_num = subnet.index;
+            const auto& pin = eda_pkg.GetEdaPkgPin( pad_hash );
+            
+            auto& toep = comp.toeprints.emplace_back( pin );
 
-            toep.m_center = ODB::AddXY( pad->GetCenter() );
+            toep.m_net_num = eda_net.index;
+            toep.m_subnet_num = subnet.index;
+
+            toep.m_center = ODB::AddXY( pad->GetPosition() );
 
             toep.m_rot = ODB::Float2StrVal(
                         pad->GetOrientation().Normalize().AsDegrees() );
 
             if( pad->IsFlipped() )
                 toep.m_mirror = wxT( "M" );
+            else
+                toep.m_mirror = wxT( "N" );
         }
     }
 
@@ -782,8 +822,8 @@ void ODB_STEP_ENTITY::InitEdaData()
             auto& subnet = eda_net.AddSubnet<EDAData::SubnetPlane>(
                 &m_edaData,
                 EDAData::SubnetPlane::FillType::SOLID,
-                EDAData::SubnetPlane::CutoutType::CIRCLE,
-                0.00 );
+                EDAData::SubnetPlane::CutoutType::EXACT,
+                0 );
             m_plugin->GetPlaneSubnetMap().emplace( std::piecewise_construct,
                     std::forward_as_tuple( layer, zone ),
                     std::forward_as_tuple( &subnet ) );

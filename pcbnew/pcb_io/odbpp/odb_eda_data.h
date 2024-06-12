@@ -36,7 +36,7 @@
 
 // enum class ODB_FID_TYPE;
 
-
+class PKG_OUTLINE;
 class EDAData : public AttributeProvider
 {
 public:
@@ -115,14 +115,14 @@ public:
         enum class FillType { SOLID, OUTLINE };
         enum class CutoutType { CIRCLE, RECT, OCTAGON, EXACT };
 
-        SubnetPlane(unsigned int i, EDAData* aEda, FillType ft, CutoutType ct, double fs)
+        SubnetPlane( unsigned int i, EDAData* aEda, FillType ft, CutoutType ct, size_t fs )
             : Subnet( i, aEda ), fill_type(ft), cutout_type(ct), fill_size(fs)
         {
         }
 
         FillType fill_type;
         CutoutType cutout_type;
-        double fill_size;
+        size_t fill_size;
 
         void write_subnet(std::ostream &ost) const override;
     };
@@ -161,15 +161,15 @@ public:
 
         std::list<std::unique_ptr<Subnet>> subnets;
 
-        template <typename T, typename... Args> T& AddSubnet(Args &&...args)
+        template <typename T, typename... Args> T& AddSubnet( Args &&...args )
         {
-            auto f = std::make_unique<T>(subnets.size(), std::forward<Args>(args)...);
+            auto f = std::make_unique<T>( subnets.size(), std::forward<Args>(args)... );
             auto &r = *f;
-            subnets.push_back(std::move(f));
+            subnets.push_back( std::move( f ) );
             return r;
         }
 
-        void Write(std::ostream &ost) const;
+        void Write( std::ostream &ost ) const;
     };
 
     void AddNET( const NETINFO_ITEM* aNet );
@@ -182,11 +182,13 @@ public:
     class Pin
     {
     public:
-        Pin(unsigned int i, const wxString &n);
-        wxString name;
-        const unsigned int index;
+        Pin( const size_t aIndex, const wxString& aName )
+            : m_index( aIndex ), m_name( aName ) {}
+            
+        const size_t m_index;
+        wxString m_name;
 
-        std::pair<wxString, wxString> center;
+        std::pair<wxString, wxString> m_center;
 
         enum class Type { THROUGH_HOLE, BLIND, SURFACE };
         Type type = Type::SURFACE;
@@ -194,7 +196,8 @@ public:
         enum class ElectricalType { ELECTRICAL, MECHANICAL, UNDEFINED };
         ElectricalType etype = ElectricalType::UNDEFINED;
 
-        enum class MountType {
+        enum class MountType
+        {
             SMT,
             SMT_RECOMMENDED,
             THROUGH_HOLE,
@@ -216,42 +219,44 @@ public:
     public:
         // template <typename T> using check_type = attribute::is_pkg<T>;
 
-        Package(const unsigned int i, const wxString &n)
-         : m_index( i ), m_name( n ) {}
-        const unsigned int m_index;
+        Package( const size_t aIndex, const wxString& afpName )
+         : m_index( aIndex ), m_name( afpName ) {}
+        
+        const size_t m_index;   /// <! Reference number of the package to be used in CMP.
         wxString m_name;
 
-        uint64_t m_pitch;
-        int64_t m_xmin, m_ymin, m_xmax, m_ymax;
+        size_t m_pitch;
+        int64_t m_xmin, m_ymin, m_xmax, m_ymax;  // Box points: leftlow, rightup
 
         std::list<std::unique_ptr<PKG_OUTLINE>> m_pkgOutlines;
 
-        Pin &add_pin( PAD* pad, size_t ii );
-        const Pin &GetEdaPkgPin( size_t aHash ) const
+        Pin& AddPin( const PAD* aPad, size_t aPinNum );
+        const Pin& GetEdaPkgPin( size_t aHash ) const
         {
-            return pins_map.at( aHash );
+            return m_pinsMap.at( aHash );
         }
 
         void Write(std::ostream &ost) const;
 
+        // wxString GenPinName( const PAD* aPad ); 
 
     private:
-        std::map<size_t, Pin> pins_map;
-        std::list<const Pin *> pins;
+        std::map<size_t, Pin> m_pinsMap;
+        std::list<const Pin*> m_pinsList;
     };
 
-    Package& add_package( FOOTPRINT* aFp );
-    const Package& get_package( size_t aHash ) const
+    void AddPackage( const FOOTPRINT* aFp );
+    const Package& GetPackage( size_t aHash ) const
     {
         return packages_map.at( aHash );
     }
 
-public:
+private:
     std::map<size_t, Net> nets_map;
     std::list<const Net *> nets;
 
     std::map<size_t, Package> packages_map;    //hash value, package
-    std::list<const Package *> packages;
+    std::list<const Package*> packages;
 
     std::map<wxString, unsigned int> layers_map;
     std::vector<wxString> layers;
@@ -266,20 +271,22 @@ public:
     virtual ~PKG_OUTLINE() = default;
 };
 
-class OutlineRectangle : public PKG_OUTLINE
+class OUTLINE_RECT : public PKG_OUTLINE
 {
 public:
-    OutlineRectangle(const Coordi &l, uint64_t w, uint64_t h) : lower(l), width(w), height(h)
-    {
-    }
-    OutlineRectangle(const std::pair<Coordi, Coordi> &bb)
-        : OutlineRectangle(bb.first, bb.second.x - bb.first.x, bb.second.y - bb.first.y)
+    OUTLINE_RECT(const VECTOR2I& aLowerLeft, size_t aWidth, size_t aHeight )
+        : m_lower_left( aLowerLeft ), m_width( aWidth ), m_height( aHeight )
     {
     }
 
-    Coordi lower;
-    uint64_t width;
-    uint64_t height;
+    OUTLINE_RECT( const BOX2I &aBox )
+        : OUTLINE_RECT( aBox.GetPosition(), aBox.GetWidth(), aBox.GetHeight() )
+    {
+    }
+
+    VECTOR2I m_lower_left;
+    size_t m_width;
+    size_t m_height;
 
     void Write(std::ostream &ost) const override;
 };
@@ -305,26 +312,27 @@ public:
     void Write(std::ostream &ost) const override;
 };
 
-class OutlineSquare : public PKG_OUTLINE
+class OUTLINE_SQUARE : public PKG_OUTLINE
 {
 public:
-    OutlineSquare(const Coordi &c, uint64_t s) : center(c), half_side(s)
+    OUTLINE_SQUARE( const VECTOR2I& aCenter, size_t aHalfSide ) : m_center( aCenter ), m_halfSide( aHalfSide )
     {
     }
-    Coordi center;
-    uint64_t half_side;
+    VECTOR2I m_center;
+    size_t m_halfSide;
 
     void Write(std::ostream &ost) const override;
 };
 
-class OutlineCircle : public PKG_OUTLINE
+class OUTLINE_CIRCLE : public PKG_OUTLINE
 {
 public:
-    OutlineCircle(const Coordi &c, uint64_t r) : center(c), radius(r)
+    OUTLINE_CIRCLE( const VECTOR2I& aCenter, size_t aRadius )
+     : m_center( aCenter ), m_radius( aRadius )
     {
     }
-    Coordi center;
-    uint64_t radius;
+    VECTOR2I m_center;
+    size_t m_radius;
 
     void Write(std::ostream &ost) const override;
 };

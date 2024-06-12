@@ -18,6 +18,7 @@
  * with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+#include <string_utf8_map.h>
 #include "pcb_io_odbpp.h"
 #include "odb_util.h"
 #include "odb_attribute.h"
@@ -40,14 +41,14 @@ void PCB_IO_ODBPP::ClearLoadedFootprints()
 }
 
 
-bool PCB_IO_ODBPP::CreateEntity( ODB_TREE_WRITER& writer )
+bool PCB_IO_ODBPP::CreateEntity()
 {
     Make<ODB_FONTS_ENTITY>();
     Make<ODB_INPUT_ENTITY>();
     Make<ODB_MATRIX_ENTITY>( m_board, this );
     Make<ODB_STEP_ENTITY>( m_board, this );
-    std::vector<wxString> miscVect = { "job", "MM" };
-    Make<ODB_MISC_ENTITY>( miscVect );
+    std::vector<wxString> misc_setting = { m_units_str };
+    Make<ODB_MISC_ENTITY>( misc_setting );
     Make<ODB_SYMBOLS_ENTITY>();
     Make<ODB_USER_ENTITY>();
     Make<ODB_WHEELS_ENTITY>();
@@ -81,7 +82,7 @@ bool PCB_IO_ODBPP::ExportODB( const wxString& aFileName )
              std::make_shared<ODB_TREE_WRITER>( aFileName, "odb" );
         writer->SetRootPath( writer->GetCurrentPath() );
 
-        if( !CreateEntity( *writer ) )
+        if( !CreateEntity() )
         {
             return false;
         }
@@ -133,9 +134,21 @@ void PCB_IO_ODBPP::SaveBoard( const wxString& aFileName, BOARD* aBoard,
                                 const STRING_UTF8_MAP* aProperties )
 {
     m_board = aBoard;
-    m_units_str = "MILLIMETER";
-    // m_ODBScale = 1.0 / PCB_IU_PER_MM;
+    m_units_str = "MM";
+    m_ODBScale = 1.0 / PCB_IU_PER_MM;
     m_sigfig = 4;
+
+    if( auto it = aProperties->find( "units" ); it != aProperties->end() )
+    {
+        if( it->second == "inch" )
+        {
+            m_units_str = "INCH";
+            m_ODBScale = 25.4 / PCB_IU_PER_MM;
+        }
+    }
+
+    if( auto it = aProperties->find( "sigfig" ); it != aProperties->end() )
+        m_sigfig = std::stoi( it->second );
     // m_progress_reporter = aProgressReporter;
 
     // if( m_progress_reporter )
@@ -147,59 +160,6 @@ void PCB_IO_ODBPP::SaveBoard( const wxString& aFileName, BOARD* aBoard,
     //     }
 
     ExportODB( aFileName );
-
-    // if( auto it = aProperties->find( "units" ); it != aProperties->end() )
-    // {
-    //     if( it->second == "inch" )
-    //     {
-    //         m_units_str = "INCH";
-    //         m_ODBScale = 25.4 / PCB_IU_PER_MM;
-    //     }
-    // }
-
-    // if( auto it = aProperties->find( "sigfig" ); it != aProperties->end() )
-    //     m_sigfig = std::stoi( it->second );
-
-    // if( auto it = aProperties->find( "version" ); it != aProperties->end() )
-    //     m_version = it->second.c_str()[0];
-
-    // if( auto it = aProperties->find( "OEMRef" ); it != aProperties->end() )
-    //     m_OEMRef = it->second;
-
-    // if( auto it = aProperties->find( "mpn" ); it != aProperties->end() )
-    //     m_mpn = it->second;
-
-    // if( auto it = aProperties->find( "mfg" ); it != aProperties->end() )
-    //     m_mfg = it->second;
-
-    // if( auto it = aProperties->find( "dist" ); it != aProperties->end() )
-    //     m_dist = it->second;
-
-    // if( auto it = aProperties->find( "distpn" ); it != aProperties->end() )
-    //     m_distpn = it->second;
-
-    // if( m_version == 'B' )
-    // {
-    //     for( char c = 'a'; c <= 'z'; ++c )
-    //         m_acceptable_chars.insert( c );
-
-    //     for( char c = 'A'; c <= 'Z'; ++c )
-    //         m_acceptable_chars.insert( c );
-
-    //     for( char c = '0'; c <= '9'; ++c )
-    //         m_acceptable_chars.insert( c );
-
-    //     // Add special characters
-    //     std::string specialChars = "_\\-.+><";
-
-    //     for( char c : specialChars )
-    //         m_acceptable_chars.insert( c );
-    // }
-
-    // m_xml_doc = new wxXmlDocument();
-    // m_xml_root = generateXmlHeader();
-
-    // generateContentSection();
 
     // if( m_progress_reporter )
     // {
@@ -257,9 +217,3 @@ void PCB_IO_ODBPP::SaveBoard( const wxString& aFileName, BOARD* aBoard,
     // size_t size = out_stream.GetSize();
 
 }
-
-
-
-
-#include <map>
-#include <string>

@@ -78,7 +78,11 @@ enum class ODB_FID_TYPE
 namespace ODB
 {
     wxString GenODBString( const wxString& aStr );
-    std::string GenLegalEntityName( const wxString& aStr );
+
+    wxString GenLegalNetName( const wxString& aStr );
+
+    wxString GenLegalEntityName( const wxString& aStr );
+
     wxString Float2StrVal( double aVal );
 
     std::pair<wxString, wxString> AddXY( const VECTOR2I& aVec );
