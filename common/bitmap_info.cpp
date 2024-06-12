@@ -4384,6 +4384,7 @@ void BuildBitmapInfo( std::unordered_map<BITMAPS, std::vector<BITMAP_INFO>>& aBi
     aBitmapInfoCache[BITMAPS::icon_pagelayout_editor_32].emplace_back( BITMAPS::icon_pagelayout_editor_32, wxT( "icon_pagelayout_editor_32_32.png" ), 32, wxT( "light" ) );
     aBitmapInfoCache[BITMAPS::icon_pcbcalculator_32].emplace_back( BITMAPS::icon_pcbcalculator_32, wxT( "icon_pcbcalculator_32_32.png" ), 32, wxT( "light" ) );
     aBitmapInfoCache[BITMAPS::icon_pcbnew_32].emplace_back( BITMAPS::icon_pcbnew_32, wxT( "icon_pcbnew_32_32.png" ), 32, wxT( "light" ) );
+    aBitmapInfoCache[BITMAPS::icon_hq_32].emplace_back( BITMAPS::icon_hq_32, wxT( "icon_hq_32_32.png" ), 32, wxT( "light" ) );
     aBitmapInfoCache[BITMAPS::icon_bitmap2component_32].emplace_back( BITMAPS::icon_bitmap2component_32, wxT( "icon_bitmap2component_32_dark_32.png" ), 32, wxT( "dark" ) );
     aBitmapInfoCache[BITMAPS::icon_eeschema_32].emplace_back( BITMAPS::icon_eeschema_32, wxT( "icon_eeschema_32_dark_32.png" ), 32, wxT( "dark" ) );
     aBitmapInfoCache[BITMAPS::icon_gerbview_32].emplace_back( BITMAPS::icon_gerbview_32, wxT( "icon_gerbview_32_dark_32.png" ), 32, wxT( "dark" ) );
@@ -4394,6 +4395,7 @@ void BuildBitmapInfo( std::unordered_map<BITMAPS, std::vector<BITMAP_INFO>>& aBi
     aBitmapInfoCache[BITMAPS::icon_pagelayout_editor_32].emplace_back( BITMAPS::icon_pagelayout_editor_32, wxT( "icon_pagelayout_editor_32_dark_32.png" ), 32, wxT( "dark" ) );
     aBitmapInfoCache[BITMAPS::icon_pcbcalculator_32].emplace_back( BITMAPS::icon_pcbcalculator_32, wxT( "icon_pcbcalculator_32_dark_32.png" ), 32, wxT( "dark" ) );
     aBitmapInfoCache[BITMAPS::icon_pcbnew_32].emplace_back( BITMAPS::icon_pcbnew_32, wxT( "icon_pcbnew_32_dark_32.png" ), 32, wxT( "dark" ) );
+    aBitmapInfoCache[BITMAPS::icon_hq_32].emplace_back( BITMAPS::icon_hq_32, wxT( "icon_hq_32_32.png" ), 32, wxT( "dark" ) );
     aBitmapInfoCache[BITMAPS::icon_bitmap2component_24].emplace_back( BITMAPS::icon_bitmap2component_24, wxT( "icon_bitmap2component_24_24.png" ), 24, wxT( "light" ) );
     aBitmapInfoCache[BITMAPS::icon_eeschema_24].emplace_back( BITMAPS::icon_eeschema_24, wxT( "icon_eeschema_24_24.png" ), 24, wxT( "light" ) );
     aBitmapInfoCache[BITMAPS::icon_gerbview_24].emplace_back( BITMAPS::icon_gerbview_24, wxT( "icon_gerbview_24_24.png" ), 24, wxT( "light" ) );
