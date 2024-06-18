@@ -53,7 +53,8 @@ COMMON_SETTINGS::COMMON_SETTINGS() :
         m_System(),
         m_DoNotShowAgain(),
         m_NetclassPanel(),
-        m_PackageManager()
+        m_PackageManager(),
+        m_HqPlugins()
 {
     /*
      * Automatic dark mode detection works fine on Mac.
@@ -394,6 +395,8 @@ COMMON_SETTINGS::COMMON_SETTINGS() :
     m_params.emplace_back( new PARAM<bool>( "git.useDefaultAuthor",
             &m_Git.useDefaultAuthor, true ) );
 
+    m_params.emplace_back( new PARAM<bool>( "hq_plugins.is_installed",
+        &m_HqPlugins.is_installed, false ) );
 
 
     registerMigration( 0, 1, std::bind( &COMMON_SETTINGS::migrateSchema0to1, this ) );

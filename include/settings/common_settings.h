@@ -165,6 +165,11 @@ public:
         wxString                    authorEmail;
     };
 
+    struct HQ_PLUGINS
+    {
+        bool is_installed;
+    };
+
     COMMON_SETTINGS();
 
     virtual ~COMMON_SETTINGS() {}
@@ -216,6 +221,8 @@ public:
     PACKAGE_MANAGER m_PackageManager;
 
     GIT m_Git;
+
+    HQ_PLUGINS m_HqPlugins;
 };
 
 #endif
