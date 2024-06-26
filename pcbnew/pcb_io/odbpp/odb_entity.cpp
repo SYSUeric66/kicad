@@ -740,9 +740,9 @@ void ODB_STEP_ENTITY::InitEdaData()
     // for CMP
     for( const FOOTPRINT* fp : m_board->Footprints() )
     {
-        wxString compName = "COMP_+_TOP";
+        wxString compName = ODB::GenLegalEntityName( "COMP_+_TOP" );
         if( fp->IsFlipped() )
-            compName = "COMP_+_BOT";
+            compName = ODB::GenLegalEntityName( "COMP_+_BOT" );
 
         auto iter = m_layerEntityMap.find( compName );
         if( iter == m_layerEntityMap.end() )
