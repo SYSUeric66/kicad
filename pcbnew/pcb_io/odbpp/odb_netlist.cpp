@@ -122,10 +122,10 @@ void ODB_NET_LIST::InitPadNetPoints( BOARD *aBoard, std::map<size_t, std::vector
                 else
                     net_point.y_size = pad->GetSize().y;
 
-                net_point.rotation = - pad->GetOrientation().AsDegrees();
+                // net_point.rotation = ( ANGLE_360 - pad->GetOrientation() ).Normalize().AsDegrees();
 
-                if( net_point.rotation < 0 )
-                    net_point.rotation += 360;
+                // if( net_point.rotation < 0 )
+                //     net_point.rotation += 360;
 
                 // always output Net end point as net test point
                 net_point.epoint = "e";
@@ -203,7 +203,6 @@ void ODB_NET_LIST::InitViaNetPoints( BOARD *aBoard, std::map<size_t, std::vector
                 // via always has drill radius, Width and Height are 0
                 net_point.x_size = 0;
                 net_point.y_size = 0; // Round so height = 0
-                net_point.rotation = 0;
                 net_point.epoint = "e";  // only buried via is "m" net mid point
                 
                 // the value indicates which sides are *not* accessible

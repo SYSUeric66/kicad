@@ -310,6 +310,7 @@ EDAData::Pin& EDAData::Package::AddPin( const PAD* aPad, size_t aPinNum )
 
     VECTOR2D relpos = aPad->GetFPRelativePosition();
 
+    // TODO: is odb pkg pin center means center of pad hole or center of pad shape?
     if( aPad->GetOffset().x != 0 || aPad->GetOffset().y != 0 )
         relpos += aPad->GetOffset();
 

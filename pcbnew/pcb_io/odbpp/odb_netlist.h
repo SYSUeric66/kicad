@@ -45,7 +45,7 @@ struct ODB_NET_RECORD
     // Width and height of non-drilled pads (only when radius = 0).
     int             x_size;  // Width
     int             y_size;  // Height
-    int             rotation;
+    // int             rotation;
 
     std::string     epoint;  // e: net end point,  m: net mid point
     

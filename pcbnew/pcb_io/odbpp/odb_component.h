@@ -78,7 +78,8 @@ public:
 
         std::pair<wxString, wxString> m_center; ///<! Board location of the pin.
 
-        wxString m_rot;  ///<! Rotation, clockwise, equal to the CMP m_rot.
+        wxString m_rot;  ///<! Rotation, clockwise, it equals to the actual PAD rotation,
+                         ///<! not CMP m_rot.
 
         wxString m_mirror;  ///<! equal to CMP m_mirror.
 

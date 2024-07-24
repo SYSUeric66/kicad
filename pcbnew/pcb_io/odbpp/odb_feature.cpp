@@ -42,7 +42,7 @@ void FEATURES_MANAGER::AddFeatureLine( const VECTOR2I& aStart,
 {
     AddFeature<ODB_LINE>( ODB::AddXY( aStart ),
                           ODB::AddXY( aEnd ),
-                          AddCircleSymbol( ODB::Float2StrVal( m_ODBScale * aWidth ) ) );
+                          AddCircleSymbol( ODB::Float2StrVal( m_ODBSymbolScale * aWidth ) ) );
 }
 
 void FEATURES_MANAGER::AddFeatureArc( const VECTOR2I& aStart,
@@ -54,7 +54,7 @@ void FEATURES_MANAGER::AddFeatureArc( const VECTOR2I& aStart,
     AddFeature<ODB_ARC>( ODB::AddXY( aStart ),
                          ODB::AddXY( aEnd ),
                          ODB::AddXY( aCenter ),
-                         AddCircleSymbol( ODB::Float2StrVal( m_ODBScale * aWidth ) ),
+                         AddCircleSymbol( ODB::Float2StrVal( m_ODBSymbolScale * aWidth ) ),
                          aDirection );
 }
 
@@ -65,7 +65,7 @@ void FEATURES_MANAGER::AddPadCircle( const VECTOR2I& aCenter,
                                      bool aMirror, double aResize /*= 1.0 */ )
 {
     AddFeature<ODB_PAD>( ODB::AddXY( aCenter ),
-                         AddCircleSymbol( ODB::Float2StrVal( m_ODBScale * aDiameter ) ),
+                         AddCircleSymbol( ODB::Float2StrVal( m_ODBSymbolScale * aDiameter ) ),
                          aAngle, aMirror, aResize );
 }
 
@@ -97,12 +97,12 @@ void FEATURES_MANAGER::AddShape( const PCB_SHAPE& aShape )
         if( aShape.GetFillMode() == FILL_T::NO_FILL )
         {
             AddFeature<ODB_PAD>( ODB::AddXY( center ),
-                AddCircleSymbol( std::to_string( KiROUND( m_ODBScale * diameter ) ) ) );
+                AddCircleSymbol( std::to_string( KiROUND( m_ODBSymbolScale * diameter ) ) ) );
         }
         else
         {
             AddFeature<ODB_PAD>( ODB::AddXY( center ),
-                AddCircleSymbol( std::to_string( KiROUND( m_ODBScale * ( diameter + width ) ) ) ) );         
+                AddCircleSymbol( std::to_string( KiROUND( m_ODBSymbolScale * ( diameter + width ) ) ) ) );         
         }
 
         break;
@@ -121,9 +121,9 @@ void FEATURES_MANAGER::AddShape( const PCB_SHAPE& aShape )
             height += stroke_width;
         }
 
-        wxString rad = ODB::Float2StrVal( m_ODBScale * ( stroke_width / 2.0 ) );
-        wxString dim = ODB::Float2StrVal( m_ODBScale * width ) + ODB_DIM_X
-                     + ODB::Float2StrVal( m_ODBScale * height ) + ODB_DIM_X
+        wxString rad = ODB::Float2StrVal( m_ODBSymbolScale * ( stroke_width / 2.0 ) );
+        wxString dim = ODB::Float2StrVal( m_ODBSymbolScale * width ) + ODB_DIM_X
+                     + ODB::Float2StrVal( m_ODBSymbolScale * height ) + ODB_DIM_X
                      + ODB_DIM_R + rad;
                        
 
@@ -200,6 +200,7 @@ void FEATURES_MANAGER::AddPadShape( const PAD& aPad, PCB_LAYER_ID aLayer )
     bool mirror = false;
     if( aPad.GetOrientation() != ANGLE_0 )
     {
+        // TODO: can only mirror but without rotation?
         if( fp && fp->IsFlipped() )
             mirror = true;
     }
@@ -222,13 +223,13 @@ void FEATURES_MANAGER::AddPadShape( const PAD& aPad, PCB_LAYER_ID aLayer )
     VECTOR2I center = aPad.GetPosition();
 
     if( aPad.GetOffset().x != 0 || aPad.GetOffset().y != 0 )
-        center += aPad.GetOffset();
+        center = aPad.ShapePos();
 
     switch( aPad.GetShape() )
     {
     case PAD_SHAPE::CIRCLE:
     {
-        wxString diam = ODB::Float2StrVal( m_ODBScale * ( expansion.x + aPad.GetSizeX() ) );
+        wxString diam = ODB::Float2StrVal( m_ODBSymbolScale * ( expansion.x + aPad.GetSizeX() ) );
 
         AddFeature<ODB_PAD>( ODB::AddXY( center ), AddCircleSymbol( diam ),
                              aPad.GetOrientation(), mirror ); 
@@ -239,8 +240,8 @@ void FEATURES_MANAGER::AddPadShape( const PAD& aPad, PCB_LAYER_ID aLayer )
     case PAD_SHAPE::RECTANGLE:
     {
         VECTOR2D pad_size = aPad.GetSize() + expansion;
-        wxString width = ODB::Float2StrVal( m_ODBScale * std::abs( pad_size.x ) );
-        wxString height = ODB::Float2StrVal( m_ODBScale * std::abs( pad_size.y ) );
+        wxString width = ODB::Float2StrVal( m_ODBSymbolScale * std::abs( pad_size.x ) );
+        wxString height = ODB::Float2StrVal( m_ODBSymbolScale * std::abs( pad_size.y ) );
 
         AddFeature<ODB_PAD>( ODB::AddXY( center ), AddRectSymbol( width, height ),
                              aPad.GetOrientation(), mirror );
@@ -250,8 +251,8 @@ void FEATURES_MANAGER::AddPadShape( const PAD& aPad, PCB_LAYER_ID aLayer )
     case PAD_SHAPE::OVAL:
     {
         VECTOR2D pad_size = aPad.GetSize() + expansion;
-        wxString width = ODB::Float2StrVal( m_ODBScale * std::abs( pad_size.x ) );
-        wxString height = ODB::Float2StrVal( m_ODBScale * std::abs( pad_size.y ) );
+        wxString width = ODB::Float2StrVal( m_ODBSymbolScale * std::abs( pad_size.x ) );
+        wxString height = ODB::Float2StrVal( m_ODBSymbolScale * std::abs( pad_size.y ) );
 
         AddFeature<ODB_PAD>( ODB::AddXY( center ), AddOvalSymbol( width, height ),
                              aPad.GetOrientation(), mirror ); 
@@ -262,9 +263,9 @@ void FEATURES_MANAGER::AddPadShape( const PAD& aPad, PCB_LAYER_ID aLayer )
     case PAD_SHAPE::ROUNDRECT:
     {
         VECTOR2D pad_size = aPad.GetSize() + expansion;
-        wxString width = ODB::Float2StrVal( m_ODBScale * std::abs( pad_size.x ) );
-        wxString height = ODB::Float2StrVal( m_ODBScale * std::abs( pad_size.y ) );
-        wxString rad = ODB::Float2StrVal( m_ODBScale * aPad.GetRoundRectCornerRadius() );
+        wxString width = ODB::Float2StrVal( m_ODBSymbolScale * std::abs( pad_size.x ) );
+        wxString height = ODB::Float2StrVal( m_ODBSymbolScale * std::abs( pad_size.y ) );
+        wxString rad = ODB::Float2StrVal( m_ODBSymbolScale * aPad.GetRoundRectCornerRadius() );
         wxString dim = width + ODB_DIM_X + height + ODB_DIM_X +
                        ODB_DIM_R + rad;
 
@@ -277,11 +278,11 @@ void FEATURES_MANAGER::AddPadShape( const PAD& aPad, PCB_LAYER_ID aLayer )
     case PAD_SHAPE::CHAMFERED_RECT:
     {
         VECTOR2D pad_size = aPad.GetSize() + expansion;
-        wxString width = ODB::Float2StrVal( m_ODBScale * std::abs( pad_size.x ) );
-        wxString height = ODB::Float2StrVal( m_ODBScale * std::abs( pad_size.y ) );
+        wxString width = ODB::Float2StrVal( m_ODBSymbolScale * std::abs( pad_size.x ) );
+        wxString height = ODB::Float2StrVal( m_ODBSymbolScale * std::abs( pad_size.y ) );
         int shorterSide = std::min( pad_size.x, pad_size.y );
         int chamfer = std::max( 0, KiROUND( aPad.GetChamferRectRatio() * shorterSide ) );
-        wxString rad = ODB::Float2StrVal( m_ODBScale * chamfer );
+        wxString rad = ODB::Float2StrVal( m_ODBSymbolScale * chamfer );
         int positions = aPad.GetChamferPositions();
         wxString dim = width + ODB_DIM_X + height + ODB_DIM_X +
                        ODB_DIM_C + rad;
@@ -307,23 +308,8 @@ void FEATURES_MANAGER::AddPadShape( const PAD& aPad, PCB_LAYER_ID aLayer )
 
     case PAD_SHAPE::TRAPEZOID:
     {
-        VECTOR2I       pad_size = aPad.GetSize();
-        VECTOR2I       trap_delta = aPad.GetDelta();
-
         SHAPE_POLY_SET outline;
-        outline.NewOutline();
-        outline.Move( center );
-        outline.Rotate( aPad.GetOrientation() );
-
-        int dx = pad_size.x / 2;
-        int dy = pad_size.y / 2;
-        int ddx = trap_delta.x / 2;
-        int ddy = trap_delta.y / 2;
-
-        outline.Append( -dx - ddy,  dy + ddx );
-        outline.Append(  dx + ddy,  dy - ddx );
-        outline.Append(  dx - ddy, -dy + ddx );
-        outline.Append( -dx + ddy, -dy - ddx );
+        aPad.TransformShapeToPolygon( outline, aLayer, 0, maxError, ERROR_INSIDE );
 
         // Shape polygon can have holes so use InflateWithLinkedHoles(), not Inflate()
         // which can create bad shapes if margin.x is < 0
@@ -342,6 +328,8 @@ void FEATURES_MANAGER::AddPadShape( const PAD& aPad, PCB_LAYER_ID aLayer )
     {
         SHAPE_POLY_SET shape;
         aPad.MergePrimitivesAsPolygon( &shape );
+        // as for custome shape, odb++ don't rotate the polygon,
+        // so we rotate the polygon in kicad anticlockwise 
         shape.Rotate( aPad.GetOrientation() );
         shape.Move( center );
 
@@ -407,10 +395,23 @@ void FEATURES_MANAGER::InitFeatureList( PCB_LAYER_ID aLayer,
             // add via
             PCB_VIA* via = static_cast<PCB_VIA*>( track );
             
-            AddVia( via );
-
-            subnet->AddFeatureID( EDAData::FeatureID::Type::HOLE,
+            if( aLayer != PCB_LAYER_ID::UNDEFINED_LAYER )
+            {
+                // to draw via copper shape on copper layer
+                AddVia( via, aLayer );
+                subnet->AddFeatureID( EDAData::FeatureID::Type::COPPER,
                       m_layerName, m_featuresList.size() - 1 );
+            }
+            else
+            {
+                // to draw via drill hole on drill layer
+                if( m_layerName.Contains( "drill" ) )
+                {
+                    AddViaDrillHole( via, aLayer );
+                    subnet->AddFeatureID( EDAData::FeatureID::Type::HOLE,
+                        m_layerName, m_featuresList.size() - 1 );
+                }
+            }
         }
 
     };
@@ -422,8 +423,6 @@ void FEATURES_MANAGER::InitFeatureList( PCB_LAYER_ID aLayer,
         for( int ii = 0; ii < zone_shape.OutlineCount(); ++ii )
         {
             AddContour( zone_shape, ii );
-            // auto subnet = GetODBPlugin()->GetPlaneSubnetMap().at(
-            //     std::make_pair( aLayer, zone ) );
             
             auto iter = GetODBPlugin()->GetPlaneSubnetMap().find( 
                     std::make_pair( aLayer, zone ) );
@@ -440,39 +439,46 @@ void FEATURES_MANAGER::InitFeatureList( PCB_LAYER_ID aLayer,
             
     };
 
-    // TODO
-    // auto add_text = [&] ( BOARD_ITEM* text )
-    // {
-    // };
+    auto add_text = [&]( BOARD_ITEM* text )
+    {
+        int maxError = m_board->GetDesignSettings().m_MaxError;
+        SHAPE_POLY_SET poly_set;
+        // EDA_TEXT* text_item;
+        // text_item = static_cast<EDA_TEXT*>( tmp_text );
+
+        if( PCB_TEXT* tmp_text = dynamic_cast<PCB_TEXT*>( text ) )
+        {
+            if( !tmp_text->IsVisible() || tmp_text->GetShownText( false ).empty() )
+                return;
+            tmp_text->TransformTextToPolySet( poly_set, 0, maxError, ERROR_INSIDE );
+
+        }
+        else if( PCB_TEXTBOX* textbox = dynamic_cast<PCB_TEXTBOX*>( text ) )
+        {
+            if( !textbox->IsVisible() || textbox->GetShownText( false ).empty() )
+                return;
+            // border
+            textbox->PCB_SHAPE::TransformShapeToPolygon( poly_set, aLayer, 0, maxError,
+                                                         ERROR_INSIDE );
+
+            // text
+            textbox->TransformTextToPolySet( poly_set, 0, maxError, ERROR_INSIDE );
+        }
+
+        for( int ii = 0; ii < poly_set.OutlineCount(); ++ii )
+            AddContour( poly_set, ii );
+
+    };
 
     auto add_shape = [&] ( PCB_SHAPE* shape )
     {
         // FOOTPRINT* fp = shape->GetParentFootprint();
         AddShape( *shape );
-        // if( fp )
-        // {
-            
-        // }
-        // else if( shape->GetShape() == SHAPE_T::CIRCLE || shape->GetShape() == SHAPE_T::RECTANGLE )
-        // {
-        //     AddShape( *shape );
-        // }
-        // else
-        // {
-        //     AddShape( *shape );
-        // }
+
     };
 
     auto add_pad = [&]( PAD* pad )
     {
-        FOOTPRINT* fp = pad->GetParentFootprint();
-        
-        // TODO: WHY NEED FlipLayer?
-        if( fp && fp->IsFlipped() )
-            AddPadShape( *pad, FlipLayer( aLayer ) );
-        else
-            AddPadShape( *pad, aLayer );
-
         auto iter = GetODBPlugin()->GetPadSubnetMap().find( pad );
 
         if( iter == GetODBPlugin()->GetPadSubnetMap().end() )
@@ -480,10 +486,43 @@ void FEATURES_MANAGER::InitFeatureList( PCB_LAYER_ID aLayer,
             wxLogError( _( "Failed to get subnet top data" ) );
             return;
         }
+
+        if( aLayer != PCB_LAYER_ID::UNDEFINED_LAYER )
+        {
+            FOOTPRINT* fp = pad->GetParentFootprint();
         
-        auto type = pad->HasHole() ? EDAData::FeatureID::Type::HOLE
-                                   : EDAData::FeatureID::Type::COPPER;
-        iter->second->AddFeatureID( type, m_layerName, m_featuresList.size() - 1 );
+            if( fp && fp->IsFlipped() )
+                AddPadShape( *pad, FlipLayer( aLayer ) );
+            else
+                AddPadShape( *pad, aLayer );
+
+            iter->second->AddFeatureID( EDAData::FeatureID::Type::COPPER, m_layerName, m_featuresList.size() - 1 );
+        }
+        else
+        {
+            // drill layer round hole or slot hole
+            if( m_layerName.Contains( "drill" ) )
+            {
+                // here we exchange round hole or slot hole into pad to draw in drill layer
+                PAD dummy( *pad );
+                if( pad->GetDrillSizeX() == pad->GetDrillSizeY() )
+                    dummy.SetShape( PAD_SHAPE::CIRCLE );  // round hole shape
+                else
+                    dummy.SetShape( PAD_SHAPE::OVAL );  // slot hole shape
+                    
+                dummy.SetOffset( VECTOR2I( 0, 0 ) );// use hole position not pad position
+                dummy.SetSize( pad->GetDrillSize() );
+
+                AddPadShape( dummy, aLayer );
+                // only plated holes link to subnet
+                if( pad->GetAttribute() == PAD_ATTRIB::PTH )
+                {
+                    iter->second->AddFeatureID( EDAData::FeatureID::Type::HOLE,
+                        m_layerName, m_featuresList.size() - 1 );
+                }
+            }
+            
+        }
     };
 
     for( BOARD_ITEM* item : aItems )
@@ -511,7 +550,7 @@ void FEATURES_MANAGER::InitFeatureList( PCB_LAYER_ID aLayer,
         case PCB_TEXT_T:
         case PCB_TEXTBOX_T:
         case PCB_FIELD_T:
-            // add_text( item );
+            add_text( item );
             break;
 
         case PCB_DIMENSION_T:
@@ -534,13 +573,28 @@ void FEATURES_MANAGER::InitFeatureList( PCB_LAYER_ID aLayer,
     }
 }
 
-void FEATURES_MANAGER::AddVia( const PCB_VIA* aVia )
+void FEATURES_MANAGER::AddVia( const PCB_VIA* aVia, PCB_LAYER_ID aLayer )
 {
-    PCB_SHAPE shape( nullptr, SHAPE_T::CIRCLE );
+    if( !aVia->FlashLayer( aLayer ) )
+        return;
 
-    shape.SetPosition( aVia->GetPosition() );
-    shape.SetEnd( { KiROUND( aVia->GetWidth() / 2.0 ), 0 } );
-    AddShape( shape );
+    PAD dummy( nullptr );   // default pad shape is circle
+    int hole = aVia->GetDrillValue();
+    dummy.SetDrillSize( VECTOR2I( hole, hole ) );
+    dummy.SetPosition( aVia->GetStart() );
+    dummy.SetSize( VECTOR2I( aVia->GetWidth(), aVia->GetWidth() ) );
+
+    AddPadShape( dummy, aLayer );
+}
+
+void FEATURES_MANAGER::AddViaDrillHole( const PCB_VIA* aVia, PCB_LAYER_ID aLayer )
+{
+    PAD dummy( nullptr );   // default pad shape is circle
+    int hole = aVia->GetDrillValue();
+    dummy.SetPosition( aVia->GetStart() );
+    dummy.SetSize( VECTOR2I( hole, hole ) );
+
+    AddPadShape( dummy, aLayer );
 }
 
 
@@ -635,23 +689,18 @@ void ODB_PAD::WriteRecordContent( std::ostream &ost )
 {
     ost << m_center.first << " " << m_center.second << " ";
 
-    // todo
-    if( false )
-    {
-        ost << "-1" << " " << m_symIndex << " "
-            << m_resize << " P 0 ";
-    }
-    else
-    {
-        ost << m_symIndex << " P 0 ";
-    }
+    // TODO: support resize symbol
+    // ost << "-1" << " " << m_symIndex << " "
+    //     << m_resize << " P 0 ";
+
+    ost << m_symIndex << " P 0 ";
 
     if ( m_mirror )
         ost << "9";
     else
         ost << "8";
 
-    ost << " " << ODB::Float2StrVal( m_angle.Normalize().AsDegrees() );
+    ost << " " << ODB::Float2StrVal( ( ANGLE_360 - m_angle ).Normalize().AsDegrees() );
 
     write_attributes( ost );
 }

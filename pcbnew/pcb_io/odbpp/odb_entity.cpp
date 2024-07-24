@@ -222,6 +222,7 @@ void ODB_MATRIX_ENTITY::AddMatrixLayerField( MATRIX_LAYER& aMLayer, PCB_LAYER_ID
         break;
     case B_CrtYd:
     case F_CrtYd:
+    case Edge_Cuts:
     case B_Fab:
     case F_Fab:
     case F_Adhes:
@@ -252,7 +253,6 @@ void ODB_MATRIX_ENTITY::AddMatrixLayerField( MATRIX_LAYER& aMLayer, PCB_LAYER_ID
         else
         {
             // Do not handle other layers :
-            // Edge_Cuts
             aMLayer.m_type = ODB_TYPE::UNDEFINED;
             m_row--;
         }
@@ -276,7 +276,10 @@ void ODB_MATRIX_ENTITY::AddDrillMatrixLayer()
 
     std::map<std::pair<PCB_LAYER_ID, PCB_LAYER_ID>, std::vector<BOARD_ITEM*>>&
             slot_holes = m_plugin->GetSlotHolesMap();
-
+    
+    bool has_pth_layer = false;
+    bool has_npth_layer = false;
+            
     for( BOARD_ITEM* item : m_board->Tracks() )
     {
         if( item->Type() == PCB_VIA_T )
@@ -298,6 +301,11 @@ void ODB_MATRIX_ENTITY::AddDrillMatrixLayer()
             
         for( PAD* pad : fp->Pads() )
         {
+            if( !has_pth_layer && pad->GetAttribute() == PAD_ATTRIB::PTH )
+                has_pth_layer = true;
+            if( !has_npth_layer && pad->GetAttribute() == PAD_ATTRIB::NPTH )
+                has_npth_layer = true;
+
             if( pad->HasHole() && pad->GetDrillSizeX() != pad->GetDrillSizeY() )
                 slot_holes[std::make_pair( F_Cu, B_Cu )].push_back( pad );
             else if( pad->HasHole() )
@@ -305,81 +313,42 @@ void ODB_MATRIX_ENTITY::AddDrillMatrixLayer()
         }
     }
 
-    auto InitDrillMatrix = [&]( const wxString& aLayerName )
+    auto InitDrillMatrix = [&]( const wxString& aHasPlated, std::pair<PCB_LAYER_ID, PCB_LAYER_ID> aLayerPair )
     {
-        std::map<std::pair<PCB_LAYER_ID, PCB_LAYER_ID>,
-                    std::vector<BOARD_ITEM *>>* layermap = nullptr;
-        if( aLayerName.Contains( "DRILL") )
-            layermap = &drill_layers;
-        else
-            layermap = &slot_holes;
-        
-        for( const auto& [layer_pair, vec] : *layermap )
-        {
-            wxString dLayerName = wxString::Format( "%s_%s-%s",
-                            aLayerName,
-                            m_board->GetLayerName( layer_pair.first ),
-                            m_board->GetLayerName( layer_pair.second ) );
-            MATRIX_LAYER matrix( m_row++, dLayerName );
-            if( aLayerName.Contains( "DRILL") )
-                matrix.m_type = ODB_TYPE::DRILL;
-            else
-                matrix.m_type = ODB_TYPE::ROUT;
-            matrix.m_context = ODB_CONTEXT::BOARD;
-            matrix.m_polarity = ODB_POLARITY::POSITIVE;
-            matrix.m_span.emplace( 
-                std::make_pair( ODB::GenLegalEntityName( m_board->GetLayerName( layer_pair.first ) ),
-                                ODB::GenLegalEntityName( m_board->GetLayerName( layer_pair.second ) ) ) );
-            m_matrixLayers.push_back( matrix );
-            m_plugin->GetLayerNameList().emplace_back( 
-                    std::make_pair( PCB_LAYER_ID::UNDEFINED_LAYER,
-                                    matrix.m_layerName ) );
+        wxString dLayerName = wxString::Format( "drill_%s_%s-%s",
+                        aHasPlated,
+                        m_board->GetLayerName( aLayerPair.first ),
+                        m_board->GetLayerName( aLayerPair.second ) );
+        MATRIX_LAYER matrix( m_row++, dLayerName );
 
-        }
+        matrix.m_type = ODB_TYPE::DRILL;
+        matrix.m_context = ODB_CONTEXT::BOARD;
+        matrix.m_polarity = ODB_POLARITY::POSITIVE;
+        matrix.m_span.emplace( 
+            std::make_pair( ODB::GenLegalEntityName( m_board->GetLayerName( aLayerPair.first ) ),
+                            ODB::GenLegalEntityName( m_board->GetLayerName( aLayerPair.second ) ) ) );
+        m_matrixLayers.push_back( matrix );
+        m_plugin->GetLayerNameList().emplace_back( 
+                std::make_pair( PCB_LAYER_ID::UNDEFINED_LAYER,
+                                matrix.m_layerName ) );
 
     };
 
-    InitDrillMatrix( "DRILL" );
-    InitDrillMatrix( "SLOT" );
+    if( drill_layers.find( std::make_pair( F_Cu, B_Cu ) ) != drill_layers.end() || !slot_holes.empty() )
+    {
+        // for pad has hole
+        if( has_pth_layer )
+            InitDrillMatrix( "plated", std::make_pair( F_Cu, B_Cu ) );
+        if( has_npth_layer )
+            InitDrillMatrix( "non-plated", std::make_pair( F_Cu, B_Cu ) );
+    }
 
-    // // TODO: FUNCTIONAL
-    // for( const auto& [layer_pair, vec] : drill_layers )
-    // {
-    //     wxString dLayerName = wxString::Format( "DRILL_%s-%s",
-    //                     m_board->GetLayerName( layer_pair.first ),
-    //                     m_board->GetLayerName( layer_pair.second ) );
-    //     MATRIX_LAYER matrix( m_row++, dLayerName );
-    //     matrix.m_type = ODB_TYPE::DRILL;
-    //     matrix.m_context = ODB_CONTEXT::BOARD;
-    //     matrix.m_polarity = ODB_POLARITY::POSITIVE;
-    //     matrix.m_span.emplace( 
-    //         std::make_pair( ODB::GenLegalEntityName( m_board->GetLayerName( layer_pair.first ) ),
-    //                         ODB::GenLegalEntityName( m_board->GetLayerName( layer_pair.second ) ) ) );
-    //     m_matrixLayers.push_back( matrix );
-    //     m_plugin->GetLayerNameList().emplace_back( 
-    //             std::make_pair( PCB_LAYER_ID::UNDEFINED_LAYER,
-    //                             matrix.m_layerName ) );
+    for( const auto& [layer_pair, vec] : drill_layers )
+    {
+        if( layer_pair != std::make_pair( F_Cu, B_Cu ) )  // pad has initialized above
+            InitDrillMatrix( "plated", layer_pair );  // for via 
 
-    // }
-
-    // for( const auto& [layer_pair, vec] : slot_holes )
-    // {
-    //     wxString dLayerName = wxString::Format( "SLOT_%s-%s",
-    //                     m_board->GetLayerName( layer_pair.first ),
-    //                     m_board->GetLayerName( layer_pair.second ) );
-    //     MATRIX_LAYER matrix( m_row++, dLayerName );
-    //     matrix.m_type = ODB_TYPE::ROUT;
-    //     matrix.m_context = ODB_CONTEXT::BOARD;
-    //     matrix.m_polarity = ODB_POLARITY::POSITIVE;
-    //     matrix.m_span.emplace( 
-    //             std::make_pair( ODB::GenLegalEntityName( m_board->GetLayerName( layer_pair.first ) ),
-    //                             ODB::GenLegalEntityName( m_board->GetLayerName( layer_pair.second ) ) ) );
-    //     m_matrixLayers.push_back( matrix );
-    //     m_plugin->GetLayerNameList().emplace_back( 
-    //             std::make_pair( PCB_LAYER_ID::UNDEFINED_LAYER,
-    //                             matrix.m_layerName ) );
-
-    // }
+    }
 }
 
 
@@ -479,17 +448,19 @@ ODB_LAYER_ENTITY::ODB_LAYER_ENTITY( BOARD* aBoard, PCB_IO_ODBPP* aPlugin,
 
 void ODB_LAYER_ENTITY::InitEntityData()
 {
-    if( m_matrixLayerName.Contains( "DRILL" ) )
+    if( m_matrixLayerName.Contains( "drill" ) )
     {
         InitDrillData();
+        InitFeatureData();
         return;
     }
 
-    if( m_matrixLayerName.Contains( "SLOT" ) )
-    {
-        InitSlotData();
-        return;
-    }
+    // if( m_matrixLayerName.Contains( "slot" ) )
+    // {
+    //     InitSlotData();
+    //     InitFeatureData();
+    //     return;
+    // }
 
     if( m_layerID != PCB_LAYER_ID::UNDEFINED_LAYER )
     {
@@ -550,62 +521,8 @@ ODB_COMPONENT& ODB_LAYER_ENTITY::InitComponentData( const FOOTPRINT* aFp, const 
 void ODB_LAYER_ENTITY::InitDrillData()
 {
     std::map<std::pair<PCB_LAYER_ID, PCB_LAYER_ID>, std::vector<BOARD_ITEM*>>&
-            drill_layers = m_plugin->GetDrillLayerItemsMap();
+        drill_layers = m_plugin->GetDrillLayerItemsMap();
 
-    if( !m_layerItems.empty() )
-    {
-        m_layerItems.clear();
-    }
-    
-    m_tools.emplace( "MM" );
-
-    for( const auto& [layer_pair, vec] : drill_layers )
-    {
-        wxString dLayerName = wxString::Format( "DRILL_%s-%s",
-                        m_board->GetLayerName( layer_pair.first ),
-                        m_board->GetLayerName( layer_pair.second ) );
-
-        dLayerName.MakeUpper().Replace( wxT( "." ), wxT( "_" ) );
-
-        if( dLayerName == m_matrixLayerName )
-        {
-            for( BOARD_ITEM* item : vec )
-            {
-                // for drill tools
-                if( item->Type() == PCB_VIA_T )
-                {
-                    PCB_VIA* via = static_cast<PCB_VIA*>( item );
-
-                    m_tools.value().AddDrillTools(
-                        "VIA",
-                        ODB::Float2StrVal( m_ODBScale * via->GetDrillValue() ) );
-
-                    // for drill features
-                    m_layerItems[via->GetNetCode()].push_back( item );
-                }
-                else if( item->Type() == PCB_PAD_T )
-                {
-                    PAD* pad = static_cast<PAD*>( item );
-
-                    m_tools.value().AddDrillTools(
-                        pad->GetAttribute() == PAD_ATTRIB::PTH ? "PLATED" : "NON_PLATED",
-                        ODB::Float2StrVal( m_ODBScale * pad->GetDrillSizeX() ) );
-                    
-                    // for drill features
-                    m_layerItems[pad->GetNetCode()].push_back( item );
-                }
-
-            }
-
-            break;
-        }
-    }
-
-    InitFeatureData();
-}
-
-void ODB_LAYER_ENTITY::InitSlotData()
-{
     std::map<std::pair<PCB_LAYER_ID, PCB_LAYER_ID>, std::vector<BOARD_ITEM*>>&
         slot_holes = m_plugin->GetSlotHolesMap();
 
@@ -613,37 +530,137 @@ void ODB_LAYER_ENTITY::InitSlotData()
     {
         m_layerItems.clear();
     }
-
-    m_tools.emplace( "MM" );
     
+    m_tools.emplace( "MM" );
+
+    bool is_npth_layer = false;
+    wxString plated_name = "plated";
+
+    if( m_matrixLayerName.Contains( "non-plated" ) )
+    {
+        is_npth_layer = true;
+        plated_name = "non-plated";
+    }
+        
+
     for( const auto& [layer_pair, vec] : slot_holes )
     {
-        wxString sLayerName = wxString::Format( "SLOT_%s-%s",
+        wxString dLayerName = wxString::Format( "drill_%s_%s-%s",
+                        plated_name,
+                        m_board->GetLayerName( layer_pair.first ),
+                        m_board->GetLayerName( layer_pair.second ) );
+        if( ODB::GenLegalEntityName( dLayerName ) == m_matrixLayerName )
+        {
+            for( BOARD_ITEM* item : vec )
+            {
+                if( item->Type() == PCB_PAD_T )
+                {
+                    PAD* pad = static_cast<PAD*>( item );
+                    if( ( is_npth_layer && pad->GetAttribute() == PAD_ATTRIB::PTH ) ||
+                        ( !is_npth_layer && pad->GetAttribute() == PAD_ATTRIB::NPTH ) )
+                    {
+                        continue;
+                    }
+
+                    m_tools.value().AddDrillTools(
+                        pad->GetAttribute() == PAD_ATTRIB::PTH ? "PLATED" : "NON_PLATED",
+                        ODB::Float2StrVal( m_ODBSymbolScale * std::min( pad->GetDrillSizeX(), pad->GetDrillSizeY() ) ) );
+                    
+                    // for drill features
+                    m_layerItems[pad->GetNetCode()].push_back( item );
+                }
+            }
+
+            break;
+        }
+
+    }
+
+    for( const auto& [layer_pair, vec] : drill_layers )
+    {
+        wxString dLayerName = wxString::Format( "drill_%s_%s-%s",
+                        plated_name,
                         m_board->GetLayerName( layer_pair.first ),
                         m_board->GetLayerName( layer_pair.second ) );
 
-        sLayerName.MakeUpper().Replace( wxT( "." ), wxT( "_" ) );
-
-        if( sLayerName == m_matrixLayerName )
+        if( ODB::GenLegalEntityName( dLayerName ) == m_matrixLayerName )
         {
-            for( BOARD_ITEM * item : vec )
+            for( BOARD_ITEM* item : vec )
             {
-                PAD* pad = static_cast<PAD*>( item );
-                //for slot tools
-                m_tools.value().AddDrillTools(
-                    pad->GetAttribute() == PAD_ATTRIB::PTH ? "PLATED" : "NON_PLATED",
-                    ODB::Float2StrVal( m_ODBScale * pad->GetDrillSizeX() ) );
+                if( item->Type() == PCB_VIA_T && !is_npth_layer )
+                {
+                    PCB_VIA* via = static_cast<PCB_VIA*>( item );
 
-                //for slot features
-                m_layerItems[pad->GetNetCode()].push_back( pad );
+                    m_tools.value().AddDrillTools(
+                        "VIA",
+                        ODB::Float2StrVal( m_ODBSymbolScale * via->GetDrillValue() ) );
+
+                    // for drill features
+                    m_layerItems[via->GetNetCode()].push_back( item );
+                }
+                else if( item->Type() == PCB_PAD_T )
+                {
+                    PAD* pad = static_cast<PAD*>( item );
+                    if( ( is_npth_layer && pad->GetAttribute() == PAD_ATTRIB::PTH ) ||
+                        ( !is_npth_layer && pad->GetAttribute() == PAD_ATTRIB::NPTH ) )
+                    {
+                        continue;
+                    }
+
+                    m_tools.value().AddDrillTools(
+                        pad->GetAttribute() == PAD_ATTRIB::PTH ? "PLATED" : "NON_PLATED",
+                        ODB::Float2StrVal( m_ODBSymbolScale * pad->GetDrillSizeX() ) );
+                    
+                    // for drill features
+                    m_layerItems[pad->GetNetCode()].push_back( item );
+
+                }
+
             }
 
             break;
         }
     }
 
-    InitFeatureData();
 }
+
+// void ODB_LAYER_ENTITY::InitSlotData()
+// {
+//     std::map<std::pair<PCB_LAYER_ID, PCB_LAYER_ID>, std::vector<BOARD_ITEM*>>&
+//         slot_holes = m_plugin->GetSlotHolesMap();
+
+//     if( !m_layerItems.empty() )
+//     {
+//         m_layerItems.clear();
+//     }
+
+//     m_tools.emplace( "MM" );
+    
+//     for( const auto& [layer_pair, vec] : slot_holes )
+//     {
+//         wxString sLayerName = wxString::Format( "slot_%s-%s",
+//                         m_board->GetLayerName( layer_pair.first ),
+//                         m_board->GetLayerName( layer_pair.second ) );
+
+//         if( ODB::GenLegalEntityName( sLayerName ) == m_matrixLayerName )
+//         {
+//             for( BOARD_ITEM * item : vec )
+//             {
+//                 PAD* pad = static_cast<PAD*>( item );
+//                 //for slot tools
+//                 m_tools.value().AddDrillTools(
+//                     pad->GetAttribute() == PAD_ATTRIB::PTH ? "PLATED" : "NON_PLATED",
+//                     ODB::Float2StrVal( m_ODBSymbolScale * pad->GetDrillSizeX() ) );
+
+//                 //for slot features
+//                 m_layerItems[pad->GetNetCode()].push_back( pad );
+//             }
+
+//             break;
+//         }
+//     }
+
+// }
 
 
 
@@ -792,8 +809,7 @@ void ODB_STEP_ENTITY::InitEdaData()
 
             toep.m_center = ODB::AddXY( pad->GetPosition() );
 
-            toep.m_rot = ODB::Float2StrVal(
-                        pad->GetOrientation().Normalize().AsDegrees() );
+            toep.m_rot = ODB::Float2StrVal( ( ANGLE_360 - pad->GetOrientation() ).Normalize().AsDegrees() );
 
             if( pad->IsFlipped() )
                 toep.m_mirror = wxT( "M" );

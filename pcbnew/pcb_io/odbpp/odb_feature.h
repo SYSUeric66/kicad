@@ -91,7 +91,9 @@ public:
 
     void AddShape( const PCB_SHAPE& aShape );
 
-    void AddVia( const PCB_VIA* aVia );
+    void AddVia( const PCB_VIA* aVia, PCB_LAYER_ID aLayer );
+    
+    void AddViaDrillHole( const PCB_VIA* aVia, PCB_LAYER_ID aLayer );
 
     // void AddPadStack( const PAD* aPad );
 

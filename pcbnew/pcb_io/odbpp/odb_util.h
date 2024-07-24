@@ -14,7 +14,7 @@
 
 //<! Scale factor from IU to ODBPP units (mm, micron, in)
 static double m_ODBScale = 1.0 / PCB_IU_PER_MM; 
-
+static double m_ODBSymbolScale = 1.0 / PL_IU_PER_MM; 
 enum class ODB_POLARITY
 {
     POSITIVE,

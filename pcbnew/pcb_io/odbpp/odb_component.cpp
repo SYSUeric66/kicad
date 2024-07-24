@@ -31,8 +31,9 @@ ODB_COMPONENT& COMPONENTS_MANAGER::AddComponent( const FOOTPRINT* aFp, const EDA
 
     if( aFp->GetOrientation() != ANGLE_0 )
     {
-        comp.m_rot = ODB::Float2StrVal( 
-                     aFp->GetOrientation().Normalize().AsDegrees() );
+        // odb Rotation is expressed in degrees and is always clockwise.
+        // while kicad EDA_ANGLE is anticlockwise.
+        comp.m_rot = ODB::Float2StrVal( ( ANGLE_360 - aFp->GetOrientation() ).Normalize().AsDegrees() );
     }
 
     if( aFp->GetLayer() != F_Cu )

@@ -136,6 +136,7 @@ void PCB_IO_ODBPP::SaveBoard( const wxString& aFileName, BOARD* aBoard,
     m_board = aBoard;
     m_units_str = "MM";
     m_ODBScale = 1.0 / PCB_IU_PER_MM;
+    m_ODBSymbolScale = 1.0 / PL_IU_PER_MM; 
     m_sigfig = 4;
 
     if( auto it = aProperties->find( "units" ); it != aProperties->end() )
@@ -144,6 +145,7 @@ void PCB_IO_ODBPP::SaveBoard( const wxString& aFileName, BOARD* aBoard,
         {
             m_units_str = "INCH";
             m_ODBScale = 25.4 / PCB_IU_PER_MM;
+            m_ODBSymbolScale = 25.4 / PL_IU_PER_MM; 
         }
     }
 
