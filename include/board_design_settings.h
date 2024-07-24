@@ -31,6 +31,7 @@
 #include <project/net_settings.h>
 #include <board_stackup_manager/board_stackup.h>
 #include <drc/drc_engine.h>
+#include <lset.h>
 #include <settings/nested_settings.h>
 #include <widgets/ui_common.h>
 #include <zone_settings.h>
@@ -726,6 +727,8 @@ public:
     double     m_SolderPasteMarginRatio;      // Solder mask margin ratio value of pad size
                                               // The final margin is the sum of these 2 values
     bool       m_AllowSoldermaskBridgesInFPs;
+    bool       m_TentViasFront;               // The default tenting option if not overridden on an
+    bool       m_TentViasBack;                // individual via
 
     std::shared_ptr<NET_SETTINGS> m_NetSettings;
 

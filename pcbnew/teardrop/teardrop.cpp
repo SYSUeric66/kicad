@@ -191,15 +191,11 @@ void TEARDROP_MANAGER::UpdateTeardrops( BOARD_COMMIT& aCommit,
 
         connectivity->GetConnectedPadsAndVias( track, &connectedPads, &connectedVias );
 
-        bool forceUpdate = aForceFullUpdate || alg::contains( *dirtyTracks, track );
+        bool forceUpdate = aForceFullUpdate || dirtyTracks->contains( track );
 
         for( PAD* pad : connectedPads )
         {
             if( !forceUpdate && !alg::contains( *dirtyPadsAndVias, pad ) )
-                continue;
-
-            if( pad->GetShape() == PAD_SHAPE::CUSTOM )
-                // A teardrop shape cannot be built
                 continue;
 
             TEARDROP_PARAMETERS& tdParams = pad->GetTeardropParams();

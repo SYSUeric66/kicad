@@ -26,6 +26,8 @@
 #include <string_utils.h>
 #include <macros.h>
 #include <cstdint>
+#include <reporter.h>
+#include <embedded_files.h>
 
 #ifdef __WIN32__
 #define WIN32_LEAN_AND_MEAN
@@ -36,6 +38,8 @@ using namespace fontconfig;
 
 static FONTCONFIG* g_config = nullptr;
 static bool        g_fcInitSuccess = false;
+
+REPORTER* FONTCONFIG::s_reporter = nullptr;
 
 /**
  * A simple wrapper to avoid exporing fontconfig in the header
@@ -55,6 +59,12 @@ wxString FONTCONFIG::Version()
 FONTCONFIG::FONTCONFIG()
 {
 };
+
+
+void fontconfig::FONTCONFIG::SetReporter( REPORTER* aReporter )
+{
+    s_reporter = aReporter;
+}
 
 
 /**
@@ -187,13 +197,35 @@ std::string FONTCONFIG::getFamilyStringByLang( FONTCONFIG_PAT& aPat, const wxStr
 }
 
 
-FONTCONFIG::FF_RESULT FONTCONFIG::FindFont( const wxString &aFontName, wxString &aFontFile,
-                                            int& aFaceIndex, bool aBold, bool aItalic )
+FONTCONFIG::FF_RESULT FONTCONFIG::FindFont( const wxString& aFontName, wxString& aFontFile,
+                                            int& aFaceIndex, bool aBold, bool aItalic,
+                                            const std::vector<wxString>* aEmbeddedFiles )
 {
     FF_RESULT retval = FF_RESULT::FF_ERROR;
 
     if( !g_fcInitSuccess )
         return retval;
+
+    // If the original font name contains any of these, then it is bold, regardless
+    // of whether we are looking for bold or not
+    if( aFontName.Lower().Contains( wxS( "bold" ) )       // also catches ultrabold
+        || aFontName.Lower().Contains( wxS( "heavy" ) )
+        || aFontName.Lower().Contains( wxS( "black" ) )   // also catches extrablack
+        || aFontName.Lower().Contains( wxS( "thick" ) )
+        || aFontName.Lower().Contains( wxS( "dark" ) ) )
+    {
+        aBold = true;
+    }
+
+    FcConfig* config = FcConfigGetCurrent();
+
+    if( aEmbeddedFiles )
+    {
+        for( const auto& file : *aEmbeddedFiles )
+        {
+            FcConfigAppFontAddFile( config, (const FcChar8*) file.c_str().AsChar() );
+        }
+    }
 
     wxString qualifiedFontName = aFontName;
 
@@ -209,11 +241,11 @@ FONTCONFIG::FF_RESULT FONTCONFIG::FindFont( const wxString &aFontName, wxString 
 
     FcPatternAddString( pat, FC_FAMILY, (FcChar8*) fcBuffer.data() );
 
-    FcConfigSubstitute( nullptr, pat, FcMatchPattern );
+    FcConfigSubstitute( config, pat, FcMatchPattern );
     FcDefaultSubstitute( pat );
 
     FcResult   r = FcResultNoMatch;
-    FcPattern* font = FcFontMatch( nullptr, pat, &r );
+    FcPattern* font = FcFontMatch( config, pat, &r );
 
     wxString fontName;
 
@@ -317,12 +349,18 @@ FONTCONFIG::FF_RESULT FONTCONFIG::FindFont( const wxString &aFontName, wxString 
 
     if( retval == FF_RESULT::FF_ERROR )
     {
-        wxLogWarning( _( "Error loading font '%s'." ), qualifiedFontName );
+        if( s_reporter )
+            s_reporter->Report( wxString::Format( _( "Error loading font '%s'." ), qualifiedFontName ) );
     }
     else if( retval == FF_RESULT::FF_SUBSTITUTE )
     {
         fontName.Replace( ':', ' ' );
-        wxLogWarning( _( "Font '%s' not found; substituting '%s'." ), qualifiedFontName, fontName );
+
+        // If we missed a case but the matching found the original font name, then we are not substituting
+        if( fontName.CmpNoCase( qualifiedFontName ) == 0 )
+            retval = FF_RESULT::FF_OK;
+        else if( s_reporter )
+            s_reporter->Report( wxString::Format( _( "Font '%s' not found; substituting '%s'." ), qualifiedFontName, fontName ) );
     }
 
     FcPatternDestroy( pat );
@@ -330,18 +368,29 @@ FONTCONFIG::FF_RESULT FONTCONFIG::FindFont( const wxString &aFontName, wxString 
 }
 
 
-void FONTCONFIG::ListFonts( std::vector<std::string>& aFonts, const std::string& aDesiredLang )
+void FONTCONFIG::ListFonts( std::vector<std::string>& aFonts, const std::string& aDesiredLang,
+                            const std::vector<wxString>* aEmbeddedFiles, bool aForce )
 {
     if( !g_fcInitSuccess )
         return;
 
     // be sure to cache bust if the language changed
-    if( m_fontInfoCache.empty() || m_fontCacheLastLang != aDesiredLang )
+    if( m_fontInfoCache.empty() || m_fontCacheLastLang != aDesiredLang || aForce )
     {
+        FcConfig* config = FcConfigGetCurrent();
+
+        if( aEmbeddedFiles )
+        {
+            for( const auto& file : *aEmbeddedFiles )
+            {
+                FcConfigAppFontAddFile( config, (const FcChar8*) file.c_str().AsChar() );
+            }
+        }
+
         FcPattern*   pat = FcPatternCreate();
         FcObjectSet* os = FcObjectSetBuild( FC_FAMILY, FC_FAMILYLANG, FC_STYLE, FC_LANG, FC_FILE,
                                             FC_OUTLINE, nullptr );
-        FcFontSet*   fs = FcFontList( nullptr, pat, os );
+        FcFontSet*   fs = FcFontList( config, pat, os );
 
         for( int i = 0; fs && i < fs->nfont; ++i )
         {

@@ -33,6 +33,7 @@
 #include <core/wx_stl_compat.h>
 #include <hashtables.h>
 #include <layer_ids.h>     // PCB_LAYER_ID
+#include <lset.h>
 #include <pcb_lexer.h>
 #include <kiid.h>
 #include <math/box2.h>
@@ -405,6 +406,8 @@ private:
     PROGRESS_REPORTER*  m_progressReporter;  ///< optional; may be nullptr
     TIME_PT             m_lastProgressTime;  ///< for progress reporting
     unsigned            m_lineCount;         ///< for progress reporting
+
+    std::map<EDA_TEXT*, std::tuple<wxString, bool, bool>> m_fontTextMap;
 
     std::vector<GROUP_INFO>     m_groupInfos;
     std::vector<GENERATOR_INFO> m_generatorInfos;

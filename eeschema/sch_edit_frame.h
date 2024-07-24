@@ -159,6 +159,11 @@ public:
      */
     bool LoadProjectSettings();
 
+    /**
+     * Load the drawing sheet file.
+     */
+    void LoadDrawingSheet();
+
     void ShowSchematicSetupDialog( const wxString& aInitialPage = wxEmptyString );
 
     void LoadSettings( APP_SETTINGS_BASE* aCfg ) override;
@@ -360,9 +365,11 @@ public:
     /**
      * Clear the current symbol annotation.
      *
-     * @param aCurrentSheetOnly Where to clear the annotation. See #ANNOTATE_SCOPE_T
+     * @param aAnnotateScope See #ANNOTATE_SCOPE_T
+     * @param aRecursive  Annotation should descend into and annotate subsheets
+     * @param aReporter A sink for error messages.  Use NULL_REPORTER if you don't need errors.
      */
-    void DeleteAnnotation( ANNOTATE_SCOPE_T aAnnotateScope, bool aRecursive );
+    void DeleteAnnotation( ANNOTATE_SCOPE_T aAnnotateScope, bool aRecursive, REPORTER& aReporter );
 
     /**
      * Annotate the symbols in the schematic that are not currently annotated. Multi-unit symbols
@@ -571,6 +578,8 @@ public:
      *
      * @param aSheet is the sheet to edit
      * @param aHierarchy is the current hierarchy containing aSheet
+     * @param aIsUndoable is a reference to a bool to know if this operation must clear
+     * the undo-redo list, since the operation is not reversible.
      * @param aClearAnnotationNewItems is a reference to a bool to know if the items managed by
      * this sheet need to have their annotation cleared i.e. when an existing item list is used.
      * it can happens when the edited sheet used an existing file, or becomes a new instance
@@ -579,7 +588,7 @@ public:
      *                                  the hierarchy navigator panel to be updated.
      */
     bool EditSheetProperties( SCH_SHEET* aSheet, SCH_SHEET_PATH* aHierarchy,
-                              bool* aClearAnnotationNewItems,
+                              bool* aIsUndoable = nullptr, bool* aClearAnnotationNewItems = nullptr,
                               bool* aUpdateHierarchyNavigator = nullptr );
 
     void InitSheet( SCH_SHEET* aSheet, const wxString& aNewFilename );
@@ -709,6 +718,15 @@ public:
     const std::vector<std::unique_ptr<SCH_ITEM>>& GetRepeatItems() const
     {
         return m_items_to_repeat;
+    }
+
+    /**
+     * Clear the list of items which are to be repeated with the insert key.
+     * These objects are owned by this container.
+     */
+    void ClearRepeatItemsList()
+    {
+        m_items_to_repeat.clear();
     }
 
     EDA_ITEM* GetItem( const KIID& aId ) const override;
@@ -867,7 +885,8 @@ public:
     void RefreshNetNavigator( const NET_NAVIGATOR_ITEM_DATA* aSelection = nullptr );
 
     void MakeNetNavigatorNode( const wxString& aNetName, wxTreeItemId aParentId,
-                               const NET_NAVIGATOR_ITEM_DATA* aSelection = nullptr );
+                               const NET_NAVIGATOR_ITEM_DATA* aSelection,
+                               bool aSingleSheetSchematic );
 
     void SelectNetNavigatorItem( const NET_NAVIGATOR_ITEM_DATA* aSelection = nullptr );
 
@@ -908,6 +927,10 @@ protected:
     void unitsChangeRefresh() override;
 
     void updateSelectionFilterVisbility() override;
+
+#ifdef KICAD_IPC_API
+    void onPluginAvailabilityChanged( wxCommandEvent& aEvt );
+#endif
 
 private:
     // Called when resizing the Hierarchy Navigator panel

@@ -726,9 +726,9 @@ void EXPORTER_PCB_VRML::ComputeLayer3D_Zpos()
     double half_thickness = m_brd_thickness / 2;
 
     // Compute each layer's Z value, more or less like the 3d view
-    for( LSEQ seq = LSET::AllCuMask().Seq();  seq;  ++seq )
+    for( PCB_LAYER_ID layer : LSET::AllCuMask().Seq() )
     {
-        int i = static_cast<int>( *seq );
+        int i = static_cast<int>( layer );
 
         if( i < copper_layers )
             SetLayerZ( i,  half_thickness - m_brd_thickness * i / (copper_layers - 1) );
@@ -907,7 +907,7 @@ void EXPORTER_PCB_VRML::ExportVrmlPadHole( PAD* aPad )
         if( ( aPad->GetAttribute() != PAD_ATTRIB::NPTH ) )
             pth = true;
 
-        if( aPad->GetDrillShape() == PAD_DRILL_SHAPE_OBLONG )
+        if( aPad->GetDrillShape() == PAD_DRILL_SHAPE::OBLONG )
         {
             // Oblong hole (slot)
 
@@ -1046,7 +1046,7 @@ void EXPORTER_PCB_VRML::ExportVrmlFootprint( FOOTPRINT* aFootprint, std::ostream
             continue;
         }
 
-        SGNODE* mod3d = (SGNODE*) m_Cache3Dmodels->Load( sM->m_Filename, footprintBasePath );
+        SGNODE* mod3d = (SGNODE*) m_Cache3Dmodels->Load( sM->m_Filename, footprintBasePath, aFootprint );
 
         if( nullptr == mod3d )
         {
@@ -1112,7 +1112,7 @@ void EXPORTER_PCB_VRML::ExportVrmlFootprint( FOOTPRINT* aFootprint, std::ostream
             aOutputFile->precision( m_precision );
 
             wxFileName srcFile =
-                    m_Cache3Dmodels->GetResolver()->ResolvePath( sM->m_Filename, wxEmptyString );
+                    m_Cache3Dmodels->GetResolver()->ResolvePath( sM->m_Filename, wxEmptyString, aFootprint );
             wxFileName dstFile;
             dstFile.SetPath( m_Subdir3DFpModels );
             dstFile.SetName( srcFile.GetName() );

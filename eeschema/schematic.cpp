@@ -24,18 +24,23 @@
 #include <core/kicad_algo.h>
 #include <ee_collectors.h>
 #include <erc/erc_settings.h>
-#include <sch_marker.h>
+#include <font/outline_font.h>
+#include <netlist_exporter_spice.h>
 #include <project.h>
-#include <project/project_file.h>
 #include <project/net_settings.h>
+#include <project/project_file.h>
 #include <schematic.h>
 #include <sch_junction.h>
+#include <sch_label.h>
 #include <sch_line.h>
+#include <sch_marker.h>
 #include <sch_screen.h>
 #include <sim/spice_settings.h>
-#include <sch_label.h>
 #include <sim/spice_value.h>
-#include <netlist_exporter_spice.h>
+
+#include <wx/log.h>
+
+bool SCHEMATIC::m_IsSchematicExists = false;
 
 SCHEMATIC::SCHEMATIC( PROJECT* aPrj ) :
           EDA_ITEM( nullptr, SCHEMATIC_T ),
@@ -44,6 +49,7 @@ SCHEMATIC::SCHEMATIC( PROJECT* aPrj ) :
 {
     m_currentSheet    = new SCH_SHEET_PATH();
     m_connectionGraph = new CONNECTION_GRAPH( this );
+    m_IsSchematicExists = true;
 
     SetProject( aPrj );
 
@@ -72,7 +78,7 @@ SCHEMATIC::SCHEMATIC( PROJECT* aPrj ) :
                 int      unit = symbol->GetUnit();
                 LIB_ID   libId = symbol->GetLibId();
 
-                for( SCH_SHEET_PATH& sheet : GetSheets() )
+                for( SCH_SHEET_PATH& sheet : BuildUnorderedSheetList() )
                 {
                     std::vector<SCH_SYMBOL*> otherUnits;
 
@@ -120,8 +126,12 @@ SCHEMATIC::SCHEMATIC( PROJECT* aPrj ) :
 
 SCHEMATIC::~SCHEMATIC()
 {
+    PROPERTY_MANAGER::Instance().UnregisterListeners( TYPE_HASH( SCH_FIELD ) );
+
     delete m_currentSheet;
     delete m_connectionGraph;
+
+    m_IsSchematicExists = false;
 }
 
 
@@ -300,7 +310,7 @@ ERC_SETTINGS& SCHEMATIC::ErcSettings() const
 
 std::vector<SCH_MARKER*> SCHEMATIC::ResolveERCExclusions()
 {
-    SCH_SHEET_LIST sheetList = GetSheets();
+    SCH_SHEET_LIST sheetList = BuildUnorderedSheetList();
     ERC_SETTINGS&  settings  = ErcSettings();
 
     // Migrate legacy marker exclusions to new format to ensure exclusion matching functions across
@@ -312,7 +322,13 @@ std::vector<SCH_MARKER*> SCHEMATIC::ResolveERCExclusions()
 
     for( auto it = settings.m_ErcExclusions.begin(); it != settings.m_ErcExclusions.end(); )
     {
-        SCH_MARKER* testMarker = SCH_MARKER::DeserializeFromString( this, *it );
+        SCH_MARKER* testMarker = SCH_MARKER::DeserializeFromString( sheetList, *it );
+
+        if( !testMarker )
+        {
+            it = settings.m_ErcExclusions.erase( it );
+            continue;
+        }
 
         if( testMarker->IsLegacyMarker() )
         {
@@ -359,7 +375,7 @@ std::vector<SCH_MARKER*> SCHEMATIC::ResolveERCExclusions()
 
     for( const wxString& serialized : settings.m_ErcExclusions )
     {
-        SCH_MARKER* marker = SCH_MARKER::DeserializeFromString( this, serialized );
+        SCH_MARKER* marker = SCH_MARKER::DeserializeFromString( sheetList, serialized );
 
         if( marker )
         {
@@ -376,7 +392,7 @@ std::vector<SCH_MARKER*> SCHEMATIC::ResolveERCExclusions()
 
 std::shared_ptr<BUS_ALIAS> SCHEMATIC::GetBusAlias( const wxString& aLabel ) const
 {
-    for( const SCH_SHEET_PATH& sheet : GetSheets() )
+    for( const SCH_SHEET_PATH& sheet : BuildUnorderedSheetList() )
     {
         for( const std::shared_ptr<BUS_ALIAS>& alias : sheet.LastScreen()->GetBusAliases() )
         {
@@ -410,11 +426,10 @@ std::set<wxString> SCHEMATIC::GetNetClassAssignmentCandidates()
 
 bool SCHEMATIC::ResolveCrossReference( wxString* token, int aDepth ) const
 {
-    SCH_SHEET_LIST sheetList = GetSheets();
     wxString       remainder;
     wxString       ref = token->BeforeFirst( ':', &remainder );
     SCH_SHEET_PATH sheetPath;
-    SCH_ITEM*      refItem = sheetList.GetItem( KIID( ref ), &sheetPath );
+    SCH_ITEM*      refItem = GetItem( KIID( ref ), &sheetPath );
 
     if( refItem && refItem->Type() == SCH_SYMBOL_T )
     {
@@ -447,7 +462,7 @@ std::map<int, wxString> SCHEMATIC::GetVirtualPageToSheetNamesMap() const
 {
     std::map<int, wxString> namesMap;
 
-    for( const SCH_SHEET_PATH& sheet : GetSheets() )
+    for( const SCH_SHEET_PATH& sheet : BuildUnorderedSheetList() )
     {
         if( sheet.size() == 1 )
             namesMap[sheet.GetVirtualPageNumber()] = _( "<root sheet>" );
@@ -463,7 +478,7 @@ std::map<int, wxString> SCHEMATIC::GetVirtualPageToSheetPagesMap() const
 {
     std::map<int, wxString> pagesMap;
 
-    for( const SCH_SHEET_PATH& sheet : GetSheets() )
+    for( const SCH_SHEET_PATH& sheet : BuildUnorderedSheetList() )
         pagesMap[sheet.GetVirtualPageNumber()] = sheet.GetPageNumber();
 
     return pagesMap;
@@ -507,12 +522,11 @@ wxString SCHEMATIC::ConvertRefsToKIIDs( const wxString& aSource ) const
 
             if( isCrossRef )
             {
-                SCH_SHEET_LIST     sheetList = GetSheets();
                 wxString           remainder;
                 wxString           ref = token.BeforeFirst( ':', &remainder );
                 SCH_REFERENCE_LIST references;
 
-                sheetList.GetSymbols( references );
+                BuildUnorderedSheetList().GetSymbols( references );
 
                 for( size_t jj = 0; jj < references.GetCount(); jj++ )
                 {
@@ -563,12 +577,11 @@ wxString SCHEMATIC::ConvertKIIDsToRefs( const wxString& aSource ) const
 
             if( isCrossRef )
             {
-                SCH_SHEET_LIST sheetList = GetSheets();
-                wxString       remainder;
-                wxString       ref = token.BeforeFirst( ':', &remainder );
+                wxString remainder;
+                wxString ref = token.BeforeFirst( ':', &remainder );
 
                 SCH_SHEET_PATH refSheetPath;
-                SCH_ITEM*      refItem = sheetList.GetItem( KIID( ref ), &refSheetPath );
+                SCH_ITEM* refItem = GetItem( KIID( ref ), &refSheetPath );
 
                 if( refItem && refItem->Type() == SCH_SYMBOL_T )
                 {
@@ -636,7 +649,7 @@ void SCHEMATIC::SetSheetNumberAndCount()
 
     // @todo Remove all pseudo page number system is left over from prior to real page number
     //       implementation.
-    for( const SCH_SHEET_PATH& sheet : GetSheets() )
+    for( const SCH_SHEET_PATH& sheet : BuildSheetListSortedByPageNumbers() )
     {
         if( sheet.Path() == current_sheetpath ) // Current sheet path found
             break;
@@ -659,7 +672,7 @@ void SCHEMATIC::RecomputeIntersheetRefs( const std::function<void( SCH_GLOBALLAB
 
     pageRefsMap.clear();
 
-    for( const SCH_SHEET_PATH& sheet : GetSheets() )
+    for( const SCH_SHEET_PATH& sheet : BuildSheetListSortedByPageNumbers() )
     {
         for( SCH_ITEM* item : sheet.LastScreen()->Items().OfType( SCH_GLOBAL_LABEL_T ) )
         {
@@ -701,10 +714,10 @@ void SCHEMATIC::RecomputeIntersheetRefs( const std::function<void( SCH_GLOBALLAB
 wxString SCHEMATIC::GetOperatingPoint( const wxString& aNetName, int aPrecision,
                                        const wxString& aRange )
 {
-    std::string spiceNetName( aNetName.Lower().ToStdString() );
-    NETLIST_EXPORTER_SPICE::ConvertToSpiceMarkup( spiceNetName );
+    wxString spiceNetName( aNetName.Lower() );
+    NETLIST_EXPORTER_SPICE::ConvertToSpiceMarkup( &spiceNetName );
 
-    if( spiceNetName == "gnd" || spiceNetName == "0" )
+    if( spiceNetName == wxS( "gnd" ) || spiceNetName == wxS( "0" ) )
         return wxEmptyString;
 
     auto it = m_operatingPoints.find( spiceNetName );
@@ -720,10 +733,10 @@ wxString SCHEMATIC::GetOperatingPoint( const wxString& aNetName, int aPrecision,
 
 void SCHEMATIC::FixupJunctions()
 {
-    for( const SCH_SHEET_PATH& sheet : GetSheets() )
-    {
-        SCH_SCREEN* screen = sheet.LastScreen();
+    SCH_SCREENS screens( Root() );
 
+    for( SCH_SCREEN* screen = screens.GetFirst(); screen; screen = screens.GetNext() )
+    {
         std::deque<EDA_ITEM*> allItems;
 
         for( auto item : screen->Items() )
@@ -797,7 +810,8 @@ void SCHEMATIC::RemoveAllListeners()
 
 void SCHEMATIC::RecordERCExclusions()
 {
-    SCH_SHEET_LIST sheetList = GetSheets();
+    // Use a sorted sheetList to reduce file churn
+    SCH_SHEET_LIST sheetList = BuildSheetListSortedByPageNumbers();
     ERC_SETTINGS&  ercSettings = ErcSettings();
 
     ercSettings.m_ErcExclusions.clear();
@@ -822,7 +836,7 @@ void SCHEMATIC::RecordERCExclusions()
 
 void SCHEMATIC::ResolveERCExclusionsPostUpdate()
 {
-    SCH_SHEET_LIST sheetList = GetSheets();
+    SCH_SHEET_LIST sheetList = BuildUnorderedSheetList();
 
     for( SCH_MARKER* marker : ResolveERCExclusions() )
     {
@@ -833,5 +847,61 @@ void SCHEMATIC::ResolveERCExclusionsPostUpdate()
             errorPath.LastScreen()->Append( marker );
         else
             RootScreen()->Append( marker );
+    }
+}
+
+
+EMBEDDED_FILES* SCHEMATIC::GetEmbeddedFiles()
+{
+    return static_cast<EMBEDDED_FILES*>( this );
+}
+
+
+const EMBEDDED_FILES* SCHEMATIC::GetEmbeddedFiles() const
+{
+    return static_cast<const EMBEDDED_FILES*>( this );
+}
+
+
+void SCHEMATIC::EmbedFonts()
+{
+    std::set<KIFONT::OUTLINE_FONT*> fonts;
+
+    SCH_SHEET_LIST sheetList = BuildUnorderedSheetList();
+
+    for( const SCH_SHEET_PATH& sheet : sheetList )
+    {
+        for( SCH_ITEM* item : sheet.LastScreen()->Items() )
+        {
+            if( EDA_TEXT* text = dynamic_cast<EDA_TEXT*>( item ) )
+            {
+                KIFONT::FONT* font = text->GetFont();
+
+                if( !font || font->IsStroke() )
+                    continue;
+
+                using EMBEDDING_PERMISSION = KIFONT::OUTLINE_FONT::EMBEDDING_PERMISSION;
+                auto* outline = static_cast<KIFONT::OUTLINE_FONT*>( font );
+
+                if( outline->GetEmbeddingPermission() == EMBEDDING_PERMISSION::EDITABLE
+                    || outline->GetEmbeddingPermission() == EMBEDDING_PERMISSION::INSTALLABLE )
+                {
+                    fonts.insert( outline );
+                }
+            }
+        }
+    }
+
+    for( KIFONT::OUTLINE_FONT* font : fonts )
+    {
+        auto file = GetEmbeddedFiles()->AddFile( font->GetFileName(), false );
+
+        if( !file )
+        {
+            wxLogTrace( "EMBED", "Failed to add font file: %s", font->GetFileName() );
+            continue;
+        }
+
+        file->type = EMBEDDED_FILES::EMBEDDED_FILE::FILE_TYPE::FONT;
     }
 }

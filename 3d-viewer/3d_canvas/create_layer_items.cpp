@@ -38,6 +38,7 @@
 #include <board_design_settings.h>
 #include <board.h>
 #include <footprint.h>
+#include <lset.h>
 #include <pad.h>
 #include <pcb_text.h>
 #include <pcb_textbox.h>
@@ -222,10 +223,8 @@ void BOARD_ADAPTER::createLayers( REPORTER* aStatusReporter )
     for( unsigned i = 0; i < arrayDim( cu_seq ); ++i )
         cu_seq[i] = ToLAYER_ID( B_Cu - i );
 
-    for( LSEQ cu = cu_set.Seq( cu_seq, arrayDim( cu_seq ) ); cu; ++cu )
+    for( PCB_LAYER_ID layer : cu_set.Seq( cu_seq, arrayDim( cu_seq ) ) )
     {
-        const PCB_LAYER_ID layer = *cu;
-
         if( !Is3dLayerEnabled( layer, visibilityFlags ) ) // Skip non enabled layers
             continue;
 
@@ -875,14 +874,15 @@ void BOARD_ADAPTER::createLayers( REPORTER* aStatusReporter )
             }
 
             // Add via tech layers
-            if( ( layer == F_Mask || layer == B_Mask ) && !m_board->GetTentVias() )
+            if( ( layer == F_Mask || layer == B_Mask ) )
             {
                 int maskExpansion = GetBoard()->GetDesignSettings().m_SolderMaskExpansion;
 
                 for( PCB_TRACK* track : m_board->Tracks() )
                 {
                     if( track->Type() == PCB_VIA_T
-                            && static_cast<const PCB_VIA*>( track )->FlashLayer( layer )  )
+                            && static_cast<const PCB_VIA*>( track )->FlashLayer( layer )
+                            && !static_cast<const PCB_VIA*>( track )->IsTented( layer ) )
                     {
                         createViaWithMargin( track, layerContainer, maskExpansion );
                     }
@@ -966,14 +966,15 @@ void BOARD_ADAPTER::createLayers( REPORTER* aStatusReporter )
             }
 
             // NON-TENTED VIAS
-            if( ( layer == F_Mask || layer == B_Mask ) && !m_board->GetTentVias() )
+            if( ( layer == F_Mask || layer == B_Mask ) )
             {
                 int maskExpansion = GetBoard()->GetDesignSettings().m_SolderMaskExpansion;
 
                 for( PCB_TRACK* track : m_board->Tracks() )
                 {
                     if( track->Type() == PCB_VIA_T
-                            && static_cast<const PCB_VIA*>( track )->FlashLayer( layer )  )
+                            && static_cast<const PCB_VIA*>( track )->FlashLayer( layer )
+                            && !static_cast<const PCB_VIA*>( track )->IsTented( layer ) )
                     {
                         track->TransformShapeToPolygon( *layerPoly, layer, maskExpansion, maxError,
                                                         ERROR_INSIDE );

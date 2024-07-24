@@ -151,16 +151,24 @@ DIALOG_SHAPE_PROPERTIES::DIALOG_SHAPE_PROPERTIES( PCB_BASE_EDIT_FRAME* aParent, 
     m_netSelector->SetBoard( aParent->GetBoard() );
     m_netSelector->SetNetInfo( &aParent->GetBoard()->GetNetInfo() );
 
-    int net = aShape->GetNetCode();
-
-    if( net >= 0 )
+    if( m_parent->GetFrameType() == FRAME_FOOTPRINT_EDITOR )
     {
-        m_netSelector->SetSelectedNetcode( net );
+        m_netLabel->Hide();
+        m_netSelector->Hide();
     }
     else
     {
-        m_netSelector->SetIndeterminateString( INDETERMINATE_STATE );
-        m_netSelector->SetIndeterminate();
+        int net = aShape->GetNetCode();
+
+        if( net >= 0 )
+        {
+            m_netSelector->SetSelectedNetcode( net );
+        }
+        else
+        {
+            m_netSelector->SetIndeterminateString( INDETERMINATE_STATE );
+            m_netSelector->SetIndeterminate();
+        }
     }
 
     if( m_item->GetShape() == SHAPE_T::POLY )
@@ -355,8 +363,14 @@ bool DIALOG_SHAPE_PROPERTIES::TransferDataFromWindow()
     int       rectangle_width = 0;
 
     BOARD_COMMIT commit( m_parent );
-
     commit.Modify( m_item );
+
+    bool pushCommit = ( m_item->GetEditFlags() == 0 );
+
+    // Set IN_EDIT flag to force undo/redo/abort proper operation and avoid new calls to
+    // SaveCopyInUndoList for the same text if is moved, and then rotated, edited, etc....
+    if( !pushCommit )
+        m_item->SetFlags( IN_EDIT );
 
     if( m_item->GetShape() == SHAPE_T::SEGMENT )
     {
@@ -505,14 +519,15 @@ bool DIALOG_SHAPE_PROPERTIES::TransferDataFromWindow()
 
     m_item->SetLayer( ToLAYER_ID( layer ) );
 
-    m_item->RebuildBezierToSegmentsPointsList( m_item->GetWidth() );
+    m_item->RebuildBezierToSegmentsPointsList( ARC_HIGH_DEF );
 
     if( m_item->IsOnCopperLayer() )
         m_item->SetNetCode( m_netSelector->GetSelectedNetcode() );
     else
         m_item->SetNetCode( -1 );
 
-    commit.Push( _( "Edit Shape Properties" ) );
+    if( pushCommit )
+        commit.Push( _( "Edit Shape Properties" ) );
 
     // Notify clients which treat locked and unlocked items differently (ie: POINT_EDITOR)
     if( wasLocked != m_item->IsLocked() )

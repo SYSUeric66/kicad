@@ -47,6 +47,7 @@ attr
 autoplace_cost90
 autoplace_cost180
 aux_axis_origin
+back
 best_length_ratio
 best_width_ratio
 bevelled
@@ -105,6 +106,8 @@ edge_connector
 edge_plating
 edge_width
 effects
+embedded_fonts
+embedded_files
 enabled
 end
 epsilon_r
@@ -138,6 +141,7 @@ fp_rect
 fp_text
 fp_text_box
 free
+front
 full
 general
 generator
@@ -314,6 +318,7 @@ title_block
 teardrop
 teardrops
 tedit
+tenting
 text_frame
 text_position_mode
 thermal_width

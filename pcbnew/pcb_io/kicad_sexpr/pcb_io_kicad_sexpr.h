@@ -27,10 +27,12 @@
 
 #include <pcb_io/pcb_io.h>
 #include <pcb_io/pcb_io_mgr.h>
+#include <ctl_flags.h>
 
 #include <richio.h>
 #include <string>
 #include <layer_ids.h>
+#include <lset.h>
 #include <boost/ptr_container/ptr_map.hpp>
 #include <wx_filename.h>
 #include "widgets/report_severity.h"
@@ -38,6 +40,7 @@
 class BOARD;
 class BOARD_ITEM;
 class FP_CACHE;
+class LSET;
 class PCB_IO_KICAD_SEXPR_PARSER;
 class NETINFO_MAPPING;
 class BOARD_DESIGN_SETTINGS;
@@ -153,7 +156,11 @@ class PCB_IO_KICAD_SEXPR;   // forward decl
 //----------------- Start of 9.0 development -----------------
 //#define SEXPR_BOARD_FILE_VERSION    20240201  // Use nullable properties for overrides
 //#define SEXPR_BOARD_FILE_VERSION    20240202  // Tables
-#define SEXPR_BOARD_FILE_VERSION      20240225  // Rationalization of solder_paste_margin
+//#define SEXPR_BOARD_FILE_VERSION    20240225  // Rationalization of solder_paste_margin
+//#define SEXPR_BOARD_FILE_VERSION    20240609  // Add 'tenting' keyword
+//#define SEXPR_BOARD_FILE_VERSION    20240617  // Table angles
+//#define SEXPR_BOARD_FILE_VERSION    20240703  // User layer types
+#define SEXPR_BOARD_FILE_VERSION      20240706  // Embedded Files
 
 #define BOARD_FILE_HOST_VERSION       20200825  ///< Earlier files than this include the host tag
 #define LEGACY_ARC_FORMATTING         20210925  ///< These were the last to use old arc formatting
@@ -161,17 +168,6 @@ class PCB_IO_KICAD_SEXPR;   // forward decl
                                                 ///<   to indicate a net-tie.
 #define FIRST_NORMALIZED_VERISON      20230924  ///< Earlier files did not have normalized bools
 
-#define CTL_OMIT_PAD_NETS           (1 << 1)    ///< Omit pads net names (useless in library)
-#define CTL_OMIT_UUIDS              (1 << 2)    ///< Omit component unique ids (useless in library)
-#define CTL_OMIT_INITIAL_COMMENTS   (1 << 3)    ///< omit FOOTPRINT initial comments
-#define CTL_OMIT_PATH               (1 << 4)    ///< Omit component sheet time stamp (useless in library)
-#define CTL_OMIT_AT                 (1 << 5)    ///< Omit position and rotation. (always saved
-                                                ///< with position 0,0 and rotation = 0 in library).
-//#define CTL_OMIT_HIDE             (1 << 6)    // found and defined in eda_text.h
-#define CTL_OMIT_LIBNAME            (1 << 7)    ///< Omit lib alias when saving (used for
-                                                ///< board/not library).
-#define CTL_OMIT_FOOTPRINT_VERSION  (1 << 8)    ///< Omit the version string from the (footprint)
-                                                ///<sexpr group
 
 // common combinations of the above:
 
@@ -179,7 +175,7 @@ class PCB_IO_KICAD_SEXPR;   // forward decl
 #define CTL_FOR_CLIPBOARD           (CTL_OMIT_INITIAL_COMMENTS) // (CTL_OMIT_NETS)
 
 /// Format output for a footprint library instead of clipboard or BOARD
-#define CTL_FOR_LIBRARY                                                                    \
+#define CTL_FOR_LIBRARY \
     ( CTL_OMIT_PAD_NETS | CTL_OMIT_UUIDS | CTL_OMIT_PATH | CTL_OMIT_AT | CTL_OMIT_LIBNAME )
 
 /// The zero arg constructor when PCB_PLUGIN is used for PLUGIN::Load() and PLUGIN::Save()ing

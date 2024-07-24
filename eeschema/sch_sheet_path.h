@@ -229,6 +229,9 @@ public:
      */
     int Cmp( const SCH_SHEET_PATH& aSheetPathToTest ) const;
 
+    void CachePageNumber() const { m_cached_page_number = GetPageNumber(); }
+    wxString GetCachedPageNumber() const { return m_cached_page_number; }
+
     /**
      * Compare sheets by their page number. If the actual page number is equal, use virtual page
      * numbers to compare.
@@ -262,6 +265,11 @@ public:
 
     ///< @copydoc SCH_SHEET_PATH::LastScreen()
     SCH_SCREEN* LastScreen() const;
+
+    bool GetExcludedFromSim() const;
+    bool GetExcludedFromBOM() const;
+    bool GetExcludedFromBoard() const;
+    bool GetDNP() const;
 
     /**
      * Fetch a SCH_ITEM by ID.
@@ -411,9 +419,10 @@ private:
     void initFromOther( const SCH_SHEET_PATH& aOther );
 
 protected:
-    std::vector< SCH_SHEET* > m_sheets;
+    std::vector<SCH_SHEET*> m_sheets;
 
-    size_t m_current_hash;
+    size_t                  m_current_hash;
+    mutable wxString        m_cached_page_number;
 
     int m_virtualPageNumber;           /// Page numbers are maintained by the sheet load order.
 
@@ -446,10 +455,6 @@ struct SHEET_PATH_CMP
 };
 
 
-typedef std::vector< SCH_SHEET_PATH >            SCH_SHEET_PATHS;
-typedef SCH_SHEET_PATHS::iterator                SCH_SHEET_PATHS_ITER;
-
-
 /**
  * A container for handling #SCH_SHEET_PATH objects in a flattened hierarchy.
  *
@@ -458,7 +463,7 @@ typedef SCH_SHEET_PATHS::iterator                SCH_SHEET_PATHS_ITER;
  * be shared between these sheets and symbol references are specific to a sheet path.
  * When a sheet is entered, symbol references and sheet page number are updated.
  */
-class SCH_SHEET_LIST : public SCH_SHEET_PATHS
+class SCH_SHEET_LIST : public std::vector<SCH_SHEET_PATH>
 {
 public:
     /**
@@ -466,7 +471,7 @@ public:
      *
      * If aSheet == NULL, then this is an empty hierarchy which the user can populate.
      */
-    SCH_SHEET_LIST( SCH_SHEET* aSheet = nullptr, bool aCheckIntegrity = false );
+    SCH_SHEET_LIST( SCH_SHEET* aSheet = nullptr );
 
     ~SCH_SHEET_LIST() {}
 
@@ -533,7 +538,8 @@ public:
      * @param aReferences List of sheets to populate.
      * @param aSheetPath Path to return sheets from
      */
-    void GetSheetsWithinPath( SCH_SHEET_PATHS& aSheets, const SCH_SHEET_PATH& aSheetPath ) const;
+    void GetSheetsWithinPath( std::vector<SCH_SHEET_PATH>& aSheets,
+                              const SCH_SHEET_PATH& aSheetPath ) const;
 
 
     /**
@@ -589,7 +595,7 @@ public:
      *
      * If \a aSheet is the root sheet, the full sheet path and sheet list are built.
      *
-     * The list will be ordered as per #SCH_SCREEN::GetSheets which results in sheets being ordered
+     * The list will be ordered as per #SCH_SCREEN::BuildSheetList which results in sheets being ordered
      * in the legacy way of using the X and Y positions of the sheets.
      *
      * @see #SortByPageNumbers to sort by page numbers

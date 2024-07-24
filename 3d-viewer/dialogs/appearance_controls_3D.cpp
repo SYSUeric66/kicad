@@ -100,7 +100,6 @@ APPEARANCE_CONTROLS_3D::APPEARANCE_CONTROLS_3D( EDA_3D_VIEWER_FRAME* aParent,
 {
     DPI_SCALING_COMMON dpi( nullptr, m_frame );
 
-    int indicatorSize = ConvertDialogToPixels( wxSize( 6, 6 ) ).x / dpi.GetContentScaleFactor();
     int screenHeight  = wxSystemSettings::GetMetric( wxSYS_SCREEN_Y );
     m_pointSize       = wxSystemSettings::GetFont( wxSYS_DEFAULT_GUI_FONT ).GetPointSize();
 
@@ -153,13 +152,13 @@ APPEARANCE_CONTROLS_3D::APPEARANCE_CONTROLS_3D( EDA_3D_VIEWER_FRAME* aParent,
                                                  KeyNameFromKeyCode( VIEWPORT_SWITCH_KEY ),
                                                  KeyNameFromKeyCode( VIEWPORT_SWITCH_KEY ) ) );
 
-    if( screenHeight <= 900 && m_pointSize >= indicatorSize )
+    if( screenHeight <= 900 && m_pointSize >= FromDIP( KIUI::c_IndicatorSizeDIP ) )
         m_pointSize = m_pointSize * 8 / 10;
 
     m_cbLayerPresets->Bind( wxEVT_CHOICE, &APPEARANCE_CONTROLS_3D::onLayerPresetChanged, this );
 
-    m_toggleGridRenderer = new GRID_BITMAP_TOGGLE_RENDERER( KiBitmap( BITMAPS::visibility ),
-                                                            KiBitmap( BITMAPS::visibility_off ) );
+    m_toggleGridRenderer = new GRID_BITMAP_TOGGLE_RENDERER(
+            KiBitmapBundle( BITMAPS::visibility ), KiBitmapBundle( BITMAPS::visibility_off ) );
 
     m_frame->Bind( EDA_LANG_CHANGED, &APPEARANCE_CONTROLS_3D::OnLanguageChanged, this );
 }
@@ -521,10 +520,9 @@ void APPEARANCE_CONTROLS_3D::rebuildLayers()
                 }
                 else
                 {
-                    BITMAP_TOGGLE* btn_visible = new BITMAP_TOGGLE( m_windowLayers, layer,
-                                                                    KiBitmap( BITMAPS::visibility ),
-                                                                    KiBitmap( BITMAPS::visibility_off ),
-                                                                    aSetting->m_Visible );
+                    BITMAP_TOGGLE* btn_visible = new BITMAP_TOGGLE(
+                            m_windowLayers, layer, KiBitmapBundle( BITMAPS::visibility ),
+                            KiBitmapBundle( BITMAPS::visibility_off ), aSetting->m_Visible );
 
                     btn_visible->Bind( TOGGLE_CHANGED,
                             [this]( wxCommandEvent& aEvent )

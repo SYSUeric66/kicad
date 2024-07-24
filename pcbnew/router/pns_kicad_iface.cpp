@@ -197,7 +197,8 @@ bool PNS_PCBNEW_RULE_RESOLVER::IsNetTieExclusion( const PNS::ITEM* aItem,
                                                   const VECTOR2I& aCollisionPos,
                                                   const PNS::ITEM* aCollidingItem )
 {
-    wxCHECK( aItem && aCollidingItem, false );
+    if( !aItem || !aCollidingItem )
+        return false;
 
     std::shared_ptr<DRC_ENGINE> drcEngine = m_board->GetDesignSettings().m_DRCEngine;
     BOARD_ITEM*                 item = aItem->BoardItem();
@@ -298,15 +299,13 @@ static bool isEdge( const PNS::ITEM* aItem )
 
 bool PNS_PCBNEW_RULE_RESOLVER::IsDrilledHole( const PNS::ITEM* aItem )
 {
-    if( !isHole( aItem ) )
-        return false;
+    if( isHole( aItem ) )
+    {
+        if( BOARD_ITEM* item = dynamic_cast<BOARD_ITEM*>( aItem->Parent() ) )
+            return item->HasDrilledHole();
+    }
 
-    if( PAD* pad = dynamic_cast<PAD*>( aItem->Parent() ) )
-        return pad->GetDrillSizeX() && pad->GetDrillSizeX() == pad->GetDrillSizeY();
-
-    // Via holes are (currently) always round
-
-    return true;
+    return false;
 }
 
 
@@ -494,11 +493,13 @@ int PNS_PCBNEW_RULE_RESOLVER::Clearance( const PNS::ITEM* aA, const PNS::ITEM* a
 
     // Search cache (used for actual board items)
     auto it = m_clearanceCache.find( key );
+
     if( it != m_clearanceCache.end() )
         return it->second;
 
     // Search cache (used for temporary items within an algorithm)
     it = m_tempClearanceCache.find( key );
+
     if( it != m_tempClearanceCache.end() )
         return it->second;
 
@@ -536,7 +537,9 @@ int PNS_PCBNEW_RULE_RESOLVER::Clearance( const PNS::ITEM* aA, const PNS::ITEM* a
                     rv = constraint.m_Value.Min();
             }
         }
-        else if( isCopper( aA ) && ( !aB || isCopper( aB ) ) )
+
+        // No 'else'; plated holes get both HOLE_CLEARANCE and CLEARANCE
+        if( isCopper( aA ) && ( !aB || isCopper( aB ) ) )
         {
             if( QueryConstraint( PNS::CONSTRAINT_TYPE::CT_CLEARANCE, aA, aB, layer, &constraint ) )
             {
@@ -565,14 +568,17 @@ int PNS_PCBNEW_RULE_RESOLVER::Clearance( const PNS::ITEM* aA, const PNS::ITEM* a
     if( aUseClearanceEpsilon && rv > 0 )
         rv = std::max( 0, rv - m_clearanceEpsilon );
 
-
-/* It makes no sense to put items that have no owning NODE in the cache - they can be allocated on stack
-   and we can't really invalidate them in the cache when they are destroyed. Probably a better idea would be
-   to use a static unique counter in PNS::ITEM constructor to generate the cache keys.  */
-/* However, algorithms DO greatly benefit from using the cache, so ownerless items need to be cached.
-   In order to easily clear those only, a temporary cache is created. If this doesn't seem nice, an alternative
-   is clearing the full cache once it reaches a certain size. Also not pretty, but VERY effective
-   to keep things interactive. */
+    /*
+     * It makes no sense to put items that have no owning NODE in the cache - they can be
+     * allocated on stack and we can't really invalidate them in the cache when they are
+     * destroyed.  Probably a better idea would be to use a static unique counter in PNS::ITEM
+     * constructor to generate the cache keys.
+     *
+     * However, algorithms DO greatly benefit from using the cache, so ownerless items need to be
+     * cached.  In order to easily clear those only, a temporary cache is created. If this doesn't
+     * seem nice, an alternative is clearing the full cache once it reaches a certain size. Also
+     * not pretty, but VERY effective to keep things interactive.
+     */
     if( aA && aB )
     {
         if ( aA->Owner() && aB->Owner() )
@@ -1258,7 +1264,7 @@ bool PNS_KICAD_IFACE_BASE::syncZone( PNS::NODE* aWorld, ZONE* aZone, SHAPE_POLY_
     if( !poly->IsTriangulationUpToDate() )
     {
         UNITS_PROVIDER unitsProvider( pcbIUScale, GetUnits() );
-        msg.Printf( _( "%s is malformed." ), aZone->GetItemDescription( &unitsProvider ) );
+        msg.Printf( _( "%s is malformed." ), aZone->GetItemDescription( &unitsProvider, true ) );
 
         KIDIALOG dlg( nullptr, msg, KIDIALOG::KD_WARNING );
         dlg.ShowDetailedText( _( "This zone cannot be handled by the router.\n"
@@ -1350,9 +1356,14 @@ bool PNS_KICAD_IFACE_BASE::syncGraphicalItem( PNS::NODE* aWorld, PCB_SHAPE* aIte
             std::unique_ptr<PNS::SOLID> solid = std::make_unique<PNS::SOLID>();
 
             if( aItem->GetLayer() == Edge_Cuts || aItem->GetLayer() == Margin )
+            {
                 solid->SetLayers( LAYER_RANGE( F_Cu, B_Cu ) );
+                solid->SetRoutable( false );
+            }
             else
+            {
                 solid->SetLayer( aItem->GetLayer() );
+            }
 
             if( aItem->GetLayer() == Edge_Cuts )
             {

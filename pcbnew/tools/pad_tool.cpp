@@ -84,6 +84,8 @@ void PAD_TOOL::Reset( RESET_REASON aReason )
 
 bool PAD_TOOL::Init()
 {
+    static const std::vector<KICAD_T> padTypes = { PCB_PAD_T };
+
     PCB_SELECTION_TOOL* selTool = m_toolMgr->GetTool<PCB_SELECTION_TOOL>();
 
     if( selTool )
@@ -93,7 +95,7 @@ bool PAD_TOOL::Init()
 
         SELECTION_CONDITION padSel = SELECTION_CONDITIONS::HasType( PCB_PAD_T );
         SELECTION_CONDITION singlePadSel = SELECTION_CONDITIONS::Count( 1 ) &&
-                                           SELECTION_CONDITIONS::OnlyTypes( { PCB_PAD_T } );
+                                           SELECTION_CONDITIONS::OnlyTypes( padTypes );
 
         auto explodeCondition =
                 [&]( const SELECTION& aSel )
@@ -308,11 +310,11 @@ int PAD_TOOL::EnumeratePads( const TOOL_EVENT& aEvent )
 
     GENERAL_COLLECTOR        collector;
     GENERAL_COLLECTORS_GUIDE guide = frame()->GetCollectorsGuide();
-    guide.SetIgnoreMTextsMarkedNoShow( true );
-    guide.SetIgnoreMTextsOnBack( true );
-    guide.SetIgnoreMTextsOnFront( true );
-    guide.SetIgnoreModulesVals( true );
-    guide.SetIgnoreModulesRefs( true );
+    guide.SetIgnoreHiddenFPText( true );
+    guide.SetIgnoreFPTextOnBack( true );
+    guide.SetIgnoreFPTextOnFront( true );
+    guide.SetIgnoreFPValues( true );
+    guide.SetIgnoreFPReferences( true );
 
     const std::optional<SEQUENTIAL_PAD_ENUMERATION_PARAMS> params =
             GetSequentialPadNumberingParams( frame() );
@@ -330,16 +332,17 @@ int PAD_TOOL::EnumeratePads( const TOOL_EVENT& aEvent )
 
     frame()->PushTool( aEvent );
 
-    VECTOR2I        oldCursorPos;  // store the previous mouse cursor position, during mouse drag
-    std::list<PAD*> selectedPads;
-    BOARD_COMMIT    commit( frame() );
-    bool            isFirstPoint = true;   // make sure oldCursorPos is initialized at least once
-    PADS            pads = board()->GetFirstFootprint()->Pads();
-
+    VECTOR2I          oldCursorPos;  // store the previous mouse cursor position, during mouse drag
+    std::list<PAD*>   selectedPads;
+    BOARD_COMMIT      commit( frame() );
+    bool              isFirstPoint = true;   // make sure oldCursorPos is initialized at least once
+    std::deque<PAD*>  pads = board()->GetFirstFootprint()->Pads();
     MAGNETIC_SETTINGS mag_settings;
+
     mag_settings.graphics = false;
     mag_settings.tracks = MAGNETIC_OPTIONS::NO_EFFECT;
     mag_settings.pads = MAGNETIC_OPTIONS::CAPTURE_ALWAYS;
+
     PCB_GRID_HELPER grid( m_toolMgr, &mag_settings );
 
     grid.SetSnap( true );
@@ -349,6 +352,35 @@ int PAD_TOOL::EnumeratePads( const TOOL_EVENT& aEvent )
             [&]()
             {
                 canvas()->SetCurrentCursor( KICURSOR::BULLSEYE );
+            };
+
+    KIGFX::VIEW*         view = m_toolMgr->GetView();
+    RENDER_SETTINGS*     settings = view->GetPainter()->GetSettings();
+    const std::set<int>& activeLayers = settings->GetHighContrastLayers();
+    bool                 isHighContrast = settings->GetHighContrast();
+
+    auto checkVisibility =
+            [&]( BOARD_ITEM* item )
+            {
+                if( !view->IsVisible( item ) )
+                    return false;
+
+                bool onActiveLayer = !isHighContrast;
+                bool isLODVisible = false;
+
+                for( PCB_LAYER_ID layer : item->GetLayerSet().Seq() )
+                {
+                    if( !onActiveLayer && activeLayers.count( layer ) )
+                        onActiveLayer = true;
+
+                    if( !isLODVisible && item->ViewGetLOD( layer, view ) < view->GetScale() )
+                        isLODVisible = true;
+
+                    if( onActiveLayer && isLODVisible )
+                        return true;
+                }
+
+                return false;
             };
 
     Activate();
@@ -433,7 +465,7 @@ int PAD_TOOL::EnumeratePads( const TOOL_EVENT& aEvent )
                 {
                     PAD* pad = static_cast<PAD*>( collector[i] );
 
-                    if( !pad->IsAperturePad() )
+                    if( !pad->IsAperturePad() && checkVisibility( pad ) )
                         selectedPads.push_back( pad );
                 }
             }
@@ -591,7 +623,7 @@ int PAD_TOOL::PlacePad( const TOOL_EVENT& aEvent )
 
                 // Gives an acceptable drill size: it cannot be 0, but from pad master
                 // it is currently 0, therefore change it:
-                pad->SetDrillShape( PAD_DRILL_SHAPE_CIRCLE );
+                pad->SetDrillShape( PAD_DRILL_SHAPE::CIRCLE );
                 int hole_size = pad->GetSizeX() / 2;
                 pad->SetDrillSize( VECTOR2I( hole_size, hole_size ) );
 
@@ -810,7 +842,7 @@ void PAD_TOOL::explodePad( PAD* aPad, PCB_LAYER_ID* aLayer, BOARD_COMMIT& aCommi
     else if( aPad->IsOnLayer( B_Cu ) )
         *aLayer = B_Cu;
     else
-        *aLayer = *aPad->GetLayerSet().UIOrder();
+        *aLayer = aPad->GetLayerSet().UIOrder().front();
 
     if( aPad->GetShape() == PAD_SHAPE::CUSTOM )
     {
@@ -846,140 +878,11 @@ void PAD_TOOL::explodePad( PAD* aPad, PCB_LAYER_ID* aLayer, BOARD_COMMIT& aCommi
 std::vector<PCB_SHAPE*> PAD_TOOL::RecombinePad( PAD* aPad, bool aIsDryRun )
 {
     int        maxError = board()->GetDesignSettings().m_MaxError;
-    FOOTPRINT* footprint = aPad->GetParentFootprint();
 
     // Don't leave an object in the point editor that might no longer exist after recombining.
     m_toolMgr->RunAction( PCB_ACTIONS::selectionClear );
 
-    for( BOARD_ITEM* item : footprint->GraphicalItems() )
-        item->ClearFlags( SKIP_STRUCT );
-
-    auto findNext =
-            [&]( PCB_LAYER_ID aLayer ) -> PCB_SHAPE*
-            {
-                SHAPE_POLY_SET padPoly;
-                aPad->TransformShapeToPolygon( padPoly, aLayer, 0, maxError, ERROR_INSIDE );
-
-                for( BOARD_ITEM* item : footprint->GraphicalItems() )
-                {
-                    PCB_SHAPE* shape = dynamic_cast<PCB_SHAPE*>( item );
-
-                    if( !shape || ( shape->GetFlags() & SKIP_STRUCT ) )
-                        continue;
-
-                    if( shape->GetLayer() != aLayer )
-                        continue;
-
-                    if( shape->IsProxyItem() )    // Pad number (and net name) box
-                        return shape;
-
-                    SHAPE_POLY_SET drawPoly;
-                    shape->TransformShapeToPolygon( drawPoly, aLayer, 0, maxError, ERROR_INSIDE );
-                    drawPoly.BooleanIntersection( padPoly, SHAPE_POLY_SET::PM_FAST );
-
-                    if( !drawPoly.IsEmpty() )
-                        return shape;
-                }
-
-                return nullptr;
-            };
-
-    auto findMatching =
-            [&]( PCB_SHAPE* aShape ) -> std::vector<PCB_SHAPE*>
-            {
-                std::vector<PCB_SHAPE*> matching;
-
-                for( BOARD_ITEM* item : footprint->GraphicalItems() )
-                {
-                    PCB_SHAPE* other = dynamic_cast<PCB_SHAPE*>( item );
-
-                    if( !other || ( other->GetFlags() & SKIP_STRUCT ) )
-                        continue;
-
-                    if( aPad->GetLayerSet().test( other->GetLayer() )
-                            && aShape->Compare( other ) == 0 )
-                    {
-                        matching.push_back( other );
-                    }
-                }
-
-                return matching;
-            };
-
-    PCB_LAYER_ID            layer;
-    std::vector<PCB_SHAPE*> mergedShapes;
-
-    if( aPad->IsOnLayer( F_Cu ) )
-        layer = F_Cu;
-    else if( aPad->IsOnLayer( B_Cu ) )
-        layer = B_Cu;
-    else
-        layer = *aPad->GetLayerSet().UIOrder();
-
-    // If there are intersecting items to combine, we need to first make sure the pad is a
-    // custom-shape pad.
-    if( !aIsDryRun && findNext( layer ) && aPad->GetShape() != PAD_SHAPE::CUSTOM )
-    {
-        if( aPad->GetShape() == PAD_SHAPE::CIRCLE || aPad->GetShape() == PAD_SHAPE::RECTANGLE )
-        {
-            // Use the existing pad as an anchor
-            aPad->SetAnchorPadShape( aPad->GetShape() );
-            aPad->SetShape( PAD_SHAPE::CUSTOM );
-        }
-        else
-        {
-            // Create a new circular anchor and convert existing pad to a polygon primitive
-            SHAPE_POLY_SET existingOutline;
-            aPad->TransformShapeToPolygon( existingOutline, layer, 0, maxError, ERROR_INSIDE );
-
-            int minExtent = std::min( aPad->GetSize().x, aPad->GetSize().y );
-            aPad->SetAnchorPadShape( PAD_SHAPE::CIRCLE );
-            aPad->SetSize( VECTOR2I( minExtent, minExtent ) );
-            aPad->SetShape( PAD_SHAPE::CUSTOM );
-
-            PCB_SHAPE* shape = new PCB_SHAPE( nullptr, SHAPE_T::POLY );
-            shape->SetFilled( true );
-            shape->SetStroke( STROKE_PARAMS( 0, LINE_STYLE::SOLID ) );
-            shape->SetPolyShape( existingOutline );
-            shape->Rotate( VECTOR2I( 0, 0 ), - aPad->GetOrientation() );
-            shape->Move( - aPad->ShapePos() );
-            aPad->AddPrimitive( shape );
-        }
-    }
-
-    while( PCB_SHAPE* fpShape = findNext( layer ) )
-    {
-        fpShape->SetFlags( SKIP_STRUCT );
-
-        mergedShapes.push_back( fpShape );
-
-        if( !aIsDryRun )
-        {
-            PCB_SHAPE* primitive = static_cast<PCB_SHAPE*>( fpShape->Duplicate() );
-
-            primitive->SetParent( nullptr );
-            primitive->Move( - aPad->ShapePos() );
-            primitive->Rotate( VECTOR2I( 0, 0 ), - aPad->GetOrientation() );
-
-            aPad->AddPrimitive( primitive );
-        }
-
-        // See if there are other shapes that match and mark them for delete.  (KiCad won't
-        // produce these, but old footprints from other vendors have them.)
-        for( PCB_SHAPE* other : findMatching( fpShape ) )
-        {
-            other->SetFlags( SKIP_STRUCT );
-            mergedShapes.push_back( other );
-        }
-    }
-
-    for( BOARD_ITEM* item : footprint->GraphicalItems() )
-        item->ClearFlags( SKIP_STRUCT );
-
-    if( !aIsDryRun )
-        aPad->ClearFlags( ENTERED );
-
-    return mergedShapes;
+    return aPad->Recombine( aIsDryRun, maxError );
 }
 
 

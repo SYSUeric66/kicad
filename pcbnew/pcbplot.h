@@ -24,7 +24,8 @@
 #ifndef PCBPLOT_H_
 #define PCBPLOT_H_
 
-#include <pad_shapes.h>         // for PAD_DRILL_SHAPE_T
+#include <lset.h>
+#include <padstack.h>         // for PAD_DRILL_SHAPE
 #include <pcb_plot_params.h>
 #include <settings/color_settings.h>
 #include <settings/settings_manager.h>
@@ -102,6 +103,8 @@ public:
      */
     void PlotPad( const PAD* aPad, const COLOR4D& aColor, OUTLINE_MODE aPlotMode );
 
+    void PlotPadNumber( const PAD* aPad, const COLOR4D& aColor );
+
     /**
      * Plot items like text and graphics but not tracks and footprints.
      */
@@ -131,7 +134,7 @@ private:
      *
      * It compensate and clamp the drill mark size depending on the current plot options.
      */
-    void plotOneDrillMark( PAD_DRILL_SHAPE_T aDrillShape, const VECTOR2I& aDrillPos,
+    void plotOneDrillMark( PAD_DRILL_SHAPE aDrillShape, const VECTOR2I& aDrillPos,
                            const VECTOR2I& aDrillSize, const VECTOR2I& aPadSize,
                            const EDA_ANGLE& aOrientation, int aSmallDrill );
 
@@ -142,8 +145,8 @@ private:
 
 
 PLOTTER* StartPlotBoard( BOARD* aBoard, const PCB_PLOT_PARAMS* aPlotOpts, int aLayer,
-                         const wxString& aFullFileName, const wxString& aSheetName,
-                         const wxString& aSheetPath );
+                         const wxString& aLayerName, const wxString& aFullFileName,
+                         const wxString& aSheetName, const wxString& aSheetPath );
 
 /**
  * Plot a sequence of board layer IDs.

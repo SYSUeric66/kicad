@@ -43,6 +43,7 @@
 
 #include <symbol_library.h>
 #include <connection_graph.h>
+#include <junction_helpers.h>
 #include <sch_pin.h>
 #include <sch_symbol.h>
 #include <sch_junction.h>
@@ -476,32 +477,39 @@ std::set<SCH_ITEM*> SCH_SCREEN::MarkConnections( SCH_LINE* aSegment, bool aSecon
 
 bool SCH_SCREEN::IsJunction( const VECTOR2I& aPosition ) const
 {
-    bool hasExplicitJunction;
-    bool hasBusEntry;
-    bool isJunction = doIsJunction( aPosition, false, &hasExplicitJunction, &hasBusEntry );
-
-    return isJunction;
+    const JUNCTION_HELPERS::POINT_INFO info =
+            JUNCTION_HELPERS::AnalyzePoint( Items(), aPosition, false );
+    return info.isJunction;
 }
 
 
 bool SCH_SCREEN::IsExplicitJunction( const VECTOR2I& aPosition ) const
 {
-    bool hasExplicitJunction;
-    bool hasBusEntry;
-    bool isJunction = doIsJunction( aPosition, false, &hasExplicitJunction, &hasBusEntry );
+    const JUNCTION_HELPERS::POINT_INFO info =
+            JUNCTION_HELPERS::AnalyzePoint( Items(), aPosition, false );
 
-    return isJunction && !hasBusEntry;
+    return info.isJunction && ( !info.hasBusEntry || info.hasBusEntryToMultipleWires );
 }
 
 
 bool SCH_SCREEN::IsExplicitJunctionNeeded( const VECTOR2I& aPosition ) const
 {
-    bool hasExplicitJunction;
-    bool hasBusEntry;
-    bool isJunction = doIsJunction( aPosition, false, &hasExplicitJunction, &hasBusEntry );
+    const JUNCTION_HELPERS::POINT_INFO info =
+            JUNCTION_HELPERS::AnalyzePoint( Items(), aPosition, false );
 
-    return isJunction && !hasBusEntry && !hasExplicitJunction;
+    return info.isJunction && ( !info.hasBusEntry || info.hasBusEntryToMultipleWires )
+           && !info.hasExplicitJunctionDot;
 }
+
+
+bool SCH_SCREEN::IsExplicitJunctionAllowed( const VECTOR2I& aPosition ) const
+{
+    const JUNCTION_HELPERS::POINT_INFO info =
+            JUNCTION_HELPERS::AnalyzePoint( Items(), aPosition, true );
+
+    return info.isJunction && (!info.hasBusEntry || info.hasBusEntryToMultipleWires );
+}
+
 
 SPIN_STYLE SCH_SCREEN::GetLabelOrientationForPoint( const VECTOR2I&       aPosition,
                                                     SPIN_STYLE            aDefaultOrientation,
@@ -698,118 +706,6 @@ SPIN_STYLE SCH_SCREEN::GetLabelOrientationForPoint( const VECTOR2I&       aPosit
         }
     }
     return ret;
-}
-
-
-bool SCH_SCREEN::IsExplicitJunctionAllowed( const VECTOR2I& aPosition ) const
-{
-    bool hasExplicitJunction;
-    bool hasBusEntry;
-    bool isJunction = doIsJunction( aPosition, true, &hasExplicitJunction, &hasBusEntry );
-
-    return isJunction && !hasBusEntry;
-}
-
-
-
-bool SCH_SCREEN::doIsJunction( const VECTOR2I& aPosition, bool aBreakCrossings,
-                             bool* aHasExplicitJunctionDot, bool* aHasBusEntry ) const
-{
-    enum layers { WIRES = 0, BUSES };
-
-    *aHasExplicitJunctionDot = false;
-    *aHasBusEntry = false;
-
-    bool                          breakLines[ 2 ] = { false };
-    std::unordered_set<int>       exitAngles[ 2 ];
-    std::vector<const SCH_LINE*>  midPointLines[ 2 ];
-
-    // A pin at 90° still shouldn't match a line at 90° so just give pins unique numbers
-    int                           uniqueAngle = 10000;
-
-    for( const SCH_ITEM* item : Items().Overlapping( aPosition ) )
-    {
-        if( item->GetEditFlags() & STRUCT_DELETED )
-            continue;
-
-        switch( item->Type() )
-        {
-        case SCH_JUNCTION_T:
-            if( item->HitTest( aPosition, -1 ) )
-                *aHasExplicitJunctionDot = true;
-
-            break;
-
-        case SCH_LINE_T:
-        {
-            const SCH_LINE* line = static_cast<const SCH_LINE*>( item );
-            int             layer;
-
-            if( line->GetStartPoint() == line->GetEndPoint() )
-                break;
-            else if( line->GetLayer() == LAYER_WIRE )
-                layer = WIRES;
-            else if( line->GetLayer() == LAYER_BUS )
-                layer = BUSES;
-            else
-                break;
-
-            if( line->IsConnected( aPosition ) )
-            {
-                breakLines[ layer ] = true;
-                exitAngles[ layer ].insert( line->GetAngleFrom( aPosition ) );
-            }
-            else if( line->HitTest( aPosition, -1 ) )
-            {
-                if( aBreakCrossings )
-                    breakLines[ layer ] = true;
-
-                // Defer any line midpoints until we know whether or not we're breaking them
-                midPointLines[ layer ].push_back( line );
-            }
-        }
-            break;
-
-        case SCH_BUS_WIRE_ENTRY_T:
-            if( item->IsConnected( aPosition ) )
-            {
-                breakLines[ BUSES ] = true;
-                exitAngles[ BUSES ].insert( uniqueAngle++ );
-                breakLines[ WIRES ] = true;
-                exitAngles[ WIRES ].insert( uniqueAngle++ );
-                *aHasBusEntry = true;
-            }
-
-            break;
-
-        case SCH_SYMBOL_T:
-        case SCH_SHEET_T:
-            if( item->IsConnected( aPosition ) )
-            {
-                breakLines[ WIRES ] = true;
-                exitAngles[ WIRES ].insert( uniqueAngle++ );
-            }
-
-            break;
-
-        default:
-            break;
-        }
-    }
-
-    for( int layer : { WIRES, BUSES } )
-    {
-        if( breakLines[ layer ] )
-        {
-            for( const SCH_LINE* line : midPointLines[ layer ] )
-            {
-                exitAngles[ layer ].insert( line->GetAngleFrom( aPosition ) );
-                exitAngles[ layer ].insert( line->GetReverseAngleFrom( aPosition ) );
-            }
-        }
-    }
-
-    return exitAngles[ WIRES ].size() >= 3 || exitAngles[ BUSES ].size() >= 3;
 }
 
 
@@ -1328,9 +1224,13 @@ void SCH_SCREEN::EnsureAlternateReferencesExist()
 
 void SCH_SCREEN::GetHierarchicalItems( std::vector<SCH_ITEM*>* aItems ) const
 {
+    static const std::vector<KICAD_T> hierarchicalTypes = { SCH_SYMBOL_T,
+                                                            SCH_SHEET_T,
+                                                            SCH_LABEL_LOCATE_ANY_T };
+
     for( SCH_ITEM* item : Items() )
     {
-        if( item->IsType( { SCH_SYMBOL_T, SCH_SHEET_T, SCH_LABEL_LOCATE_ANY_T } ) )
+        if( item->IsType( hierarchicalTypes ) )
             aItems->push_back( item );
     }
 }
@@ -1585,6 +1485,28 @@ void SCH_SCREEN::AddLibSymbol( LIB_SYMBOL* aLibSymbol )
     }
 
     m_libSymbols[libSymbolName] = aLibSymbol;
+}
+
+
+void SCH_SCREEN::FixupEmbeddedData()
+{
+    SCHEMATIC* schematic = Schematic();
+
+    for( auto& [name, libSym] : m_libSymbols )
+    {
+        for( auto& [filename, embeddedFile] : libSym->EmbeddedFileMap() )
+        {
+            EMBEDDED_FILES::EMBEDDED_FILE* file = schematic->GetEmbeddedFile( filename );
+
+            if( file )
+            {
+                embeddedFile->compressedEncodedData = file->compressedEncodedData;
+                embeddedFile->decompressedData = file->decompressedData;
+                embeddedFile->data_sha = file->data_sha;
+                embeddedFile->is_valid = file->is_valid;
+            }
+        }
+    }
 }
 
 
@@ -1860,7 +1782,7 @@ void SCH_SCREENS::ClearAnnotationOfNewSheetPaths( SCH_SHEET_LIST& aInitialSheetP
 
     // Search for new sheet paths, not existing in aInitialSheetPathList
     // and existing in sheetpathList
-    for( SCH_SHEET_PATH& sheetpath : sch->GetSheets() )
+    for( SCH_SHEET_PATH& sheetpath : sch->BuildSheetListSortedByPageNumbers() )
     {
         bool path_exists = false;
 
@@ -2000,7 +1922,7 @@ void SCH_SCREENS::UpdateSymbolLinks( REPORTER* aReporter )
 
     wxCHECK_RET( sch, "Null schematic in SCH_SCREENS::UpdateSymbolLinks" );
 
-    SCH_SHEET_LIST sheets = sch->GetSheets();
+    SCH_SHEET_LIST sheets = sch->BuildSheetListSortedByPageNumbers();
 
     // All of the library symbols have been replaced with copies so the connection graph
     // pointers are stale.
@@ -2099,7 +2021,7 @@ void SCH_SCREENS::BuildClientSheetPathList()
     for( SCH_SCREEN* curr_screen = GetFirst(); curr_screen; curr_screen = GetNext() )
         curr_screen->GetClientSheetPaths().clear();
 
-    for( SCH_SHEET_PATH& sheetpath : sch->GetSheets() )
+    for( SCH_SHEET_PATH& sheetpath : sch->BuildSheetListSortedByPageNumbers() )
     {
         SCH_SCREEN* used_screen = sheetpath.LastScreen();
 

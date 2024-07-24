@@ -1,5 +1,5 @@
 ///////////////////////////////////////////////////////////////////////////
-// C++ code generated with wxFormBuilder (version 4.0.0-0-g0efcecf)
+// C++ code generated with wxFormBuilder (version 4.2.1-0-g80c4cb6a-dirty)
 // http://www.wxformbuilder.org/
 //
 // PLEASE DO *NOT* EDIT THIS FILE!
@@ -321,7 +321,40 @@ DIALOG_TRACK_VIA_PROPERTIES_BASE::DIALOG_TRACK_VIA_PROPERTIES_BASE( wxWindow* pa
 	int m_annularRingsCtrlNChoices = sizeof( m_annularRingsCtrlChoices ) / sizeof( wxString );
 	m_annularRingsCtrl = new wxChoice( m_sbViaSizer->GetStaticBox(), wxID_ANY, wxDefaultPosition, wxDefaultSize, m_annularRingsCtrlNChoices, m_annularRingsCtrlChoices, 0 );
 	m_annularRingsCtrl->SetSelection( 1 );
-	fgSizer4->Add( m_annularRingsCtrl, 0, wxALIGN_CENTER_VERTICAL|wxEXPAND, 5 );
+	fgSizer4->Add( m_annularRingsCtrl, 0, wxALIGN_CENTER_VERTICAL|wxBOTTOM|wxEXPAND, 5 );
+
+	m_tentingFrontLabel = new wxStaticText( m_sbViaSizer->GetStaticBox(), wxID_ANY, _("Front tenting:"), wxDefaultPosition, wxDefaultSize, 0 );
+	m_tentingFrontLabel->Wrap( -1 );
+	fgSizer4->Add( m_tentingFrontLabel, 0, wxALIGN_CENTER_VERTICAL|wxLEFT|wxRIGHT, 5 );
+
+	wxString m_tentingFrontCtrlChoices[] = { _("From design rules"), _("Tented"), _("Not tented") };
+	int m_tentingFrontCtrlNChoices = sizeof( m_tentingFrontCtrlChoices ) / sizeof( wxString );
+	m_tentingFrontCtrl = new wxChoice( m_sbViaSizer->GetStaticBox(), wxID_ANY, wxDefaultPosition, wxDefaultSize, m_tentingFrontCtrlNChoices, m_tentingFrontCtrlChoices, 0 );
+	m_tentingFrontCtrl->SetSelection( 0 );
+	m_tentingFrontCtrl->SetToolTip( _("Whether to tent (cover with soldermask) this via on the front side") );
+
+	fgSizer4->Add( m_tentingFrontCtrl, 0, wxALIGN_CENTER_VERTICAL|wxBOTTOM|wxEXPAND, 5 );
+
+	m_btnLinkTenting = new wxBitmapToggleButton( m_sbViaSizer->GetStaticBox(), wxID_ANY, wxNullBitmap, wxDefaultPosition, wxDefaultSize, 0 );
+	m_btnLinkTenting->SetValue( true );
+	m_btnLinkTenting->SetToolTip( _("Link front and back tenting settings") );
+
+	fgSizer4->Add( m_btnLinkTenting, 0, wxALIGN_CENTER_HORIZONTAL|wxALIGN_CENTER_VERTICAL|wxLEFT|wxRIGHT, 5 );
+
+
+	fgSizer4->Add( 0, 0, 1, wxEXPAND, 5 );
+
+	m_tentingBackLabel = new wxStaticText( m_sbViaSizer->GetStaticBox(), wxID_ANY, _("Back tenting:"), wxDefaultPosition, wxDefaultSize, 0 );
+	m_tentingBackLabel->Wrap( -1 );
+	fgSizer4->Add( m_tentingBackLabel, 0, wxALIGN_CENTER_VERTICAL|wxLEFT|wxRIGHT, 5 );
+
+	wxString m_tentingBackCtrlChoices[] = { _("From design rules"), _("Tented"), _("Not tented") };
+	int m_tentingBackCtrlNChoices = sizeof( m_tentingBackCtrlChoices ) / sizeof( wxString );
+	m_tentingBackCtrl = new wxChoice( m_sbViaSizer->GetStaticBox(), wxID_ANY, wxDefaultPosition, wxDefaultSize, m_tentingBackCtrlNChoices, m_tentingBackCtrlChoices, 0 );
+	m_tentingBackCtrl->SetSelection( 0 );
+	m_tentingBackCtrl->SetToolTip( _("Whether to tent (cover with soldermask) this via on the back side") );
+
+	fgSizer4->Add( m_tentingBackCtrl, 0, wxALIGN_CENTER_VERTICAL|wxEXPAND, 5 );
 
 
 	viaRightColumn->Add( fgSizer4, 0, wxEXPAND|wxBOTTOM, 3 );
@@ -547,13 +580,6 @@ DIALOG_TRACK_VIA_PROPERTIES_BASE::DIALOG_TRACK_VIA_PROPERTIES_BASE( wxWindow* pa
 
 	bSizer44->Add( 45, 0, 0, 0, 5 );
 
-	m_curvePointsLabel = new wxStaticText( m_sbViaSizer->GetStaticBox(), wxID_ANY, _("Points:"), wxDefaultPosition, wxDefaultSize, 0 );
-	m_curvePointsLabel->Wrap( -1 );
-	bSizer44->Add( m_curvePointsLabel, 0, wxALIGN_CENTER_VERTICAL, 5 );
-
-	m_curvePointsCtrl = new wxSpinCtrl( m_sbViaSizer->GetStaticBox(), wxID_ANY, wxEmptyString, wxDefaultPosition, wxDefaultSize, wxSP_ARROW_KEYS, 3, 10, 5 );
-	bSizer44->Add( m_curvePointsCtrl, 0, wxALIGN_CENTER_VERTICAL|wxRIGHT|wxLEFT, 5 );
-
 
 	bSizer20->Add( bSizer44, 0, wxBOTTOM|wxEXPAND|wxLEFT|wxTOP, 5 );
 
@@ -595,6 +621,8 @@ DIALOG_TRACK_VIA_PROPERTIES_BASE::DIALOG_TRACK_VIA_PROPERTIES_BASE( wxWindow* pa
 	m_ViaTypeChoice->Connect( wxEVT_COMMAND_CHOICE_SELECTED, wxCommandEventHandler( DIALOG_TRACK_VIA_PROPERTIES_BASE::onViaEdit ), NULL, this );
 	m_ViaStartLayer->Connect( wxEVT_COMMAND_COMBOBOX_SELECTED, wxCommandEventHandler( DIALOG_TRACK_VIA_PROPERTIES_BASE::onViaEdit ), NULL, this );
 	m_ViaEndLayer->Connect( wxEVT_COMMAND_COMBOBOX_SELECTED, wxCommandEventHandler( DIALOG_TRACK_VIA_PROPERTIES_BASE::onViaEdit ), NULL, this );
+	m_tentingFrontCtrl->Connect( wxEVT_COMMAND_CHOICE_SELECTED, wxCommandEventHandler( DIALOG_TRACK_VIA_PROPERTIES_BASE::onFrontTentingChanged ), NULL, this );
+	m_btnLinkTenting->Connect( wxEVT_COMMAND_TOGGLEBUTTON_CLICKED, wxCommandEventHandler( DIALOG_TRACK_VIA_PROPERTIES_BASE::onTentingLinkToggle ), NULL, this );
 	m_cbTeardrops->Connect( wxEVT_UPDATE_UI, wxUpdateUIEventHandler( DIALOG_TRACK_VIA_PROPERTIES_BASE::onTeardropsUpdateUi ), NULL, this );
 	m_cbTeardropsUseNextTrack->Connect( wxEVT_UPDATE_UI, wxUpdateUIEventHandler( DIALOG_TRACK_VIA_PROPERTIES_BASE::onTeardropsUpdateUi ), NULL, this );
 	m_stHDRatio->Connect( wxEVT_UPDATE_UI, wxUpdateUIEventHandler( DIALOG_TRACK_VIA_PROPERTIES_BASE::onTeardropsUpdateUi ), NULL, this );
@@ -619,8 +647,6 @@ DIALOG_TRACK_VIA_PROPERTIES_BASE::DIALOG_TRACK_VIA_PROPERTIES_BASE( wxWindow* pa
 	m_tcMaxWidth->Connect( wxEVT_UPDATE_UI, wxUpdateUIEventHandler( DIALOG_TRACK_VIA_PROPERTIES_BASE::onTeardropsUpdateUi ), NULL, this );
 	m_stMaxWidthUnits->Connect( wxEVT_UPDATE_UI, wxUpdateUIEventHandler( DIALOG_TRACK_VIA_PROPERTIES_BASE::onTeardropsUpdateUi ), NULL, this );
 	m_curvedEdges->Connect( wxEVT_UPDATE_UI, wxUpdateUIEventHandler( DIALOG_TRACK_VIA_PROPERTIES_BASE::onTeardropsUpdateUi ), NULL, this );
-	m_curvePointsLabel->Connect( wxEVT_UPDATE_UI, wxUpdateUIEventHandler( DIALOG_TRACK_VIA_PROPERTIES_BASE::onCurvedEdgesUpdateUi ), NULL, this );
-	m_curvePointsCtrl->Connect( wxEVT_UPDATE_UI, wxUpdateUIEventHandler( DIALOG_TRACK_VIA_PROPERTIES_BASE::onCurvedEdgesUpdateUi ), NULL, this );
 }
 
 DIALOG_TRACK_VIA_PROPERTIES_BASE::~DIALOG_TRACK_VIA_PROPERTIES_BASE()
@@ -635,6 +661,8 @@ DIALOG_TRACK_VIA_PROPERTIES_BASE::~DIALOG_TRACK_VIA_PROPERTIES_BASE()
 	m_ViaTypeChoice->Disconnect( wxEVT_COMMAND_CHOICE_SELECTED, wxCommandEventHandler( DIALOG_TRACK_VIA_PROPERTIES_BASE::onViaEdit ), NULL, this );
 	m_ViaStartLayer->Disconnect( wxEVT_COMMAND_COMBOBOX_SELECTED, wxCommandEventHandler( DIALOG_TRACK_VIA_PROPERTIES_BASE::onViaEdit ), NULL, this );
 	m_ViaEndLayer->Disconnect( wxEVT_COMMAND_COMBOBOX_SELECTED, wxCommandEventHandler( DIALOG_TRACK_VIA_PROPERTIES_BASE::onViaEdit ), NULL, this );
+	m_tentingFrontCtrl->Disconnect( wxEVT_COMMAND_CHOICE_SELECTED, wxCommandEventHandler( DIALOG_TRACK_VIA_PROPERTIES_BASE::onFrontTentingChanged ), NULL, this );
+	m_btnLinkTenting->Disconnect( wxEVT_COMMAND_TOGGLEBUTTON_CLICKED, wxCommandEventHandler( DIALOG_TRACK_VIA_PROPERTIES_BASE::onTentingLinkToggle ), NULL, this );
 	m_cbTeardrops->Disconnect( wxEVT_UPDATE_UI, wxUpdateUIEventHandler( DIALOG_TRACK_VIA_PROPERTIES_BASE::onTeardropsUpdateUi ), NULL, this );
 	m_cbTeardropsUseNextTrack->Disconnect( wxEVT_UPDATE_UI, wxUpdateUIEventHandler( DIALOG_TRACK_VIA_PROPERTIES_BASE::onTeardropsUpdateUi ), NULL, this );
 	m_stHDRatio->Disconnect( wxEVT_UPDATE_UI, wxUpdateUIEventHandler( DIALOG_TRACK_VIA_PROPERTIES_BASE::onTeardropsUpdateUi ), NULL, this );
@@ -659,7 +687,5 @@ DIALOG_TRACK_VIA_PROPERTIES_BASE::~DIALOG_TRACK_VIA_PROPERTIES_BASE()
 	m_tcMaxWidth->Disconnect( wxEVT_UPDATE_UI, wxUpdateUIEventHandler( DIALOG_TRACK_VIA_PROPERTIES_BASE::onTeardropsUpdateUi ), NULL, this );
 	m_stMaxWidthUnits->Disconnect( wxEVT_UPDATE_UI, wxUpdateUIEventHandler( DIALOG_TRACK_VIA_PROPERTIES_BASE::onTeardropsUpdateUi ), NULL, this );
 	m_curvedEdges->Disconnect( wxEVT_UPDATE_UI, wxUpdateUIEventHandler( DIALOG_TRACK_VIA_PROPERTIES_BASE::onTeardropsUpdateUi ), NULL, this );
-	m_curvePointsLabel->Disconnect( wxEVT_UPDATE_UI, wxUpdateUIEventHandler( DIALOG_TRACK_VIA_PROPERTIES_BASE::onCurvedEdgesUpdateUi ), NULL, this );
-	m_curvePointsCtrl->Disconnect( wxEVT_UPDATE_UI, wxUpdateUIEventHandler( DIALOG_TRACK_VIA_PROPERTIES_BASE::onCurvedEdgesUpdateUi ), NULL, this );
 
 }

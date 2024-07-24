@@ -78,7 +78,7 @@ void EE_INSPECTION_TOOL::Reset( RESET_REASON aReason )
 {
     EE_TOOL_BASE::Reset( aReason );
 
-    if( aReason == SUPERMODEL_RELOAD )
+    if( aReason == SUPERMODEL_RELOAD || aReason == RESET_REASON::SHUTDOWN )
     {
         wxCommandEvent* evt = new wxCommandEvent( EDA_EVT_CLOSE_ERC_DIALOG, wxID_ANY );
 
@@ -293,7 +293,7 @@ int EE_INSPECTION_TOOL::ExcludeMarker( const TOOL_EVENT& aEvent )
 
 
 extern void CheckLibSymbol( LIB_SYMBOL* aSymbol, std::vector<wxString>& aMessages,
-                           int aGridForPins, EDA_DRAW_FRAME* aUnitsProvider );
+                            int aGridForPins, UNITS_PROVIDER* aUnitsProvider );
 
 int EE_INSPECTION_TOOL::CheckSymbol( const TOOL_EVENT& aEvent )
 {
@@ -496,6 +496,7 @@ int EE_INSPECTION_TOOL::RunSimulation( const TOOL_EVENT& aEvent )
 int EE_INSPECTION_TOOL::ShowDatasheet( const TOOL_EVENT& aEvent )
 {
     wxString datasheet;
+    EMBEDDED_FILES* files = nullptr;
 
     if( m_frame->IsType( FRAME_SCH_SYMBOL_EDITOR ) )
     {
@@ -505,6 +506,7 @@ int EE_INSPECTION_TOOL::ShowDatasheet( const TOOL_EVENT& aEvent )
             return 0;
 
         datasheet = symbol->GetDatasheetField().GetText();
+        files = symbol;
     }
     else if( m_frame->IsType( FRAME_SCH_VIEWER ) )
     {
@@ -514,6 +516,7 @@ int EE_INSPECTION_TOOL::ShowDatasheet( const TOOL_EVENT& aEvent )
             return 0;
 
         datasheet = entry->GetDatasheetField().GetText();
+        files = entry;
     }
     else if( m_frame->IsType( FRAME_SCH ) )
     {
@@ -523,10 +526,12 @@ int EE_INSPECTION_TOOL::ShowDatasheet( const TOOL_EVENT& aEvent )
             return 0;
 
         SCH_SYMBOL* symbol = (SCH_SYMBOL*) selection.Front();
+        SCH_FIELD*  field = symbol->GetField( DATASHEET_FIELD );
 
         // Use GetShownText() to resolve any text variables, but don't allow adding extra text
         // (ie: the field name)
-        datasheet = symbol->GetField( DATASHEET_FIELD )->GetShownText( false );
+        datasheet = field->GetShownText( &symbol->Schematic()->CurrentSheet(), false );
+        files = symbol->Schematic();
     }
 
     if( datasheet.IsEmpty() || datasheet == wxS( "~" ) )
@@ -536,7 +541,7 @@ int EE_INSPECTION_TOOL::ShowDatasheet( const TOOL_EVENT& aEvent )
     else
     {
         GetAssociatedDocument( m_frame, datasheet, &m_frame->Prj(),
-                               PROJECT_SCH::SchSearchS( &m_frame->Prj() ) );
+                               PROJECT_SCH::SchSearchS( &m_frame->Prj() ), files );
     }
 
     return 0;

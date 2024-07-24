@@ -66,7 +66,6 @@
 #include <git/git_clone_handler.h>
 #include <git/kicad_git_compat.h>
 
-
 #include <dialogs/git/dialog_git_repository.h>
 
 #include "project_tree_item.h"
@@ -359,6 +358,7 @@ std::vector<wxString> getProjects( const wxDir& dir )
     return projects;
 }
 
+
 static git_repository* get_git_repository_for_file( const char* filename )
 {
     git_repository* repo = nullptr;
@@ -367,9 +367,9 @@ static git_repository* get_git_repository_for_file( const char* filename )
     // Find the repository path for the given file
     if( git_repository_discover( &repo_path, filename, 0, NULL ) )
     {
-        #if 0
+#if 0
         printf( "get_git_repository_for_file: %s\n", git_error_last()->message ); fflush( 0 );
-        #endif
+#endif
         return nullptr;
     }
 
@@ -431,7 +431,7 @@ wxTreeItemId PROJECT_TREE_PANE::addItemToProjectTree( const wxString& aName,
                 continue;
 
             if( reg.Compile( wxString::FromAscii( "^.*\\." ) + ext + wxString::FromAscii( "$" ),
-                         wxRE_ICASE ) && reg.Matches( aName ) )
+                             wxRE_ICASE ) && reg.Matches( aName ) )
             {
                 type = (TREE_FILE_TYPE) i;
                 break;
@@ -683,6 +683,7 @@ void PROJECT_TREE_PANE::ReCreateTreePrj()
                 if( filename != fn.GetFullName() )
                 {
                     wxString name = dir.GetName() + wxFileName::GetPathSeparator() + filename;
+
                     // Add items living in the project directory, and populate the item
                     // if it is a directory (sub directories will be not populated)
                     addItemToProjectTree( name, m_root, &projects, true );
@@ -1169,9 +1170,11 @@ std::vector<PROJECT_TREE_ITEM*> PROJECT_TREE_PANE::GetSelectedData()
     for( auto it = selection.begin(); it != selection.end(); it++ )
     {
         PROJECT_TREE_ITEM* item = GetItemIdData( *it );
+
         if( !item )
         {
-            wxLogDebug( "Null tree item returned for selection, dynamic_cast failed?" );
+            wxLogTrace( traceGit, wxS( "Null tree item returned for selection, dynamic_cast "
+                                       "failed?" ) );
             continue;
         }
 
@@ -1413,14 +1416,16 @@ void PROJECT_TREE_PANE::FileWatcherReset()
 #ifdef __WINDOWS__
         if( ! m_watcher->AddTree( fn ) )
         {
-            wxLogTrace( tracePathsAndFiles, "%s: failed to add '%s'\n", __func__, TO_UTF8( fn.GetFullPath() ) );
+            wxLogTrace( tracePathsAndFiles, "%s: failed to add '%s'\n", __func__,
+                        TO_UTF8( fn.GetFullPath() ) );
             return;
         }
     }
 #else
         if( !m_watcher->Add( fn ) )
         {
-            wxLogTrace( tracePathsAndFiles, "%s: failed to add '%s'\n", __func__, TO_UTF8( fn.GetFullPath() ) );
+            wxLogTrace( tracePathsAndFiles, "%s: failed to add '%s'\n", __func__,
+                        TO_UTF8( fn.GetFullPath() ) );
             return;
         }
     }
@@ -1435,8 +1440,9 @@ void PROJECT_TREE_PANE::FileWatcherReset()
     std::stack < wxTreeItemId > subdirs_id;
 
     wxTreeItemId kid = m_TreeProject->GetFirstChild( root_id, cookie );
+    int total_watch_count = 0;
 
-    while( true )
+    while( total_watch_count < ADVANCED_CFG::GetCfg().m_MaxFilesystemWatchers )
     {
         if( !kid.IsOk() )
         {
@@ -1468,6 +1474,7 @@ void PROJECT_TREE_PANE::FileWatcherReset()
             {
                 fn.AssignDir( path );
                 m_watcher->Add( fn );
+                total_watch_count++;
 
                 // if kid is a subdir, push in list to explore it later
                 if( itemData->IsPopulated() && m_TreeProject->GetChildrenCount( kid ) )
@@ -1477,6 +1484,9 @@ void PROJECT_TREE_PANE::FileWatcherReset()
 
         kid = m_TreeProject->GetNextChild( root_id, cookie );
     }
+
+    if( total_watch_count >= ADVANCED_CFG::GetCfg().m_MaxFilesystemWatchers )
+        wxLogTrace( tracePathsAndFiles, "%s: too many directories to watch\n", __func__ );
 #endif
 
 #if defined(DEBUG) && 1
@@ -1916,10 +1926,13 @@ void PROJECT_TREE_PANE::updateGitStatusIcons()
     git_reference* currentBranchReference = nullptr;
     git_repository_head( &currentBranchReference, repo );
 
+    PROJECT_TREE_ITEM* rootItem = GetItemIdData( kid );
+    wxFileName         rootFilename( rootItem->GetFileName() );
+    wxString           repoWorkDir( git_repository_workdir( repo ) );
+
     // Get the current branch name
     if( currentBranchReference )
     {
-        PROJECT_TREE_ITEM* rootItem = GetItemIdData( kid );
         wxString filename = wxFileNameFromPath( rootItem->GetFileName() );
         wxString branchName = git_reference_shorthand( currentBranchReference );
 
@@ -1947,7 +1960,11 @@ void PROJECT_TREE_PANE::updateGitStatusIcons()
 
             PROJECT_TREE_ITEM* nextItem = GetItemIdData( kid );
 
-            branchMap[nextItem->GetFileName()] = kid;
+            wxString gitAbsPath = nextItem->GetFileName();
+#ifdef _WIN32
+            gitAbsPath.Replace( wxS( "\\" ), wxS( "/" ) );
+#endif
+            branchMap[gitAbsPath] = kid;
 
             wxTreeItemIdValue cookie;
             wxTreeItemId      child = m_TreeProject->GetFirstChild( kid, cookie );
@@ -1960,17 +1977,28 @@ void PROJECT_TREE_PANE::updateGitStatusIcons()
         }
     }
 
+    wxFileName relative = rootFilename;
+    relative.MakeRelativeTo( repoWorkDir );
+    wxString pathspecStr = relative.GetPath( wxPATH_GET_VOLUME | wxPATH_GET_SEPARATOR );
+
+#ifdef _WIN32
+    pathspecStr.Replace( wxS( "\\" ), wxS( "/" ) );
+#endif
+
+    const char* pathspec[] = { pathspecStr.c_str().AsChar() };
+
     git_status_options status_options;
     git_status_init_options( &status_options, GIT_STATUS_OPTIONS_VERSION );
     status_options.show = GIT_STATUS_SHOW_INDEX_AND_WORKDIR;
     status_options.flags = GIT_STATUS_OPT_INCLUDE_UNTRACKED | GIT_STATUS_OPT_INCLUDE_UNMODIFIED;
+    status_options.pathspec = { (char**) pathspec, 1 };
 
     git_index* index = nullptr;
 
     if( git_repository_index( &index, repo ) != GIT_OK )
     {
         m_gitLastError = giterr_last()->klass;
-        wxLogDebug( "Failed to get git index: %s", giterr_last()->message );
+        wxLogTrace( traceGit, wxS( "Failed to get git index: %s" ), giterr_last()->message );
         return;
     }
 
@@ -1978,7 +2006,7 @@ void PROJECT_TREE_PANE::updateGitStatusIcons()
 
     if( git_status_list_new( &status_list, repo, &status_options ) != GIT_OK )
     {
-        wxLogDebug( "Failed to get git status list: %s", giterr_last()->message );
+        wxLogTrace( traceGit, wxS( "Failed to get git status list: %s" ), giterr_last()->message );
         git_index_free( index );
         return;
     }
@@ -1992,10 +2020,11 @@ void PROJECT_TREE_PANE::updateGitStatusIcons()
         const git_status_entry* entry = git_status_byindex( status_list, ii );
         std::string path( entry->head_to_index? entry->head_to_index->old_file.path
                         : entry->index_to_workdir->old_file.path );
-        wxFileName fn( path );
-        fn.MakeAbsolute( git_repository_workdir( repo ) );
 
-        auto iter = branchMap.find( fn.GetFullPath() );
+        wxString absPath = repoWorkDir;
+        absPath << path;
+
+        auto iter = branchMap.find( absPath );
 
         if( iter == branchMap.end() )
             continue;
@@ -2278,6 +2307,7 @@ void PROJECT_TREE_PANE::onGitCommit( wxCommandEvent& aEvent )
     }
 }
 
+
 void PROJECT_TREE_PANE::onGitAddToIndex( wxCommandEvent& aEvent )
 {
 
@@ -2332,6 +2362,7 @@ void PROJECT_TREE_PANE::onGitFetch( wxCommandEvent& aEvent )
     handler.PerformFetch();
 }
 
+
 void PROJECT_TREE_PANE::onGitResolveConflict( wxCommandEvent& aEvent )
 {
     git_repository* repo = m_TreeProject->GetGitRepo();
@@ -2343,6 +2374,7 @@ void PROJECT_TREE_PANE::onGitResolveConflict( wxCommandEvent& aEvent )
     handler.PerformResolveConflict();
 }
 
+
 void PROJECT_TREE_PANE::onGitRevertLocal( wxCommandEvent& aEvent )
 {
     git_repository* repo = m_TreeProject->GetGitRepo();
@@ -2353,6 +2385,7 @@ void PROJECT_TREE_PANE::onGitRevertLocal( wxCommandEvent& aEvent )
     GIT_REVERT_HANDLER handler( repo );
     handler.PerformRevert();
 }
+
 
 void PROJECT_TREE_PANE::onGitRemoveFromIndex( wxCommandEvent& aEvent )
 {

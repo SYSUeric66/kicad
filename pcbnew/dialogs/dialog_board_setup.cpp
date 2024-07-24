@@ -31,6 +31,7 @@
 #include <dialog_import_settings.h>
 #include <pcb_io/pcb_io.h>
 #include <pcb_io/pcb_io_mgr.h>
+#include <panel_embedded_files.h>
 #include <dialogs/panel_setup_severities.h>
 #include <dialogs/panel_setup_rules.h>
 #include <dialogs/panel_setup_teardrops.h>
@@ -57,6 +58,7 @@ DIALOG_BOARD_SETUP::DIALOG_BOARD_SETUP( PCB_EDIT_FRAME* aFrame ) :
                       _( "Import Settings from Another Board..." ), wxSize( 980, 600 ) ),
         m_frame( aFrame ),
         m_layers( nullptr ),
+        m_boardFinish( nullptr ),
         m_physicalStackup( nullptr ),
         m_currentPage( 0 ),
         m_layersPage( 0 ),
@@ -100,7 +102,8 @@ DIALOG_BOARD_SETUP::DIALOG_BOARD_SETUP( PCB_EDIT_FRAME* aFrame ) :
             [this]( wxWindow* aParent ) -> wxWindow*
             {
                 m_layers = RESOLVE_PAGE( PANEL_SETUP_LAYERS, m_layersPage );
-                return new PANEL_SETUP_BOARD_STACKUP( aParent, m_frame, m_layers );
+                m_boardFinish = RESOLVE_PAGE( PANEL_SETUP_BOARD_FINISH, m_boardFinishPage );
+                return new PANEL_SETUP_BOARD_STACKUP( aParent, m_frame, m_layers, m_boardFinish );
             },  _( "Physical Stackup" ) );
 
     m_boardFinishPage = m_treebook->GetPageCount();
@@ -201,6 +204,14 @@ DIALOG_BOARD_SETUP::DIALOG_BOARD_SETUP( PCB_EDIT_FRAME* aFrame ) :
                                                    board->GetDesignSettings().m_DRCSeverities );
             }, _( "Violation Severity" ) );
 
+    m_treebook->AddPage( new wxPanel( GetTreebook() ), _( "Board Data" ) );
+    m_embeddedFilesPage = m_treebook->GetPageCount();
+    m_treebook->AddLazySubPage(
+            [this]( wxWindow* aParent ) -> wxWindow*
+            {
+                return new PANEL_EMBEDDED_FILES( aParent, m_frame->GetBoard() );
+            }, _( "Embedded Files" ) );
+
     for( size_t i = 0; i < m_treebook->GetPageCount(); ++i )
         m_treebook->ExpandNode( i );
 
@@ -277,6 +288,7 @@ void DIALOG_BOARD_SETUP::onAuxiliaryAction( wxCommandEvent& aEvent )
 
     m_layers = RESOLVE_PAGE( PANEL_SETUP_LAYERS, m_layersPage );
     m_physicalStackup = RESOLVE_PAGE( PANEL_SETUP_BOARD_STACKUP, m_physicalStackupPage );
+    m_boardFinish = RESOLVE_PAGE( PANEL_SETUP_BOARD_FINISH, m_boardFinishPage );
 
     // Flag so user can stop work if it will result in deleted inner copper layers
     // and still clean up this function properly.
@@ -339,9 +351,7 @@ void DIALOG_BOARD_SETUP::onAuxiliaryAction( wxCommandEvent& aEvent )
         {
             m_physicalStackup->ImportSettingsFrom( otherBoard );
             m_layers->ImportSettingsFrom( otherBoard );
-
-            RESOLVE_PAGE( PANEL_SETUP_BOARD_FINISH,
-                          m_boardFinishPage )->ImportSettingsFrom( otherBoard );
+            m_boardFinish->ImportSettingsFrom( otherBoard );
         }
 
         if( importDlg.m_TextAndGraphicsOpt->GetValue() )

@@ -108,7 +108,7 @@ DIALOG_LABEL_PROPERTIES::DIALOG_LABEL_PROPERTIES( SCH_EDIT_FRAME* aParent, SCH_L
     m_grid->SetDefaultRowSize( m_grid->GetDefaultRowSize() + 4 );
 
     m_grid->SetTable( m_fields );
-    m_grid->PushEventHandler( new FIELDS_GRID_TRICKS( m_grid, this,
+    m_grid->PushEventHandler( new FIELDS_GRID_TRICKS( m_grid, this, nullptr,
                                                       [&]( wxCommandEvent& aEvent )
                                                       {
                                                           OnAddField( aEvent );
@@ -317,7 +317,7 @@ bool DIALOG_LABEL_PROPERTIES::TransferDataToWindow()
     }
 
     // notify the grid
-    wxGridTableMessage msg( m_fields, wxGRIDTABLE_NOTIFY_ROWS_APPENDED, m_fields->size() );
+    wxGridTableMessage msg( m_fields, wxGRIDTABLE_NOTIFY_ROWS_APPENDED, (int) m_fields->size() );
     m_grid->ProcessTableMessage( msg );
     AdjustGridColumns( m_grid->GetRect().GetWidth() );
 
@@ -549,9 +549,9 @@ bool DIALOG_LABEL_PROPERTIES::TransferDataFromWindow()
     }
 
     if( m_currentLabel->Type() == SCH_DIRECTIVE_LABEL_T )
-        static_cast<SCH_DIRECTIVE_LABEL*>( m_currentLabel )->SetPinLength( m_textSize.GetValue() );
-    else if( m_currentLabel->GetTextWidth() != m_textSize.GetValue() )
-        m_currentLabel->SetTextSize( VECTOR2I( m_textSize.GetValue(), m_textSize.GetValue() ) );
+        static_cast<SCH_DIRECTIVE_LABEL*>( m_currentLabel )->SetPinLength( m_textSize.GetIntValue() );
+    else if( m_currentLabel->GetTextWidth() != m_textSize.GetIntValue() )
+        m_currentLabel->SetTextSize( VECTOR2I( m_textSize.GetIntValue(), m_textSize.GetIntValue() ) );
 
     // Must come after SetTextSize()
     m_currentLabel->SetBold( m_bold->IsChecked() );
@@ -678,7 +678,10 @@ void DIALOG_LABEL_PROPERTIES::OnDeleteField( wxCommandEvent& event )
     m_grid->CommitPendingChanges( true /* quiet mode */ );
 
     // Reverse sort so deleting a row doesn't change the indexes of the other rows.
-    selectedRows.Sort( []( int* first, int* second ) { return *second - *first; } );
+    selectedRows.Sort( []( int* first, int* second )
+                       {
+                           return *second - *first;
+                       } );
 
     for( int row : selectedRows )
     {

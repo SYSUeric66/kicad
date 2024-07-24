@@ -32,6 +32,7 @@
 #include <board_item.h>
 #include <board_connected_item.h>
 #include <layer_ids.h>
+#include <lset.h>
 #include <geometry/shape_poly_set.h>
 #include <zone_settings.h>
 #include <teardrop/teardrop_types.h>
@@ -682,7 +683,7 @@ public:
 
     void AddPolygon( const SHAPE_LINE_CHAIN& aPolygon );
 
-    wxString GetItemDescription( UNITS_PROVIDER* aUnitsProvider ) const override;
+    wxString GetItemDescription( UNITS_PROVIDER* aUnitsProvider, bool aFull ) const override;
 
     BITMAPS GetMenuImage() const override;
 
@@ -782,7 +783,7 @@ public:
     /**
      * @return the hash value previously calculated by BuildHashValue().
      */
-    MD5_HASH GetHashValue( PCB_LAYER_ID aLayer );
+    HASH_128 GetHashValue( PCB_LAYER_ID aLayer );
 
     double Similarity( const BOARD_ITEM& aOther ) const override;
 
@@ -904,7 +905,7 @@ protected:
     LSET                                   m_fillFlags;
 
     /// A hash value used in zone filling calculations to see if the filled areas are up to date
-    std::map<PCB_LAYER_ID, MD5_HASH>       m_filledPolysHash;
+    std::map<PCB_LAYER_ID, HASH_128>       m_filledPolysHash;
 
     ZONE_BORDER_DISPLAY_STYLE m_borderStyle;       // border display style, see enum above
     int                       m_borderHatchPitch;  // for DIAGONAL_EDGE, distance between 2 lines

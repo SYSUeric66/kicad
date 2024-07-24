@@ -32,7 +32,6 @@
 #include <sch_line.h>
 #include <sch_edit_frame.h>
 #include <settings/color_settings.h>
-#include <schematic.h>
 #include <connection_graph.h>
 #include <project/project_file.h>
 #include <project/net_settings.h>
@@ -242,7 +241,7 @@ const BOX2I SCH_LINE::GetBoundingBox() const
 
 double SCH_LINE::GetLength() const
 {
-    return GetLineLength( m_start, m_end );
+    return m_start.Distance( m_end );
 }
 
 
@@ -412,26 +411,11 @@ void SCH_LINE::MirrorHorizontally( int aCenter )
 
 void SCH_LINE::Rotate( const VECTOR2I& aCenter, bool aRotateCCW )
 {
-    // When we allow off grid items, the
-    // else if should become a plain if to allow
-    // rotation around the center of the line
     if( m_flags & STARTPOINT )
-        RotatePoint( m_start, aCenter, aRotateCCW ? ANGLE_270 : ANGLE_90 );
+        RotatePoint( m_start, aCenter, aRotateCCW ? ANGLE_90 : ANGLE_270 );
 
-    else if( m_flags & ENDPOINT )
-        RotatePoint( m_end, aCenter, aRotateCCW ? ANGLE_270 : ANGLE_90 );
-}
-
-
-void SCH_LINE::RotateStart( const VECTOR2I& aCenter )
-{
-    RotatePoint( m_start, aCenter, ANGLE_90 );
-}
-
-
-void SCH_LINE::RotateEnd( const VECTOR2I& aCenter )
-{
-    RotatePoint( m_end, aCenter, ANGLE_90 );
+    if( m_flags & ENDPOINT )
+        RotatePoint( m_end, aCenter, aRotateCCW ? ANGLE_90 : ANGLE_270 );
 }
 
 
@@ -681,44 +665,25 @@ bool SCH_LINE::IsConnectable() const
 
 bool SCH_LINE::CanConnect( const SCH_ITEM* aItem ) const
 {
-    if( m_layer == LAYER_WIRE )
+    switch( aItem->Type() )
     {
-        switch( aItem->Type() )
-        {
-        case SCH_JUNCTION_T:
-        case SCH_NO_CONNECT_T:
-        case SCH_LABEL_T:
-        case SCH_GLOBAL_LABEL_T:
-        case SCH_HIER_LABEL_T:
-        case SCH_DIRECTIVE_LABEL_T:
-        case SCH_BUS_WIRE_ENTRY_T:
-        case SCH_SYMBOL_T:
-        case SCH_SHEET_T:
-        case SCH_SHEET_PIN_T:
-            return true;
-        default:
-            break;
-        }
-    }
-    else if( m_layer == LAYER_BUS )
-    {
-        switch( aItem->Type() )
-        {
-        case SCH_JUNCTION_T:
-        case SCH_LABEL_T:
-        case SCH_GLOBAL_LABEL_T:
-        case SCH_HIER_LABEL_T:
-        case SCH_DIRECTIVE_LABEL_T:
-        case SCH_BUS_WIRE_ENTRY_T:
-        case SCH_SHEET_T:
-        case SCH_SHEET_PIN_T:
-            return true;
-        default:
-            break;
-        }
-    }
+    case SCH_NO_CONNECT_T:
+    case SCH_SYMBOL_T:
+        return IsWire();
 
-    return aItem->GetLayer() == m_layer;
+    case SCH_JUNCTION_T:
+    case SCH_LABEL_T:
+    case SCH_GLOBAL_LABEL_T:
+    case SCH_HIER_LABEL_T:
+    case SCH_DIRECTIVE_LABEL_T:
+    case SCH_BUS_WIRE_ENTRY_T:
+    case SCH_SHEET_T:
+    case SCH_SHEET_PIN_T:
+        return IsWire() || IsBus();
+
+    default:
+        return m_layer == aItem->GetLayer();
+    }
 }
 
 
@@ -770,7 +735,7 @@ void SCH_LINE::GetSelectedPoints( std::vector<VECTOR2I>& aPoints ) const
 }
 
 
-wxString SCH_LINE::GetItemDescription( UNITS_PROVIDER* aUnitsProvider ) const
+wxString SCH_LINE::GetItemDescription( UNITS_PROVIDER* aUnitsProvider, bool aFull ) const
 {
     wxString txtfmt;
 
@@ -803,7 +768,7 @@ wxString SCH_LINE::GetItemDescription( UNITS_PROVIDER* aUnitsProvider ) const
     }
 
     return wxString::Format( txtfmt,
-                             aUnitsProvider->MessageTextFromValue( EuclideanNorm( m_start - m_end ) ) );
+                             aUnitsProvider->MessageTextFromValue( m_start.Distance( m_end ) ) );
 }
 
 

@@ -22,7 +22,7 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA
  */
 
-#include <sim/sim_library_kibis.h>
+#include <sim/sim_library_ibis.h>
 #include <sim/sim_library.h>
 #include <sim/sim_library_spice.h>
 #include <boost/algorithm/string/case_conv.hpp>
@@ -31,12 +31,12 @@
 
 std::unique_ptr<SIM_LIBRARY>
 SIM_LIBRARY::Create( const wxString& aFilePath, bool aForceFullParse, REPORTER& aReporter,
-                     std::function<wxString( const wxString&, const wxString& )>* aResolver )
+                     const std::function<wxString( const wxString&, const wxString& )>& aResolver )
 {
     std::unique_ptr<SIM_LIBRARY> library;
 
     if( aFilePath.EndsWith( ".ibs" ) )
-        library = std::make_unique<SIM_LIBRARY_KIBIS>();
+        library = std::make_unique<SIM_LIBRARY_IBIS>();
     else
         library = std::make_unique<SIM_LIBRARY_SPICE>( aForceFullParse );
 

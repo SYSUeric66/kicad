@@ -460,6 +460,8 @@ struct AMODEL
     bool     isEmbedded;
 
     VECTOR3D rotation;
+    double   z_offset;
+    int32_t  checksum;
 
     explicit AMODEL( ALTIUM_BINARY_PARSER& aReader );
 };
@@ -592,14 +594,37 @@ struct ACOMPONENTBODY6
 {
     uint16_t             component;
 
-    wxString             modelName;
+    wxString             body_name;
+    int                  kind;
+    int                  subpolyindex;
+    int                  unionindex;
+    int                  arc_resolution;
+    bool                 is_shape_based;
+    int                  cavity_height;
+    int                  standoff_height;
+    int                  overall_height;
+    int                  body_projection;
+    int                  body_color_3d;
+    int                  body_opacity_3d;
+    wxString             identifier;
+    wxString             texture;
+    int                  texture_center_x;
+    int                  texture_center_y;
+    int                  texture_size_x;
+    int                  texture_size_y;
+    int                  texture_rotation;
+
     wxString             modelId;
+    wxString             modelChecksum;
     bool                 modelIsEmbedded;
+    wxString             modelName;
+    int                  modelType;
+    int                  modelSource;
+    int                  modelSnapCount;
 
     VECTOR3D             modelPosition;
     VECTOR3D             modelRotation;
     double               rotation;
-    double               bodyOpacity;
 
     explicit ACOMPONENTBODY6( ALTIUM_BINARY_PARSER& aReader );
 };
@@ -670,12 +695,28 @@ struct AVIA6
     uint16_t net;
 
     VECTOR2I position;
+    uint32_t pos_tolerance; // 2147483640 is N/A
+    uint32_t neg_tolerance; // 2147483640 is N/A
     uint32_t diameter;
     uint32_t holesize;
+
+    int32_t thermal_relief_airgap;
+    uint32_t thermal_relief_conductorcount;
+    uint32_t thermal_relief_conductorwidth;
+
+    int32_t soldermask_expansion_front;
+    int32_t soldermask_expansion_back;
+    bool    soldermask_expansion_manual;
+    bool    soldermask_expansion_linked;
 
     ALTIUM_LAYER    layer_start;
     ALTIUM_LAYER    layer_end;
     ALTIUM_PAD_MODE viamode;
+
+    // In PAD_MODE::SIMPLE, this is the same as the diameter
+    // In PAD_MODE::TOP_MIDDLE_BOTTOM, layer 0 is top, layer 1 is middle, layer 31 is bottom
+    // In PAD_MODE::FULL_STACK, layers correspond to the layer number
+    uint32_t diameter_by_layer[32];
 
     explicit AVIA6( ALTIUM_BINARY_PARSER& aReader );
 };
@@ -702,6 +743,14 @@ struct ATRACK6
 
 struct ATEXT6
 {
+    enum class STROKE_FONT_TYPE
+    {
+        DEFAULT = 1,
+        SANSSERIF = 2,
+        SERIF = 3
+    };
+
+
     ALTIUM_LAYER layer;
     uint16_t     component;
 
@@ -709,12 +758,23 @@ struct ATEXT6
     uint32_t             height;
     double               rotation;
     uint32_t             strokewidth;
-    ALTIUM_TEXT_POSITION textposition;
+    STROKE_FONT_TYPE     strokefonttype;
 
     bool isBold;
     bool isItalic;
     bool isMirrored;
     bool isInverted;
+    bool isInvertedRect;
+    uint32_t inverted_borderwidth;
+    uint32_t textbox_rect_width;
+    uint32_t textbox_rect_height;
+    uint32_t textbox_rect_offset;
+
+    // Justification only applies when there is a text box size specified
+    // Then, the text is justified within the box
+    ALTIUM_TEXT_POSITION textbox_rect_justification;
+
+    uint32_t widestring_index;
 
     bool isComment;
     bool isDesignator;

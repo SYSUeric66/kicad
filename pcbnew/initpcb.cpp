@@ -23,6 +23,7 @@
  */
 
 #include <confirm.h>
+#include <lset.h>
 #include <pcb_edit_frame.h>
 #include <project.h>
 #include <tool/tool_manager.h>
@@ -35,6 +36,7 @@
 
 #include <footprint_edit_frame.h>
 #include <widgets/appearance_controls.h>
+#include <drc/drc_item.h>
 
 
 bool PCB_EDIT_FRAME::Clear_Pcb( bool doAskAboutUnsavedChanges, bool aFinal )
@@ -89,7 +91,7 @@ bool PCB_EDIT_FRAME::Clear_Pcb( bool doAskAboutUnsavedChanges, bool aFinal )
     else if( m_isClosing )
     {
         if( m_toolManager )
-            m_toolManager->ResetTools( TOOL_BASE::MODEL_RELOAD );
+            m_toolManager->ResetTools( TOOL_BASE::SHUTDOWN );
 
         // Clear the view so we don't attempt redraws (particularly of the RATSNEST_VIEW_ITEM,
         // which causes all manner of grief).
@@ -140,6 +142,20 @@ bool FOOTPRINT_EDIT_FRAME::Clear_Pcb( bool doAskAboutUnsavedChanges )
 
         // This board will only be used to hold a footprint for editing
         GetBoard()->SetBoardUse( BOARD_USE::FPHOLDER );
+
+        // Setup our own severities for the Footprint Checker.
+        // These are not (at present) user-editable.
+        std::map<int, SEVERITY>& drcSeverities = GetBoard()->GetDesignSettings().m_DRCSeverities;
+
+        for( int errorCode = DRCE_FIRST; errorCode <= DRCE_LAST; ++errorCode )
+            drcSeverities[ errorCode ] = RPT_SEVERITY_ERROR;
+
+        drcSeverities[ DRCE_DRILLED_HOLES_COLOCATED ] = RPT_SEVERITY_WARNING;
+        drcSeverities[ DRCE_DRILLED_HOLES_TOO_CLOSE ] = RPT_SEVERITY_WARNING;
+
+        drcSeverities[ DRCE_PADSTACK ] = RPT_SEVERITY_WARNING;
+
+        drcSeverities[ DRCE_FOOTPRINT_TYPE_MISMATCH ] = RPT_SEVERITY_WARNING;
 
         // clear filename, to avoid overwriting an old file
         GetBoard()->SetFileName( wxEmptyString );

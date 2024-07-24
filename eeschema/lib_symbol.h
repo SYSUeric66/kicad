@@ -27,6 +27,7 @@
 #ifndef LIB_SYMBOL_H
 #define LIB_SYMBOL_H
 
+#include <embedded_files.h>
 #include <symbol.h>
 #include <sch_field.h>
 #include <sch_pin.h>
@@ -73,7 +74,7 @@ struct LIB_SYMBOL_UNIT
  * A library symbol object is typically saved and loaded in a symbol library file (.lib).
  * Library symbols are different from schematic symbols.
  */
-class LIB_SYMBOL : public SYMBOL, public LIB_TREE_ITEM
+class LIB_SYMBOL : public SYMBOL, public LIB_TREE_ITEM, public EMBEDDED_FILES
 {
 public:
     LIB_SYMBOL( const wxString& aName, LIB_SYMBOL* aParent = nullptr,
@@ -333,6 +334,11 @@ public:
         return GetValueField().GetText();
     }
 
+    EMBEDDED_FILES* GetEmbeddedFiles() override;
+    const EMBEDDED_FILES* GetEmbeddedFiles() const;
+
+    void EmbedFonts() override;
+
     void RunOnChildren( const std::function<void( SCH_ITEM* )>& aFunction ) override;
 
     /**
@@ -345,6 +351,13 @@ public:
     int UpdateFieldOrdinals();
 
     int GetNextAvailableFieldId() const;
+
+    /**
+     * Resolve any references to system tokens supported by the symbol.
+     *
+     * @param aDepth a counter to limit recursion and circular references.
+     */
+    bool ResolveTextVar( wxString* token, int aDepth = 0 ) const;
 
     void Print( const SCH_RENDER_SETTINGS* aSettings, int aUnit, int aBodyStyle,
                 const VECTOR2I& aOffset, bool aForceNoFill, bool aDimmed ) override;
@@ -567,13 +580,6 @@ public:
     int Compare( const LIB_SYMBOL& aRhs, int aCompareFlags = 0,
                  REPORTER* aReporter = nullptr ) const;
 
-    bool operator==( const LIB_SYMBOL* aSymbol ) const { return this == aSymbol; }
-    bool operator==( const LIB_SYMBOL& aSymbol ) const;
-    bool operator!=( const LIB_SYMBOL& aSymbol ) const
-    {
-        return Compare( aSymbol, SCH_ITEM::COMPARE_FLAGS::EQUALITY ) != 0;
-    }
-
     const LIB_SYMBOL& operator=( const LIB_SYMBOL& aSymbol );
 
     /**
@@ -619,6 +625,14 @@ public:
 private:
     // We create a different set parent function for this class, so we hide the inherited one.
     using EDA_ITEM::SetParent;
+
+    /**
+     * The library symbol specific sort order is as follows:
+     *
+     *   - The result of #SCH_ITEM::compare()
+     */
+    int compare( const SCH_ITEM& aOther,
+                 int aCompareFlags = SCH_ITEM::COMPARE_FLAGS::EQUALITY ) const override;
 
     void deleteAllFields();
 

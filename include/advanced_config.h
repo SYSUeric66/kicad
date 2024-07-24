@@ -485,6 +485,24 @@ public:
     bool m_EnableLibWithText;
 
     /**
+     * Enable option to open lib file directory.
+     * Reveals one additional field under common preferences to set
+     * system's file manager command in order for the context menu options to work.
+     * On windows common settings preselect the default explorer with a hardcoded value.
+     *
+     * Examples,
+     * Linux:  "nemo -n %F"
+     *         "nautilus --browser %F"
+     *         "dolphin --select %F" etc
+     * Win11:  "explorer.exe /n,/select,%F"
+     *
+     * Setting name: "EnableLibDir"
+     * Valid values: 0 or 1
+     * Default value: 0
+     */
+    bool m_EnableLibDir;
+
+    /**
      * Enable Eeschema printing using Cairo.
      *
      * Setting name: "EnableEeschemaPrintCairo"
@@ -509,14 +527,14 @@ public:
     double m_PcbSelectionVisibilityRatio;
 
     /**
-     * Length of the minimum segment for the outline decomposer.  This is in IU, so
-     * it is nm in pcbnew and 100nm in eeschema.
+     * Deviation between font's bezier curve ideal and the poligonized curve.  This
+     * is 1/16 of the font's internal units.
      *
-     * Setting name: "MinimumSegmentLength"
-     * Valid values: 10 to 1000
-     * Default value: 50
+     * Setting name: "FontErrorSize"
+     * Valid values: 0.01 to 100
+     * Default value: 2
      */
-    int m_MinimumSegmentLength;
+    double m_FontErrorSize;
 
     /**
      * OCE (STEP/IGES) 3D Plugin Tesselation Linear Deflection
@@ -585,6 +603,43 @@ public:
      * Log IPC API requests and responses
      */
     bool m_EnableAPILogging;
+
+    /**
+     * Maximum number of filesystem watchers to use.
+     *
+     * Setting name: "MaxFilesystemWatchers"
+     * Valid values: 0 to 2147483647
+     * Default value: 16384
+     */
+    int m_MaxFilesystemWatchers;
+
+    /**
+     * Set the number of items in a schematic graph for it to be considered "minor"
+     *
+     * Setting name: "MinorSchematicGraphSize"
+     * Valid values: 0 to 2147483647
+     * Default value: 10000
+     */
+    int m_MinorSchematicGraphSize;
+
+    /**
+     * The number of recursions to resolve text variables.
+     *
+     * Setting name: "ResolveTextRecursionDepth"
+     * Valid values: 0 to 10
+     * Default value: 3
+     */
+    int m_ResolveTextRecursionDepth;
+
+    /**
+     * Use the new zone-connection fill routine
+     *
+     * Setting name: "ZoneConnectionFiller"
+     * Valid values: true or false
+     * Default value: false
+     */
+    bool m_ZoneConnectionFiller;
+
 ///@}
 
 private:

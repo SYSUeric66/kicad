@@ -205,7 +205,7 @@ set( EESCHEMA_SIM_SRCS
 
     sim/sim_library.cpp
     sim/sim_library_spice.cpp
-    sim/sim_library_kibis.cpp
+        sim/sim_library_ibis.cpp
     sim/sim_lib_mgr.cpp
 
     sim/sim_model_serializer.cpp
@@ -213,7 +213,7 @@ set( EESCHEMA_SIM_SRCS
     sim/sim_model_behavioral.cpp
     sim/sim_model_ideal.cpp
     sim/sim_model_l_mutual.cpp
-    sim/sim_model_kibis.cpp
+        sim/sim_model_ibis.cpp
     sim/sim_model_ngspice.cpp
     sim/sim_model_ngspice_data_bjt.cpp
     sim/sim_model_ngspice_data_bsim1.cpp
@@ -356,11 +356,12 @@ set( EESCHEMA_SRCS
     files-io.cpp
     generate_alias_info.cpp
     gfx_import_utils.cpp
-    picksymbol.cpp
+    junction_helpers.cpp
     lib_symbol.cpp
     libarch.cpp
     menubar.cpp
     net_navigator.cpp
+    picksymbol.cpp
     pin_numbers.cpp
     pin_type.cpp
     project_sch.cpp
@@ -412,6 +413,7 @@ set( EESCHEMA_SRCS
     symbol_tree_model_adapter.cpp
     symbol_tree_synchronizing_adapter.cpp
     symbol_viewer_frame.cpp
+    symb_transforms_utils.cpp
     toolbars_sch_editor.cpp
     toolbars_symbol_viewer.cpp
 
@@ -705,16 +707,6 @@ if( KICAD_WIN32_INSTALL_PDBS )
     install(FILES $<TARGET_PDB_FILE:eeschema> DESTINATION ${KICAD_BIN})
     install(FILES $<TARGET_PDB_FILE:eeschema_kiface> DESTINATION ${KICAD_KIFACE})
 endif()
-
-# auto-generate cmp_library_lexer.h and cmp_library_keywords.cpp for the component
-# library format.
-make_lexer(
-    eeschema_kiface_objects
-    cmp_library.keywords
-    cmp_library_lexer.h
-    cmp_library_keywords.cpp
-    TLIB_T
-    )
 
 make_lexer(
     eeschema_kiface_objects

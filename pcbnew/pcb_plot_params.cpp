@@ -24,6 +24,7 @@
 #include <board_design_settings.h>
 #include <charconv>
 #include <layer_ids.h>
+#include <lset.h>
 #include <string_utils.h>
 #include <math/util.h> // for KiROUND
 #include <pcb_plot_params.h>
@@ -103,7 +104,6 @@ PCB_PLOT_PARAMS::PCB_PLOT_PARAMS()
     // we used 0.1mils for SVG step before, but nm precision is more accurate, so we use nm
     m_svgPrecision               = SVG_PRECISION_DEFAULT;
     m_plotDrawingSheet           = false;
-    m_plotViaOnMaskLayer         = false;
     m_plotMode                   = FILLED;
     m_DXFPolygonMode = true;
     m_DXFUnits = DXF_UNITS::INCHES;
@@ -118,6 +118,7 @@ PCB_PLOT_PARAMS::PCB_PLOT_PARAMS()
     m_plotFPText                 = true;
     m_plotInvisibleText          = false;
     m_sketchPadsOnFabLayers      = false;
+    m_plotPadNumbers             = false;
     m_subtractMaskFromSilk       = false;
     m_format                     = PLOT_FORMAT::GERBER;
     m_mirror                     = false;
@@ -130,8 +131,8 @@ PCB_PLOT_PARAMS::PCB_PLOT_PARAMS()
     m_widthAdjust                = 0.;
     m_textMode                   = PLOT_TEXT_MODE::DEFAULT;
     m_outputDirectory.clear();
-    m_layerSelection             = LSET( 7, F_SilkS, B_SilkS, F_Mask, B_Mask,
-                                         F_Paste, B_Paste, Edge_Cuts )
+    m_layerSelection             = LSET( { F_SilkS, B_SilkS, F_Mask, B_Mask,
+                                         F_Paste, B_Paste, Edge_Cuts } )
                                          | LSET::AllCuMask();
 
     m_PDFFrontFPPropertyPopups   = true;
@@ -208,7 +209,6 @@ void PCB_PLOT_PARAMS::Format( OUTPUTFORMATTER* aFormatter,
     aFormatter->Print( aNestLevel+1, "(svgprecision %d)\n", m_svgPrecision );
 
     KICAD_FORMAT::FormatBool( aFormatter, aNestLevel + 1, "plotframeref", m_plotDrawingSheet );
-    KICAD_FORMAT::FormatBool( aFormatter, aNestLevel + 1, "viasonmask", m_plotViaOnMaskLayer );
     aFormatter->Print( aNestLevel+1, "(mode %d)\n", GetPlotMode() == SKETCH ? 2 : 1 );
     KICAD_FORMAT::FormatBool( aFormatter, aNestLevel + 1, "useauxorigin", m_useAuxOrigin );
 
@@ -244,12 +244,10 @@ void PCB_PLOT_PARAMS::Format( OUTPUTFORMATTER* aFormatter,
     KICAD_FORMAT::FormatBool( aFormatter, aNestLevel + 1, "plotreference", m_plotReference );
     KICAD_FORMAT::FormatBool( aFormatter, aNestLevel + 1, "plotvalue", m_plotValue );
     KICAD_FORMAT::FormatBool( aFormatter, aNestLevel + 1, "plotfptext", m_plotFPText );
-    KICAD_FORMAT::FormatBool( aFormatter, aNestLevel + 1, "plotinvisibletext",
-                              m_plotInvisibleText );
-    KICAD_FORMAT::FormatBool( aFormatter, aNestLevel + 1, "sketchpadsonfab",
-                              m_sketchPadsOnFabLayers );
-    KICAD_FORMAT::FormatBool( aFormatter, aNestLevel + 1, "subtractmaskfromsilk",
-                              m_subtractMaskFromSilk );
+    KICAD_FORMAT::FormatBool( aFormatter, aNestLevel + 1, "plotinvisibletext", m_plotInvisibleText );
+    KICAD_FORMAT::FormatBool( aFormatter, aNestLevel + 1, "sketchpadsonfab", m_sketchPadsOnFabLayers );
+    KICAD_FORMAT::FormatBool( aFormatter, aNestLevel + 1, "plotpadnumbers", m_plotPadNumbers );
+    KICAD_FORMAT::FormatBool( aFormatter, aNestLevel + 1, "subtractmaskfromsilk", m_subtractMaskFromSilk );
     aFormatter->Print( aNestLevel+1, "(outputformat %d)\n", static_cast<int>( m_format ) );
     KICAD_FORMAT::FormatBool( aFormatter, aNestLevel + 1, "mirror", m_mirror );
     aFormatter->Print( aNestLevel+1, "(drillshape %d)\n", (int)m_drillMarks );
@@ -300,9 +298,6 @@ bool PCB_PLOT_PARAMS::IsSameAs( const PCB_PLOT_PARAMS &aPcbPlotParams ) const
         return false;
 
     if( m_plotDrawingSheet != aPcbPlotParams.m_plotDrawingSheet )
-        return false;
-
-    if( m_plotViaOnMaskLayer != aPcbPlotParams.m_plotViaOnMaskLayer )
         return false;
 
     if( m_plotMode != aPcbPlotParams.m_plotMode )
@@ -357,6 +352,9 @@ bool PCB_PLOT_PARAMS::IsSameAs( const PCB_PLOT_PARAMS &aPcbPlotParams ) const
         return false;
 
     if( m_sketchPadsOnFabLayers != aPcbPlotParams.m_sketchPadsOnFabLayers )
+        return false;
+
+    if( m_plotPadNumbers != aPcbPlotParams.m_plotPadNumbers )
         return false;
 
     if( m_subtractMaskFromSilk != aPcbPlotParams.m_subtractMaskFromSilk )
@@ -457,7 +455,7 @@ void PCB_PLOT_PARAMS_PARSER::Parse( PCB_PLOT_PARAMS* aPcbPlotParams )
                 //  number without knowing the number or total Cu layers in the legacy board.
                 //  We do not have that information here, so simply set all layers ON.  User
                 //  can turn them off in the UI.
-                aPcbPlotParams->m_layerSelection = LSET( 2, F_SilkS, B_SilkS ) | LSET::AllCuMask();
+                aPcbPlotParams->m_layerSelection = LSET( { F_SilkS, B_SilkS } ) | LSET::AllCuMask();
             }
             else if( cur.find_first_of( "0x" ) == 0 ) // pretty ver. 4.
             {
@@ -628,6 +626,10 @@ void PCB_PLOT_PARAMS_PARSER::Parse( PCB_PLOT_PARAMS* aPcbPlotParams )
 
         case T_sketchpadsonfab:
             aPcbPlotParams->m_sketchPadsOnFabLayers= parseBool();
+            break;
+
+        case T_plotpadnumbers:
+            aPcbPlotParams->m_plotPadNumbers = parseBool();
             break;
 
         case T_subtractmaskfromsilk:

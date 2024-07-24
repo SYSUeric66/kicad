@@ -20,7 +20,6 @@
 
 #include "board.h"
 #include "locale_io.h"
-#include "pcb_plot_params.h"
 #include "export_svg.h"
 #include "pcbplot.h"
 #include "pgm_base.h"
@@ -34,15 +33,21 @@ bool EXPORT_SVG::Plot( BOARD* aBoard, const PCB_PLOT_SVG_OPTIONS& aSvgPlotOption
 
     plot_opts.SetPlotFrameRef( aSvgPlotOptions.m_plotFrame );
 
+    if( aSvgPlotOptions.m_sketchPadsOnFabLayers )
+    {
+        plot_opts.SetSketchPadsOnFabLayers( true );
+        plot_opts.SetPlotPadNumbers( true );
+    }
+
     // Adding drill marks, for copper layers
     if( ( LSET( aSvgPlotOptions.m_printMaskLayer ) & LSET::AllCuMask() ).any() )
     {
         switch( aSvgPlotOptions.m_drillShapeOption )
         {
-            default:
-            case 0:  plot_opts.SetDrillMarksType( DRILL_MARKS::NO_DRILL_SHAPE );    break;
-            case 1:  plot_opts.SetDrillMarksType( DRILL_MARKS::SMALL_DRILL_SHAPE ); break;
-            case 2:  plot_opts.SetDrillMarksType( DRILL_MARKS::FULL_DRILL_SHAPE );  break;
+        default:
+        case 0:  plot_opts.SetDrillMarksType( DRILL_MARKS::NO_DRILL_SHAPE );    break;
+        case 1:  plot_opts.SetDrillMarksType( DRILL_MARKS::SMALL_DRILL_SHAPE ); break;
+        case 2:  plot_opts.SetDrillMarksType( DRILL_MARKS::FULL_DRILL_SHAPE );  break;
         }
     }
     else
@@ -78,7 +83,7 @@ bool EXPORT_SVG::Plot( BOARD* aBoard, const PCB_PLOT_SVG_OPTIONS& aSvgPlotOption
     {
         wxFileName fn = aBoard->GetFileName();
         fn.SetName( fn.GetName() );
-        fn.SetExt( wxS("svg") );
+        fn.SetExt( wxS( "svg" ) );
 
         outputFile = fn.GetFullName();
     }
@@ -87,18 +92,27 @@ bool EXPORT_SVG::Plot( BOARD* aBoard, const PCB_PLOT_SVG_OPTIONS& aSvgPlotOption
 
     plot_opts.SetColorSettings( mgr.GetColorSettings( aSvgPlotOptions.m_colorTheme ) );
 
-    LOCALE_IO toggle;
-
+    LOCALE_IO    toggle;
+    PCB_LAYER_ID layer = UNDEFINED_LAYER;
+    wxString     layerName;
     //@todo allow controlling the sheet name and path that will be displayed in the title block
     // Leave blank for now
-    SVG_PLOTTER* plotter = (SVG_PLOTTER*) StartPlotBoard( aBoard, &plot_opts, UNDEFINED_LAYER, outputFile,
-                                                          wxEmptyString, wxEmptyString );
+    wxString     sheetName;
+    wxString     sheetPath;
+
+    if( aSvgPlotOptions.m_printMaskLayer.size() == 1 )
+    {
+        layer = aSvgPlotOptions.m_printMaskLayer.front();
+        layerName = aBoard->GetLayerName( layer );
+    }
+
+    SVG_PLOTTER* plotter = (SVG_PLOTTER*) StartPlotBoard( aBoard, &plot_opts, layer, layerName,
+                                                          outputFile, sheetName, sheetPath );
 
     if( plotter )
     {
         plotter->SetColorMode( !aSvgPlotOptions.m_blackAndWhite );
-        PlotBoardLayers( aBoard, plotter, aSvgPlotOptions.m_printMaskLayer,
-                         plot_opts );
+        PlotBoardLayers( aBoard, plotter, aSvgPlotOptions.m_printMaskLayer, plot_opts );
         plotter->EndPlot();
     }
 

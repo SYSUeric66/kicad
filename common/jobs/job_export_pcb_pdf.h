@@ -24,6 +24,7 @@
 #include <kicommon.h>
 #include <kicommon.h>
 #include <layer_ids.h>
+#include <lseq.h>
 #include <wx/string.h>
 #include "job.h"
 
@@ -46,9 +47,10 @@ public:
 
     LSEQ m_printMaskLayer;
 
+    bool m_sketchPadsOnFabLayers;
+
     // How holes in pads/vias are plotted:
     // 0 = no hole, 1 = small shape, 2 = actual shape
-    // Not used in some plotters (Gerber)
     int m_drillShapeOption;
 };
 

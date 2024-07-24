@@ -72,6 +72,7 @@ using namespace std::placeholders;
 #include <wx/event.h>
 #include <wx/timer.h>
 #include <wx/log.h>
+#include <wx/debug.h>
 #include <core/profile.h>
 #include <math/vector2wx.h>
 
@@ -172,6 +173,8 @@ bool PCB_SELECTION_TOOL::Init()
     selectMenu->SetTool( this );
     m_menu.RegisterSubMenu( selectMenu );
 
+    static const std::vector<KICAD_T> tableCellTypes = { PCB_TABLECELL_T };
+
     auto& menu = m_menu.GetMenu();
 
     auto activeToolCondition =
@@ -198,7 +201,7 @@ bool PCB_SELECTION_TOOL::Init()
             };
 
     auto tableCellSelection = SELECTION_CONDITIONS::MoreThan( 0 )
-                                && SELECTION_CONDITIONS::OnlyTypes( { PCB_TABLECELL_T } );
+                                && SELECTION_CONDITIONS::OnlyTypes( tableCellTypes );
 
     if( frame && frame->IsType( FRAME_PCB_EDITOR ) )
     {
@@ -741,16 +744,16 @@ const GENERAL_COLLECTORS_GUIDE PCB_SELECTION_TOOL::getCollectorsGuide() const
     bool padsDisabled = !board()->IsElementVisible( LAYER_PADS );
 
     // account for the globals
-    guide.SetIgnoreMTextsMarkedNoShow( ! board()->IsElementVisible( LAYER_HIDDEN_TEXT ) );
-    guide.SetIgnoreMTextsOnBack( ! board()->IsElementVisible( LAYER_FP_TEXT ) );
-    guide.SetIgnoreMTextsOnFront( ! board()->IsElementVisible( LAYER_FP_TEXT ) );
-    guide.SetIgnoreModulesOnBack( ! board()->IsElementVisible( LAYER_FOOTPRINTS_BK ) );
-    guide.SetIgnoreModulesOnFront( ! board()->IsElementVisible( LAYER_FOOTPRINTS_FR ) );
+    guide.SetIgnoreHiddenFPText( !board()->IsElementVisible( LAYER_HIDDEN_TEXT ) );
+    guide.SetIgnoreFPTextOnBack( !board()->IsElementVisible( LAYER_FP_TEXT ) );
+    guide.SetIgnoreFPTextOnFront( !board()->IsElementVisible( LAYER_FP_TEXT ) );
+    guide.SetIgnoreFootprintsOnBack( !board()->IsElementVisible( LAYER_FOOTPRINTS_BK ) );
+    guide.SetIgnoreFootprintsOnFront( !board()->IsElementVisible( LAYER_FOOTPRINTS_FR ) );
     guide.SetIgnorePadsOnBack( padsDisabled || ! board()->IsElementVisible( LAYER_PADS_SMD_BK ) );
     guide.SetIgnorePadsOnFront( padsDisabled || ! board()->IsElementVisible( LAYER_PADS_SMD_FR ) );
     guide.SetIgnoreThroughHolePads( padsDisabled || ! board()->IsElementVisible( LAYER_PADS_TH ) );
-    guide.SetIgnoreModulesVals( ! board()->IsElementVisible( LAYER_FP_VALUES ) );
-    guide.SetIgnoreModulesRefs( ! board()->IsElementVisible( LAYER_FP_REFERENCES ) );
+    guide.SetIgnoreFPValues( !board()->IsElementVisible( LAYER_FP_VALUES ) );
+    guide.SetIgnoreFPReferences( !board()->IsElementVisible( LAYER_FP_REFERENCES ) );
     guide.SetIgnoreThroughVias( ! board()->IsElementVisible( LAYER_VIAS ) );
     guide.SetIgnoreBlindBuriedVias( ! board()->IsElementVisible( LAYER_VIAS ) );
     guide.SetIgnoreMicroVias( ! board()->IsElementVisible( LAYER_VIAS ) );
@@ -1244,29 +1247,22 @@ int PCB_SELECTION_TOOL::ClearSelection( const TOOL_EVENT& aEvent )
 
 int PCB_SELECTION_TOOL::SelectAll( const TOOL_EVENT& aEvent )
 {
-    KIGFX::VIEW* view = getView();
-
-    // hold all visible items
-    std::vector<KIGFX::VIEW::LAYER_ITEM_PAIR> selectedItems;
-
-    // Filter the view items based on the selection box
-    BOX2I selectionBox;
-
-    // Intermediate step to allow filtering against hierarchy
     GENERAL_COLLECTOR collection;
+    BOX2I             selectionBox;
 
     selectionBox.SetMaximum();
-    view->Query( selectionBox, selectedItems );         // Get the list of selected items
 
-    for( const KIGFX::VIEW::LAYER_ITEM_PAIR& item_pair : selectedItems )
-    {
-        BOARD_ITEM* item = static_cast<BOARD_ITEM*>( item_pair.first );
+    getView()->Query( selectionBox,
+            [&]( KIGFX::VIEW_ITEM* viewItem ) -> bool
+            {
+                BOARD_ITEM* item = static_cast<BOARD_ITEM*>( viewItem );
 
-        if( !item || !Selectable( item ) || !itemPassesFilter( item, true ) )
-            continue;
+                if( !item || !Selectable( item ) || !itemPassesFilter( item, true ) )
+                    return true;
 
-        collection.Append( item );
-    }
+                collection.Append( item );
+                return true;
+            } );
 
     FilterCollectorForHierarchy( collection, true );
 
@@ -1283,26 +1279,21 @@ int PCB_SELECTION_TOOL::SelectAll( const TOOL_EVENT& aEvent )
 
 int PCB_SELECTION_TOOL::UnselectAll( const TOOL_EVENT& aEvent )
 {
-    KIGFX::VIEW* view = getView();
-
-    // hold all visible items
-    std::vector<KIGFX::VIEW::LAYER_ITEM_PAIR> selectedItems;
-
-    // Filter the view items based on the selection box
     BOX2I selectionBox;
 
     selectionBox.SetMaximum();
-    view->Query( selectionBox, selectedItems ); // Get the list of selected items
 
-    for( const KIGFX::VIEW::LAYER_ITEM_PAIR& item_pair : selectedItems )
-    {
-        BOARD_ITEM* item = static_cast<BOARD_ITEM*>( item_pair.first );
+    getView()->Query( selectionBox,
+            [&]( KIGFX::VIEW_ITEM* viewItem ) -> bool
+            {
+                BOARD_ITEM* item = static_cast<BOARD_ITEM*>( viewItem );
 
-        if( !item || !Selectable( item ) )
-            continue;
+                if( !item || !Selectable( item ) )
+                    return true;
 
-        unselect( item );
-    }
+                unselect( item );
+                return true;
+            } );
 
     m_toolMgr->ProcessEvent( EVENTS::UnselectedEvent );
 
@@ -1476,9 +1467,13 @@ void PCB_SELECTION_TOOL::selectAllConnectedTracks(
 
     for( BOARD_CONNECTED_ITEM* startItem : aStartItems )
     {
-        // Track starting pads
+        // Register starting pads
         if( startItem->Type() == PCB_PAD_T )
             startPadSet.insert( static_cast<PAD*>( startItem ) );
+
+        // Select any starting track items
+        if( startItem->IsType( { PCB_TRACE_T, PCB_ARC_T, PCB_VIA_T } ) )
+            select( startItem );
     }
 
     for( BOARD_CONNECTED_ITEM* startItem : aStartItems )
@@ -1715,6 +1710,21 @@ void PCB_SELECTION_TOOL::selectAllConnectedTracks(
         }
     }
 
+    // Promote generated members to their PCB_GENERATOR parents
+    for( EDA_ITEM* item : m_selection )
+    {
+        BOARD_ITEM* boardItem = dynamic_cast<BOARD_ITEM*>( item );
+        PCB_GROUP*  parent = boardItem ? boardItem->GetParentGroup() : nullptr;
+
+        if( parent && parent->Type() == PCB_GENERATOR_T )
+        {
+            unselect( item );
+
+            if( !parent->IsSelected() )
+                select( parent );
+        }
+    }
+
     for( BOARD_CONNECTED_ITEM* item : cleanupItems )
         item->ClearFlags( SKIP_STRUCT );
 }
@@ -1877,6 +1887,12 @@ int PCB_SELECTION_TOOL::grabUnconnected( const TOOL_EVENT& aEvent )
         // Check every ratsnest line for the nearest one
         for( const CN_EDGE& edge : edges )
         {
+            if( edge.GetSourceNode()->Parent()->GetParentFootprint()
+                == edge.GetTargetNode()->Parent()->GetParentFootprint() )
+            {
+                continue; // This edge is a loop on the same footprint
+            }
+
             // Figure out if we are the source or the target node on the ratnest
             const CN_ANCHOR* other = edge.GetSourceNode()->Parent() == pad ? edge.GetTargetNode().get()
                                                                            : edge.GetSourceNode().get();
@@ -2857,19 +2873,8 @@ bool PCB_SELECTION_TOOL::Selectable( const BOARD_ITEM* aItem, bool checkVisibili
     // Most footprint children can only be selected in the footprint editor.
     if( aItem->GetParentFootprint() && !m_isFootprintEditor && !checkVisibilityOnly )
     {
-        if( aItem->Type() == PCB_TEXT_T )
-        {
-            text = static_cast<const PCB_TEXT*>( aItem );
-
-            // Special case for version 8 until we have a consistent way to convert these text
-            // to fields
-            if( !text->GetText().Contains( wxT( "${REFERENCE}" ) )
-                && !text->GetText().Contains( wxT( "${VALUE}" ) ) )
-            {
-                return false;
-            }
-        }
-        else if( aItem->Type() != PCB_FIELD_T && aItem->Type() != PCB_PAD_T )
+        if( aItem->Type() != PCB_FIELD_T && aItem->Type() != PCB_PAD_T
+            && aItem->Type() != PCB_TEXT_T )
         {
             return false;
         }
@@ -2969,6 +2974,11 @@ bool PCB_SELECTION_TOOL::Selectable( const BOARD_ITEM* aItem, bool checkVisibili
         KI_FALLTHROUGH;
 
     case PCB_SHAPE_T:
+        if( !board()->IsElementVisible( LAYER_SHAPES ) || ( options.m_FilledShapeOpacity == 0.0 ) )
+            return false;
+
+        KI_FALLTHROUGH;
+
     case PCB_TEXTBOX_T:
     case PCB_TABLE_T:
     case PCB_TABLECELL_T:
@@ -3247,11 +3257,9 @@ int PCB_SELECTION_TOOL::hitTestDistance( const VECTOR2I& aWhere, BOARD_ITEM* aIt
         {
             footprint->GetBoundingHull().Collide( loc, aMaxDistance, &distance );
         }
-        catch( const std::exception& exc )
+        catch( const std::exception& e )
         {
-            // This may be overkill and could be an assertion but we are more likely to find
-            // any clipper errors this way.
-            wxLogError( wxT( "Clipper library exception '%s' occurred." ), exc.what() );
+            wxFAIL_MSG( wxString::Format( wxT( "Clipper exception occurred: %s" ), e.what() ) );
         }
 
         // Consider footprints larger than the viewport only as a last resort
@@ -3455,8 +3463,8 @@ void PCB_SELECTION_TOOL::pruneObscuredSelectionCandidates( GENERAL_COLLECTOR& aC
 void PCB_SELECTION_TOOL::GuessSelectionCandidates( GENERAL_COLLECTOR& aCollector,
                                                    const VECTOR2I& aWhere ) const
 {
-    static const LSET silkLayers( 2, B_SilkS, F_SilkS );
-    static const LSET courtyardLayers( 2, B_CrtYd, F_CrtYd );
+    static const LSET silkLayers( { B_SilkS, F_SilkS } );
+    static const LSET courtyardLayers( { B_CrtYd, F_CrtYd } );
     static std::vector<KICAD_T> singleLayerSilkTypes = { PCB_FIELD_T,
                                                          PCB_TEXT_T, PCB_TEXTBOX_T,
                                                          PCB_TABLE_T, PCB_TABLECELL_T,
@@ -3576,7 +3584,7 @@ void PCB_SELECTION_TOOL::GuessSelectionCandidates( GENERAL_COLLECTOR& aCollector
             }
             catch( const std::exception& e )
             {
-                wxLogError( wxT( "A clipper exception %s was detected." ), e.what() );
+                wxFAIL_MSG( wxString::Format( wxT( "Clipper exception occurred: %s" ), e.what() ) );
             }
         }
 

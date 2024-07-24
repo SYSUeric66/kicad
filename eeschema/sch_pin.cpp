@@ -193,6 +193,7 @@ SCH_PIN::SCH_PIN( SCH_SYMBOL* aParentSymbol, const wxString& aNumber, const wxSt
 SCH_PIN::SCH_PIN( const SCH_PIN& aPin ) :
         SCH_ITEM( aPin ),
         m_libPin( aPin.m_libPin ),
+        m_alternates( aPin.m_alternates ),
         m_position( aPin.m_position ),
         m_length( aPin.m_length ),
         m_orientation( aPin.m_orientation ),
@@ -215,6 +216,7 @@ SCH_PIN& SCH_PIN::operator=( const SCH_PIN& aPin )
     SCH_ITEM::operator=( aPin );
 
     m_libPin = aPin.m_libPin;
+    m_alternates = aPin.m_alternates;
     m_alt = aPin.m_alt;
     m_name = aPin.m_name;
     m_number = aPin.m_number;
@@ -1343,78 +1345,6 @@ EDA_ITEM* SCH_PIN::Clone() const
 }
 
 
-int SCH_PIN::compare( const SCH_ITEM& aOther, int aCompareFlags ) const
-{
-    wxASSERT( aOther.Type() == SCH_PIN_T );
-
-    const SCH_PIN* tmp = (SCH_PIN*) &aOther;
-
-    // When comparing units, we do not compare the part numbers.  If everything else is
-    // identical, then we can just renumber the parts for the inherited symbol.
-    if( !( aCompareFlags & SCH_ITEM::COMPARE_FLAGS::UNIT ) && m_number != tmp->m_number )
-        return m_number.Cmp( tmp->m_number );
-
-    int result = m_name.Cmp( tmp->m_name );
-
-    if( result )
-        return result;
-
-    if( m_position.x != tmp->m_position.x )
-        return m_position.x - tmp->m_position.x;
-
-    if( m_position.y != tmp->m_position.y )
-        return m_position.y - tmp->m_position.y;
-
-    if( m_length != tmp->m_length )
-        return m_length.value_or( 0 ) - tmp->m_length.value_or( 0 );
-
-    if( m_orientation != tmp->m_orientation )
-        return static_cast<int>( m_orientation ) - static_cast<int>( tmp->m_orientation );
-
-    if( m_shape != tmp->m_shape )
-        return static_cast<int>( m_shape ) - static_cast<int>( tmp->m_shape );
-
-    if( m_type != tmp->m_type )
-        return static_cast<int>( m_type ) - static_cast<int>( tmp->m_type );
-
-    if( m_hidden != tmp->m_hidden )
-        return m_hidden.value_or( false ) - tmp->m_hidden.value_or( false );
-
-    if( m_numTextSize != tmp->m_numTextSize )
-        return m_numTextSize.value_or( 0 ) - tmp->m_numTextSize.value_or( 0 );
-
-    if( m_nameTextSize != tmp->m_nameTextSize )
-        return m_nameTextSize.value_or( 0 ) - tmp->m_nameTextSize.value_or( 0 );
-
-    if( m_alternates.size() != tmp->m_alternates.size() )
-        return static_cast<int>( m_alternates.size() - tmp->m_alternates.size() );
-
-    auto lhsItem = m_alternates.begin();
-    auto rhsItem = tmp->m_alternates.begin();
-
-    while( lhsItem != m_alternates.end() )
-    {
-        const ALT& lhsAlt = lhsItem->second;
-        const ALT& rhsAlt = rhsItem->second;
-
-        int retv = lhsAlt.m_Name.Cmp( rhsAlt.m_Name );
-
-        if( retv )
-            return retv;
-
-        if( lhsAlt.m_Type != rhsAlt.m_Type )
-            return static_cast<int>( lhsAlt.m_Type ) - static_cast<int>( rhsAlt.m_Type );
-
-        if( lhsAlt.m_Shape != rhsAlt.m_Shape )
-            return static_cast<int>( lhsAlt.m_Shape ) - static_cast<int>( rhsAlt.m_Shape );
-
-        ++lhsItem;
-        ++rhsItem;
-    }
-
-    return 0;
-}
-
 void SCH_PIN::ChangeLength( int aLength )
 {
     int lengthChange = GetLength() - aLength;
@@ -1449,34 +1379,73 @@ void SCH_PIN::Move( const VECTOR2I& aOffset )
 }
 
 
+void SCH_PIN::MirrorHorizontallyPin( int aCenter )
+{
+    m_position.x -= aCenter;
+    m_position.x *= -1;
+    m_position.x += aCenter;
+
+    if( m_orientation == PIN_ORIENTATION::PIN_RIGHT )
+        m_orientation = PIN_ORIENTATION::PIN_LEFT;
+    else if( m_orientation == PIN_ORIENTATION::PIN_LEFT )
+        m_orientation = PIN_ORIENTATION::PIN_RIGHT;
+}
+
+
 void SCH_PIN::MirrorHorizontally( int aCenter )
 {
     if( dynamic_cast<LIB_SYMBOL*>( GetParentSymbol() ) )
-    {
-        m_position.x -= aCenter;
-        m_position.x *= -1;
-        m_position.x += aCenter;
+        MirrorHorizontallyPin( aCenter );
+}
 
-        if( m_orientation == PIN_ORIENTATION::PIN_RIGHT )
-            m_orientation = PIN_ORIENTATION::PIN_LEFT;
-        else if( m_orientation == PIN_ORIENTATION::PIN_LEFT )
-            m_orientation = PIN_ORIENTATION::PIN_RIGHT;
-    }
+
+void SCH_PIN::MirrorVerticallyPin( int aCenter )
+{
+    m_position.y -= aCenter;
+    m_position.y *= -1;
+    m_position.y += aCenter;
+
+    if( m_orientation == PIN_ORIENTATION::PIN_UP )
+        m_orientation = PIN_ORIENTATION::PIN_DOWN;
+    else if( m_orientation == PIN_ORIENTATION::PIN_DOWN )
+        m_orientation = PIN_ORIENTATION::PIN_UP;
 }
 
 
 void SCH_PIN::MirrorVertically( int aCenter )
 {
     if( dynamic_cast<LIB_SYMBOL*>( GetParentSymbol() ) )
-    {
-        m_position.y -= aCenter;
-        m_position.y *= -1;
-        m_position.y += aCenter;
+        MirrorVerticallyPin( aCenter );
+}
 
-        if( m_orientation == PIN_ORIENTATION::PIN_UP )
-            m_orientation = PIN_ORIENTATION::PIN_DOWN;
-        else if( m_orientation == PIN_ORIENTATION::PIN_DOWN )
-            m_orientation = PIN_ORIENTATION::PIN_UP;
+
+void SCH_PIN::RotatePin( const VECTOR2I& aCenter, bool aRotateCCW )
+{
+    if( aRotateCCW )
+    {
+        RotatePoint( m_position, aCenter, ANGLE_90 );
+
+        switch( GetOrientation() )
+        {
+        default:
+        case PIN_ORIENTATION::PIN_RIGHT: m_orientation = PIN_ORIENTATION::PIN_UP;    break;
+        case PIN_ORIENTATION::PIN_UP:    m_orientation = PIN_ORIENTATION::PIN_LEFT;  break;
+        case PIN_ORIENTATION::PIN_LEFT:  m_orientation = PIN_ORIENTATION::PIN_DOWN;  break;
+        case PIN_ORIENTATION::PIN_DOWN:  m_orientation = PIN_ORIENTATION::PIN_RIGHT; break;
+        }
+    }
+    else
+    {
+        RotatePoint( m_position, aCenter, -ANGLE_90 );
+
+        switch( GetOrientation() )
+        {
+        default:
+        case PIN_ORIENTATION::PIN_RIGHT: m_orientation = PIN_ORIENTATION::PIN_DOWN;  break;
+        case PIN_ORIENTATION::PIN_UP:    m_orientation = PIN_ORIENTATION::PIN_RIGHT; break;
+        case PIN_ORIENTATION::PIN_LEFT:  m_orientation = PIN_ORIENTATION::PIN_UP;    break;
+        case PIN_ORIENTATION::PIN_DOWN:  m_orientation = PIN_ORIENTATION::PIN_LEFT;  break;
+        }
     }
 }
 
@@ -1484,34 +1453,7 @@ void SCH_PIN::MirrorVertically( int aCenter )
 void SCH_PIN::Rotate( const VECTOR2I& aCenter, bool aRotateCCW )
 {
     if( dynamic_cast<LIB_SYMBOL*>( GetParentSymbol() ) )
-    {
-        if( aRotateCCW )
-        {
-            RotatePoint( m_position, aCenter, ANGLE_90 );
-
-            switch( GetOrientation() )
-            {
-            default:
-            case PIN_ORIENTATION::PIN_RIGHT: m_orientation = PIN_ORIENTATION::PIN_UP;    break;
-            case PIN_ORIENTATION::PIN_UP:    m_orientation = PIN_ORIENTATION::PIN_LEFT;  break;
-            case PIN_ORIENTATION::PIN_LEFT:  m_orientation = PIN_ORIENTATION::PIN_DOWN;  break;
-            case PIN_ORIENTATION::PIN_DOWN:  m_orientation = PIN_ORIENTATION::PIN_RIGHT; break;
-            }
-        }
-        else
-        {
-            RotatePoint( m_position, aCenter, -ANGLE_90 );
-
-            switch( GetOrientation() )
-            {
-            default:
-            case PIN_ORIENTATION::PIN_RIGHT: m_orientation = PIN_ORIENTATION::PIN_DOWN;  break;
-            case PIN_ORIENTATION::PIN_UP:    m_orientation = PIN_ORIENTATION::PIN_RIGHT; break;
-            case PIN_ORIENTATION::PIN_LEFT:  m_orientation = PIN_ORIENTATION::PIN_UP;    break;
-            case PIN_ORIENTATION::PIN_DOWN:  m_orientation = PIN_ORIENTATION::PIN_LEFT;  break;
-            }
-        }
-    }
+        RotatePin( aCenter, aRotateCCW );
 }
 
 
@@ -1937,7 +1879,7 @@ wxString SCH_PIN::GetItemDescription( UNITS_PROVIDER* aUnitsProvider, ALT* aAlt 
 }
 
 
-wxString SCH_PIN::GetItemDescription( UNITS_PROVIDER* aUnitsProvider ) const
+wxString SCH_PIN::GetItemDescription( UNITS_PROVIDER* aUnitsProvider, bool aFull ) const
 {
     if( m_libPin )
     {
@@ -2014,86 +1956,158 @@ wxString SCH_PIN::getItemDescription( ALT* aAlt ) const
 }
 
 
-bool SCH_PIN::operator==( const SCH_ITEM& aOther ) const
+
+
+int SCH_PIN::compare( const SCH_ITEM& aOther, int aCompareFlags ) const
 {
-    if( aOther.Type() != SCH_PIN_T )
-        return false;
+    // Ignore the UUID here.
+    int retv = SCH_ITEM::compare( aOther, aCompareFlags | SCH_ITEM::COMPARE_FLAGS::EQUALITY );
 
-    const SCH_PIN* other = static_cast<const SCH_PIN*>( &aOther );
+    if( retv )
+        return retv;
 
-    if( m_number != other->m_number )
-        return false;
+    const SCH_PIN* tmp = static_cast<const SCH_PIN*>( &aOther );
 
-    if( m_position != other->m_position )
-        return false;
+    wxCHECK( tmp, -1 );
+
+    // When comparing units, we do not compare the part numbers.  If everything else is
+    // identical, then we can just renumber the parts for the inherited symbol.
+    // if( !( aCompareFlags & SCH_ITEM::COMPARE_FLAGS::UNIT ) && m_number != tmp->m_number )
+    //     return m_number.Cmp( tmp->m_number );
+
+    // int result = m_name.Cmp( tmp->m_name );
+
+    // if( result )
+    //     return result;
+
+    // if( m_position.x != tmp->m_position.x )
+    //     return m_position.x - tmp->m_position.x;
+
+    // if( m_position.y != tmp->m_position.y )
+    //     return m_position.y - tmp->m_position.y;
+
+    // if( m_length != tmp->m_length )
+    //     return m_length.value_or( 0 ) - tmp->m_length.value_or( 0 );
+
+    // if( m_orientation != tmp->m_orientation )
+    //     return static_cast<int>( m_orientation ) - static_cast<int>( tmp->m_orientation );
+
+    // if( m_shape != tmp->m_shape )
+    //     return static_cast<int>( m_shape ) - static_cast<int>( tmp->m_shape );
+
+    // if( m_type != tmp->m_type )
+    //     return static_cast<int>( m_type ) - static_cast<int>( tmp->m_type );
+
+    // if( m_hidden != tmp->m_hidden )
+    //     return m_hidden.value_or( false ) - tmp->m_hidden.value_or( false );
+
+    // if( m_numTextSize != tmp->m_numTextSize )
+    //     return m_numTextSize.value_or( 0 ) - tmp->m_numTextSize.value_or( 0 );
+
+    // if( m_nameTextSize != tmp->m_nameTextSize )
+    //     return m_nameTextSize.value_or( 0 ) - tmp->m_nameTextSize.value_or( 0 );
+
+    // if( m_alternates.size() != tmp->m_alternates.size() )
+    //     return static_cast<int>( m_alternates.size() - tmp->m_alternates.size() );
+
+    // auto lhsItem = m_alternates.begin();
+    // auto rhsItem = tmp->m_alternates.begin();
+
+    // while( lhsItem != m_alternates.end() )
+    // {
+    //     const ALT& lhsAlt = lhsItem->second;
+    //     const ALT& rhsAlt = rhsItem->second;
+
+    //     int retv = lhsAlt.m_Name.Cmp( rhsAlt.m_Name );
+
+    //     if( retv )
+    //         return retv;
+
+    //     if( lhsAlt.m_Type != rhsAlt.m_Type )
+    //         return static_cast<int>( lhsAlt.m_Type ) - static_cast<int>( rhsAlt.m_Type );
+
+    //     if( lhsAlt.m_Shape != rhsAlt.m_Shape )
+    //         return static_cast<int>( lhsAlt.m_Shape ) - static_cast<int>( rhsAlt.m_Shape );
+
+    //     ++lhsItem;
+    //     ++rhsItem;
+    // }
+
+    if( m_number != tmp->m_number )
+        return m_number.Cmp( tmp->m_number );
+
+    if( m_position.x != tmp->m_position.x )
+        return m_position.x - tmp->m_position.x;
+
+    if( m_position.y != tmp->m_position.y )
+        return m_position.y - tmp->m_position.y;
 
     if( dynamic_cast<const SCH_SYMBOL*>( GetParentSymbol() ) )
     {
-        if( m_libPin != other->m_libPin )
-            return false;
+        wxCHECK( m_libPin && tmp->m_libPin, -1 );
 
-        if( m_alt != other->m_alt )
-            return false;
+        retv = m_libPin->compare( *tmp->m_libPin );
+
+        if( retv )
+            return retv;
+
+        retv = m_alt.Cmp( tmp->m_alt );
+
+        if( retv )
+            return retv;
     }
 
     if( dynamic_cast<const LIB_SYMBOL*>( GetParentSymbol() ) )
     {
-        if( m_length != other->m_length )
-            return false;
+        if( m_length != tmp->m_length )
+            return m_length.value_or( 0 ) - tmp->m_length.value_or( 0 );
 
-        if( m_orientation != other->m_orientation )
-            return false;
+        if( m_orientation != tmp->m_orientation )
+            return static_cast<int>( m_orientation ) - static_cast<int>( tmp->m_orientation );
 
-        if( m_shape != other->m_shape )
-            return false;
+        if( m_shape != tmp->m_shape )
+            return static_cast<int>( m_shape ) - static_cast<int>( tmp->m_shape );
 
-        if( m_type != other->m_type )
-            return false;
+        if( m_type != tmp->m_type )
+            return static_cast<int>( m_type ) - static_cast<int>( tmp->m_type );
 
-        if( m_name != other->m_name )
-            return false;
+        if( m_hidden != tmp->m_hidden )
+            return m_hidden.value_or( false ) - tmp->m_hidden.value_or( false );
 
-        if( m_hidden != other->m_hidden )
-            return false;
+        if( m_numTextSize != tmp->m_numTextSize )
+            return m_numTextSize.value_or( 0 ) - tmp->m_numTextSize.value_or( 0 );
 
-        if( m_numTextSize != other->m_numTextSize )
-            return false;
+        if( m_nameTextSize != tmp->m_nameTextSize )
+            return m_nameTextSize.value_or( 0 ) - tmp->m_nameTextSize.value_or( 0 );
 
-        if( m_nameTextSize != other->m_nameTextSize )
-            return false;
-
-        if( m_alternates.size() != other->m_alternates.size() )
-            return false;
+        if( m_alternates.size() != tmp->m_alternates.size() )
+            return static_cast<int>( m_alternates.size() - tmp->m_alternates.size() );
 
         auto lhsItem = m_alternates.begin();
-        auto rhsItem = other->m_alternates.begin();
+        auto rhsItem = tmp->m_alternates.begin();
 
         while( lhsItem != m_alternates.end() )
         {
-            if( rhsItem == other->m_alternates.end() )
-                return false;
-
             const ALT& lhsAlt = lhsItem->second;
             const ALT& rhsAlt = rhsItem->second;
 
-            if( lhsAlt.m_Name != rhsAlt.m_Name )
-                return false;
+            retv = lhsAlt.m_Name.Cmp( rhsAlt.m_Name );
+
+            if( retv )
+                return retv;
 
             if( lhsAlt.m_Type != rhsAlt.m_Type )
-                return false;
+                return static_cast<int>( lhsAlt.m_Type ) - static_cast<int>( rhsAlt.m_Type );
 
             if( lhsAlt.m_Shape != rhsAlt.m_Shape )
-                return false;
+                return static_cast<int>( lhsAlt.m_Shape ) - static_cast<int>( rhsAlt.m_Shape );
 
             ++lhsItem;
             ++rhsItem;
         }
-
-        if( rhsItem != other->m_alternates.end() )
-            return false;
     }
 
-    return true;
+    return 0;
 }
 
 

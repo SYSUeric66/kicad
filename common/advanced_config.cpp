@@ -101,10 +101,11 @@ static const wxChar UseClipper2[] = wxT( "UseClipper2" );
 static const wxChar EnableGenerators[] = wxT( "EnableGenerators" );
 static const wxChar EnableGit[] = wxT( "EnableGit" );
 static const wxChar EnableLibWithText[] = wxT( "EnableLibWithText" );
+static const wxChar EnableLibDir[] = wxT( "EnableLibDir" );
 static const wxChar EnableEeschemaPrintCairo[] = wxT( "EnableEeschemaPrintCairo" );
 static const wxChar DisambiguationTime[] = wxT( "DisambiguationTime" );
 static const wxChar PcbSelectionVisibilityRatio[] = wxT( "PcbSelectionVisibilityRatio" );
-static const wxChar MinimumSegmentLength[] = wxT( "MinimumSegmentLength" );
+static const wxChar FontErrorSize[] = wxT( "FontErrorSize" );
 static const wxChar OcePluginLinearDeflection[] = wxT( "OcePluginLinearDeflection" );
 static const wxChar OcePluginAngularDeflection[] = wxT( "OcePluginAngularDeflection" );
 static const wxChar TriangulateSimplificationLevel[] = wxT( "TriangulateSimplificationLevel" );
@@ -112,6 +113,11 @@ static const wxChar TriangulateMinimumArea[] = wxT( "TriangulateMinimumArea" );
 static const wxChar EnableCacheFriendlyFracture[] = wxT( "EnableCacheFriendlyFracture" );
 static const wxChar EnableAPILogging[] = wxT( "EnableAPILogging" );
 static const wxChar EnableODBPP[] = wxT( "EnableODB" );
+static const wxChar MaxFileSystemWatchers[] = wxT( "MaxFileSystemWatchers" );
+static const wxChar MinorSchematicGraphSize[] = wxT( "MinorSchematicGraphSize" );
+static const wxChar ResolveTextRecursionDepth[] = wxT( "ResolveTextRecursionDepth" );
+static const wxChar ZoneConnectionFiller[] = wxT( "ZoneConnectionFiller" );
+
 } // namespace KEYS
 
 
@@ -239,6 +245,7 @@ ADVANCED_CFG::ADVANCED_CFG()
     m_EnableGenerators          = false;
     m_EnableGit                 = false;
     m_EnableLibWithText         = false;
+    m_EnableLibDir              = false;
 
     m_EnableEeschemaPrintCairo  = true;
 
@@ -256,7 +263,7 @@ ADVANCED_CFG::ADVANCED_CFG()
 
     m_PcbSelectionVisibilityRatio = 1.0;
 
-    m_MinimumSegmentLength      = 50;
+    m_FontErrorSize             = 2;
 
     m_OcePluginLinearDeflection = 0.14;
     m_OcePluginAngularDeflection = 30;
@@ -265,6 +272,14 @@ ADVANCED_CFG::ADVANCED_CFG()
     m_TriangulateMinimumArea = 1000;
 
     m_EnableCacheFriendlyFracture = true;
+
+    m_MaxFilesystemWatchers = 16384;
+
+    m_MinorSchematicGraphSize = 10000;
+
+    m_ResolveTextRecursionDepth = 3;
+
+    m_ZoneConnectionFiller = false;
 
     loadFromConfigFile();
 }
@@ -456,6 +471,9 @@ void ADVANCED_CFG::loadSettings( wxConfigBase& aCfg )
     configParams.push_back( new PARAM_CFG_BOOL( true, AC_KEYS::EnableLibWithText,
                                                 &m_EnableLibWithText, m_EnableLibWithText ) );
 
+    configParams.push_back( new PARAM_CFG_BOOL( true, AC_KEYS::EnableLibDir,
+                                                &m_EnableLibDir, m_EnableLibDir ) );
+
     configParams.push_back( new PARAM_CFG_BOOL( true, AC_KEYS::EnableEeschemaPrintCairo,
                                                 &m_EnableEeschemaPrintCairo,
                                                 m_EnableEeschemaPrintCairo ) );
@@ -463,13 +481,13 @@ void ADVANCED_CFG::loadSettings( wxConfigBase& aCfg )
     configParams.push_back( new PARAM_CFG_DOUBLE( true, AC_KEYS::PcbSelectionVisibilityRatio,
                                                   &m_PcbSelectionVisibilityRatio,
                                                   m_PcbSelectionVisibilityRatio, 0.0, 1.0 ) );
-
+    
     configParams.push_back( new PARAM_CFG_BOOL( true, AC_KEYS::EnableODBPP,
                                                 &m_EnableODB, m_EnableODB ) );
 
-    configParams.push_back( new PARAM_CFG_INT( true, AC_KEYS::MinimumSegmentLength,
-                                                  &m_MinimumSegmentLength,
-                                                  m_MinimumSegmentLength, 10, 1000 ) );
+    configParams.push_back( new PARAM_CFG_DOUBLE( true, AC_KEYS::FontErrorSize,
+                                                  &m_FontErrorSize,
+                                                  m_FontErrorSize, 0.01, 100 ) );
 
     configParams.push_back( new PARAM_CFG_DOUBLE( true, AC_KEYS::OcePluginLinearDeflection,
                                                     &m_OcePluginLinearDeflection,
@@ -491,6 +509,20 @@ void ADVANCED_CFG::loadSettings( wxConfigBase& aCfg )
                                                 &m_EnableCacheFriendlyFracture,
                                                 m_EnableCacheFriendlyFracture ) );
 
+    configParams.push_back( new PARAM_CFG_INT( true, AC_KEYS::MaxFileSystemWatchers,
+                                                  &m_MaxFilesystemWatchers, m_MaxFilesystemWatchers,
+                                                  0, 2147483647 ) );
+
+    configParams.push_back( new PARAM_CFG_INT( true, AC_KEYS::MinorSchematicGraphSize,
+                                                  &m_MinorSchematicGraphSize, m_MinorSchematicGraphSize,
+                                                  0, 2147483647 ) );
+
+    configParams.push_back( new PARAM_CFG_INT( true, AC_KEYS::ResolveTextRecursionDepth,
+                                                  &m_ResolveTextRecursionDepth,
+                                                  m_ResolveTextRecursionDepth, 0, 10 ) );
+
+    configParams.push_back( new PARAM_CFG_BOOL( true, AC_KEYS::ZoneConnectionFiller,
+                                                &m_ZoneConnectionFiller, m_ZoneConnectionFiller ) );
 
     // Special case for trace mask setting...we just grab them and set them immediately
     // Because we even use wxLogTrace inside of advanced config

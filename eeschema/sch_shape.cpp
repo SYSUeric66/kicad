@@ -507,7 +507,7 @@ void SCH_SHAPE::GetMsgPanelInfo( EDA_DRAW_FRAME* aFrame, std::vector<MSG_PANEL_I
 }
 
 
-wxString SCH_SHAPE::GetItemDescription( UNITS_PROVIDER* aUnitsProvider ) const
+wxString SCH_SHAPE::GetItemDescription( UNITS_PROVIDER* aUnitsProvider, bool aFull ) const
 {
     switch( GetShape() )
     {
@@ -578,7 +578,10 @@ void SCH_SHAPE::AddPoint( const VECTOR2I& aPosition )
     if( GetShape() == SHAPE_T::POLY )
     {
         if( m_poly.IsEmpty() )
+        {
             m_poly.NewOutline();
+            m_poly.Outline( 0 ).SetClosed( false );
+        }
 
         m_poly.Outline( 0 ).Append( aPosition, true );
     }

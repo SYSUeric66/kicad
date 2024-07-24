@@ -32,7 +32,9 @@
 #include <board_item_container.h>
 #include <board_item.h>
 #include <collectors.h>
+#include <embedded_files.h>
 #include <layer_ids.h> // ALL_LAYERS definition.
+#include <lset.h>
 #include <lib_id.h>
 #include <list>
 
@@ -99,10 +101,20 @@ public:
     double   m_Opacity;
     wxString m_Filename;    ///< The 3D shape filename in 3D library
     bool     m_Show;        ///< Include model in rendering
+
+    bool operator==( const FP_3DMODEL& aOther ) const
+    {
+        return m_Scale == aOther.m_Scale
+                && m_Rotation == aOther.m_Rotation
+                && m_Offset == aOther.m_Offset
+                && m_Opacity == aOther.m_Opacity
+                && m_Filename == aOther.m_Filename
+                && m_Show == aOther.m_Show;
+    }
 };
 
 
-class FOOTPRINT : public BOARD_ITEM_CONTAINER
+class FOOTPRINT : public BOARD_ITEM_CONTAINER, public EMBEDDED_FILES
 {
 public:
     FOOTPRINT( BOARD* parent );
@@ -171,6 +183,8 @@ public:
      */
     SHAPE_POLY_SET GetBoundingHull() const;
 
+    bool TextOnly() const;
+
     // Virtual function
     const BOX2I GetBoundingBox() const override;
     const BOX2I GetBoundingBox( bool aIncludeText, bool aIncludeInvisibleText ) const;
@@ -188,8 +202,8 @@ public:
     PCB_FIELDS& Fields()                   { return m_fields; }
     const PCB_FIELDS& Fields() const       { return m_fields; }
 
-    PADS& Pads()                           { return m_pads; }
-    const PADS& Pads() const               { return m_pads; }
+    std::deque<PAD*>& Pads()               { return m_pads; }
+    const std::deque<PAD*>& Pads() const   { return m_pads; }
 
     DRAWINGS& GraphicalItems()             { return m_drawings; }
     const DRAWINGS& GraphicalItems() const { return m_drawings; }
@@ -234,7 +248,6 @@ public:
     void          SetFPID( const LIB_ID& aFPID )
     {
         m_fpid = aFPID;
-        Footprint().SetText( aFPID.Format() );
     }
 
     wxString GetFPIDAsString() const { return m_fpid.Format(); }
@@ -455,15 +468,15 @@ public:
      *
      * @param aErrorHandler callback to handle the error messages generated
      */
-    void CheckPads( const std::function<void( const PAD*, int, const wxString& )>& aErrorHandler );
+    void CheckPads( UNITS_PROVIDER* aUnitsProvider,
+                    const std::function<void( const PAD*, int, const wxString& )>& aErrorHandler );
 
     /**
      * Check for overlapping, different-numbered, non-net-tie pads.
      *
      * @param aErrorHandler callback to handle the error messages generated
      */
-    void CheckShortingPads( const std::function<void( const PAD*,
-                                                      const PAD*,
+    void CheckShortingPads( const std::function<void( const PAD*, const PAD*, int aErrorCode,
                                                       const VECTOR2I& )>& aErrorHandler );
 
     /**
@@ -862,7 +875,7 @@ public:
         return wxT( "FOOTPRINT" );
     }
 
-    wxString GetItemDescription( UNITS_PROVIDER* aUnitsProvider ) const override;
+    wxString GetItemDescription( UNITS_PROVIDER* aUnitsProvider, bool aFull ) const override;
 
     BITMAPS GetMenuImage() const override;
 
@@ -948,6 +961,13 @@ public:
     const SHAPE_POLY_SET& GetCourtyard( PCB_LAYER_ID aLayer ) const;
 
     /**
+     * Return the cached courtyard area. No checks are performed.
+     *
+     * @return the cached courtyard polygon.
+     */
+    const SHAPE_POLY_SET& GetCachedCourtyard( PCB_LAYER_ID aLayer ) const;
+
+    /**
      * Build complex polygons of the courtyard areas from graphic items on the courtyard layers.
      *
      * @note Set the #MALFORMED_F_COURTYARD and #MALFORMED_B_COURTYARD status flags if the given
@@ -958,6 +978,18 @@ public:
     // @copydoc BOARD_ITEM::GetEffectiveShape
     std::shared_ptr<SHAPE> GetEffectiveShape( PCB_LAYER_ID aLayer = UNDEFINED_LAYER,
                                               FLASHING aFlash = FLASHING::DEFAULT ) const override;
+
+    EMBEDDED_FILES* GetEmbeddedFiles() override
+    {
+        return static_cast<EMBEDDED_FILES*>( this );
+    }
+
+    const EMBEDDED_FILES* GetEmbeddedFiles() const
+    {
+        return static_cast<const EMBEDDED_FILES*>( this );
+    }
+
+    void EmbedFonts() override;
 
     double Similarity( const BOARD_ITEM& aOther ) const override;
 
@@ -994,7 +1026,7 @@ protected:
 private:
     PCB_FIELDS      m_fields;
     DRAWINGS        m_drawings;          // BOARD_ITEMs for drawings on the board, owned by pointer.
-    PADS            m_pads;              // PAD items, owned by pointer
+    std::deque<PAD*> m_pads;              // PAD items, owned by pointer
     ZONES           m_zones;             // PCB_ZONE items, owned by pointer
     GROUPS          m_groups;            // PCB_GROUP items, owned by pointer
 
@@ -1053,8 +1085,8 @@ private:
 
     SHAPE_POLY_SET   m_courtyard_cache_front; // Note that a footprint can have both front and back
     SHAPE_POLY_SET   m_courtyard_cache_back;  // courtyards populated.
-    mutable MD5_HASH m_courtyard_cache_front_hash;
-    mutable MD5_HASH m_courtyard_cache_back_hash;
+    mutable HASH_128   m_courtyard_cache_front_hash;
+    mutable HASH_128   m_courtyard_cache_back_hash;
     mutable std::mutex m_courtyard_cache_mutex;
 };
 

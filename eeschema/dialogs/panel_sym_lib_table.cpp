@@ -228,18 +228,23 @@ protected:
             m_grid->AutoSizeColumns( false );
         }
     }
+
+    bool supportsVisibilityColumn() override
+    {
+        return true;
+    }
 };
 
 
 void PANEL_SYM_LIB_TABLE::setupGrid( WX_GRID* aGrid )
 {
     auto autoSizeCol =
-        [&]( WX_GRID* aGrid, int aCol )
+        [&]( WX_GRID* aCurrGrid, int aCol )
         {
-            int prevWidth = aGrid->GetColSize( aCol );
+            int prevWidth = aCurrGrid->GetColSize( aCol );
 
-            aGrid->AutoSizeColumn( aCol, false );
-            aGrid->SetColSize( aCol, std::max( prevWidth, aGrid->GetColSize( aCol ) ) );
+            aCurrGrid->AutoSizeColumn( aCol, false );
+            aCurrGrid->SetColSize( aCol, std::max( prevWidth, aCurrGrid->GetColSize( aCol ) ) );
         };
 
     EESCHEMA_SETTINGS* cfg = Pgm().GetSettingsManager().GetAppSettings<EESCHEMA_SETTINGS>();
@@ -1009,16 +1014,12 @@ bool PANEL_SYM_LIB_TABLE::TransferDataFromWindow()
     if( *global_model() != *m_globalTable )
     {
         m_parent->m_GlobalTableChanged = true;
-
-        m_globalTable->Clear();
         m_globalTable->TransferRows( global_model()->m_rows );
     }
 
     if( project_model() && *project_model() != *m_projectTable )
     {
         m_parent->m_ProjectTableChanged = true;
-
-        m_projectTable->Clear();
         m_projectTable->TransferRows( project_model()->m_rows );
     }
 

@@ -71,7 +71,7 @@
 #include <widgets/search_pane.h>
 #include <wx/dirdlg.h>
 #include <wx/filedlg.h>
-#include <wx/msgdlg.h>
+#include <wx/debug.h>
 #include <wx/socket.h>
 
 #include <wx/snglinst.h>
@@ -118,7 +118,6 @@ EDA_DRAW_FRAME::EDA_DRAW_FRAME( KIWAY* aKiway, wxWindow* aParent, FRAME_T aFrame
     m_drawBgColor         = COLOR4D( BLACK );   // the background color of the draw canvas:
                                                 // BLACK for Pcbnew, BLACK or WHITE for Eeschema
     m_colorSettings       = nullptr;
-    m_msgFrameHeight      = EDA_MSG_PANEL::GetRequiredHeight( this );
     m_polarCoords         = false;
     m_findReplaceData     = std::make_unique<EDA_SEARCH_DATA>();
     m_hotkeyPopup         = nullptr;
@@ -133,61 +132,29 @@ EDA_DRAW_FRAME::EDA_DRAW_FRAME( KIWAY* aKiway, wxWindow* aParent, FRAME_T aFrame
     {
         CreateStatusBar( 8 )->SetDoubleBuffered( true );
 
-    // set the size of the status bar subwindows:
+        GetStatusBar()->SetFont( KIUI::GetStatusFont( this ) );
 
-        wxWindow* stsbar = GetStatusBar();
-        int       spacer = KIUI::GetTextSize( wxT( "M" ), stsbar ).x * 2;
-
-        int dims[] =
-        {
-            // remainder of status bar on far left is set to a default or whatever is left over.
-            -1,
-
-            // When using GetTextSize() remember the width of character '1' is not the same
-            // as the width of '0' unless the font is fixed width, and it usually won't be.
-
-            // zoom:
-            KIUI::GetTextSize( wxT( "Z 762000" ), stsbar ).x,
-
-            // cursor coords
-            KIUI::GetTextSize( wxT( "X 1234.1234  Y 1234.1234" ), stsbar ).x,
-
-            // delta distances
-            KIUI::GetTextSize( wxT( "dx 1234.1234  dy 1234.1234  dist 1234.1234" ), stsbar ).x,
-
-            // grid size
-            KIUI::GetTextSize( wxT( "grid X 1234.1234  Y 1234.1234" ), stsbar ).x,
-
-            // units display, Inches is bigger than mm
-            KIUI::GetTextSize( _( "Inches" ), stsbar ).x,
-
-            // Size for the "Current Tool" panel; longest string from SetTool()
-            KIUI::GetTextSize( wxT( "Add layer alignment target" ), stsbar ).x,
-
-            // constraint mode
-            KIUI::GetTextSize( _( "Constrain to H, V, 45" ), stsbar ).x
-        };
-
-        for( size_t ii = 1; ii < arrayDim( dims ); ii++ )
-            dims[ii] += spacer;
-
-        SetStatusWidths( arrayDim( dims ), dims );
-        stsbar->SetFont( KIUI::GetStatusFont( this ) );
+        // set the size of the status bar subwindows:
+        updateStatusBarWidths();
     }
+
+    m_messagePanel = new EDA_MSG_PANEL( this, -1, wxPoint( 0, m_frameSize.y ), wxDefaultSize );
+    m_messagePanel->SetBackgroundColour( COLOR4D( LIGHTGRAY ).ToColour() );
+    m_msgFrameHeight = m_messagePanel->GetBestSize().y;
 
     // Create child subwindows.
     GetClientSize( &m_frameSize.x, &m_frameSize.y );
     m_framePos.x   = m_framePos.y = 0;
     m_frameSize.y -= m_msgFrameHeight;
 
-    m_messagePanel  = new EDA_MSG_PANEL( this, -1, wxPoint( 0, m_frameSize.y ),
-                                         wxSize( m_frameSize.x, m_msgFrameHeight ) );
-
-    m_messagePanel->SetBackgroundColour( COLOR4D( LIGHTGRAY ).ToColour() );
+    m_messagePanel->SetSize( m_frameSize.x, m_msgFrameHeight );
 
     Bind( wxEVT_DPI_CHANGED,
           [&]( wxDPIChangedEvent& )
           {
+              if( ( GetWindowStyle() & wxFRAME_NO_TASKBAR ) == 0 )
+                  updateStatusBarWidths();
+
               wxMoveEvent dummy;
               OnMove( dummy );
 
@@ -195,11 +162,13 @@ EDA_DRAW_FRAME::EDA_DRAW_FRAME( KIWAY* aKiway, wxWindow* aParent, FRAME_T aFrame
               // especially important even for first launches as the constructor of the window
               // here usually doesn't have the correct dpi awareness yet
               m_frameSize.y += m_msgFrameHeight;
-              m_msgFrameHeight = EDA_MSG_PANEL::GetRequiredHeight( this );
+              m_msgFrameHeight = m_messagePanel->GetBestSize().y;
               m_frameSize.y -= m_msgFrameHeight;
 
               m_messagePanel->SetPosition( wxPoint( 0, m_frameSize.y ) );
               m_messagePanel->SetSize( m_frameSize.x, m_msgFrameHeight );
+
+              // Don't skip, otherwise the frame gets too big
           } );
 }
 
@@ -688,6 +657,47 @@ void EDA_DRAW_FRAME::OnSize( wxSizeEvent& SizeEv )
 }
 
 
+void EDA_DRAW_FRAME::updateStatusBarWidths()
+{
+    wxWindow* stsbar = GetStatusBar();
+    int       spacer = KIUI::GetTextSize( wxT( "M" ), stsbar ).x * 2;
+
+    int dims[] = {
+        // remainder of status bar on far left is set to a default or whatever is left over.
+        -1,
+
+        // When using GetTextSize() remember the width of character '1' is not the same
+        // as the width of '0' unless the font is fixed width, and it usually won't be.
+
+        // zoom:
+        KIUI::GetTextSize( wxT( "Z 762000" ), stsbar ).x,
+
+        // cursor coords
+        KIUI::GetTextSize( wxT( "X 1234.1234  Y 1234.1234" ), stsbar ).x,
+
+        // delta distances
+        KIUI::GetTextSize( wxT( "dx 1234.1234  dy 1234.1234  dist 1234.1234" ), stsbar ).x,
+
+        // grid size
+        KIUI::GetTextSize( wxT( "grid X 1234.1234  Y 1234.1234" ), stsbar ).x,
+
+        // units display, Inches is bigger than mm
+        KIUI::GetTextSize( _( "Inches" ), stsbar ).x,
+
+        // Size for the "Current Tool" panel; longest string from SetTool()
+        KIUI::GetTextSize( wxT( "Add layer alignment target" ), stsbar ).x,
+
+        // constraint mode
+        KIUI::GetTextSize( _( "Constrain to H, V, 45" ), stsbar ).x
+    };
+
+    for( size_t ii = 1; ii < arrayDim( dims ); ii++ )
+        dims[ii] += spacer;
+
+    SetStatusWidths( arrayDim( dims ), dims );
+}
+
+
 void EDA_DRAW_FRAME::UpdateStatusBar()
 {
     SetStatusText( GetZoomLevelIndicator(), 1 );
@@ -1005,10 +1015,10 @@ void EDA_DRAW_FRAME::FocusOnLocation( const VECTOR2I& aPos )
         {
             GetCanvas()->GetView()->SetCenter( aPos, dialogScreenRects );
         }
-        catch( const ClipperLib::clipperException& exc )
+        catch( const ClipperLib::clipperException& e )
         {
-            wxLogError( wxT( "Clipper library error '%s' occurred centering object." ),
-                        exc.what() );
+            wxFAIL_MSG( wxString::Format( wxT( "Clipper exception occurred centering object: %s" ),
+                                          e.what() ) );
         }
     }
 

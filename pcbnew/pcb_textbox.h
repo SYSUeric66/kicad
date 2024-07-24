@@ -87,6 +87,7 @@ public:
     int GetMarginBottom() const         { return m_marginBottom; }
 
     VECTOR2I GetDrawPos() const override;
+    VECTOR2I GetDrawPos( bool aIsFlipped ) const;
 
     void SetTextAngle( const EDA_ANGLE& aAngle ) override;
 
@@ -139,7 +140,7 @@ public:
     std::shared_ptr<SHAPE> GetEffectiveShape( PCB_LAYER_ID aLayer = UNDEFINED_LAYER,
                                               FLASHING aFlash = FLASHING::DEFAULT ) const override;
 
-    wxString GetItemDescription( UNITS_PROVIDER* aUnitsProvider ) const override;
+    wxString GetItemDescription( UNITS_PROVIDER* aUnitsProvider, bool aFull ) const override;
 
     BITMAPS GetMenuImage() const override;
 
@@ -160,6 +161,7 @@ public:
 
     double Similarity( const BOARD_ITEM& aBoardItem ) const override;
 
+    bool operator==( const PCB_TEXTBOX& aOther ) const;
     bool operator==( const BOARD_ITEM& aBoardItem ) const override;
 
 protected:

@@ -48,6 +48,7 @@ DRC_ITEM DRC_ITEM::heading_schematic_parity( 0, _( "Schematic Parity" ), "" );
 DRC_ITEM DRC_ITEM::heading_signal_integrity( 0, _( "Signal Integrity" ), "" );
 DRC_ITEM DRC_ITEM::heading_readability( 0, _( "Readability" ), "" );
 DRC_ITEM DRC_ITEM::heading_misc( 0, _( "Miscellaneous" ), "" );
+DRC_ITEM DRC_ITEM::heading_internal( 0, "", "" );
 
 DRC_ITEM DRC_ITEM::unconnectedItems( DRCE_UNCONNECTED_ITEMS,
         _( "Missing connection between items" ),
@@ -102,8 +103,8 @@ DRC_ITEM DRC_ITEM::holeClearance( DRCE_HOLE_CLEARANCE,
         wxT( "hole_clearance" ) );
 
 DRC_ITEM DRC_ITEM::holeNearHole( DRCE_DRILLED_HOLES_TOO_CLOSE,
-        _( "Drilled holes too close together" ),
-        wxT( "hole_near_hole" ) );
+        _( "Drilled hole too close to other hole" ),
+        wxT( "hole_to_hole" ) );
 
 DRC_ITEM DRC_ITEM::holesCoLocated( DRCE_DRILLED_HOLES_COLOCATED,
         _( "Drilled holes co-located" ),
@@ -130,8 +131,12 @@ DRC_ITEM DRC_ITEM::viaDiameter( DRCE_VIA_DIAMETER,
         wxT( "via_diameter" ) );
 
 DRC_ITEM DRC_ITEM::padstack( DRCE_PADSTACK,
-        _( "Padstack is not valid" ),
+        wxT( "Padstack is questionable" ),
         wxT( "padstack" ) );
+
+DRC_ITEM DRC_ITEM::padstackInvalid( DRCE_PADSTACK_INVALID,
+        _( "Padstack is not valid" ),
+        wxT( "padstack_invalid" ) );
 
 DRC_ITEM DRC_ITEM::microviaDrillTooSmall( DRCE_MICROVIA_DRILL_OUT_OF_RANGE,
         _( "Micro via hole size out of range" ),
@@ -201,6 +206,14 @@ DRC_ITEM DRC_ITEM::assertionFailure( DRCE_ASSERTION_FAILURE,
         _( "Assertion failure" ),
         wxT( "assertion_failure" ) );
 
+DRC_ITEM DRC_ITEM::genericWarning( DRCE_GENERIC_WARNING,
+        _( "Warning" ),
+        wxT( "generic_warning" ) );
+
+DRC_ITEM DRC_ITEM::genericError( DRCE_GENERIC_ERROR,
+        _( "Error" ),
+        wxT( "generic_error" ) );
+
 DRC_ITEM DRC_ITEM::copperSliver( DRCE_COPPER_SLIVER,
         _( "Copper sliver" ),
         wxT( "copper_sliver" ) );
@@ -263,7 +276,8 @@ DRC_ITEM DRC_ITEM::footprintTHPadhasNoHole( DRCE_PAD_TH_WITH_NO_HOLE,
         wxT( "through_hole_pad_without_hole" ) );
 
 
-std::vector<std::reference_wrapper<RC_ITEM>> DRC_ITEM::allItemTypes( {
+std::vector<std::reference_wrapper<RC_ITEM>> DRC_ITEM::allItemTypes(
+        {
             DRC_ITEM::heading_electrical,
             DRC_ITEM::shortingItems,
             DRC_ITEM::tracksCrossing,
@@ -276,6 +290,7 @@ std::vector<std::reference_wrapper<RC_ITEM>> DRC_ITEM::allItemTypes( {
             DRC_ITEM::edgeClearance,
             DRC_ITEM::holeClearance,
             DRC_ITEM::holeNearHole,
+            DRC_ITEM::holesCoLocated,
             DRC_ITEM::trackWidth,
             DRC_ITEM::annularWidth,
             DRC_ITEM::drillTooSmall,
@@ -320,11 +335,17 @@ std::vector<std::reference_wrapper<RC_ITEM>> DRC_ITEM::allItemTypes( {
             DRC_ITEM::npthInsideCourtyard,
             DRC_ITEM::itemOnDisabledLayer,
             DRC_ITEM::unresolvedVariable,
-
             DRC_ITEM::footprintTypeMismatch,
             DRC_ITEM::libFootprintIssues,
             DRC_ITEM::libFootprintMismatch,
-            DRC_ITEM::footprintTHPadhasNoHole
+            DRC_ITEM::footprintTHPadhasNoHole,
+
+            // DRC_ITEM types with no user-editable severities
+            // NOTE: this MUST be the last grouping in the list!
+            DRC_ITEM::heading_internal,
+            DRC_ITEM::padstackInvalid,
+            DRC_ITEM::genericError,
+            DRC_ITEM::genericWarning
         } );
 
 
@@ -353,6 +374,7 @@ std::shared_ptr<DRC_ITEM> DRC_ITEM::Create( int aErrorCode )
     case DRCE_DRILL_OUT_OF_RANGE:       return std::make_shared<DRC_ITEM>( drillTooSmall );
     case DRCE_VIA_DIAMETER:             return std::make_shared<DRC_ITEM>( viaDiameter );
     case DRCE_PADSTACK:                 return std::make_shared<DRC_ITEM>( padstack );
+    case DRCE_PADSTACK_INVALID:         return std::make_shared<DRC_ITEM>( padstackInvalid );
     case DRCE_MICROVIA_DRILL_OUT_OF_RANGE: return std::make_shared<DRC_ITEM>( microviaDrillTooSmall );
     case DRCE_OVERLAPPING_FOOTPRINTS:   return std::make_shared<DRC_ITEM>( courtyardsOverlap );
     case DRCE_MISSING_COURTYARD:        return std::make_shared<DRC_ITEM>( missingCourtyard );
@@ -370,6 +392,8 @@ std::shared_ptr<DRC_ITEM> DRC_ITEM::Create( int aErrorCode )
     case DRCE_LIB_FOOTPRINT_MISMATCH:   return std::make_shared<DRC_ITEM>( libFootprintMismatch );
     case DRCE_UNRESOLVED_VARIABLE:      return std::make_shared<DRC_ITEM>( unresolvedVariable );
     case DRCE_ASSERTION_FAILURE:        return std::make_shared<DRC_ITEM>( assertionFailure );
+    case DRCE_GENERIC_WARNING:          return std::make_shared<DRC_ITEM>( genericWarning );
+    case DRCE_GENERIC_ERROR:            return std::make_shared<DRC_ITEM>( genericError );
     case DRCE_COPPER_SLIVER:            return std::make_shared<DRC_ITEM>( copperSliver );
     case DRCE_OVERLAPPING_SILK:         return std::make_shared<DRC_ITEM>( silkOverlaps );
     case DRCE_SILK_CLEARANCE:           return std::make_shared<DRC_ITEM>( silkClearance );

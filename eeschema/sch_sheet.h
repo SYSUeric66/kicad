@@ -363,7 +363,31 @@ public:
 
     void RunOnChildren( const std::function<void( SCH_ITEM* )>& aFunction ) override;
 
-    wxString GetItemDescription( UNITS_PROVIDER* aUnitsProvider ) const override;
+    /**
+     * Set or clear the exclude from simulation flag.
+     */
+    void SetExcludedFromSim( bool aExcludeFromSim ) override { m_excludedFromSim = aExcludeFromSim; }
+    bool GetExcludedFromSim() const override { return m_excludedFromSim; }
+
+    /**
+     * Set or clear the exclude from schematic bill of materials flag.
+     */
+    void SetExcludedFromBOM( bool aExcludeFromBOM ) { m_excludedFromBOM = aExcludeFromBOM; }
+    bool GetExcludedFromBOM() const { return m_excludedFromBOM; }
+
+    /**
+     * Set or clear exclude from board netlist flag.
+     */
+    void SetExcludedFromBoard( bool aExcludeFromBoard ) { m_excludedFromBoard = aExcludeFromBoard; }
+    bool GetExcludedFromBoard() const { return m_excludedFromBoard; }
+
+    /**
+     * Set or clear the 'Do Not Populate' flaga
+     */
+    bool GetDNP() const { return m_DNP; }
+    void SetDNP( bool aDNP ) { m_DNP = aDNP; }
+
+    wxString GetItemDescription( UNITS_PROVIDER* aUnitsProvider, bool aFull ) const override;
 
     BITMAPS GetMenuImage() const override;
 
@@ -450,40 +474,34 @@ protected:
      * in the list, do nothing.  Sheet instances allow for the sharing in complex hierarchies
      * which allows for per instance data such as page number for sheets to stored.
      *
-     * @warning The #SCH_SHEET_PATH object must be a full hierarchical path which means the
-     *          #SCH_SHEET object at index 0 must be the root sheet.  A partial sheet path
-     *          will raise an assertion on debug builds and silently fail and return false
-     *          on release builds.
+     * @warning The #KIID_PATH object must be a full hierarchical path which means the sheet
+     *          at index 0 must be the root sheet.
      *
      * @param[in] aInstance is the #SCH_SHEET_PATH of the sheet instance to the instance list.
      * @return false if the instance already exists, true if the instance was added.
      */
-    bool addInstance( const SCH_SHEET_PATH& aInstance );
+    bool addInstance( const KIID_PATH& aInstance );
 
     /**
      * Return the sheet page number for \a aInstance.
      *
-     * @warning The #SCH_SHEET_PATH object must be a full hierarchical path which means the
-     *          #SCH_SHEET object at index 0 must be the root sheet.  A partial sheet path
-     *          will raise an assertion on debug builds and silently fail and return an empty
-     *          page number on release builds.
+     * @warning The #KIID_PATH object must be a full hierarchical path which means the sheet
+     *          at index 0 must be the root sheet.
      *
      * @return the page number for the requested sheet instance.
      */
-    wxString getPageNumber( const SCH_SHEET_PATH& aInstance ) const;
+    wxString getPageNumber( const KIID_PATH& aInstance ) const;
 
     /**
      * Set the page number for the sheet instance \a aInstance.
      *
-     * @warning The #SCH_SHEET_PATH object must be a full hierarchical path which means the
-     *          #SCH_SHEET object at index 0 must be the root sheet.  A partial sheet path
-     *          will raise an assertion on debug builds and silently fail and return on release
-     *          builds.
+     * @warning The #KIID_PATH object must be a full hierarchical path which means the sheet
+     *          at index 0 must be the root sheet.
      *
      * @param[in] aInstance is the hierarchical path of the sheet.
      * @param[in] aReference is the new page number for the sheet.
      */
-    void setPageNumber( const SCH_SHEET_PATH& aInstance, const wxString& aPageNumber );
+    void setPageNumber( const KIID_PATH& aInstance, const wxString& aPageNumber );
 
     bool getInstance( SCH_SHEET_INSTANCE& aInstance, const KIID_PATH& aSheetPath,
                       bool aTestFromEnd = false ) const;
@@ -516,6 +534,11 @@ private:
 
     std::vector<SCH_SHEET_PIN*> m_pins;         // The list of sheet connection points.
     std::vector<SCH_FIELD>      m_fields;
+
+    bool                        m_excludedFromSim;
+    bool                        m_excludedFromBOM;
+    bool                        m_excludedFromBoard;
+    bool                        m_DNP;
 
     VECTOR2I                    m_pos;          // The position of the sheet.
     VECTOR2I                    m_size;         // The size of the sheet.

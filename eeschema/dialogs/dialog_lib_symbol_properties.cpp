@@ -21,6 +21,8 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA
  */
 
+#include <pgm_base.h>
+#include <eeschema_settings.h>
 #include <bitmaps.h>
 #include <confirm.h>
 #include <dialogs/dialog_text_entry.h>
@@ -38,6 +40,7 @@
 
 #include <dialog_sim_model.h>
 
+#include <panel_embedded_files.h>
 #include <dialog_lib_symbol_properties.h>
 #include <settings/settings_manager.h>
 #include <symbol_editor_settings.h>
@@ -61,11 +64,14 @@ DIALOG_LIB_SYMBOL_PROPERTIES::DIALOG_LIB_SYMBOL_PROPERTIES( SYMBOL_EDIT_FRAME* a
     m_delayedFocusColumn( -1 ),
     m_delayedFocusPage( -1 )
 {
+    m_embeddedFiles = new PANEL_EMBEDDED_FILES( m_NoteBook, m_libEntry );
+    m_NoteBook->AddPage( m_embeddedFiles, _( "Embedded Files" ) );
+
     // Give a bit more room for combobox editors
     m_grid->SetDefaultRowSize( m_grid->GetDefaultRowSize() + 4 );
     m_fields = new FIELDS_GRID_TABLE( this, aParent, m_grid, m_libEntry );
     m_grid->SetTable( m_fields );
-    m_grid->PushEventHandler( new FIELDS_GRID_TRICKS( m_grid, this,
+    m_grid->PushEventHandler( new FIELDS_GRID_TRICKS( m_grid, this, aLibEntry,
                                                       [&]( wxCommandEvent& aEvent )
                                                       {
                                                           OnAddField( aEvent );
@@ -77,7 +83,7 @@ DIALOG_LIB_SYMBOL_PROPERTIES::DIALOG_LIB_SYMBOL_PROPERTIES( SYMBOL_EDIT_FRAME* a
     m_grid->ShowHideColumns( cfg->m_EditSymbolVisibleColumns );
 
     wxGridCellAttr* attr = new wxGridCellAttr;
-    attr->SetEditor( new GRID_CELL_URL_EDITOR( this, PROJECT_SCH::SchSearchS( &Prj() ) ) );
+    attr->SetEditor( new GRID_CELL_URL_EDITOR( this, PROJECT_SCH::SchSearchS( &Prj() ), aLibEntry ) );
     m_grid->SetAttr( DATASHEET_FIELD, FDC_VALUE, attr );
 
     m_SymbolNameCtrl->SetValidator( FIELD_VALIDATOR( VALUE_FIELD ) );
@@ -154,6 +160,32 @@ bool DIALOG_LIB_SYMBOL_PROPERTIES::TransferDataToWindow()
     // Push a copy of each field into m_updateFields
     m_libEntry->GetFields( *m_fields );
 
+    std::set<wxString> defined;
+
+    for( SCH_FIELD& field : *m_fields )
+        defined.insert( field.GetName() );
+
+    // Add in any template fieldnames not yet defined:
+    // Read global fieldname templates
+    if( EESCHEMA_SETTINGS* cfg = Pgm().GetSettingsManager().GetAppSettings<EESCHEMA_SETTINGS>() )
+    {
+        TEMPLATES templateMgr;
+
+        if( !cfg->m_Drawing.field_names.IsEmpty() )
+            templateMgr.AddTemplateFieldNames( cfg->m_Drawing.field_names );
+
+        for( const TEMPLATE_FIELDNAME& templateFieldname : templateMgr.GetTemplateFieldNames() )
+        {
+            if( defined.count( templateFieldname.m_Name ) <= 0 )
+            {
+                SCH_FIELD field( VECTOR2I( 0, 0 ), -1, m_libEntry, templateFieldname.m_Name );
+                field.SetVisible( templateFieldname.m_Visible );
+                m_fields->push_back( field );
+                m_addedTemplateFields.insert( templateFieldname.m_Name );
+            }
+        }
+    }
+
     // The Y axis for components in lib is from bottom to top while the screen axis is top
     // to bottom: we must change the y coord sign for editing
     for( size_t i = 0; i < m_fields->size(); ++i )
@@ -214,20 +246,23 @@ bool DIALOG_LIB_SYMBOL_PROPERTIES::TransferDataToWindow()
         symbolNames.Remove( m_libEntry->GetName() );
         m_inheritanceSelectCombo->Append( symbolNames );
 
-        LIB_SYMBOL_SPTR rootSymbol = m_libEntry->GetParent().lock();
+        if( LIB_SYMBOL_SPTR rootSymbol = m_libEntry->GetParent().lock() )
+        {
+            wxString parentName = UnescapeString( rootSymbol->GetName() );
+            int selection = m_inheritanceSelectCombo->FindString( parentName );
 
-        wxCHECK( rootSymbol, false );
+            if( selection == wxNOT_FOUND )
+                return false;
 
-        wxString parentName = UnescapeString( rootSymbol->GetName() );
-        int selection = m_inheritanceSelectCombo->FindString( parentName );
-
-        wxCHECK( selection != wxNOT_FOUND, false );
-        m_inheritanceSelectCombo->SetSelection( selection );
+            m_inheritanceSelectCombo->SetSelection( selection );
+        }
 
         m_lastOpenedPage = 0;
     }
 
     m_NoteBook->SetSelection( (unsigned) m_lastOpenedPage );
+
+    m_embeddedFiles->TransferDataToWindow();
 
     return true;
 }
@@ -363,10 +398,15 @@ bool DIALOG_LIB_SYMBOL_PROPERTIES::TransferDataFromWindow()
         SCH_FIELD&      field = m_fields->at( ii );
         const wxString& fieldName = field.GetCanonicalName();
 
-        if( fieldName.IsEmpty() && field.GetText().IsEmpty() )
-            m_fields->erase( m_fields->begin() + ii );
+        if( field.GetText().IsEmpty() )
+        {
+            if( fieldName.IsEmpty() || m_addedTemplateFields.contains( fieldName ) )
+                m_fields->erase( m_fields->begin() + ii );
+        }
         else if( fieldName.IsEmpty() )
+        {
             field.SetName( _( "untitled" ) );
+        }
     }
 
     m_libEntry->SetFields( *m_fields );
@@ -436,6 +476,7 @@ bool DIALOG_LIB_SYMBOL_PROPERTIES::TransferDataFromWindow()
     // occurs.
     m_Parent->SetShowDeMorgan( m_hasAlternateBodyStyles->GetValue() );
 
+    m_embeddedFiles->TransferDataFromWindow();
     return true;
 }
 

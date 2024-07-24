@@ -52,6 +52,7 @@ enum class INSPECT_RESULT
 class UNITS_PROVIDER;
 class EDA_DRAW_FRAME;
 class MSG_PANEL_ITEM;
+class EMBEDDED_FILES;
 
 namespace google { namespace protobuf { class Any; } }
 
@@ -347,9 +348,10 @@ public:
      * returns a string to indicate that it was not overridden to provide the object
      * specific text.
      *
+     * @param aLong indicates a long string is acceptable
      * @return The menu text string.
      */
-    virtual wxString GetItemDescription( UNITS_PROVIDER* aUnitsProvider ) const;
+    virtual wxString GetItemDescription( UNITS_PROVIDER* aUnitsProvider, bool aFull ) const;
 
     /**
      * Return a pointer to an image to be used in menus.
@@ -439,6 +441,8 @@ public:
 
     virtual void ViewGetLayers( int aLayers[], int& aCount ) const override;
 
+    virtual EMBEDDED_FILES* GetEmbeddedFiles() { return nullptr; }
+
 #if defined(DEBUG)
 
     /**
@@ -484,17 +488,17 @@ protected:
 public:
     const KIID  m_Uuid;
 
-protected:
-    EDA_ITEM*      m_parent; ///< Linked list: Link (parent struct)
-    bool           m_forceVisible;
-    EDA_ITEM_FLAGS m_flags;
-
 private:
     /**
      * Run time identification, _keep private_ so it can never be changed after a ctor
      * sets it.  See comment near SetType() regarding virtual functions.
      */
-    KICAD_T       m_structType;
+    KICAD_T        m_structType;
+
+protected:
+    EDA_ITEM_FLAGS m_flags;
+    EDA_ITEM*      m_parent; ///< Linked list: Link (parent struct)
+    bool           m_forceVisible;
 };
 
 

@@ -685,30 +685,12 @@ TOOL_ACTION PCB_ACTIONS::properties( TOOL_ACTION_ARGS()
 
 // FOOTPRINT_EDITOR_CONTROL
 //
-TOOL_ACTION PCB_ACTIONS::showFootprintTree( TOOL_ACTION_ARGS()
-        .Name( "pcbnew.ModuleEditor.showFootprintTree" )
-        .Scope( AS_GLOBAL )
-        .FriendlyName( _( "Show Footprint Tree" ) )
-        .Icon( BITMAPS::search_tree ) );
-
-TOOL_ACTION PCB_ACTIONS::hideFootprintTree( TOOL_ACTION_ARGS()
-        .Name( "pcbnew.ModuleEditor.hideFootprintTree" )
-        .Scope( AS_GLOBAL )
-        .FriendlyName( _( "Hide Footprint Tree" ) )
-        .Icon( BITMAPS::search_tree ) );
-
-TOOL_ACTION PCB_ACTIONS::footprintTreeSearch( TOOL_ACTION_ARGS()
-        .Name( "pcbnew.ModuleEditor.footprintTreeSearch" )
-        .Scope( AS_GLOBAL )
-        .FriendlyName( _( "Focus the Footprint Tree Search Field" ) )
-        .DefaultHotkey( MD_CTRL + 'L' ) );
-
 TOOL_ACTION PCB_ACTIONS::newFootprint( TOOL_ACTION_ARGS()
         .Name( "pcbnew.ModuleEditor.newFootprint" )
         .Scope( AS_GLOBAL )
         .DefaultHotkey( MD_CTRL + 'N' )
         .LegacyHotkeyName( "New" )
-        .FriendlyName( _( "New Footprint..." ) )
+        .FriendlyName( _( "New Footprint" ) )
         .Tooltip( _( "Create a new, empty footprint" ) )
         .Icon( BITMAPS::new_footprint ) );
 
@@ -778,13 +760,6 @@ TOOL_ACTION PCB_ACTIONS::exportFootprint( TOOL_ACTION_ARGS()
         .FriendlyName( _( "Export Current Footprint..." ) )
         .Tooltip( _( "Export edited footprint to file" ) )
         .Icon( BITMAPS::export_module ) );
-
-TOOL_ACTION PCB_ACTIONS::openWithTextEditor( TOOL_ACTION_ARGS()
-        .Name( "pcbnew.ModuleEditor.openWithTextEditor" )
-        .Scope( AS_GLOBAL )
-        .FriendlyName( _( "Edit in a Text Editor..." ) )
-        .Tooltip( _( "Open a library file with a text editor" ) )
-        .Icon( BITMAPS::editor ) );
 
 TOOL_ACTION PCB_ACTIONS::footprintProperties( TOOL_ACTION_ARGS()
         .Name( "pcbnew.ModuleEditor.footprintProperties" )
@@ -2477,7 +2452,7 @@ TOOL_ACTION PCB_ACTIONS::generatorsShowManager( TOOL_ACTION_ARGS()
 //
 TOOL_ACTION PCB_ACTIONS::lengthTunerSettings( TOOL_ACTION_ARGS()
         .Name( "pcbnew.LengthTuner.Settings" )
-        .Scope( AS_CONTEXT )
+        .Scope( AS_GLOBAL )
         .DefaultHotkey( MD_CTRL + 'L' )
         // Don't be tempted to remove "Modern Toolset only".  It's in the legacy property name.
         .LegacyHotkeyName( "Length Tuning Settings (Modern Toolset only)" )

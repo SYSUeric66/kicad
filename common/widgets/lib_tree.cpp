@@ -354,7 +354,9 @@ void LIB_TREE::CenterLibId( const LIB_ID& aLibId )
 
 void LIB_TREE::Unselect()
 {
+    m_tree_ctrl->Freeze();
     m_tree_ctrl->UnselectAll();
+    m_tree_ctrl->Thaw();
 }
 
 
@@ -633,7 +635,7 @@ void LIB_TREE::onQueryCharHook( wxKeyEvent& aKeyStroke )
     if( !sel.IsOk() )
         sel = m_adapter->GetCurrentDataViewItem();
 
-    LIB_TREE_NODE::TYPE type = sel.IsOk() ? m_adapter->GetTypeFor( sel ) : LIB_TREE_NODE::INVALID;
+    LIB_TREE_NODE::TYPE type = sel.IsOk() ? m_adapter->GetTypeFor( sel ) : LIB_TREE_NODE::TYPE::INVALID;
 
     switch( aKeyStroke.GetKeyCode() )
     {
@@ -650,7 +652,7 @@ void LIB_TREE::onQueryCharHook( wxKeyEvent& aKeyStroke )
     case WXK_ADD:
         updateRecentSearchMenu();
 
-        if( type == LIB_TREE_NODE::LIBRARY )
+        if( type == LIB_TREE_NODE::TYPE::LIBRARY )
             m_tree_ctrl->Expand( sel );
 
         break;
@@ -658,7 +660,7 @@ void LIB_TREE::onQueryCharHook( wxKeyEvent& aKeyStroke )
     case WXK_SUBTRACT:
         updateRecentSearchMenu();
 
-        if( type == LIB_TREE_NODE::LIBRARY )
+        if( type == LIB_TREE_NODE::TYPE::LIBRARY )
             m_tree_ctrl->Collapse( sel );
 
         break;
@@ -669,7 +671,7 @@ void LIB_TREE::onQueryCharHook( wxKeyEvent& aKeyStroke )
 
         if( GetSelectedLibId().IsValid() )
             postSelectEvent();
-        else if( type == LIB_TREE_NODE::LIBRARY )
+        else if( type == LIB_TREE_NODE::TYPE::LIBRARY )
             toggleExpand( sel );
 
         break;
@@ -731,9 +733,7 @@ void LIB_TREE::hidePreview()
     m_previewItem = wxDataViewItem();
 
     if( m_previewWindow )
-    {
         m_previewWindow->Hide();
-    }
 }
 
 
@@ -781,18 +781,6 @@ void LIB_TREE::onIdle( wxIdleEvent& aEvent )
 
     if( m_previewItem.IsOk() )
     {
-        // Scroll checker
-        if( m_tree_ctrl->GetItemRect( m_previewItem ) != m_previewItemRect )
-        {
-            hidePreview();
-
-            m_hoverPos = clientPos;
-            m_hoverItem = item;
-            m_hoverItemRect = m_tree_ctrl->GetItemRect( m_hoverItem );
-            m_hoverTimer.StartOnce( HOVER_TIMER_MILLIS );
-            return;
-        }
-
         if( item != m_previewItem )
         {
 #ifdef __WXGTK__
@@ -966,7 +954,7 @@ void LIB_TREE::onItemContextMenu( wxDataViewEvent& aEvent )
     {
         LIB_TREE_NODE* current = GetCurrentTreeNode();
 
-        if( current && current->m_Type == LIB_TREE_NODE::LIBRARY )
+        if( current && current->m_Type == LIB_TREE_NODE::TYPE::LIBRARY )
         {
             ACTION_MENU menu( true, nullptr );
 

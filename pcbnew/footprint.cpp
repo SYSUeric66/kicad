@@ -25,34 +25,39 @@
  */
 #include <magic_enum.hpp>
 
-#include <core/mirror.h>
-#include <confirm.h>
-#include <refdes_utils.h>
-#include <bitmaps.h>
 #include <unordered_set>
-#include <string_utils.h>
-#include <pcb_edit_frame.h>
+
+#include <bitmaps.h>
 #include <board.h>
 #include <board_design_settings.h>
-#include <macros.h>
-#include <pad.h>
-#include <pcb_marker.h>
-#include <pcb_group.h>
-#include <pcb_track.h>
-#include <pcb_dimension.h>
-#include <pcb_reference_image.h>
-#include <pcb_textbox.h>
-#include <pcb_field.h>
-#include <footprint.h>
-#include <zone.h>
-#include <view/view.h>
-#include <i18n_utility.h>
+#include <confirm.h>
+#include <convert_basic_shapes_to_polygon.h>
+#include <convert_shape_list_to_polygon.h>
+#include <core/mirror.h>
 #include <drc/drc_item.h>
+#include <embedded_files.h>
+#include <font/font.h>
+#include <font/outline_font.h>
+#include <footprint.h>
+#include <geometry/convex_hull.h>
 #include <geometry/shape_segment.h>
 #include <geometry/shape_simple.h>
-#include <convert_shape_list_to_polygon.h>
-#include <geometry/convex_hull.h>
-#include "convert_basic_shapes_to_polygon.h"
+#include <i18n_utility.h>
+#include <lset.h>
+#include <macros.h>
+#include <pad.h>
+#include <pcb_dimension.h>
+#include <pcb_edit_frame.h>
+#include <pcb_field.h>
+#include <pcb_group.h>
+#include <pcb_marker.h>
+#include <pcb_reference_image.h>
+#include <pcb_textbox.h>
+#include <pcb_track.h>
+#include <refdes_utils.h>
+#include <string_utils.h>
+#include <view/view.h>
+#include <zone.h>
 
 #include <google/protobuf/any.pb.h>
 #include <api/board/board_types.pb.h>
@@ -78,6 +83,7 @@ FOOTPRINT::FOOTPRINT( BOARD* parent ) :
     m_lastEditTime = 0;
     m_zoneConnection          = ZONE_CONNECTION::INHERITED;
     m_fileFormatVersionAtLoad = 0;
+    m_embedFonts = false;
 
     // These are the mandatory fields for the editor to work
     for( int i = 0; i < MANDATORY_FIELDS; i++ )
@@ -117,6 +123,7 @@ FOOTPRINT::FOOTPRINT( const FOOTPRINT& aFootprint ) :
     m_lastEditTime = aFootprint.m_lastEditTime;
     m_link         = aFootprint.m_link;
     m_path         = aFootprint.m_path;
+    m_embedFonts   = aFootprint.m_embedFonts;
 
     m_cachedBoundingBox              = aFootprint.m_cachedBoundingBox;
     m_boundingBoxCacheTimeStamp      = aFootprint.m_boundingBoxCacheTimeStamp;
@@ -196,6 +203,9 @@ FOOTPRINT::FOOTPRINT( const FOOTPRINT& aFootprint ) :
                 newGroup->AddItem( ptrMap[ member ] );
         }
     }
+
+    for( auto& [ name, file ] : aFootprint.EmbeddedFileMap() )
+        AddFile( new EMBEDDED_FILES::EMBEDDED_FILE( *file ) );
 
     // Copy auxiliary data
     m_3D_Drawings   = aFootprint.m_3D_Drawings;
@@ -298,19 +308,19 @@ void FOOTPRINT::Serialize( google::protobuf::Any &aContainer ) const
 
     // TODO: serialize library mandatory fields
 
-    kiapi::board::types::DesignRuleOverrides* overrides = def->mutable_overrides();
+    kiapi::board::types::FootprintDesignRuleOverrides* overrides = def->mutable_overrides();
 
     if( GetLocalClearance().has_value() )
-        overrides->mutable_clearance()->set_value_nm( *GetLocalClearance() );
+        overrides->mutable_copper_clearance()->set_value_nm( *GetLocalClearance() );
 
     if( GetLocalSolderMaskMargin().has_value() )
-        overrides->mutable_solder_mask_margin()->set_value_nm( *GetLocalSolderMaskMargin() );
+        overrides->mutable_solder_mask()->mutable_solder_mask_margin()->set_value_nm( *GetLocalSolderMaskMargin() );
 
     if( GetLocalSolderPasteMargin().has_value() )
-        overrides->mutable_solder_paste_margin()->set_value_nm( *GetLocalSolderPasteMargin() );
+        overrides->mutable_solder_paste()->mutable_solder_paste_margin()->set_value_nm( *GetLocalSolderPasteMargin() );
 
     if( GetLocalSolderPasteMarginRatio().has_value() )
-        overrides->mutable_solder_paste_margin_ratio()->set_value( *GetLocalSolderPasteMarginRatio() );
+        overrides->mutable_solder_paste()->mutable_solder_paste_margin_ratio()->set_value( *GetLocalSolderPasteMarginRatio() );
 
     overrides->set_zone_connection(
             ToProtoEnum<ZONE_CONNECTION,
@@ -424,27 +434,32 @@ bool FOOTPRINT::Deserialize( const google::protobuf::Any &aContainer )
     SetLibDescription( footprint.definition().attributes().description() );
     SetKeywords( footprint.definition().attributes().keywords() );
 
-    const kiapi::board::types::DesignRuleOverrides& overrides = footprint.overrides();
+    const kiapi::board::types::FootprintDesignRuleOverrides& overrides = footprint.overrides();
 
-    if( overrides.has_clearance() )
-        SetLocalClearance( overrides.clearance().value_nm() );
+    if( overrides.has_copper_clearance() )
+        SetLocalClearance( overrides.copper_clearance().value_nm() );
     else
         SetLocalClearance( std::nullopt );
 
-    if( overrides.has_solder_mask_margin() )
-        SetLocalSolderMaskMargin( overrides.solder_mask_margin().value_nm() );
+    if( overrides.has_solder_mask() && overrides.solder_mask().has_solder_mask_margin() )
+        SetLocalSolderMaskMargin( overrides.solder_mask().solder_mask_margin().value_nm() );
     else
         SetLocalSolderMaskMargin( std::nullopt );
 
-    if( overrides.has_solder_paste_margin() )
-        SetLocalSolderPasteMargin( overrides.solder_paste_margin().value_nm() );
-    else
-        SetLocalSolderPasteMargin( std::nullopt );
+    if( overrides.has_solder_paste() )
+    {
+        const kiapi::board::types::SolderPasteOverrides& pasteSettings = overrides.solder_paste();
 
-    if( overrides.has_solder_paste_margin_ratio() )
-        SetLocalSolderPasteMarginRatio( overrides.solder_paste_margin_ratio().value() );
-    else
-        SetLocalSolderPasteMarginRatio( std::nullopt );
+        if( pasteSettings.has_solder_paste_margin() )
+            SetLocalSolderPasteMargin( pasteSettings.solder_paste_margin().value_nm() );
+        else
+            SetLocalSolderPasteMargin( std::nullopt );
+
+        if( pasteSettings.has_solder_paste_margin_ratio() )
+            SetLocalSolderPasteMarginRatio( pasteSettings.solder_paste_margin_ratio().value() );
+        else
+            SetLocalSolderPasteMarginRatio( std::nullopt );
+    }
 
     SetLocalZoneConnection( FromProtoEnum<ZONE_CONNECTION>( overrides.zone_connection() ) );
 
@@ -1220,6 +1235,21 @@ BOX2I FOOTPRINT::GetFpPadsLocalBbox() const
 }
 
 
+bool FOOTPRINT::TextOnly() const
+{
+    for( BOARD_ITEM* item : m_drawings )
+    {
+        if( m_privateLayers.test( item->GetLayer() ) )
+            continue;
+
+        if( item->Type() != PCB_FIELD_T && item->Type() != PCB_TEXT_T )
+            return false;
+    }
+
+    return true;
+}
+
+
 const BOX2I FOOTPRINT::GetBoundingBox() const
 {
     return GetBoundingBox( true, true );
@@ -1228,10 +1258,7 @@ const BOX2I FOOTPRINT::GetBoundingBox() const
 
 const BOX2I FOOTPRINT::GetBoundingBox( bool aIncludeText, bool aIncludeInvisibleText ) const
 {
-    std::vector<PCB_TEXT*> texts;
     const BOARD* board = GetBoard();
-    bool         isFPEdit = board && board->IsFootprintHolder();
-    PCB_LAYER_ID footprintSide = GetSide();
 
     if( board )
     {
@@ -1252,8 +1279,14 @@ const BOX2I FOOTPRINT::GetBoundingBox( bool aIncludeText, bool aIncludeInvisible
         }
     }
 
+    std::vector<PCB_TEXT*> texts;
+    bool                   isFPEdit = board && board->IsFootprintHolder();
+
     BOX2I bbox( m_pos );
     bbox.Inflate( pcbIUScale.mmToIU( 0.25 ) );   // Give a min size to the bbox
+
+    // Calculate the footprint side
+    PCB_LAYER_ID footprintSide = GetSide();
 
     for( BOARD_ITEM* item : m_drawings )
     {
@@ -1820,7 +1853,7 @@ std::vector<const PAD*> FOOTPRINT::GetPads( const wxString& aPadNumber, const PA
 
     for( const PAD* pad : m_pads )
     {
-        if( aIgnore && aIgnore == pad )
+        if( ( aIgnore && aIgnore == pad ) || ( pad->GetNumber() != aPadNumber ) )
             continue;
 
         retv.push_back( pad );
@@ -1984,7 +2017,7 @@ INSPECT_RESULT FOOTPRINT::Visit( INSPECTOR inspector, void* testData,
 }
 
 
-wxString FOOTPRINT::GetItemDescription( UNITS_PROVIDER* aUnitsProvider ) const
+wxString FOOTPRINT::GetItemDescription( UNITS_PROVIDER* aUnitsProvider, bool aFull ) const
 {
     wxString reference = GetReference();
 
@@ -2229,12 +2262,12 @@ void FOOTPRINT::Rotate( const VECTOR2I& aRotCentre, const EDA_ANGLE& aAngle )
     SetOrientation( newOrientation );
 
     for( PCB_FIELD* field : m_fields )
-        field->KeepUpright( newOrientation );
+        field->KeepUpright();
 
     for( BOARD_ITEM* item : m_drawings )
     {
         if( item->Type() == PCB_TEXT_T )
-            static_cast<PCB_TEXT*>( item )->KeepUpright( newOrientation );
+            static_cast<PCB_TEXT*>( item )->KeepUpright();
     }
 
     m_boundingBoxCacheTimeStamp = 0;
@@ -2272,7 +2305,7 @@ void FOOTPRINT::Flip( const VECTOR2I& aCentre, bool aFlipLeftRight )
     SetPosition( finalPos );
 
     // Flip layer
-    BOARD_ITEM::SetLayer( FlipLayer( GetLayer() ) );
+    BOARD_ITEM::SetLayer( GetBoard()->FlipLayer( GetLayer() ) );
 
     // Calculate the new orientation, and then clear it for pad flipping.
     EDA_ANGLE newOrientation = -m_orient;
@@ -2759,6 +2792,8 @@ double FOOTPRINT::CoverageRatio( const GENERAL_COLLECTOR& aCollector ) const
         }
     }
 
+    coveredRegion.BooleanIntersection( footprintRegion, SHAPE_POLY_SET::PM_FAST );
+
     double footprintRegionArea = polygonArea( footprintRegion );
     double uncoveredRegionArea = footprintRegionArea - polygonArea( coveredRegion );
     double coveredArea = footprintRegionArea - uncoveredRegionArea;
@@ -2819,6 +2854,12 @@ const SHAPE_POLY_SET& FOOTPRINT::GetCourtyard( PCB_LAYER_ID aLayer ) const
         const_cast<FOOTPRINT*>( this )->BuildCourtyardCaches();
     }
 
+    return GetCachedCourtyard( aLayer );
+}
+
+
+const SHAPE_POLY_SET& FOOTPRINT::GetCachedCourtyard( PCB_LAYER_ID aLayer ) const
+{
     if( IsBackLayer( aLayer ) )
         return m_courtyard_cache_back;
     else
@@ -2869,7 +2910,9 @@ void FOOTPRINT::BuildCourtyardCaches( OUTLINE_ERROR_HANDLER* aErrorHandler )
         int width = 0;
 
         // Touching courtyards, or courtyards -at- the clearance distance are legal.
-        m_courtyard_cache_front.Inflate( -1, CORNER_STRATEGY::CHAMFER_ACUTE_CORNERS, maxError );
+        // Use maxError here because that is the allowed deviation when transforming arcs/circles to
+        // polygons.
+        m_courtyard_cache_front.Inflate( -maxError, CORNER_STRATEGY::CHAMFER_ACUTE_CORNERS, maxError );
 
         m_courtyard_cache_front.CacheTriangulation( false );
         auto max = std::max_element( front_width_histogram.begin(), front_width_histogram.end(),
@@ -2898,7 +2941,7 @@ void FOOTPRINT::BuildCourtyardCaches( OUTLINE_ERROR_HANDLER* aErrorHandler )
         int width = 0;
 
         // Touching courtyards, or courtyards -at- the clearance distance are legal.
-        m_courtyard_cache_back.Inflate( -1, CORNER_STRATEGY::CHAMFER_ACUTE_CORNERS, maxError );
+        m_courtyard_cache_back.Inflate( -maxError, CORNER_STRATEGY::CHAMFER_ACUTE_CORNERS, maxError );
 
         m_courtyard_cache_back.CacheTriangulation( false );
         auto max = std::max_element( back_width_histogram.begin(), back_width_histogram.end(),
@@ -3028,7 +3071,8 @@ void FOOTPRINT::CheckFootprintAttributes( const std::function<void( const wxStri
 }
 
 
-void FOOTPRINT::CheckPads( const std::function<void( const PAD*, int,
+void FOOTPRINT::CheckPads( UNITS_PROVIDER* aUnitsProvider,
+                           const std::function<void( const PAD*, int,
                                                      const wxString& )>& aErrorHandler )
 {
     if( aErrorHandler == nullptr )
@@ -3036,78 +3080,17 @@ void FOOTPRINT::CheckPads( const std::function<void( const PAD*, int,
 
     for( PAD* pad: Pads() )
     {
-        if( pad->GetAttribute() == PAD_ATTRIB::PTH ||  pad->GetAttribute() == PAD_ATTRIB::NPTH )
-        {
-            if( pad->GetDrillSizeX() < 1 || pad->GetDrillSizeY() < 1 )
-                (aErrorHandler)( pad, DRCE_PAD_TH_WITH_NO_HOLE, wxEmptyString );
-        }
-
-        if( pad->GetAttribute() == PAD_ATTRIB::PTH )
-        {
-            if( !pad->IsOnCopperLayer() )
-            {
-                (aErrorHandler)( pad, DRCE_PADSTACK, _( "(PTH pad has no copper layers)" ) );
-            }
-            else
-            {
-                LSET           lset = pad->GetLayerSet() & LSET::AllCuMask();
-                PCB_LAYER_ID   layer = lset.Seq().at( 0 );
-                SHAPE_POLY_SET padOutline;
-
-                pad->TransformShapeToPolygon( padOutline, layer, 0, ARC_HIGH_DEF, ERROR_INSIDE );
-
-                std::shared_ptr<SHAPE_SEGMENT> hole = pad->GetEffectiveHoleShape();
-                SHAPE_POLY_SET                 holeOutline;
-
-                TransformOvalToPolygon( holeOutline, hole->GetSeg().A, hole->GetSeg().B,
-                                        hole->GetWidth(), ARC_HIGH_DEF, ERROR_INSIDE );
-
-                padOutline.BooleanSubtract( holeOutline, SHAPE_POLY_SET::POLYGON_MODE::PM_FAST );
-
-                if( padOutline.IsEmpty() )
-                    aErrorHandler( pad, DRCE_PADSTACK, _( "(PTH pad's hole leaves no copper)" ) );
-            }
-        }
-
-        if( pad->GetAttribute() == PAD_ATTRIB::SMD )
-        {
-            if( pad->IsOnLayer( F_Cu ) && pad->IsOnLayer( B_Cu ) )
-            {
-                aErrorHandler( pad, DRCE_PADSTACK,
-                               _( "(SMD pad appears on both front and back copper)" ) );
-            }
-            else if( pad->IsOnLayer( F_Cu ) )
-            {
-                if( pad->IsOnLayer( B_Mask ) )
+        pad->CheckPad( aUnitsProvider,
+                [&]( int errorCode, const wxString& msg )
                 {
-                    aErrorHandler( pad, DRCE_PADSTACK,
-                                   _( "(SMD pad copper and mask layers don't match)" ) );
-                }
-                else if( pad->IsOnLayer( B_Paste ) )
-                {
-                    aErrorHandler( pad, DRCE_PADSTACK,
-                                   _( "(SMD pad copper and paste layers don't match)" ) );
-                }
-            }
-            else if( pad->IsOnLayer( B_Cu ) )
-            {
-                if( pad->IsOnLayer( F_Mask ) )
-                {
-                    aErrorHandler( pad, DRCE_PADSTACK,
-                                   _( "(SMD pad copper and mask layers don't match)" ) );
-                }
-                else if( pad->IsOnLayer( F_Paste ) )
-                {
-                    aErrorHandler( pad, DRCE_PADSTACK,
-                                   _( "(SMD pad copper and paste layers don't match)" ) );
-                }
-            }
-        }
+                    aErrorHandler( pad, errorCode, msg );
+                } );
     }
 }
 
 
 void FOOTPRINT::CheckShortingPads( const std::function<void( const PAD*, const PAD*,
+                                                             int aErrorCode,
                                                              const VECTOR2I& )>& aErrorHandler )
 {
     std::unordered_map<PTR_PTR_CACHE_KEY, int> checkedPairs;
@@ -3118,13 +3101,7 @@ void FOOTPRINT::CheckShortingPads( const std::function<void( const PAD*, const P
 
         for( PAD* other : Pads() )
         {
-            if( other == pad || pad->SameLogicalPadAs( other ) )
-                continue;
-
-            if( alg::contains( netTiePads, other ) )
-                continue;
-
-            if( !( ( pad->GetLayerSet() & other->GetLayerSet() ) & LSET::AllCuMask() ).any() )
+            if( other == pad )
                 continue;
 
             // store canonical order so we don't collide in both directions (a:b and b:a)
@@ -3138,6 +3115,30 @@ void FOOTPRINT::CheckShortingPads( const std::function<void( const PAD*, const P
             {
                 checkedPairs[ { a, b } ] = 1;
 
+                if( pad->HasDrilledHole() && other->HasDrilledHole() )
+                {
+                    VECTOR2I pos = pad->GetPosition();
+
+                    if( pad->GetPosition() == other->GetPosition() )
+                    {
+                        aErrorHandler( pad, other, DRCE_DRILLED_HOLES_COLOCATED, pos );
+                    }
+                    else
+                    {
+                        std::shared_ptr<SHAPE_SEGMENT> holeA = pad->GetEffectiveHoleShape();
+                        std::shared_ptr<SHAPE_SEGMENT> holeB = other->GetEffectiveHoleShape();
+
+                        if( holeA->Collide( holeB->GetSeg(), 0 ) )
+                            aErrorHandler( pad, other, DRCE_DRILLED_HOLES_TOO_CLOSE, pos );
+                    }
+                }
+
+                if( pad->SameLogicalPadAs( other ) || alg::contains( netTiePads, other ) )
+                    continue;
+
+                if( !( ( pad->GetLayerSet() & other->GetLayerSet() ) & LSET::AllCuMask() ).any() )
+                    continue;
+
                 if( pad->GetBoundingBox().Intersects( other->GetBoundingBox() ) )
                 {
                     VECTOR2I pos;
@@ -3145,7 +3146,7 @@ void FOOTPRINT::CheckShortingPads( const std::function<void( const PAD*, const P
                     SHAPE*   otherShape = other->GetEffectiveShape().get();
 
                     if( padShape->Collide( otherShape, 0, nullptr, &pos ) )
-                        aErrorHandler( pad, other, pos );
+                        aErrorHandler( pad, other, DRCE_SHORTING_ITEMS, pos );
                 }
             }
         }
@@ -3271,9 +3272,7 @@ void FOOTPRINT::CheckNetTiePadGroups( const std::function<void( const wxString& 
     std::set<wxString> padNumbers;
     wxString           msg;
 
-    auto ret = MapPadNumbersToNetTieGroups();
-
-    for( auto [ padNumber, _ ] : ret )
+    for( const auto& [ padNumber, _ ] : MapPadNumbersToNetTieGroups() )
     {
         const PAD* pad = FindPadByNumber( padNumber );
 
@@ -3387,9 +3386,8 @@ double FOOTPRINT::Similarity( const BOARD_ITEM& aOther ) const
 
     double similarity = 1.0;
 
-    for( size_t ii = 0; ii < m_pads.size(); ++ii )
+    for( const PAD* pad : m_pads)
     {
-        const PAD* pad = m_pads[ii];
         const PAD* otherPad = other.FindPadByNumber( pad->GetNumber() );
 
         if( !otherPad )
@@ -3544,8 +3542,8 @@ bool FOOTPRINT::cmp_padstack::operator()( const PAD* aFirst, const PAD* aSecond 
     if( aFirst->GetLocalSolderMaskMargin() != aSecond->GetLocalSolderMaskMargin() )
         return aFirst->GetLocalSolderMaskMargin() < aSecond->GetLocalSolderMaskMargin();
 
-    std::shared_ptr<SHAPE_POLY_SET> firstShape = aFirst->GetEffectivePolygon( ERROR_INSIDE );
-    std::shared_ptr<SHAPE_POLY_SET> secondShape = aSecond->GetEffectivePolygon( ERROR_INSIDE );
+    const std::shared_ptr<SHAPE_POLY_SET>& firstShape = aFirst->GetEffectivePolygon( ERROR_INSIDE );
+    const std::shared_ptr<SHAPE_POLY_SET>& secondShape = aSecond->GetEffectivePolygon( ERROR_INSIDE );
 
     if( firstShape->VertexCount() != secondShape->VertexCount() )
         return firstShape->VertexCount() < secondShape->VertexCount();
@@ -3718,6 +3716,39 @@ void FOOTPRINT::TransformFPShapesToPolySet( SHAPE_POLY_SET& aBuffer, PCB_LAYER_I
 }
 
 
+void FOOTPRINT::EmbedFonts()
+{
+    using OUTLINE_FONT = KIFONT::OUTLINE_FONT;
+    using EMBEDDING_PERMISSION = OUTLINE_FONT::EMBEDDING_PERMISSION;
+
+    std::set<OUTLINE_FONT*> fonts;
+
+    for( BOARD_ITEM* item : GraphicalItems() )
+    {
+        if( auto* text = dynamic_cast<EDA_TEXT*>( item ) )
+        {
+            if( auto* font = text->GetFont(); font && !font->IsStroke() )
+            {
+                auto* outline = static_cast<OUTLINE_FONT*>( font );
+                auto permission = outline->GetEmbeddingPermission();
+
+                if( permission == EMBEDDING_PERMISSION::EDITABLE
+                    || permission == EMBEDDING_PERMISSION::INSTALLABLE )
+                {
+                    fonts.insert( outline );
+                }
+            }
+        }
+    }
+
+    for( auto* font : fonts )
+    {
+        auto file = GetEmbeddedFiles()->AddFile( font->GetFileName(), false );
+        file->type = EMBEDDED_FILES::EMBEDDED_FILE::FILE_TYPE::FONT;
+    }
+}
+
+
 static struct FOOTPRINT_DESC
 {
     FOOTPRINT_DESC()
@@ -3740,8 +3771,8 @@ static struct FOOTPRINT_DESC
         {
             layerEnum.Undefined( UNDEFINED_LAYER );
 
-            for( LSEQ seq = LSET::AllLayersMask().Seq(); seq; ++seq )
-                layerEnum.Map( *seq, LSET::Name( *seq ) );
+            for( PCB_LAYER_ID layer : LSET::AllLayersMask().Seq() )
+                layerEnum.Map( layer, LSET::Name( layer ) );
         }
 
         wxPGChoices fpLayers;       // footprints might be placed only on F.Cu & B.Cu

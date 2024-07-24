@@ -1,7 +1,7 @@
 /*
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
- * Copyright (C) 2017-2023 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2017-2024 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -21,6 +21,7 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA
  */
 
+#include <kiplatform/ui.h>
 #include <widgets/color_swatch.h>
 #include <wx/dcmemory.h>
 
@@ -44,6 +45,17 @@ wxBitmap COLOR_SWATCH::MakeBitmap( const COLOR4D& aColor, const COLOR4D& aBackgr
 
     RenderToDC( &iconDC, aColor, aBackground, aSize, aCheckerboardSize, aCheckerboardBackground );
 
+    return bitmap;
+}
+
+
+wxBitmap COLOR_SWATCH::makeBitmap()
+{
+    wxBitmap bitmap = COLOR_SWATCH::MakeBitmap( m_color, m_background,
+                                                ToPhys( m_size ), ToPhys( m_checkerboardSize ),
+                                                m_checkerboardBg );
+
+    bitmap.SetScaleFactor( GetDPIScaleFactor() );
     return bitmap;
 }
 
@@ -146,22 +158,10 @@ COLOR_SWATCH::COLOR_SWATCH( wxWindow* aParent, const COLOR4D& aColor, int aID,
     m_checkerboardSize = ConvertDialogToPixels( CHECKERBOARD_SIZE_DU );
     m_checkerboardBg = aParent->GetBackgroundColour();
 
-#ifdef __WXMSW__
-    // These need additional scaling on Windows because of some discrepancy between pixel and
-    // content scaling that only affects certain widgets on Windows HiDPI.  On other platforms, the
-    // value returned by ConvertDialogToPixels appears to be correct.
-    DPI_SCALING_COMMON dpi( nullptr, aParent );
-
-    m_size /= dpi.GetContentScaleFactor();
-    m_checkerboardSize /= dpi.GetContentScaleFactor();
-#endif
-
     auto sizer = new wxBoxSizer( wxHORIZONTAL );
     SetSizer( sizer );
 
-    wxBitmap bitmap = COLOR_SWATCH::MakeBitmap( aColor, aBackground, m_size,
-                                                m_checkerboardSize, m_checkerboardBg );
-    m_swatch = new wxStaticBitmap( this, aID, bitmap );
+    m_swatch = new wxStaticBitmap( this, aID, makeBitmap() );
 
     sizer->Add( m_swatch, 0, 0 );
 
@@ -184,14 +184,18 @@ COLOR_SWATCH::COLOR_SWATCH( wxWindow* aParent, wxWindowID aID, const wxPoint& aP
     m_checkerboardSize = ConvertDialogToPixels( CHECKERBOARD_SIZE_DU );
     m_checkerboardBg = aParent->GetBackgroundColour();
 
+#ifdef __WXMAC__
+    // Adjust for border
+    m_size.x -= 2;
+    m_size.y -= 2;
+#endif
+
     SetSize( m_size );
 
     auto sizer = new wxBoxSizer( wxHORIZONTAL );
     SetSizer( sizer );
 
-    wxBitmap bitmap = COLOR_SWATCH::MakeBitmap( COLOR4D::UNSPECIFIED, COLOR4D::UNSPECIFIED,
-                                                m_size, m_checkerboardSize, m_checkerboardBg );
-    m_swatch = new wxStaticBitmap( this, aID, bitmap );
+    m_swatch = new wxStaticBitmap( this, aID, makeBitmap() );
 
     sizer->Add( m_swatch, 0, 0 );
 
@@ -265,8 +269,7 @@ void COLOR_SWATCH::SetSwatchColor( const COLOR4D& aColor, bool aSendEvent )
 {
     m_color = aColor;
 
-    wxBitmap bm = MakeBitmap( m_color, m_background, m_size, m_checkerboardSize, m_checkerboardBg );
-    m_swatch->SetBitmap( bm );
+    m_swatch->SetBitmap( makeBitmap() );
 
     if( aSendEvent )
         sendSwatchChangeEvent( *this );
@@ -282,8 +285,8 @@ void COLOR_SWATCH::SetDefaultColor( const COLOR4D& aColor )
 void COLOR_SWATCH::SetSwatchBackground( const COLOR4D& aBackground )
 {
     m_background = aBackground;
-    wxBitmap bm = MakeBitmap( m_color, m_background, m_size, m_checkerboardSize, m_checkerboardBg );
-    m_swatch->SetBitmap( bm );
+
+    m_swatch->SetBitmap( makeBitmap() );
 }
 
 
@@ -314,9 +317,7 @@ void COLOR_SWATCH::GetNewSwatchColor()
         {
             m_color = newColor;
 
-            wxBitmap bm = MakeBitmap( newColor, m_background, m_size, m_checkerboardSize,
-                                      m_checkerboardBg );
-            m_swatch->SetBitmap( bm );
+            m_swatch->SetBitmap( makeBitmap() );
 
             sendSwatchChangeEvent( *this );
         }
@@ -327,6 +328,6 @@ void COLOR_SWATCH::GetNewSwatchColor()
 void COLOR_SWATCH::OnDarkModeToggle()
 {
     m_checkerboardBg = m_parent->GetBackgroundColour();
-    wxBitmap bm = MakeBitmap( m_color, m_background, m_size, m_checkerboardSize, m_checkerboardBg );
-    m_swatch->SetBitmap( bm );
+
+    m_swatch->SetBitmap( makeBitmap() );
 }

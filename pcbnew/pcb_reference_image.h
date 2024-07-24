@@ -120,7 +120,7 @@ public:
     void Flip( const VECTOR2I& aCentre, bool aFlipLeftRight ) override;
     void Rotate( const VECTOR2I& aCenter, const EDA_ANGLE& aAngle ) override;
 
-    wxString GetItemDescription( UNITS_PROVIDER* aUnitsProvider ) const override
+    wxString GetItemDescription( UNITS_PROVIDER* aUnitsProvider, bool aFull ) const override
     {
         return wxString( _( "Reference Image" ) );
     }
@@ -139,6 +139,7 @@ public:
 
     double Similarity( const BOARD_ITEM& aBoardItem ) const override;
 
+    bool operator==( const PCB_REFERENCE_IMAGE& aOther ) const;
     bool operator==( const BOARD_ITEM& aBoardItem ) const override;
 
 #if defined( DEBUG )

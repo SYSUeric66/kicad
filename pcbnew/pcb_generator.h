@@ -29,6 +29,7 @@
 #include <unordered_set>
 #include <string_any_map.h>
 
+#include <lset.h>
 #include <pcb_group.h>
 
 class EDIT_POINTS;
@@ -83,6 +84,10 @@ public:
 
     void Move( const VECTOR2I& aMoveVector ) override;
 
+    void Rotate( const VECTOR2I& aRotCentre, const EDA_ANGLE& aAngle ) override;
+
+    void Flip( const VECTOR2I& aCentre, bool aFlipLeftRight ) override;
+
     bool AddItem( BOARD_ITEM* aItem ) override;
 
     LSET GetLayerSet() const override;
@@ -99,7 +104,7 @@ public:
 
     virtual void ShowPropertiesDialog( PCB_BASE_EDIT_FRAME* aEditFrame ) {};
 
-    wxString GetItemDescription( UNITS_PROVIDER* aUnitsProvider ) const override;
+    wxString GetItemDescription( UNITS_PROVIDER* aUnitsProvider, bool aFull ) const override;
 
     virtual wxString GetPluralName() const = 0;
 

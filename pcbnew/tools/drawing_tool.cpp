@@ -293,6 +293,9 @@ void DRAWING_TOOL::Reset( RESET_REASON aReason )
     // Re-initialize session attributes
     const BOARD_DESIGN_SETTINGS& bds = m_frame->GetDesignSettings();
 
+    if( aReason == RESET_REASON::SHUTDOWN )
+        return;
+
     m_layer = m_frame->GetActiveLayer();
     m_stroke.SetWidth( bds.GetLineThickness( m_layer ) );
     m_stroke.SetLineStyle( LINE_STYLE::DEFAULT );
@@ -1811,6 +1814,9 @@ int DRAWING_TOOL::PlaceImportedGraphics( const TOOL_EVENT& aEvent )
         return 0;
     }
 
+    // Turn shapes on if they are off, so that the created object will be visible after completion
+    m_frame->SetObjectVisible( LAYER_SHAPES );
+
     if( !m_view->IsLayerVisible( layer ) )
     {
         m_frame->GetAppearancePanel()->SetLayerVisible( layer, true );
@@ -2069,6 +2075,9 @@ bool DRAWING_TOOL::drawShape( const TOOL_EVENT& aTool, PCB_SHAPE** aGraphic,
         m_textAttrs.m_Halign = GR_TEXT_H_ALIGN_LEFT;
         m_textAttrs.m_Valign = GR_TEXT_V_ALIGN_TOP;
     }
+
+    // Turn shapes on if they are off, so that the created object will be visible after completion
+    m_frame->SetObjectVisible( LAYER_SHAPES );
 
     // geometric construction manager
     KIGFX::PREVIEW::TWO_POINT_GEOMETRY_MANAGER twoPointMgr;
@@ -2373,7 +2382,6 @@ bool DRAWING_TOOL::drawShape( const TOOL_EVENT& aTool, PCB_SHAPE** aGraphic,
             frame()->OnEditItemRequest( graphic );
             m_view->Update( &m_preview );
             frame()->SetMsgPanel( graphic );
-            break;
         }
         else if( started && (   ZONE_FILLER_TOOL::IsZoneFillAction( evt )
                              || evt->IsAction( &ACTIONS::redo ) ) )
@@ -2462,6 +2470,9 @@ bool DRAWING_TOOL::drawArc( const TOOL_EVENT& aTool, PCB_SHAPE** aGraphic,
         m_stroke.SetLineStyle( LINE_STYLE::DEFAULT );
         m_stroke.SetColor( COLOR4D::UNSPECIFIED );
     }
+
+    // Turn shapes on if they are off, so that the created object will be visible after completion
+    m_frame->SetObjectVisible( LAYER_SHAPES );
 
     // Arc geometric construction manager
     KIGFX::PREVIEW::ARC_GEOM_MANAGER arcManager;
@@ -3079,7 +3090,7 @@ int DRAWING_TOOL::DrawVia( const TOOL_EVENT& aEvent )
                 if( !( item->GetLayerSet() & lset ).any() )
                     continue;
 
-                if( item->Type() == PCB_TRACE_T || item->Type() == PCB_ARC_T )
+                if( item->Type() == PCB_TRACE_T )
                 {
                     PCB_TRACK* track = static_cast<PCB_TRACK*>( item );
 
@@ -3088,6 +3099,13 @@ int DRAWING_TOOL::DrawVia( const TOOL_EVENT& aEvent )
                     {
                         possible_tracks.push_back( track );
                     }
+                }
+                else if( item->Type() == PCB_ARC_T )
+                {
+                    PCB_ARC* arc = static_cast<PCB_ARC*>( item );
+
+                    if( arc->HitTest( position, aVia->GetWidth() / 2 ) )
+                        possible_tracks.push_back( arc );
                 }
             }
 

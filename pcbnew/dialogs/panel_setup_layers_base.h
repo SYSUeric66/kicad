@@ -1,5 +1,5 @@
 ///////////////////////////////////////////////////////////////////////////
-// C++ code generated with wxFormBuilder (version 3.10.1-0-g8feb16b)
+// C++ code generated with wxFormBuilder (version 4.0.0-0-g0efcecf)
 // http://www.wxformbuilder.org/
 //
 // PLEASE DO *NOT* EDIT THIS FILE!
@@ -148,14 +148,15 @@
 #define ID_FABBACKCHOICE 1115
 #define ID_CRTYDBACKCHOICE 1116
 #define ID_PCBEDGESCHOICE 1117
-#define ID_ECO2CHOICE 1118
-#define ID_ECO2CHECKBOX 1119
-#define ID_ECO1CHECKBOX 1120
-#define ID_ECO1CHOICE 1121
-#define ID_COMMENTSCHECKBOX 1122
-#define ID_COMMENTSCHOICE 1123
-#define ID_DRAWINGSCHECKBOX 1124
-#define ID_DRAWINGSCHOICE 1125
+#define ID_MARGINCHECKBOX 1118
+#define ID_ECO2CHOICE 1119
+#define ID_ECO2CHECKBOX 1120
+#define ID_ECO1CHECKBOX 1121
+#define ID_ECO1CHOICE 1122
+#define ID_COMMENTSCHECKBOX 1123
+#define ID_COMMENTSCHOICE 1124
+#define ID_DRAWINGSCHECKBOX 1125
+#define ID_DRAWINGSCHOICE 1126
 
 ///////////////////////////////////////////////////////////////////////////////
 /// Class PANEL_SETUP_LAYERS_BASE
@@ -301,6 +302,7 @@ class PANEL_SETUP_LAYERS_BASE : public wxPanel
 		wxStaticText* m_CrtYdBackStaticText;
 		wxTextCtrl* m_PCBEdgesName;
 		wxStaticText* m_PCBEdgesStaticText;
+		wxCheckBox* m_MarginCheckBox;
 		wxTextCtrl* m_MarginName;
 		wxStaticText* m_MarginStaticText;
 		wxCheckBox* m_Eco1CheckBox;
@@ -317,31 +319,31 @@ class PANEL_SETUP_LAYERS_BASE : public wxPanel
 		wxStaticText* m_DrawingsStaticText;
 		wxCheckBox* m_User1CheckBox;
 		wxTextCtrl* m_User1Name;
-		wxStaticText* m_User1StaticText;
+		wxChoice* m_User1Type;
 		wxCheckBox* m_User2CheckBox;
 		wxTextCtrl* m_User2Name;
-		wxStaticText* m_User2StaticText;
+		wxChoice* m_User2Type;
 		wxCheckBox* m_User3CheckBox;
 		wxTextCtrl* m_User3Name;
-		wxStaticText* m_User3StaticText;
+		wxChoice* m_User3Type;
 		wxCheckBox* m_User4CheckBox;
 		wxTextCtrl* m_User4Name;
-		wxStaticText* m_User4StaticText;
+		wxChoice* m_User4Type;
 		wxCheckBox* m_User5CheckBox;
 		wxTextCtrl* m_User5Name;
-		wxStaticText* m_User5StaticText;
+		wxChoice* m_User5Type;
 		wxCheckBox* m_User6CheckBox;
 		wxTextCtrl* m_User6Name;
-		wxStaticText* m_User6StaticText;
+		wxChoice* m_User6Type;
 		wxCheckBox* m_User7CheckBox;
 		wxTextCtrl* m_User7Name;
-		wxStaticText* m_User7StaticText;
+		wxChoice* m_User7Type;
 		wxCheckBox* m_User8CheckBox;
 		wxTextCtrl* m_User8Name;
-		wxStaticText* m_User8StaticText;
+		wxChoice* m_User8Type;
 		wxCheckBox* m_User9CheckBox;
 		wxTextCtrl* m_User9Name;
-		wxStaticText* m_User9StaticText;
+		wxChoice* m_User9Type;
 
 		// Virtual event handlers, override them in your derived class
 		virtual void addUserDefinedLayer( wxCommandEvent& event ) { event.Skip(); }

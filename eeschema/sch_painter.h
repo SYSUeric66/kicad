@@ -24,8 +24,8 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA
  */
 
-#ifndef __SCH_PAINTER_H
-#define __SCH_PAINTER_H
+#ifndef SCH_PAINTER_H
+#define SCH_PAINTER_H
 
 #include <sch_render_settings.h>
 #include <sch_symbol.h>
@@ -92,7 +92,7 @@ private:
     void draw( const SCH_TABLE* aTable, int aLayer, bool aDimmed );
     void draw( const SCH_LABEL* aLabel, int aLayer );
     void draw( const SCH_DIRECTIVE_LABEL* aLabel, int aLayer );
-    void draw( const SCH_HIERLABEL* aLabel, int aLayer );
+    void draw( const SCH_HIERLABEL* aLabel, int aLayer, bool aDimmed );
     void draw( const SCH_GLOBALLABEL* aLabel, int aLayer );
     void draw( const SCH_SHEET* aSheet, int aLayer );
     void draw( const SCH_NO_CONNECT* aNC, int aLayer );
@@ -105,6 +105,7 @@ private:
                                    bool aDrawingShadows, bool aBrightened );
     void drawDanglingIndicator( const VECTOR2I& aPos, const COLOR4D& aColor, int aWidth,
                                 bool aDangling, bool aDrawingShadows, bool aBrightened );
+    void drawAnchor( const VECTOR2I& aPos, bool aDrawingShadows );
 
     int internalPinDecoSize( const SCH_PIN &aPin );
     int externalPinDecoSize( const SCH_PIN &aPin );
@@ -122,8 +123,6 @@ private:
     float getTextThickness( const SCH_ITEM* aItem ) const;
 
     int getOperatingPointTextSize() const;
-
-    bool setDeviceColors( const SCH_ITEM* aItem, int aLayer, bool aDimmed );
 
     void triLine( const VECTOR2D &a, const VECTOR2D &b, const VECTOR2D &c );
     void strokeText( const wxString& aText, const VECTOR2D& aPosition,
@@ -148,4 +147,4 @@ private:
 }; // namespace KIGFX
 
 
-#endif // __SCH_PAINTER_H
+#endif // SCH_PAINTER_H

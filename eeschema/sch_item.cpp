@@ -34,6 +34,7 @@
 #include <sch_edit_frame.h>
 #include <schematic.h>
 #include <symbol.h>
+#include <connection_graph.h>
 #include <trace_helpers.h>
 #include <general.h>
 #include <netclass.h>
@@ -114,6 +115,16 @@ SCH_ITEM::~SCH_ITEM()
 {
     for( const auto& it : m_connection_map )
         delete it.second;
+
+    // Do not try to modify SCHEMATIC::ConnectionGraph()
+    // if the schematic does not exist
+    if( !SCHEMATIC::m_IsSchematicExists )
+        return;
+
+    SCHEMATIC* sch = Schematic();
+
+    if( sch != nullptr )
+        sch->ConnectionGraph()->RemoveItem( this );
 }
 
 

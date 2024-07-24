@@ -518,8 +518,10 @@ void mpFXY::Plot( wxDC& dc, mpWindow& w )
             ys.insert( w.y2p( py ) );
         }
     }
-    else
+    else for( int sweep = 0; sweep < GetSweepCount(); ++sweep )
     {
+        SetSweepWindow( sweep );
+
         int     count = 0;
         int     x0 = 0;         // X position of merged current vertical line
         int     ymin0 = 0;      // y min coord of merged current vertical line
@@ -2537,6 +2539,7 @@ mpFXYVector::mpFXYVector( const wxString& name, int flags ) :
         mpFXY( name, flags )
 {
     m_index = 0;
+    m_sweepWindow = 0;
     m_minX  = -1;
     m_maxX  = 1;
     m_minY  = -1;
@@ -2590,18 +2593,20 @@ double mpScaleXLog::TransformFromPlot( double xplot ) const
 void mpFXYVector::Rewind()
 {
     m_index = 0;
+    m_sweepWindow = std::numeric_limits<size_t>::max();
 }
 
 
-size_t mpFXYVector::GetCount() const
+void mpFXYVector::SetSweepWindow( int aSweepIdx )
 {
-    return m_xs.size();
+    m_index = aSweepIdx * m_sweepSize;
+    m_sweepWindow = ( aSweepIdx + 1 ) * m_sweepSize;
 }
 
 
 bool mpFXYVector::GetNextXY( double& x, double& y )
 {
-    if( m_index >= m_xs.size() )
+    if( m_index >= m_xs.size() || m_index >= m_sweepWindow )
     {
         return false;
     }
@@ -2609,7 +2614,7 @@ bool mpFXYVector::GetNextXY( double& x, double& y )
     {
         x = m_xs[m_index];
         y = m_ys[m_index++];
-        return m_index <= m_xs.size();
+        return m_index <= m_xs.size() && m_index <= m_sweepWindow;
     }
 }
 

@@ -42,6 +42,7 @@
 ERC_ITEM ERC_ITEM::heading_connections( 0, _( "Connections" ), "" );
 ERC_ITEM ERC_ITEM::heading_conflicts( 0, _( "Conflicts" ), "" );
 ERC_ITEM ERC_ITEM::heading_misc( 0, _( "Miscellaneous" ), "" );
+ERC_ITEM ERC_ITEM::heading_internal( 0, "", "" );
 
 ERC_ITEM ERC_ITEM::duplicateSheetName( ERCE_DUPLICATE_SHEET_NAME,
         _( "Duplicate sheet names within a given sheet" ),
@@ -63,6 +64,10 @@ ERC_ITEM ERC_ITEM::powerpinNotDriven( ERCE_POWERPIN_NOT_DRIVEN,
         _( "Input Power pin not driven by any Output Power pins" ),
         wxT( "power_pin_not_driven" ) );
 
+ERC_ITEM ERC_ITEM::duplicatePinError( ERCE_DUPLICATE_PIN_ERROR,
+        _( "Multiple pins with the same pin numbers" ),
+        wxT( "duplicate_pins" ) );
+
 ERC_ITEM ERC_ITEM::pinTableWarning( ERCE_PIN_TO_PIN_WARNING,
         _( "Conflict problem between pins" ),
         wxT( "pin_to_pin" ) );
@@ -71,6 +76,14 @@ ERC_ITEM ERC_ITEM::pinTableError( ERCE_PIN_TO_PIN_ERROR,
         _( "Conflict problem between pins" ),
         wxT( "pin_to_pin" ) );
 
+ERC_ITEM ERC_ITEM::genericWarning( ERCE_GENERIC_WARNING,
+        _( "Warning" ),
+        wxT( "generic-warning" ) );
+
+ERC_ITEM ERC_ITEM::genericError( ERCE_GENERIC_ERROR,
+        _( "Error" ),
+        wxT( "generic-error" ) );
+
 ERC_ITEM ERC_ITEM::hierLabelMismatch( ERCE_HIERACHICAL_LABEL,
         _( "Mismatch between hierarchical labels and sheet pins" ),
         wxT( "hier_label_mismatch" ) );
@@ -78,6 +91,10 @@ ERC_ITEM ERC_ITEM::hierLabelMismatch( ERCE_HIERACHICAL_LABEL,
 ERC_ITEM ERC_ITEM::fourWayJunction( ERCE_FOUR_WAY_JUNCTION,
         _( "Four connection points are joined together" ),
         wxT( "four_way_junction" ) );
+
+ERC_ITEM ERC_ITEM::labelMultipleWires( ERCE_LABEL_MULTIPLE_WIRES,
+        _( "Label connects more than one wire" ),
+        wxT( "label_multiple_wires" ) );
 
 ERC_ITEM ERC_ITEM::noConnectConnected( ERCE_NOCONNECT_CONNECTED,
         _( "A pin with a \"no connection\" flag is connected" ),
@@ -99,9 +116,21 @@ ERC_ITEM ERC_ITEM::similarLabels( ERCE_SIMILAR_LABELS,
         _( "Labels are similar (lower/upper case difference only)"),
         wxT( "similar_labels" ) );
 
+ERC_ITEM ERC_ITEM::similarPower( ERCE_SIMILAR_POWER,
+        _( "Power pins are similar (lower/upper case difference only)"),
+        wxT( "similar_power" ) );
+
+ERC_ITEM ERC_ITEM::similarLabelAndPower( ERCE_SIMILAR_LABEL_AND_POWER,
+        _( "Power pin and label are similar (lower/upper case difference only)"),
+        wxT( "similar_label_and_power" ) );
+
 ERC_ITEM ERC_ITEM::singleGlobalLabel( ERCE_SINGLE_GLOBAL_LABEL,
         _( "Global label only appears once in the schematic"),
         wxT( "single_global_label" ) );
+
+ERC_ITEM ERC_ITEM::sameLocalGlobalLabel( ERCE_SAME_LOCAL_GLOBAL_LABEL,
+        _( "Local and global labels have same name" ),
+        wxT( "same_local_global_label" ) );
 
 ERC_ITEM ERC_ITEM::differentUnitFootprint( ERCE_DIFFERENT_UNIT_FP,
         _( "Different footprint assigned in another unit of the symbol" ),
@@ -203,55 +232,72 @@ ERC_ITEM ERC_ITEM::busEntryNeeded( ERCE_BUS_ENTRY_NEEDED,
         _( "Bus Entry needed" ),
         wxT( "bus_entry_needed" ) );
 
-std::vector<std::reference_wrapper<RC_ITEM>> ERC_ITEM::allItemTypes( {
-                 ERC_ITEM::heading_connections,
-                 ERC_ITEM::pinNotConnected,
-                 ERC_ITEM::pinNotDriven,
-                 ERC_ITEM::powerpinNotDriven,
-                 ERC_ITEM::noConnectConnected,
-                 ERC_ITEM::noConnectDangling,
-                 ERC_ITEM::labelDangling,
-                 ERC_ITEM::globalLabelDangling,
-                 ERC_ITEM::singleGlobalLabel,
-                 ERC_ITEM::wireDangling,
-                 ERC_ITEM::busEntryNeeded,
-                 ERC_ITEM::endpointOffGrid,
-                 ERC_ITEM::fourWayJunction,
+ERC_ITEM ERC_ITEM::unconnectedWireEndpoint( ERCE_UNCONNECTED_WIRE_ENDPOINT,
+        _( "Unconnected wire endpoint" ),
+        wxT( "unconnected_wire_endpoint" ) );
 
-                 ERC_ITEM::heading_conflicts,
-                 ERC_ITEM::duplicateReference,
-                 ERC_ITEM::pinTableWarning,
-                 ERC_ITEM::differentUnitValue,
-                 ERC_ITEM::differentUnitFootprint,
-                 ERC_ITEM::differentUnitNet,
-                 ERC_ITEM::duplicateSheetName,
-                 ERC_ITEM::hierLabelMismatch,
-                 ERC_ITEM::multipleNetNames,
-                 ERC_ITEM::busDefinitionConflict,
-                 ERC_ITEM::busToBusConflict,
-                 ERC_ITEM::busToNetConflict,
-                 ERC_ITEM::netNotBusMember,
-                 ERC_ITEM::netclassConflict,
+std::vector<std::reference_wrapper<RC_ITEM>> ERC_ITEM::allItemTypes(
+        {
+            ERC_ITEM::heading_connections,
+            ERC_ITEM::pinNotConnected,
+            ERC_ITEM::pinNotDriven,
+            ERC_ITEM::powerpinNotDriven,
+            ERC_ITEM::noConnectConnected,
+            ERC_ITEM::noConnectDangling,
+            ERC_ITEM::globalLabelDangling,
+            ERC_ITEM::singleGlobalLabel,
+            ERC_ITEM::sameLocalGlobalLabel,
+            ERC_ITEM::wireDangling,
+            ERC_ITEM::busEntryNeeded,
+            ERC_ITEM::endpointOffGrid,
+            ERC_ITEM::fourWayJunction,
+            ERC_ITEM::duplicatePinError,
+            ERC_ITEM::labelMultipleWires,
+            ERC_ITEM::unconnectedWireEndpoint,
 
-                 ERC_ITEM::heading_misc,
-                 ERC_ITEM::unannotated,
-                 ERC_ITEM::unresolvedVariable,
-                 ERC_ITEM::simulationModelIssues,
-                 ERC_ITEM::similarLabels,
-                 // Commented out until the logic for this element is coded
-                 // TODO: Add bus label syntax checking
-//                 ERC_ITEM::busLabelSyntax,
-                 ERC_ITEM::libSymbolIssues,
-                 ERC_ITEM::libSymbolMismatch,
-                 ERC_ITEM::footprintLinkIssues,
-                 ERC_ITEM::extraUnits,
-                 ERC_ITEM::missingUnits,
-                 ERC_ITEM::missingInputPin,
-                 ERC_ITEM::missingBidiPin,
-                 ERC_ITEM::missingPowerInputPin,
-                 ERC_ITEM::overlappingRuleAreas
-         } );
+            ERC_ITEM::heading_conflicts,
+            ERC_ITEM::duplicateReference,
+            ERC_ITEM::pinTableWarning,
+            ERC_ITEM::differentUnitValue,
+            ERC_ITEM::differentUnitFootprint,
+            ERC_ITEM::differentUnitNet,
+            ERC_ITEM::duplicateSheetName,
+            ERC_ITEM::hierLabelMismatch,
+            ERC_ITEM::multipleNetNames,
+            ERC_ITEM::busDefinitionConflict,
+            ERC_ITEM::busToBusConflict,
+            ERC_ITEM::busToNetConflict,
+            ERC_ITEM::netNotBusMember,
+            ERC_ITEM::netclassConflict,
 
+            ERC_ITEM::heading_misc,
+            ERC_ITEM::unannotated,
+            ERC_ITEM::unresolvedVariable,
+            ERC_ITEM::simulationModelIssues,
+            ERC_ITEM::similarLabels,
+            ERC_ITEM::similarPower,
+            ERC_ITEM::similarLabelAndPower,
+            // Commented out until the logic for this element is coded
+            // TODO: Add bus label syntax checking
+            //                 ERC_ITEM::busLabelSyntax,
+            ERC_ITEM::libSymbolIssues,
+            ERC_ITEM::libSymbolMismatch,
+            ERC_ITEM::footprintLinkIssues,
+            ERC_ITEM::extraUnits,
+            ERC_ITEM::missingUnits,
+            ERC_ITEM::missingInputPin,
+            ERC_ITEM::missingBidiPin,
+            ERC_ITEM::missingPowerInputPin,
+            ERC_ITEM::overlappingRuleAreas,
+
+            // ERC_ITEM types with no user-editable severities
+            // NOTE: this MUST be the last grouping in the list!
+            ERC_ITEM::heading_internal,
+            ERC_ITEM::pinTableWarning,
+            ERC_ITEM::pinTableError,
+            ERC_ITEM::genericWarning,
+            ERC_ITEM::genericError
+        } );
 
 
 std::shared_ptr<ERC_ITEM> ERC_ITEM::Create( int aErrorCode )
@@ -263,15 +309,22 @@ std::shared_ptr<ERC_ITEM> ERC_ITEM::Create( int aErrorCode )
     case ERCE_PIN_NOT_CONNECTED:       return std::make_shared<ERC_ITEM>( pinNotConnected );
     case ERCE_PIN_NOT_DRIVEN:          return std::make_shared<ERC_ITEM>( pinNotDriven );
     case ERCE_POWERPIN_NOT_DRIVEN:     return std::make_shared<ERC_ITEM>( powerpinNotDriven );
+    case ERCE_DUPLICATE_PIN_ERROR:     return std::make_shared<ERC_ITEM>( duplicatePinError );
     case ERCE_PIN_TO_PIN_WARNING:      return std::make_shared<ERC_ITEM>( pinTableWarning );
     case ERCE_PIN_TO_PIN_ERROR:        return std::make_shared<ERC_ITEM>( pinTableError );
+    case ERCE_GENERIC_WARNING:         return std::make_shared<ERC_ITEM>( genericWarning );
+    case ERCE_GENERIC_ERROR:           return std::make_shared<ERC_ITEM>( genericError );
     case ERCE_HIERACHICAL_LABEL:       return std::make_shared<ERC_ITEM>( hierLabelMismatch );
     case ERCE_NOCONNECT_CONNECTED:     return std::make_shared<ERC_ITEM>( noConnectConnected );
     case ERCE_NOCONNECT_NOT_CONNECTED: return std::make_shared<ERC_ITEM>( noConnectDangling );
     case ERCE_FOUR_WAY_JUNCTION:       return std::make_shared<ERC_ITEM>( fourWayJunction );
+    case ERCE_LABEL_MULTIPLE_WIRES:    return std::make_shared<ERC_ITEM>( labelMultipleWires );
     case ERCE_LABEL_NOT_CONNECTED:     return std::make_shared<ERC_ITEM>( labelDangling );
     case ERCE_SIMILAR_LABELS:          return std::make_shared<ERC_ITEM>( similarLabels );
+    case ERCE_SIMILAR_POWER:           return std::make_shared<ERC_ITEM>( similarPower );
+    case ERCE_SIMILAR_LABEL_AND_POWER: return std::make_shared<ERC_ITEM>( similarLabelAndPower );
     case ERCE_SINGLE_GLOBAL_LABEL:     return std::make_shared<ERC_ITEM>( singleGlobalLabel );
+    case ERCE_SAME_LOCAL_GLOBAL_LABEL: return std::make_shared<ERC_ITEM>( sameLocalGlobalLabel );
     case ERCE_DIFFERENT_UNIT_FP:       return std::make_shared<ERC_ITEM>( differentUnitFootprint );
     case ERCE_DIFFERENT_UNIT_NET:      return std::make_shared<ERC_ITEM>( differentUnitNet );
     case ERCE_BUS_ALIAS_CONFLICT:      return std::make_shared<ERC_ITEM>( busDefinitionConflict );
@@ -298,6 +351,7 @@ std::shared_ptr<ERC_ITEM> ERC_ITEM::Create( int aErrorCode )
     case ERCE_MISSING_INPUT_PIN:       return std::make_shared<ERC_ITEM>( missingInputPin );
     case ERCE_MISSING_POWER_INPUT_PIN: return std::make_shared<ERC_ITEM>( missingPowerInputPin );
     case ERCE_MISSING_BIDI_PIN:        return std::make_shared<ERC_ITEM>( missingBidiPin );
+    case ERCE_UNCONNECTED_WIRE_ENDPOINT: return std::make_shared<ERC_ITEM>( unconnectedWireEndpoint );
     case ERCE_UNSPECIFIED:
     default:
         wxFAIL_MSG( wxS( "Unknown ERC error code" ) );
@@ -332,14 +386,14 @@ void ERC_TREE_MODEL::GetValue( wxVariant& aVariant, wxDataViewItem const& aItem,
                     schEditFrame->SetCurrentSheet( aSheet );
                     aSheet.UpdateAllScreenReferences();
                     {
-                        desc = aCurrItem->GetItemDescription( m_editFrame );
+                        desc = aCurrItem->GetItemDescription( m_editFrame, true );
                     }
                     schEditFrame->SetCurrentSheet( curSheet );
                     curSheet.UpdateAllScreenReferences();
                 }
                 else
                 {
-                    desc = aCurrItem->GetItemDescription( m_editFrame );
+                    desc = aCurrItem->GetItemDescription( m_editFrame, true );
                 }
 
                 return desc;

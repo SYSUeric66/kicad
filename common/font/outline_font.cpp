@@ -29,6 +29,10 @@
 #include <geometry/shape_poly_set.h>
 #include <font/fontconfig.h>
 #include <font/outline_font.h>
+#include <ft2build.h>
+#include FT_FREETYPE_H
+#include FT_SFNT_NAMES_H
+#include FT_TRUETYPE_TABLES_H
 #include FT_GLYPH_H
 #include FT_BBOX_H
 #include <trigo.h>
@@ -53,7 +57,33 @@ OUTLINE_FONT::OUTLINE_FONT() :
 }
 
 
-OUTLINE_FONT* OUTLINE_FONT::LoadFont( const wxString& aFontName, bool aBold, bool aItalic )
+OUTLINE_FONT::EMBEDDING_PERMISSION OUTLINE_FONT::GetEmbeddingPermission() const
+{
+    TT_OS2* os2 = reinterpret_cast<TT_OS2*>( FT_Get_Sfnt_Table( m_face, FT_SFNT_OS2 ) );
+
+    // If this table isn't present, we can't assume anything
+    if( !os2 )
+        return EMBEDDING_PERMISSION::RESTRICTED;
+
+    if( os2->fsType == FT_FSTYPE_INSTALLABLE_EMBEDDING ) // This allows the font to be exported from KiCad
+        return EMBEDDING_PERMISSION::INSTALLABLE;
+
+    if( os2->fsType & FT_FSTYPE_BITMAP_EMBEDDING_ONLY ) // We don't support bitmap fonts, so this disables embedding
+        return EMBEDDING_PERMISSION::RESTRICTED;
+
+    if( os2->fsType & FT_FSTYPE_EDITABLE_EMBEDDING ) // This allows us to use the font in KiCad but not export
+        return EMBEDDING_PERMISSION::EDITABLE;
+
+    if( os2->fsType & FT_FSTYPE_PREVIEW_AND_PRINT_EMBEDDING ) // This is not actually supported by KiCad ATM(2024)
+        return EMBEDDING_PERMISSION::PRINT_PREVIEW_ONLY;
+
+    // Anything else that is not explicitly enabled we treat as restricted.
+    return EMBEDDING_PERMISSION::RESTRICTED;
+}
+
+
+OUTLINE_FONT* OUTLINE_FONT::LoadFont( const wxString& aFontName, bool aBold, bool aItalic,
+                                      const std::vector<wxString>* aEmbeddedFiles )
 {
     std::unique_ptr<OUTLINE_FONT> font = std::make_unique<OUTLINE_FONT>();
 
@@ -61,7 +91,9 @@ OUTLINE_FONT* OUTLINE_FONT::LoadFont( const wxString& aFontName, bool aBold, boo
     int      faceIndex;
     using fc = fontconfig::FONTCONFIG;
 
-    fc::FF_RESULT retval = Fontconfig()->FindFont( aFontName, fontFile, faceIndex, aBold, aItalic );
+
+    fc::FF_RESULT retval = Fontconfig()->FindFont( aFontName, fontFile, faceIndex, aBold, aItalic,
+                                                   aEmbeddedFiles );
 
     if( retval == fc::FF_RESULT::FF_ERROR )
         return nullptr;
@@ -95,7 +127,7 @@ FT_Error OUTLINE_FONT::loadFace( const wxString& aFontFileName, int aFaceIndex )
         // m_face = handle to face object
         // 0 = char width in 1/64th of points ( 0 = same as char height )
         // faceSize() = char height in 1/64th of points
-        // GLYPH_RESOLUTION = horizontal device resolution (288dpi, 4x default)
+        // GLYPH_RESOLUTION = horizontal device resolution (1152dpi, 16x default)
         // 0 = vertical device resolution ( 0 = same as horizontal )
         FT_Set_Char_Size( m_face, 0, faceSize(), GLYPH_RESOLUTION, 0 );
     }
@@ -259,6 +291,7 @@ VECTOR2I OUTLINE_FONT::getTextAsGlyphs( BOX2I* aBBox, std::vector<std::unique_pt
 struct GLYPH_CACHE_KEY {
     FT_Face        face;
     hb_codepoint_t codepoint;
+    double         scaler;
     bool           fakeItalic;
     bool           fakeBold;
     bool           mirror;
@@ -266,7 +299,7 @@ struct GLYPH_CACHE_KEY {
 
     bool operator==(const GLYPH_CACHE_KEY& rhs ) const
     {
-        return face == rhs.face && codepoint == rhs.codepoint
+        return face == rhs.face && codepoint == rhs.codepoint && scaler == rhs.scaler
                    && fakeItalic == rhs.fakeItalic && fakeBold == rhs.fakeBold
                    && mirror == rhs.mirror && angle == rhs.angle;
     }
@@ -280,6 +313,7 @@ namespace std
         std::size_t operator()( const GLYPH_CACHE_KEY& k ) const
         {
             return hash<const void*>()( k.face ) ^ hash<unsigned>()( k.codepoint )
+                        ^ hash<double>()( k.scaler )
                         ^ hash<int>()( k.fakeItalic ) ^ hash<int>()( k.fakeBold )
                         ^ hash<int>()( k.mirror ) ^ hash<int>()( k.angle.AsTenthsOfADegree() );
         }
@@ -339,7 +373,7 @@ VECTOR2I OUTLINE_FONT::getTextAsGlyphsUnlocked( BOX2I* aBBox,
 
         if( aGlyphs )
         {
-            GLYPH_CACHE_KEY key = { face, glyphInfo[i].codepoint, m_fakeItal, m_fakeBold,
+            GLYPH_CACHE_KEY key = { face, glyphInfo[i].codepoint, scaler, m_fakeItal, m_fakeBold,
                                     aMirror, aAngle };
             GLYPH_DATA&     glyphData = s_glyphCache[ key ];
 

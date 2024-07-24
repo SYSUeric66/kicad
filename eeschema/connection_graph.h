@@ -30,6 +30,7 @@
 #include <sch_connection.h>
 #include <sch_item.h>
 #include <wx/treectrl.h>
+#include <advanced_config.h>
 
 
 #ifdef DEBUG
@@ -434,7 +435,7 @@ public:
      */
     CONNECTION_SUBGRAPH* FindFirstSubgraphByName( const wxString& aNetName );
 
-    CONNECTION_SUBGRAPH* GetSubgraphForItem( SCH_ITEM* aItem );
+    CONNECTION_SUBGRAPH* GetSubgraphForItem( SCH_ITEM* aItem ) const;
 
     const std::vector<CONNECTION_SUBGRAPH*> GetAllSubgraphs( const wxString& aNetName ) const;
 
@@ -471,6 +472,19 @@ public:
      * Replace all references to #aOldItem with #aNewItem in the graph.
     */
     void ExchangeItem( SCH_ITEM* aOldItem, SCH_ITEM* aNewItem );
+
+    /**
+     * We modify how we handle the connectivity graph for small graphs vs large
+     * graphs.  Partially this is to avoid unneeded complexity for small graphs,
+     * where the performance of the graph is not a concern.  This is considered
+     * a temporary solution until the connectivity graph is refactored with an
+     * eye toward partial updates
+    */
+    bool IsMinor() const
+    {
+        return static_cast<ssize_t>( m_items.size() )
+               < ADVANCED_CFG::GetCfg().m_MinorSchematicGraphSize;
+    }
 
 private:
     /**
@@ -686,6 +700,16 @@ private:
      * @return                true for no errors, false for errors.
      */
     bool ercCheckFloatingWires( const CONNECTION_SUBGRAPH* aSubgraph );
+
+    /**
+     * Check one subgraph for dangling wire endpoints.
+     *
+     * Will throw an error for any subgraph that has wires with only one endpoing
+     *
+     * @param  aSubgraph      is the subgraph to examine.
+     * @return                true for no errors, false for errors.
+     */
+    bool ercCheckDanglingWireEndpoints( const CONNECTION_SUBGRAPH* aSubgraph );
 
     /**
      * Check one subgraph for proper connection of labels.

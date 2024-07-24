@@ -29,6 +29,9 @@
 #include <gerber_file_image.h>
 #include <gerber_file_image_list.h>
 #include "gerbview_printout.h"
+
+#include <lseq.h>
+#include <lset.h>
 #include <view/view.h>
 #include <gerbview_painter.h>
 #include <math/util.h>      // for KiROUND
@@ -84,8 +87,8 @@ void GERBVIEW_PRINTOUT::setupViewLayers( KIGFX::VIEW& aView, const LSET& aLayerS
 {
     BOARD_PRINTOUT::setupViewLayers( aView, aLayerSet );
 
-    for( LSEQ layerSeq = m_settings.m_LayerSet.Seq(); layerSeq; ++layerSeq )
-        aView.SetLayerVisible( static_cast<int>( GERBVIEW_LAYER_ID_START ) + *layerSeq, true );
+    for( PCB_LAYER_ID layer : m_settings.m_LayerSet.Seq() )
+        aView.SetLayerVisible( static_cast<int>( GERBVIEW_LAYER_ID_START ) + layer, true );
 }
 
 

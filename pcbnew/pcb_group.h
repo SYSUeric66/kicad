@@ -32,6 +32,7 @@
 
 #include <board_commit.h>
 #include <board_item.h>
+#include <lset.h>
 #include <unordered_set>
 
 namespace KIGFX
@@ -104,7 +105,8 @@ public:
 
     double Similarity( const BOARD_ITEM& aOther ) const override;
 
-    bool operator==( const BOARD_ITEM& aOther ) const override;
+    bool operator==( const PCB_GROUP& aOther ) const;
+    bool operator==( const BOARD_ITEM& aBoardItem ) const override;
 
 #if defined( DEBUG )
     void Show( int nestLevel, std::ostream& os ) const override
@@ -185,7 +187,7 @@ public:
     void Flip( const VECTOR2I& aCentre, bool aFlipLeftRight ) override;
 
     /// @copydoc EDA_ITEM::GetItemDescription
-    wxString GetItemDescription( UNITS_PROVIDER* aUnitsProvider ) const override;
+    wxString GetItemDescription( UNITS_PROVIDER* aUnitsProvider, bool aFull ) const override;
 
     /// @copydoc EDA_ITEM::GetMenuImage
     BITMAPS GetMenuImage() const override;

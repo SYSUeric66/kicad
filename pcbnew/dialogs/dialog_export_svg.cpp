@@ -192,9 +192,8 @@ void DIALOG_EXPORT_SVG::initDialog()
     m_ModeColorOption->SetSelection( m_printBW ? 1 : 0 );
     m_printMirrorOpt->SetValue( m_printMirror );
 
-    for( LSEQ seq = m_board->GetEnabledLayers().UIOrder(); seq; ++seq )
+    for( PCB_LAYER_ID layer : m_board->GetEnabledLayers().UIOrder() )
     {
-        PCB_LAYER_ID layer = *seq;
         int checkIndex;
 
         if( IsCopperLayer( layer ) )
@@ -321,6 +320,7 @@ void DIALOG_EXPORT_SVG::ExportSVGFile( bool aOnlyOneFile )
     svgPlotOptions.m_negative = false;
     svgPlotOptions.m_blackAndWhite = m_printBW;
     svgPlotOptions.m_printMaskLayer = m_printMaskLayer;
+    svgPlotOptions.m_sketchPadsOnFabLayers = false;
     svgPlotOptions.m_pageSizeMode = m_rbSvgPageSizeOpt->GetSelection();
 
     PCBNEW_SETTINGS* cfg = m_parent->GetPcbNewSettings();
@@ -334,9 +334,8 @@ void DIALOG_EXPORT_SVG::ExportSVGFile( bool aOnlyOneFile )
     svgPlotOptions.m_plotFrame = svgPlotOptions.m_pageSizeMode == 0;
     svgPlotOptions.m_drillShapeOption = 2;  // actual size hole.
 
-    for( LSEQ seq = all_selected.Seq();  seq;  ++seq )
+    for( PCB_LAYER_ID layer : all_selected.Seq() )
     {
-        PCB_LAYER_ID layer = *seq;
         wxFileName   fn( boardFilename );
         wxString     suffix = aOnlyOneFile ? wxString( wxT( "brd" ) ) : m_board->GetStandardLayerName( layer );
 

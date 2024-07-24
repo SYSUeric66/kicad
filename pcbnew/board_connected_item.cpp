@@ -27,6 +27,7 @@
 #include <board_connected_item.h>
 #include <board_design_settings.h>
 #include <connectivity/connectivity_data.h>
+#include <lset.h>
 #include <properties/property_validators.h>
 #include <string_utils.h>
 #include <i18n_utility.h>
@@ -132,15 +133,28 @@ wxString BOARD_CONNECTED_ITEM::GetNetnameMsg() const
 }
 
 
-wxString BOARD_CONNECTED_ITEM::GetShortNetname() const
+const wxString& BOARD_CONNECTED_ITEM::GetShortNetname() const
 {
-    return m_netinfo ? m_netinfo->GetShortNetname() : wxString();
+    static wxString emptyString;
+
+    return m_netinfo ? m_netinfo->GetShortNetname() : emptyString;
 }
 
 
-wxString BOARD_CONNECTED_ITEM::GetUnescapedShortNetname() const
+const wxString& BOARD_CONNECTED_ITEM::GetDisplayNetname() const
 {
-    return m_netinfo ? m_netinfo->GetUnescapedShortNetname() : wxString();
+    static wxString emptyString;
+
+    if( !m_netinfo )
+        return emptyString;
+
+    if( const BOARD* board = GetBoard() )
+    {
+        if( board->GetNetInfo().m_DisplayNetnamesDirty )
+            board->GetNetInfo().RebuildDisplayNetnames();
+    }
+
+    return m_netinfo->GetDisplayNetname();
 }
 
 
@@ -154,8 +168,8 @@ static struct BOARD_CONNECTED_ITEM_DESC
         {
             layerEnum.Undefined( UNDEFINED_LAYER );
 
-            for( LSEQ seq = LSET::AllLayersMask().Seq(); seq; ++seq )
-                layerEnum.Map( *seq, LSET::Name( *seq ) );
+            for( PCB_LAYER_ID layer : LSET::AllLayersMask().Seq() )
+                layerEnum.Map( layer, LSET::Name( layer ) );
         }
 
         PROPERTY_MANAGER& propMgr = PROPERTY_MANAGER::Instance();
@@ -266,9 +280,9 @@ static struct BOARD_CONNECTED_ITEM_DESC
         maxWidth->SetAvailableFunc( supportsTeardrops );
         propMgr.AddProperty( maxWidth, groupTeardrops );
 
-        auto curvePts = new PROPERTY<BOARD_CONNECTED_ITEM, int>( _HKI( "Curve Points" ),
-                         &BOARD_CONNECTED_ITEM::SetTeardropCurvePts,
-                         &BOARD_CONNECTED_ITEM::GetTeardropCurvePts );
+        auto curvePts = new PROPERTY<BOARD_CONNECTED_ITEM, bool>( _HKI( "Curved Teardrops" ),
+                         &BOARD_CONNECTED_ITEM::SetTeardropCurved,
+                         &BOARD_CONNECTED_ITEM::GetTeardropCurved );
         curvePts->SetAvailableFunc( supportsTeardrops );
         propMgr.AddProperty( curvePts, groupTeardrops );
 

@@ -106,48 +106,6 @@ public:
         }
     }
 
-    explicit EDA_ANGLE( const VECTOR2I& aVector )
-    {
-        /* gcc is surprisingly smart in optimizing these conditions in a tree! */
-
-        if( aVector.x == 0 && aVector.y == 0 )
-        {
-            m_value = 0;
-        }
-        else if( aVector.y == 0 )
-        {
-            if( aVector.x >= 0 )
-                m_value = 0.0;
-            else
-                m_value = -180.0;
-        }
-        else if( aVector.x == 0 )
-        {
-            if( aVector.y >= 0 )
-                m_value = 90.0;
-            else
-                m_value = -90.0;
-        }
-        else if( aVector.x == aVector.y )
-        {
-            if( aVector.x >= 0 )
-                m_value = 45.0;
-            else
-                m_value = -180.0 + 45.0;
-        }
-        else if( aVector.x == -aVector.y )
-        {
-            if( aVector.x >= 0 )
-                m_value = -45.0;
-            else
-                m_value = 180.0 - 45.0;
-        }
-        else
-        {
-            *this = EDA_ANGLE( atan2( (double) aVector.y, (double) aVector.x ), RADIANS_T );
-        }
-    }
-
     EDA_ANGLE() :
             m_value( 0.0 )
     {}
@@ -216,6 +174,10 @@ public:
 
         if( test.m_value == 0.0 || test.m_value == 180.0 )
             return 0.0;
+        else if( test.m_value == 45.0 || test.m_value == 135.0 )
+            return M_SQRT1_2; // sqrt(2)/2
+        else if( test.m_value == 225.0 || test.m_value == 315.0 )
+            return -M_SQRT1_2;
         else if( test.m_value == 90.0 )
             return 1.0;
         else if( test.m_value == 270.0 )
@@ -235,6 +197,10 @@ public:
             return -1.0;
         else if( test.m_value == 90.0 || test.m_value == 270.0 )
             return 0.0;
+        else if( test.m_value == 45.0 || test.m_value == 315.0 )
+            return M_SQRT1_2; // sqrt(2)/2
+        else if( test.m_value == 135.0 || test.m_value == 225.0 )
+            return -M_SQRT1_2;
         else
             return cos( AsRadians() );
     }

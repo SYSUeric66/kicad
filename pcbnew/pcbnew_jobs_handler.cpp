@@ -39,6 +39,7 @@
 #include <jobs/job_export_pcb_3d.h>
 #include <jobs/job_pcb_render.h>
 #include <jobs/job_pcb_drc.h>
+#include <lset.h>
 #include <cli/exit_codes.h>
 #include <exporters/place_file_exporter.h>
 #include <exporters/step/exporter_step.h>
@@ -47,6 +48,7 @@
 #include <plotters/plotters_pslike.h>
 #include <tool/tool_manager.h>
 #include <tools/drc_tool.h>
+#include <filename_resolver.h>
 #include <gerber_jobfile_writer.h>
 #include "gerber_placefile_writer.h"
 #include <gendrill_Excellon_writer.h>
@@ -121,6 +123,7 @@ int PCBNEW_JOBS_HANDLER::JobExportStep( JOB* aJob )
 
     BOARD* brd = LoadBoard( aStepJob->m_filename, true );
     brd->GetProject()->ApplyTextVars( aJob->GetVarOverrides() );
+    brd->SynchronizeProperties();
 
     if( aStepJob->m_outputFile.IsEmpty() )
     {
@@ -195,8 +198,11 @@ int PCBNEW_JOBS_HANDLER::JobExportStep( JOB* aJob )
         params.m_exportBoardBody = aStepJob->m_exportBoardBody;
         params.m_exportComponents = aStepJob->m_exportComponents;
         params.m_exportTracksVias = aStepJob->m_exportTracks;
+        params.m_exportPads = aStepJob->m_exportPads;
         params.m_exportZones = aStepJob->m_exportZones;
         params.m_exportInnerCopper = aStepJob->m_exportInnerCopper;
+        params.m_exportSilkscreen = aStepJob->m_exportSilkscreen;
+        params.m_exportSoldermask = aStepJob->m_exportSoldermask;
         params.m_fuseShapes = aStepJob->m_fuseShapes;
         params.m_includeUnspecified = aStepJob->m_includeUnspecified;
         params.m_includeDNP = aStepJob->m_includeDNP;
@@ -251,24 +257,17 @@ int PCBNEW_JOBS_HANDLER::JobExportRender( JOB* aJob )
 
     BOARD* brd = LoadBoard( aRenderJob->m_filename, true );
     brd->GetProject()->ApplyTextVars( aJob->GetVarOverrides() );
+    brd->SynchronizeProperties();
 
-    BOARD_ADAPTER m_boardAdapter;
+    BOARD_ADAPTER boardAdapter;
 
-    m_boardAdapter.SetBoard( brd );
-    m_boardAdapter.m_IsBoardView = false;
-    m_boardAdapter.m_IsPreviewer =
+    boardAdapter.SetBoard( brd );
+    boardAdapter.m_IsBoardView = false;
+    boardAdapter.m_IsPreviewer =
             true; // Force display 3D models, regardless the 3D viewer options
 
     EDA_3D_VIEWER_SETTINGS* cfg =
             Pgm().GetSettingsManager().GetAppSettings<EDA_3D_VIEWER_SETTINGS>();
-
-    if( aRenderJob->m_bgStyle == JOB_PCB_RENDER::BG_STYLE::TRANSPARENT
-        || ( aRenderJob->m_bgStyle == JOB_PCB_RENDER::BG_STYLE::DEFAULT
-             && aRenderJob->m_format == JOB_PCB_RENDER::FORMAT::PNG ) )
-    {
-        BOARD_ADAPTER::g_DefaultBackgroundTop = COLOR4D( 1.0, 1.0, 1.0, 0.0 );
-        BOARD_ADAPTER::g_DefaultBackgroundBot = COLOR4D( 1.0, 1.0, 1.0, 0.0 );
-    }
 
     if( aRenderJob->m_quality == JOB_PCB_RENDER::QUALITY::BASIC )
     {
@@ -309,9 +308,17 @@ int PCBNEW_JOBS_HANDLER::JobExportRender( JOB* aJob )
     }
 
     cfg->m_CurrentPreset = aRenderJob->m_colorPreset;
-    m_boardAdapter.m_Cfg = cfg;
+    boardAdapter.m_Cfg = cfg;
 
-    m_boardAdapter.Set3dCacheManager( PROJECT_PCB::Get3DCacheManager( brd->GetProject() ) );
+    if( aRenderJob->m_bgStyle == JOB_PCB_RENDER::BG_STYLE::TRANSPARENT
+        || ( aRenderJob->m_bgStyle == JOB_PCB_RENDER::BG_STYLE::DEFAULT
+             && aRenderJob->m_format == JOB_PCB_RENDER::FORMAT::PNG ) )
+    {
+        boardAdapter.m_ColorOverrides[LAYER_3D_BACKGROUND_TOP] = COLOR4D( 1.0, 1.0, 1.0, 0.0 );
+        boardAdapter.m_ColorOverrides[LAYER_3D_BACKGROUND_BOTTOM] = COLOR4D( 1.0, 1.0, 1.0, 0.0 );
+    }
+
+    boardAdapter.Set3dCacheManager( PROJECT_PCB::Get3DCacheManager( brd->GetProject() ) );
 
     static std::map<JOB_PCB_RENDER::SIDE, VIEW3D_TYPE> s_viewCmdMap = {
         { JOB_PCB_RENDER::SIDE::TOP, VIEW3D_TYPE::VIEW3D_TOP },
@@ -331,14 +338,14 @@ int PCBNEW_JOBS_HANDLER::JobExportRender( JOB* aJob )
     camera.SetProjection( projection );
     camera.SetCurWindowSize( windowSize );
 
-    RENDER_3D_RAYTRACE_RAM raytrace( m_boardAdapter, camera );
+    RENDER_3D_RAYTRACE_RAM raytrace( boardAdapter, camera );
     raytrace.SetCurWindowSize( windowSize );
 
     for( bool first = true; raytrace.Redraw( false, m_reporter, m_reporter ); first = false )
     {
         if( first )
         {
-            const float cmTo3D = m_boardAdapter.BiuTo3dUnits() * pcbIUScale.mmToIU( 10.0 );
+            const float cmTo3D = boardAdapter.BiuTo3dUnits() * pcbIUScale.mmToIU( 10.0 );
 
             // First redraw resets lookat point to the board center, so set up the camera here
             camera.ViewCommand_T1( s_viewCmdMap[aRenderJob->m_side] );
@@ -435,6 +442,7 @@ int PCBNEW_JOBS_HANDLER::JobExportSvg( JOB* aJob )
     svgPlotOptions.m_pageSizeMode = aSvgJob->m_pageSizeMode;
     svgPlotOptions.m_printMaskLayer = aSvgJob->m_printMaskLayer;
     svgPlotOptions.m_plotFrame = aSvgJob->m_plotDrawingSheet;
+    svgPlotOptions.m_sketchPadsOnFabLayers = aSvgJob->m_sketchPadsOnFabLayers;
     svgPlotOptions.m_drillShapeOption = aSvgJob->m_drillShapeOption;
 
     if( aJob->IsCli() )
@@ -443,6 +451,7 @@ int PCBNEW_JOBS_HANDLER::JobExportSvg( JOB* aJob )
     BOARD* brd = LoadBoard( aSvgJob->m_filename, true );
     loadOverrideDrawingSheet( brd, aSvgJob->m_drawingSheet );
     brd->GetProject()->ApplyTextVars( aJob->GetVarOverrides() );
+    brd->SynchronizeProperties();
 
     if( aJob->IsCli() )
     {
@@ -469,6 +478,7 @@ int PCBNEW_JOBS_HANDLER::JobExportDxf( JOB* aJob )
     BOARD* brd = LoadBoard( aDxfJob->m_filename, true );
     loadOverrideDrawingSheet( brd, aDxfJob->m_drawingSheet );
     brd->GetProject()->ApplyTextVars( aJob->GetVarOverrides() );
+    brd->SynchronizeProperties();
 
     if( aDxfJob->m_outputFile.IsEmpty() )
     {
@@ -483,6 +493,7 @@ int PCBNEW_JOBS_HANDLER::JobExportDxf( JOB* aJob )
     plotOpts.SetFormat( PLOT_FORMAT::DXF );
 
     plotOpts.SetDXFPlotPolygonMode( aDxfJob->m_plotGraphicItemsUsingContours );
+    plotOpts.SetUseAuxOrigin( aDxfJob->m_useDrillOrigin );
 
     if( aDxfJob->m_dxfUnits == JOB_EXPORT_PCB_DXF::DXF_UNITS::MILLIMETERS )
         plotOpts.SetDXFPlotUnits( DXF_UNITS::MILLIMETERS );
@@ -494,8 +505,29 @@ int PCBNEW_JOBS_HANDLER::JobExportDxf( JOB* aJob )
     plotOpts.SetPlotReference( aDxfJob->m_plotRefDes );
     plotOpts.SetLayerSelection( aDxfJob->m_printMaskLayer );
 
-    DXF_PLOTTER* plotter = (DXF_PLOTTER*) StartPlotBoard(
-            brd, &plotOpts, UNDEFINED_LAYER, aDxfJob->m_outputFile, wxEmptyString, wxEmptyString );
+    PCB_LAYER_ID layer = UNDEFINED_LAYER;
+    wxString     layerName;
+    wxString     sheetName;
+    wxString     sheetPath;
+
+    if( aDxfJob->m_printMaskLayer.size() == 1 )
+    {
+        layer = aDxfJob->m_printMaskLayer.front();
+        layerName = brd->GetLayerName( layer );
+    }
+
+    if( aJob->GetVarOverrides().contains( wxT( "LAYER" ) ) )
+        layerName = aJob->GetVarOverrides().at( wxT( "LAYER" ) );
+
+    if( aJob->GetVarOverrides().contains( wxT( "SHEETNAME" ) ) )
+        sheetName = aJob->GetVarOverrides().at( wxT( "SHEETNAME" ) );
+
+    if( aJob->GetVarOverrides().contains( wxT( "SHEETPATH" ) ) )
+        sheetPath = aJob->GetVarOverrides().at( wxT( "SHEETPATH" ) );
+
+    DXF_PLOTTER* plotter = (DXF_PLOTTER*) StartPlotBoard( brd, &plotOpts, layer, layerName,
+                                                          aDxfJob->m_outputFile, sheetName,
+                                                          sheetPath );
 
     if( plotter )
     {
@@ -522,6 +554,7 @@ int PCBNEW_JOBS_HANDLER::JobExportPdf( JOB* aJob )
     BOARD* brd = LoadBoard( aPdfJob->m_filename, true );
     loadOverrideDrawingSheet( brd, aPdfJob->m_drawingSheet );
     brd->GetProject()->ApplyTextVars( aJob->GetVarOverrides() );
+    brd->SynchronizeProperties();
 
     if( aPdfJob->m_outputFile.IsEmpty() )
     {
@@ -547,6 +580,12 @@ int PCBNEW_JOBS_HANDLER::JobExportPdf( JOB* aJob )
     plotOpts.SetBlackAndWhite( aPdfJob->m_blackAndWhite );
     plotOpts.SetNegative( aPdfJob->m_negative );
 
+    if( aPdfJob->m_sketchPadsOnFabLayers )
+    {
+        plotOpts.SetSketchPadsOnFabLayers( true );
+        plotOpts.SetPlotPadNumbers( true );
+    }
+
     switch( aPdfJob->m_drillShapeOption )
     {
         default:
@@ -555,8 +594,29 @@ int PCBNEW_JOBS_HANDLER::JobExportPdf( JOB* aJob )
         case 2: plotOpts.SetDrillMarksType( DRILL_MARKS::FULL_DRILL_SHAPE );  break;
     }
 
-    PDF_PLOTTER* plotter = (PDF_PLOTTER*) StartPlotBoard(
-            brd, &plotOpts, UNDEFINED_LAYER, aPdfJob->m_outputFile, wxEmptyString, wxEmptyString );
+    PCB_LAYER_ID layer = UNDEFINED_LAYER;
+    wxString     layerName;
+    wxString     sheetName;
+    wxString     sheetPath;
+
+    if( aPdfJob->m_printMaskLayer.size() == 1 )
+    {
+        layer = aPdfJob->m_printMaskLayer.front();
+        layerName = brd->GetLayerName( layer );
+    }
+
+    if( aPdfJob->GetVarOverrides().contains( wxT( "LAYER" ) ) )
+        layerName = aPdfJob->GetVarOverrides().at( wxT( "LAYER" ) );
+
+    if( aPdfJob->GetVarOverrides().contains( wxT( "SHEETNAME" ) ) )
+        sheetName = aPdfJob->GetVarOverrides().at( wxT( "SHEETNAME" ) );
+
+    if( aPdfJob->GetVarOverrides().contains( wxT( "SHEETPATH" ) ) )
+        sheetPath = aPdfJob->GetVarOverrides().at( wxT( "SHEETPATH" ) );
+
+    PDF_PLOTTER* plotter = (PDF_PLOTTER*) StartPlotBoard( brd, &plotOpts, layer, layerName,
+                                                          aPdfJob->m_outputFile, sheetName,
+                                                          sheetPath );
 
     if( plotter )
     {
@@ -585,6 +645,7 @@ int PCBNEW_JOBS_HANDLER::JobExportGerbers( JOB* aJob )
     BOARD* brd = LoadBoard( aGerberJob->m_filename, true );
     loadOverrideDrawingSheet( brd, aGerberJob->m_drawingSheet );
     brd->GetProject()->ApplyTextVars( aJob->GetVarOverrides() );
+    brd->SynchronizeProperties();
 
     PCB_PLOT_PARAMS       boardPlotOptions = brd->GetPlotOptions();
     LSET                  plotOnAllLayersSelection = boardPlotOptions.GetPlotOnAllLayersSelection();
@@ -606,33 +667,35 @@ int PCBNEW_JOBS_HANDLER::JobExportGerbers( JOB* aJob )
     else
     {
         // default to the board enabled layers
-        if( aGerberJob->m_printMaskLayer == 0 )
+        if( aGerberJob->m_printMaskLayer.empty() )
             aGerberJob->m_printMaskLayer = brd->GetEnabledLayers().SeqStackupForPlotting();
 
         if( aGerberJob->m_layersIncludeOnAllSet )
             aGerberJob->m_layersIncludeOnAll = plotOnAllLayersSelection;
     }
 
-    for( LSEQ seq = LSET( aGerberJob->m_printMaskLayer ).UIOrder(); seq; ++seq )
+    for( PCB_LAYER_ID layer : LSET( aGerberJob->m_printMaskLayer ).UIOrder() )
     {
         LSEQ plotSequence;
 
         // Base layer always gets plotted first.
-        plotSequence.push_back( *seq );
+        plotSequence.push_back( layer );
 
         // Now all the "include on all" layers
-        for( LSEQ seqAll = aGerberJob->m_layersIncludeOnAll.UIOrder(); seqAll; ++seqAll )
+        for( PCB_LAYER_ID layer_all : aGerberJob->m_layersIncludeOnAll.UIOrder() )
         {
             // Don't plot the same layer more than once;
-            if( find( plotSequence.begin(), plotSequence.end(), *seqAll ) != plotSequence.end() )
+            if( find( plotSequence.begin(), plotSequence.end(), layer_all ) != plotSequence.end() )
                 continue;
 
-            plotSequence.push_back( *seqAll );
+            plotSequence.push_back( layer_all );
         }
 
         // Pick the basename from the board file
-        wxFileName fn( brd->GetFileName() );
-        PCB_LAYER_ID layer = *seq;
+        wxFileName      fn( brd->GetFileName() );
+        wxString        layerName = brd->GetLayerName( layer );
+        wxString        sheetName;
+        wxString        sheetPath;
         PCB_PLOT_PARAMS plotOpts;
 
         if( aGerberJob->m_useBoardPlotParams )
@@ -645,14 +708,24 @@ int PCBNEW_JOBS_HANDLER::JobExportGerbers( JOB* aJob )
         else
             fileExt = FILEEXT::GerberFileExtension;
 
-        BuildPlotFileName( &fn, aGerberJob->m_outputFile, brd->GetLayerName( layer ), fileExt );
+        BuildPlotFileName( &fn, aGerberJob->m_outputFile, layerName, fileExt );
         wxString fullname = fn.GetFullName();
 
         jobfile_writer.AddGbrFile( layer, fullname );
 
+        if( aJob->GetVarOverrides().contains( wxT( "LAYER" ) ) )
+            layerName = aJob->GetVarOverrides().at( wxT( "LAYER" ) );
+
+        if( aJob->GetVarOverrides().contains( wxT( "SHEETNAME" ) ) )
+            sheetName = aJob->GetVarOverrides().at( wxT( "SHEETNAME" ) );
+
+        if( aJob->GetVarOverrides().contains( wxT( "SHEETPATH" ) ) )
+            sheetPath = aJob->GetVarOverrides().at( wxT( "SHEETPATH" ) );
+
         // We are feeding it one layer at the start here to silence a logic check
-        GERBER_PLOTTER* plotter = (GERBER_PLOTTER*) StartPlotBoard(
-                brd, &plotOpts, layer, fn.GetFullPath(), wxEmptyString, wxEmptyString );
+        GERBER_PLOTTER* plotter = (GERBER_PLOTTER*) StartPlotBoard( brd, &plotOpts, layer,
+                                                                    layerName, fn.GetFullPath(),
+                                                                    sheetName, sheetPath );
 
         if( plotter )
         {
@@ -719,6 +792,7 @@ int PCBNEW_JOBS_HANDLER::JobExportGerber( JOB* aJob )
 
     BOARD* brd = LoadBoard( aGerberJob->m_filename, true );
     brd->GetProject()->ApplyTextVars( aJob->GetVarOverrides() );
+    brd->SynchronizeProperties();
 
     if( aGerberJob->m_outputFile.IsEmpty() )
     {
@@ -733,10 +807,30 @@ int PCBNEW_JOBS_HANDLER::JobExportGerber( JOB* aJob )
     populateGerberPlotOptionsFromJob( plotOpts, aGerberJob );
     plotOpts.SetLayerSelection( aGerberJob->m_printMaskLayer );
 
+    PCB_LAYER_ID layer = UNDEFINED_LAYER;
+    wxString     layerName;
+    wxString     sheetName;
+    wxString     sheetPath;
+
+    if( aGerberJob->m_printMaskLayer.size() == 1 )
+    {
+        layer = aGerberJob->m_printMaskLayer.front();
+        layerName = brd->GetLayerName( layer );
+    }
+
+    if( aJob->GetVarOverrides().contains( wxT( "LAYER" ) ) )
+        layerName = aJob->GetVarOverrides().at( wxT( "LAYER" ) );
+
+    if( aJob->GetVarOverrides().contains( wxT( "SHEETNAME" ) ) )
+        sheetName = aJob->GetVarOverrides().at( wxT( "SHEETNAME" ) );
+
+    if( aJob->GetVarOverrides().contains( wxT( "SHEETPATH" ) ) )
+        sheetPath = aJob->GetVarOverrides().at( wxT( "SHEETPATH" ) );
+
     // We are feeding it one layer at the start here to silence a logic check
-    GERBER_PLOTTER* plotter = (GERBER_PLOTTER*) StartPlotBoard(
-            brd, &plotOpts, aGerberJob->m_printMaskLayer.front(), aGerberJob->m_outputFile,
-            wxEmptyString, wxEmptyString );
+    GERBER_PLOTTER* plotter = (GERBER_PLOTTER*) StartPlotBoard( brd, &plotOpts, layer, layerName,
+                                                                aGerberJob->m_outputFile,
+                                                                sheetName, sheetPath );
 
     if( plotter )
     {
@@ -1129,6 +1223,7 @@ int PCBNEW_JOBS_HANDLER::doFpExportSvg( JOB_FP_EXPORT_SVG* aSvgJob, const FOOTPR
     std::unique_ptr<BOARD> brd;
     brd.reset( CreateEmptyBoard() );
     brd->GetProject()->ApplyTextVars( aSvgJob->GetVarOverrides() );
+    brd->SynchronizeProperties();
 
     FOOTPRINT* fp = dynamic_cast<FOOTPRINT*>( aFootprint->Clone() );
 
@@ -1168,11 +1263,11 @@ int PCBNEW_JOBS_HANDLER::doFpExportSvg( JOB_FP_EXPORT_SVG* aSvgJob, const FOOTPR
     svgPlotOptions.m_mirror = false;
     svgPlotOptions.m_pageSizeMode = 2; // board bounding box
     svgPlotOptions.m_printMaskLayer = aSvgJob->m_printMaskLayer;
+    svgPlotOptions.m_sketchPadsOnFabLayers = aSvgJob->m_sketchPadsOnFabLayers;
     svgPlotOptions.m_plotFrame = false;
 
     if( !EXPORT_SVG::Plot( brd.get(), svgPlotOptions ) )
         m_reporter->Report( _( "Error creating svg file" ) + wxS( "\n" ), RPT_SEVERITY_ERROR );
-
 
     return CLI::EXIT_CODES::OK;
 }
@@ -1190,6 +1285,7 @@ int PCBNEW_JOBS_HANDLER::JobExportDrc( JOB* aJob )
 
     BOARD* brd = LoadBoard( drcJob->m_filename, true );
     brd->GetProject()->ApplyTextVars( aJob->GetVarOverrides() );
+    brd->SynchronizeProperties();
 
     if( drcJob->m_outputFile.IsEmpty() )
     {
@@ -1369,7 +1465,7 @@ int PCBNEW_JOBS_HANDLER::JobExportIpc2581( JOB* aJob )
     STRING_UTF8_MAP props;
     props["units"] = job->m_units == JOB_EXPORT_PCB_IPC2581::IPC2581_UNITS::MILLIMETERS ? "mm"
                                                                                         : "inch";
-    props["sigfig"] = wxString::Format( "%d", job->m_units );
+    props["sigfig"] = wxString::Format( "%d", job->m_precision );
     props["version"] = job->m_version == JOB_EXPORT_PCB_IPC2581::IPC2581_VERSION::C ? "C" : "B";
     props["OEMRef"] = job->m_colInternalId;
     props["mpn"] = job->m_colMfgPn;
@@ -1457,13 +1553,20 @@ void PCBNEW_JOBS_HANDLER::loadOverrideDrawingSheet( BOARD* aBrd, const wxString&
             [&]( const wxString& path ) -> bool
             {
                 BASE_SCREEN::m_DrawingSheetFileName = path;
-                wxString filename = DS_DATA_MODEL::ResolvePath( BASE_SCREEN::m_DrawingSheetFileName,
-                                                                aBrd->GetProject()->GetProjectPath() );
+                FILENAME_RESOLVER resolver;
+                resolver.SetProject( aBrd->GetProject() );
+                resolver.SetProgramBase( &Pgm() );
 
-                if( !DS_DATA_MODEL::GetTheInstance().LoadDrawingSheet( filename ) )
+                wxString filename = resolver.ResolvePath( BASE_SCREEN::m_DrawingSheetFileName,
+                                                          aBrd->GetProject()->GetProjectPath(),
+                                                          aBrd->GetEmbeddedFiles() );
+                wxString msg;
+
+                if( !DS_DATA_MODEL::GetTheInstance().LoadDrawingSheet( filename, &msg ) )
                 {
-                    m_reporter->Report( wxString::Format( _( "Error loading drawing sheet '%s'." ) + wxS( "\n" ),
-                                                          path ),
+                    m_reporter->Report( wxString::Format( _( "Error loading drawing sheet '%s'." ),
+                                                          path )
+                                            + wxS( "\n" ) + msg + wxS( "\n" ),
                                         RPT_SEVERITY_ERROR );
                     return false;
                 }

@@ -60,7 +60,7 @@ public:
     }
 
     void FindAll( const std::function<bool( SCH_ITEM*, SCH_SHEET_PATH* )>& aCollector );
-    void Sort( int aCol, bool aAscending ) override;
+    void Sort( int aCol, bool aAscending, std::vector<long>* aSelection ) override;
     void SelectItems( std::vector<long>& aItemRows ) override;
 
 protected:
@@ -75,6 +75,17 @@ class SYMBOL_SEARCH_HANDLER : public SCH_SEARCH_HANDLER
 {
 public:
     SYMBOL_SEARCH_HANDLER( SCH_EDIT_FRAME* aFrame );
+
+    int Search( const wxString& aQuery ) override;
+
+protected:
+    wxString getResultCell( const SCH_SEARCH_HIT& aHit, int aCol ) override;
+};
+
+class POWER_SEARCH_HANDLER : public SCH_SEARCH_HANDLER
+{
+public:
+    POWER_SEARCH_HANDLER( SCH_EDIT_FRAME* aFrame );
 
     int Search( const wxString& aQuery ) override;
 

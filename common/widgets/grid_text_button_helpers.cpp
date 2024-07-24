@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2021 CERN
- * Copyright (C) 2018-2023 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2018-2024 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -22,12 +22,14 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA
  */
 
+#include <wx/checkbox.h>
 #include <wx/combo.h>
 #include <wx/filedlg.h>
 #include <wx/dirdlg.h>
 #include <wx/textctrl.h>
 
 #include <bitmaps.h>
+#include <embedded_files.h>
 #include <kiway.h>
 #include <kiway_player.h>
 #include <kiway_express.h>
@@ -37,6 +39,7 @@
 #include <env_paths.h>
 #include <pgm_base.h>
 #include <widgets/wx_grid.h>
+#include <widgets/filedlg_open_embed_file.h>
 #include <widgets/grid_text_button_helpers.h>
 #include <eda_doc.h>
 
@@ -175,7 +178,7 @@ public:
             m_dlg( aParentDlg ),
             m_preselect( aPreselect )
     {
-        SetButtonBitmaps( KiBitmap( BITMAPS::small_library ) );
+        SetButtonBitmaps( KiBitmapBundle( BITMAPS::small_library ) );
 
         // win32 fix, avoids drawing the "native dropdown caret"
         Customize( wxCC_IFLAG_HAS_NONSTANDARD_BUTTON );
@@ -202,13 +205,15 @@ protected:
         if( rawValue.IsEmpty() )
             rawValue = m_preselect;
 
-        wxString      symbolId = escapeLibId( rawValue );
-        KIWAY_PLAYER* frame = m_dlg->Kiway().Player( FRAME_SYMBOL_CHOOSER, true, m_dlg );
+        wxString symbolId = escapeLibId( rawValue );
 
-        if( frame->ShowModal( &symbolId, m_dlg ) )
-            SetValue( UnescapeString( symbolId ) );
+        if( KIWAY_PLAYER* frame = m_dlg->Kiway().Player( FRAME_SYMBOL_CHOOSER, true, m_dlg ) )
+        {
+            if( frame->ShowModal( &symbolId, m_dlg ) )
+                SetValue( UnescapeString( symbolId ) );
 
-        frame->Destroy();
+            frame->Destroy();
+        }
     }
 
     DIALOG_SHIM* m_dlg;
@@ -237,7 +242,8 @@ public:
             m_preselect( aPreselect ),
             m_symbolNetlist( aSymbolNetlist.ToStdString() )
     {
-        SetButtonBitmaps( KiBitmap( BITMAPS::small_library ) );
+        m_buttonFpChooserLock = false;
+        SetButtonBitmaps( KiBitmapBundle( BITMAPS::small_library ) );
 
         // win32 fix, avoids drawing the "native dropdown caret"
         Customize( wxCC_IFLAG_HAS_NONSTANDARD_BUTTON );
@@ -251,36 +257,45 @@ protected:
 
     void OnButtonClick() override
     {
+        if( m_buttonFpChooserLock ) // The button to show the FP chooser is clicked, but
+                                    // a previous click is currently in progress.
+            return;
+
+        // Disable the button until we have finished processing it.  Normally this is not an issue
+        // but if the footprint chooser is loading for the first time, it can be slow enough that
+        // multiple clicks will cause multiple instances of the footprint loader process to start
+        m_buttonFpChooserLock = true;
+
         // pick a footprint using the footprint picker.
         wxString fpid = GetValue();
 
         if( fpid.IsEmpty() )
             fpid = m_preselect;
 
-        // Disable the button until we have finished processing it.  Normally this is not an issue
-        // but if the footprint chooser is loading for the first time, it can be slow enough that
-        // multiple clicks will cause multiple instances of the footprint loader process to start
-        Disable();
-
-        KIWAY_PLAYER* frame = m_dlg->Kiway().Player( FRAME_FOOTPRINT_CHOOSER, true, m_dlg );
-
-        if( !m_symbolNetlist.empty() )
+        if( KIWAY_PLAYER* frame = m_dlg->Kiway().Player( FRAME_FOOTPRINT_CHOOSER, true, m_dlg ) )
         {
-            KIWAY_EXPRESS event( FRAME_FOOTPRINT_CHOOSER, MAIL_SYMBOL_NETLIST, m_symbolNetlist );
-            frame->KiwayMailIn( event );
+            if( !m_symbolNetlist.empty() )
+            {
+                KIWAY_EXPRESS event( FRAME_FOOTPRINT_CHOOSER, MAIL_SYMBOL_NETLIST, m_symbolNetlist );
+                frame->KiwayMailIn( event );
+            }
+
+            if( frame->ShowModal( &fpid, m_dlg ) )
+                SetValue( fpid );
+
+            frame->Destroy();
         }
 
-        if( frame->ShowModal( &fpid, m_dlg ) )
-            SetValue( fpid );
-
-        frame->Destroy();
-        Enable();
+        m_buttonFpChooserLock = false;
     }
 
 protected:
     DIALOG_SHIM* m_dlg;
     wxString     m_preselect;
-
+    // Lock flag to lock the button to show the FP chooser
+    // true when the button is busy, waiting all footprints loaded to
+    // avoid running more than once the FP chooser
+    bool         m_buttonFpChooserLock;
     /*
      * Symbol netlist format:
      *   pinNumber pinName <tab> pinNumber pinName...
@@ -311,16 +326,25 @@ void GRID_CELL_FPID_EDITOR::Create( wxWindow* aParent, wxWindowID aId,
 class TEXT_BUTTON_URL : public wxComboCtrl
 {
 public:
-    TEXT_BUTTON_URL( wxWindow* aParent, DIALOG_SHIM* aParentDlg, SEARCH_STACK* aSearchStack ) :
+    TEXT_BUTTON_URL( wxWindow* aParent, DIALOG_SHIM* aParentDlg, SEARCH_STACK* aSearchStack, EMBEDDED_FILES* aFiles ) :
             wxComboCtrl( aParent, wxID_ANY, wxEmptyString, wxDefaultPosition, wxDefaultSize,
                          wxTE_PROCESS_ENTER | wxBORDER_NONE ),
             m_dlg( aParentDlg ),
-            m_searchStack( aSearchStack )
+            m_searchStack( aSearchStack ),
+            m_files( aFiles )
     {
-        SetButtonBitmaps( KiBitmap( BITMAPS::www ) );
+        UpdateButtonBitmaps();
 
         // win32 fix, avoids drawing the "native dropdown caret"
         Customize( wxCC_IFLAG_HAS_NONSTANDARD_BUTTON );
+
+        // Bind event to handle text changes
+        Bind(wxEVT_TEXT, &TEXT_BUTTON_URL::OnTextChange, this);
+    }
+
+    ~TEXT_BUTTON_URL()
+    {
+        Unbind(wxEVT_TEXT, &TEXT_BUTTON_URL::OnTextChange, this);
     }
 
 protected:
@@ -333,19 +357,59 @@ protected:
     {
         wxString filename = GetValue();
 
-        if( !filename.IsEmpty() && filename != wxT( "~" ) )
-            GetAssociatedDocument( m_dlg, GetValue(), &m_dlg->Prj(), m_searchStack );
+        if (filename.IsEmpty() || filename == wxT("~"))
+        {
+            FILEDLG_OPEN_EMBED_FILE customize;
+            wxFileDialog openFileDialog( this, _( "Open file" ), "", "", "All files (*.*)|*.*",
+                                         wxFD_OPEN | wxFD_FILE_MUST_EXIST );
+            openFileDialog.SetCustomizeHook( customize );
+
+            if( openFileDialog.ShowModal() == wxID_OK )
+            {
+                filename = openFileDialog.GetPath();
+                wxFileName fn( filename );
+
+                if( customize.GetEmbed() )
+                {
+                    EMBEDDED_FILES::EMBEDDED_FILE* result = m_files->AddFile( fn, false );
+                    SetValue( result->GetLink() );
+                }
+                else
+                {
+                    SetValue( "file://" + filename );
+                }
+            }
+        }
+        else
+        {
+            GetAssociatedDocument(m_dlg, GetValue(), &m_dlg->Prj(), m_searchStack, m_files);
+        }
+    }
+
+    void OnTextChange(wxCommandEvent& event)
+    {
+        UpdateButtonBitmaps();
+        event.Skip(); // Ensure that other handlers can process this event too
+    }
+
+    void UpdateButtonBitmaps()
+    {
+        if (GetValue().IsEmpty())
+            SetButtonBitmaps(KiBitmapBundle(BITMAPS::small_folder));
+        else
+            SetButtonBitmaps(KiBitmapBundle(BITMAPS::www));
     }
 
     DIALOG_SHIM* m_dlg;
     SEARCH_STACK* m_searchStack;
+    EMBEDDED_FILES* m_files;
 };
 
 
 void GRID_CELL_URL_EDITOR::Create( wxWindow* aParent, wxWindowID aId,
                                    wxEvtHandler* aEventHandler )
 {
-    m_control = new TEXT_BUTTON_URL( aParent, m_dlg, m_searchStack );
+    m_control = new TEXT_BUTTON_URL( aParent, m_dlg, m_searchStack, m_files );
     WX_GRID::CellEditorSetMargins( Combo() );
 
 #if wxUSE_VALIDATORS
@@ -376,7 +440,7 @@ public:
             m_normalizeBasePath( aNormalizeBasePath ),
             m_fileFilter( aFileFilter )
     {
-        SetButtonBitmaps( KiBitmap( BITMAPS::small_folder ) );
+        SetButtonBitmaps( KiBitmapBundle( BITMAPS::small_folder ) );
 
         // win32 fix, avoids drawing the "native dropdown caret"
         Customize( wxCC_IFLAG_HAS_NONSTANDARD_BUTTON );
@@ -396,7 +460,7 @@ public:
             m_normalizeBasePath( aNormalizeBasePath ),
             m_fileFilterFn( std::move( aFileFilterFn ) )
     {
-        SetButtonBitmaps( KiBitmap( BITMAPS::small_folder ) );
+        SetButtonBitmaps( KiBitmapBundle( BITMAPS::small_folder ) );
 
         // win32 fix, avoids drawing the "native dropdown caret"
         Customize( wxCC_IFLAG_HAS_NONSTANDARD_BUTTON );

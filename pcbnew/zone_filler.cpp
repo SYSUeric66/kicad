@@ -45,10 +45,150 @@
 #include <geometry/shape_poly_set.h>
 #include <geometry/convex_hull.h>
 #include <geometry/geometry_utils.h>
+#include <geometry/vertex_set.h>
 #include <kidialog.h>
 #include <core/thread_pool.h>
 #include <math/util.h>      // for KiROUND
 #include "zone_filler.h"
+
+// Helper classes for connect_nearby_polys
+class RESULTS
+{
+public:
+    RESULTS( int aOutline1, int aOutline2, int aVertex1, int aVertex2 ) :
+            m_outline1( aOutline1 ), m_outline2( aOutline2 ),
+            m_vertex1( aVertex1 ), m_vertex2( aVertex2 )
+    {
+    }
+
+    bool operator<( const RESULTS& aOther ) const
+    {
+        if( m_outline1 != aOther.m_outline1 )
+            return m_outline1 < aOther.m_outline1;
+        if( m_outline2 != aOther.m_outline2 )
+            return m_outline2 < aOther.m_outline2;
+        if( m_vertex1 != aOther.m_vertex1 )
+            return m_vertex1 < aOther.m_vertex1;
+        return m_vertex2 < aOther.m_vertex2;
+    }
+
+    int m_outline1;
+    int m_outline2;
+    int m_vertex1;
+    int m_vertex2;
+};
+
+class VERTEX_CONNECTOR : protected VERTEX_SET
+{
+public:
+    VERTEX_CONNECTOR( const BOX2I& aBBox, const SHAPE_POLY_SET& aPolys, int aDist ) : VERTEX_SET( 0 )
+    {
+        SetBoundingBox( aBBox );
+        VERTEX* tail = nullptr;
+
+        for( int i = 0; i < aPolys.OutlineCount(); i++ )
+            tail = createList( aPolys.Outline( i ), tail, (void*)( intptr_t )( i ) );
+
+        tail->updateList();
+        m_dist = aDist;
+    }
+
+    VERTEX* getPoint( VERTEX* aPt ) const
+    {
+        // z-order range for the current point ± limit bounding box
+        const int32_t     maxZ = zOrder( aPt->x + m_dist, aPt->y + m_dist );
+        const int32_t     minZ = zOrder( aPt->x - m_dist, aPt->y - m_dist );
+        const SEG::ecoord limit2 = SEG::Square( m_dist );
+
+        // first look for points in increasing z-order
+        SEG::ecoord min_dist = std::numeric_limits<SEG::ecoord>::max();
+        VERTEX* retval = nullptr;
+
+        auto check_pt = [&]( VERTEX* p )
+        {
+            VECTOR2D diff( p->x - aPt->x, p->y - aPt->y );
+            SEG::ecoord dist2 = diff.SquaredEuclideanNorm();
+
+            if( dist2 < limit2 && dist2 < min_dist
+                && p->isEar() )
+            {
+                min_dist = dist2;
+                retval = p;
+            }
+        };
+
+        VERTEX* p = aPt->nextZ;
+
+        while( p && p->z <= maxZ )
+        {
+            check_pt( p );
+            p = p->nextZ;
+        }
+
+        p = aPt->prevZ;
+
+        while( p && p->z >= minZ )
+        {
+            check_pt( p );
+            p = p->prevZ;
+        }
+
+        return retval;
+    }
+
+    void FindResults()
+    {
+        VERTEX* p = m_vertices.front().next;
+        std::set<VERTEX*> visited;
+
+        while( p != &m_vertices.front() )
+        {
+            // Skip points that are concave
+            if( !p->isEar() )
+            {
+                p = p->next;
+                continue;
+            }
+
+            VERTEX* q = nullptr;
+
+            if( ( visited.empty() || !visited.contains( p ) ) && ( q = getPoint( p ) ) )
+            {
+                visited.insert( p );
+
+                if( !visited.contains( q ) &&
+                    m_results.emplace( (intptr_t) p->GetUserData(), (intptr_t) q->GetUserData(),
+                                        p->i, q->i ).second )
+                {
+                    // We don't want to connect multiple points in the same vicinity, so skip
+                    // 2 points before and after each point and match.
+                    visited.insert( p->prev );
+                    visited.insert( p->prev->prev );
+                    visited.insert( p->next );
+                    visited.insert( p->next->next );
+
+                    visited.insert( q->prev );
+                    visited.insert( q->prev->prev );
+                    visited.insert( q->next );
+                    visited.insert( q->next->next );
+
+                    visited.insert( q );
+                }
+            }
+
+            p = p->next;
+        }
+    }
+
+    std::set<RESULTS> GetResults() const
+    {
+        return m_results;
+    }
+
+private:
+    std::set<RESULTS> m_results;
+    int m_dist;
+};
 
 
 ZONE_FILLER::ZONE_FILLER(  BOARD* aBoard, COMMIT* aCommit ) :
@@ -92,7 +232,7 @@ bool ZONE_FILLER::Fill( const std::vector<ZONE*>& aZones, bool aCheck, wxWindow*
     std::lock_guard<KISPINLOCK> lock( m_board->GetConnectivity()->GetLock() );
 
     std::vector<std::pair<ZONE*, PCB_LAYER_ID>>               toFill;
-    std::map<std::pair<ZONE*, PCB_LAYER_ID>, MD5_HASH>        oldFillHashes;
+    std::map<std::pair<ZONE*, PCB_LAYER_ID>, HASH_128>        oldFillHashes;
     std::map<ZONE*, std::map<PCB_LAYER_ID, ISOLATED_ISLANDS>> isolatedIslandsMap;
 
     std::shared_ptr<CONNECTIVITY_DATA> connectivity = m_board->GetConnectivity();
@@ -773,7 +913,7 @@ void ZONE_FILLER::addKnockout( PAD* aPad, PCB_LAYER_ID aLayer, int aGap, SHAPE_P
         aPad->TransformShapeToPolygon( poly, aLayer, aGap, m_maxError, ERROR_OUTSIDE );
 
         // the pad shape in zone can be its convex hull or the shape itself
-        if( aPad->GetCustomShapeInZoneOpt() == CUST_PAD_SHAPE_IN_ZONE_CONVEXHULL )
+        if( aPad->GetCustomShapeInZoneOpt() == PADSTACK::CUSTOM_SHAPE_ZONE_MODE::CONVEXHULL )
         {
             std::vector<VECTOR2I> convex_hull;
             BuildConvexHull( convex_hull, poly );
@@ -875,6 +1015,7 @@ void ZONE_FILLER::knockoutThermalReliefs( const ZONE* aZone, PCB_LAYER_ID aLayer
     ZONE_CONNECTION        connection;
     DRC_CONSTRAINT         constraint;
     int                    padClearance;
+    std::shared_ptr<SHAPE> padShape;
     int                    holeClearance;
     SHAPE_POLY_SET         holes;
 
@@ -916,21 +1057,22 @@ void ZONE_FILLER::knockoutThermalReliefs( const ZONE* aZone, PCB_LAYER_ID aLayer
                 connection = constraint.m_ZoneConnection;
             }
 
+            if( connection == ZONE_CONNECTION::THERMAL && !pad->CanFlashLayer( aLayer ) )
+                connection = ZONE_CONNECTION::NONE;
+
             switch( connection )
             {
             case ZONE_CONNECTION::THERMAL:
-                constraint = bds.m_DRCEngine->EvalRules( THERMAL_RELIEF_GAP_CONSTRAINT, pad, aZone,
-                                                         aLayer );
-                padClearance = constraint.GetValue().Min();
+                padShape = pad->GetEffectiveShape( aLayer, FLASHING::ALWAYS_FLASHED );
 
-                if( pad->CanFlashLayer( aLayer ) )
+                if( aFill.Collide( padShape.get(), 0 ) )
                 {
+                    constraint = bds.m_DRCEngine->EvalRules( THERMAL_RELIEF_GAP_CONSTRAINT, pad,
+                                                             aZone, aLayer );
+                    padClearance = constraint.GetValue().Min();
+
                     aThermalConnectionPads.push_back( pad );
                     addKnockout( pad, aLayer, padClearance, holes );
-                }
-                else if( pad->GetDrillSize().x > 0 )
-                {
-                    pad->TransformHoleToPolygon( holes, padClearance, m_maxError, ERROR_OUTSIDE );
                 }
 
                 break;
@@ -1417,6 +1559,51 @@ void ZONE_FILLER::subtractHigherPriorityZones( const ZONE* aZone, PCB_LAYER_ID a
 }
 
 
+void ZONE_FILLER::connect_nearby_polys( SHAPE_POLY_SET& aPolys, double aDistance )
+{
+    if( aPolys.OutlineCount() < 1 )
+        return;
+
+    VERTEX_CONNECTOR vs( aPolys.BBoxFromCaches(), aPolys, aDistance );
+
+    vs.FindResults();
+
+    // This cannot be a reference because we need to do the comparison below while
+    // changing the values
+    std::map<int, std::vector<std::pair<int, VECTOR2I>>> insertion_points;
+
+    for( const RESULTS& result : vs.GetResults() )
+    {
+        SHAPE_LINE_CHAIN& line1 = aPolys.Outline( result.m_outline1 );
+        SHAPE_LINE_CHAIN& line2 = aPolys.Outline( result.m_outline2 );
+
+        VECTOR2I pt1 = line1.CPoint( result.m_vertex1 );
+        VECTOR2I pt2 = line2.CPoint( result.m_vertex2 );
+
+        // We want to insert the existing point first so that we can place the new point
+        // between the two points at the same location.
+        insertion_points[result.m_outline1].push_back( { result.m_vertex1, pt1 } );
+        insertion_points[result.m_outline1].push_back( { result.m_vertex1, pt2 } );
+    }
+
+    for( auto& [outline, vertices] : insertion_points )
+    {
+        SHAPE_LINE_CHAIN& line = aPolys.Outline( outline );
+
+        // Stable sort here because we want to make sure that we are inserting pt1 first and
+        // pt2 second but still sorting the rest of the indices from highest to lowest.
+        // This allows us to insert into the existing polygon without modifying the future
+        // insertion points.
+        std::stable_sort( vertices.begin(), vertices.end(),
+                  []( const std::pair<int, VECTOR2I>& a, const std::pair<int, VECTOR2I>& b )
+                  { return a.first > b.first; } );
+
+        for( const auto& [vertex, pt] : vertices )
+            line.Insert( vertex + 1, pt );  // +1 here because we want to insert after the existing point
+    }
+}
+
+
 #define DUMP_POLYS_TO_COPPER_LAYER( a, b, c ) \
     { if( m_debugZoneFiller && aDebugLayer == b ) \
         { \
@@ -1613,6 +1800,7 @@ bool ZONE_FILLER::fillCopperZone( const ZONE* aZone, PCB_LAYER_ID aLayer, PCB_LA
     if( m_progressReporter && m_progressReporter->IsCancelled() )
         return false;
 
+
     /* -------------------------------------------------------------------------------------
      * Process the hatch pattern (note that we do this while deflated)
      */
@@ -1621,6 +1809,21 @@ bool ZONE_FILLER::fillCopperZone( const ZONE* aZone, PCB_LAYER_ID aLayer, PCB_LA
     {
         if( !addHatchFillTypeOnZone( aZone, aLayer, aDebugLayer, aFillPolys ) )
             return false;
+    }
+    else
+    {
+
+        /* -------------------------------------------------------------------------------------
+         * Connect nearby polygons
+         */
+
+        if( ADVANCED_CFG::GetCfg().m_ZoneConnectionFiller )
+        {
+            aFillPolys.Fracture( SHAPE_POLY_SET::PM_FAST );
+            connect_nearby_polys( aFillPolys, aZone->GetMinThickness() );
+        }
+
+        DUMP_POLYS_TO_COPPER_LAYER( aFillPolys, In10_Cu, wxT( "connected-nearby-polys" ) );
     }
 
     if( m_progressReporter && m_progressReporter->IsCancelled() )
@@ -1797,12 +2000,13 @@ void ZONE_FILLER::buildThermalSpokes( const ZONE* aZone, PCB_LAYER_ID aLayer,
     BOARD_DESIGN_SETTINGS& bds = m_board->GetDesignSettings();
     BOX2I                  zoneBB = aZone->GetBoundingBox();
     DRC_CONSTRAINT         constraint;
+    int                    zone_half_width = aZone->GetMinThickness() / 2;
 
     zoneBB.Inflate( std::max( bds.GetBiggestClearanceValue(), aZone->GetLocalClearance().value() ) );
 
-    // Is a point on the boundary of the polygon inside or outside?  The boundary may be off by
-    // MaxError, and we add 1.5 mil for some wiggle room.
-    int epsilon = KiROUND( bds.m_MaxError + pcbIUScale.IU_PER_MM * 0.038 ); // 1.5 mil
+    // Is a point on the boundary of the polygon inside or outside?
+    // The boundary may be off by MaxError
+    int epsilon = bds.m_MaxError;
 
     for( PAD* pad : aSpokedPadsList )
     {
@@ -1821,8 +2025,7 @@ void ZONE_FILLER::buildThermalSpokes( const ZONE* aZone, PCB_LAYER_ID aLayer,
         // and the algo to count the actual number of spokes can fail
         int spoke_max_allowed_w = std::min( pad->GetSize().x, pad->GetSize().y );
 
-        spoke_w = std::max( spoke_w, constraint.Value().Min() );
-        spoke_w = std::min( spoke_w, constraint.Value().Max() );
+        spoke_w = alg::clamp( constraint.Value().Min(), spoke_w, constraint.Value().Max() );
 
         // ensure the spoke width is smaller than the pad minor size
         spoke_w = std::min( spoke_w, spoke_max_allowed_w );
@@ -1860,47 +2063,57 @@ void ZONE_FILLER::buildThermalSpokes( const ZONE* aZone, PCB_LAYER_ID aLayer,
         // parent zone.
 
         auto buildSpokesFromOrigin =
-                [&]( const BOX2I& box )
+                [&]( const BOX2I& box, EDA_ANGLE angle )
                 {
-                    for( int i = 0; i < 4; i++ )
-                    {
-                        SHAPE_LINE_CHAIN spoke;
+                    VECTOR2I center = box.GetCenter();
+                    VECTOR2I half_size( box.GetWidth() / 2, box.GetHeight() / 2 );
 
-                        switch( i )
+                    // Function to find intersection of line with box edge
+                    auto intersectLineBox = [&](const VECTOR2D& direction) -> VECTOR2I {
+                        double dx = direction.x;
+                        double dy = direction.y;
+
+                        // Shortcircuit the axis cases because they will be degenerate in the
+                        // intersection test
+                        if( direction.x == 0 )
                         {
-                        case 0:       // lower stub
-                            spoke.Append( +spoke_half_w, -spoke_half_w );
-                            spoke.Append( -spoke_half_w, -spoke_half_w );
-                            spoke.Append( -spoke_half_w, box.GetBottom() );
-                            spoke.Append( 0,             box.GetBottom() );  // test pt
-                            spoke.Append( +spoke_half_w, box.GetBottom() );
-                            break;
-
-                        case 1:       // upper stub
-                            spoke.Append( +spoke_half_w, +spoke_half_w );
-                            spoke.Append( -spoke_half_w, +spoke_half_w );
-                            spoke.Append( -spoke_half_w, box.GetTop() );
-                            spoke.Append( 0,             box.GetTop() );     // test pt
-                            spoke.Append( +spoke_half_w, box.GetTop() );
-                            break;
-
-                        case 2:       // right stub
-                            spoke.Append( -spoke_half_w,  +spoke_half_w );
-                            spoke.Append( -spoke_half_w,  -spoke_half_w );
-                            spoke.Append( box.GetRight(), -spoke_half_w );
-                            spoke.Append( box.GetRight(), 0             );   // test pt
-                            spoke.Append( box.GetRight(), +spoke_half_w );
-                            break;
-
-                        case 3:       // left stub
-                            spoke.Append( +spoke_half_w, +spoke_half_w );
-                            spoke.Append( +spoke_half_w, -spoke_half_w );
-                            spoke.Append( box.GetLeft(), -spoke_half_w );
-                            spoke.Append( box.GetLeft(), 0             );    // test pt
-                            spoke.Append( box.GetLeft(), +spoke_half_w );
-                            break;
+                            return VECTOR2I(0, dy * half_size.y );
+                        }
+                        else if( direction.y == 0 )
+                        {
+                            return VECTOR2I(dx * half_size.x, 0);
                         }
 
+                        // We are going to intersect with one side or the other.  Whichever
+                        // we hit first is the fraction of the spoke length we keep
+                        double tx = std::min( half_size.x / std::abs( dx ),
+                                              half_size.y / std::abs( dy ) );
+                        return VECTOR2I( dx * tx, dy * tx );
+                    };
+
+                    // Precalculate angles for four cardinal directions
+                    const EDA_ANGLE angles[4] = {
+                        EDA_ANGLE(  0.0, DEGREES_T ) + angle,  // Right
+                        EDA_ANGLE( 90.0, DEGREES_T ) + angle,  // Up
+                        EDA_ANGLE( 180.0, DEGREES_T ) + angle, // Left
+                        EDA_ANGLE( 270.0, DEGREES_T ) + angle  // Down
+                    };
+
+                    // Generate four spokes in cardinal directions
+                    for( const EDA_ANGLE& spokeAngle : angles )
+                    {
+                        VECTOR2D direction( spokeAngle.Cos(), spokeAngle.Sin() );
+                        VECTOR2D perpendicular = direction.Perpendicular();
+
+                        VECTOR2I intersection = intersectLineBox( direction );
+                        VECTOR2I spoke_side = perpendicular.Resize( spoke_half_w );
+
+                        SHAPE_LINE_CHAIN spoke;
+                        spoke.Append( center + spoke_side );
+                        spoke.Append( center - spoke_side );
+                        spoke.Append( center + intersection - spoke_side );
+                        spoke.Append( center + intersection ); // test pt
+                        spoke.Append( center + intersection + spoke_side );
                         spoke.SetClosed( true );
                         aSpokesList.push_back( std::move( spoke ) );
                     }
@@ -1953,61 +2166,12 @@ void ZONE_FILLER::buildThermalSpokes( const ZONE* aZone, PCB_LAYER_ID aLayer,
                 }
             }
         }
-        // If the spokes are at a cardinal angle then we can generate them from a bounding box
-        // without trig.
-        else if( ( pad->GetOrientation() + pad->GetThermalSpokeAngle() ).IsCardinal() )
-        {
-            BOX2I spokesBox = pad->GetBoundingBox();
-            spokesBox.Inflate( thermalReliefGap + epsilon );
-
-            // Spokes are from center of pad shape, not from hole.
-            spokesBox.Offset( - pad->ShapePos() );
-
-            buildSpokesFromOrigin( spokesBox );
-
-            auto spokeIter = aSpokesList.rbegin();
-
-            for( int ii = 0; ii < 4; ++ii, ++spokeIter )
-                spokeIter->Move( pad->ShapePos() );
-        }
-        // Even if the spokes are rotated, we can fudge it for round and square pads by rotating
-        // the bounding box to match the spokes.
-        else if( pad->GetSizeX() == pad->GetSizeY() && pad->GetShape() != PAD_SHAPE::CUSTOM )
-        {
-            // Since the bounding-box needs to be correclty rotated we use a dummy pad to keep
-            // from dirtying the real pad's cached shapes.
-            PAD dummy_pad( *pad );
-            dummy_pad.SetOrientation( pad->GetThermalSpokeAngle() );
-
-            // Spokes are from center of pad shape, not from hole. So the dummy pad has no shape
-            // offset and is at position 0,0
-            dummy_pad.SetPosition( VECTOR2I( 0, 0 ) );
-            dummy_pad.SetOffset( VECTOR2I( 0, 0 ) );
-
-            BOX2I spokesBox = dummy_pad.GetBoundingBox();
-            spokesBox.Inflate( thermalReliefGap + epsilon );
-
-            buildSpokesFromOrigin( spokesBox );
-
-            auto spokeIter = aSpokesList.rbegin();
-
-            for( int ii = 0; ii < 4; ++ii, ++spokeIter )
-            {
-                spokeIter->Rotate( pad->GetOrientation() + pad->GetThermalSpokeAngle() );
-                spokeIter->Move( pad->ShapePos() );
-            }
-
-            // Remove group membership from dummy item before deleting
-            dummy_pad.SetParentGroup( nullptr );
-        }
-        // And lastly, even when we have to resort to trig, we can use it only in a post-process
-        // after the rotated-bounding-box trick from above.
         else
         {
             // Since the bounding-box needs to be correclty rotated we use a dummy pad to keep
             // from dirtying the real pad's cached shapes.
             PAD dummy_pad( *pad );
-            dummy_pad.SetOrientation( pad->GetThermalSpokeAngle() );
+            dummy_pad.SetOrientation( ANGLE_0 );
 
             // Spokes are from center of pad shape, not from hole. So the dummy pad has no shape
             // offset and is at position 0,0
@@ -2016,35 +2180,36 @@ void ZONE_FILLER::buildThermalSpokes( const ZONE* aZone, PCB_LAYER_ID aLayer,
 
             BOX2I spokesBox = dummy_pad.GetBoundingBox();
 
-            // In this case make the box -big-; we're going to clip to the "real" bbox later.
-            spokesBox.Inflate( thermalReliefGap + spokesBox.GetWidth() + spokesBox.GetHeight() );
+            //Add the half width of the zone mininum width to the inflate amount to account for the fact that
+            //the deflation procedure will shrink the results by half the half the zone min width
+            spokesBox.Inflate( thermalReliefGap + epsilon + zone_half_width );
 
-            buildSpokesFromOrigin( spokesBox );
+            // This is a touchy case because the bounding box for circles overshoots the mark
+            // when rotated at 45 degrees.  So we just build spokes at 0 degrees and rotate
+            // them later.
+            if( pad->GetShape() == PAD_SHAPE::CIRCLE
+                || ( pad->GetShape() == PAD_SHAPE::OVAL && pad->GetSizeX() == pad->GetSizeY() ) )
+            {
+                buildSpokesFromOrigin( spokesBox, ANGLE_0 );
 
-            BOX2I realBBox = pad->GetBoundingBox();
-            realBBox.Inflate( thermalReliefGap + epsilon );
+                if( pad->GetThermalSpokeAngle() != ANGLE_0 )
+                {
+                    //Rotate the last four elements of aspokeslist
+                    for( auto it = aSpokesList.rbegin(); it != aSpokesList.rbegin() + 4; ++it )
+                        it->Rotate( pad->GetThermalSpokeAngle() );
+                }
+            }
+            else
+            {
+                buildSpokesFromOrigin( spokesBox, pad->GetThermalSpokeAngle() );
+            }
 
             auto spokeIter = aSpokesList.rbegin();
 
             for( int ii = 0; ii < 4; ++ii, ++spokeIter )
             {
-                spokeIter->Rotate( pad->GetOrientation() + pad->GetThermalSpokeAngle() );
+                spokeIter->Rotate( pad->GetOrientation() );
                 spokeIter->Move( pad->ShapePos() );
-
-                VECTOR2I origin_p = spokeIter->GetPoint( 0 );
-                VECTOR2I origin_m = spokeIter->GetPoint( 1 );
-                VECTOR2I origin = ( origin_p + origin_m ) / 2;
-                VECTOR2I end_m = spokeIter->GetPoint( 2 );
-                VECTOR2I end = spokeIter->GetPoint( 3 );
-                VECTOR2I end_p = spokeIter->GetPoint( 4 );
-
-                ClipLine( &realBBox, origin_p.x, origin_p.y, end_p.x, end_p.y );
-                ClipLine( &realBBox, origin_m.x, origin_m.y, end_m.x, end_m.y );
-                ClipLine( &realBBox, origin.x, origin.y, end.x, end.y );
-
-                spokeIter->SetPoint( 2, end_m );
-                spokeIter->SetPoint( 3, end );
-                spokeIter->SetPoint( 4, end_p );
             }
 
             // Remove group membership from dummy item before deleting

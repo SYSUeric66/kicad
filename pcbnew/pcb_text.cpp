@@ -25,6 +25,7 @@
 
 #include <google/protobuf/any.pb.h>
 
+#include <advanced_config.h>
 #include <pcb_edit_frame.h>
 #include <base_units.h>
 #include <bitmaps.h>
@@ -168,8 +169,7 @@ bool PCB_TEXT::Deserialize( const google::protobuf::Any &aContainer )
 
         attrs.m_Angle = EDA_ANGLE( text.attributes().angle().value_degrees(), DEGREES_T );
         attrs.m_LineSpacing = text.attributes().line_spacing();
-        SetTextThickness( text.attributes().stroke_width().value_nm() );
-
+        attrs.m_StrokeWidth = text.attributes().stroke_width().value_nm();
         attrs.m_Halign = FromProtoEnum<GR_TEXT_H_ALIGN_T, types::HorizontalAlignment>(
                 text.attributes().horizontal_alignment() );
 
@@ -210,7 +210,7 @@ wxString PCB_TEXT::GetShownText( bool aAllowExtraText, int aDepth ) const
 
     if( HasTextVars() )
     {
-        if( aDepth < 10 )
+        if( aDepth < ADVANCED_CFG::GetCfg().m_ResolveTextRecursionDepth )
             text = ExpandTextVars( text, &resolver );
     }
 
@@ -371,12 +371,12 @@ void PCB_TEXT::StyleFromSettings( const BOARD_DESIGN_SETTINGS& settings )
 }
 
 
-void PCB_TEXT::KeepUpright( const EDA_ANGLE& aNewOrientation )
+void PCB_TEXT::KeepUpright()
 {
     if( !IsKeepUpright() )
         return;
 
-    EDA_ANGLE newAngle = GetTextAngle() + aNewOrientation;
+    EDA_ANGLE newAngle = GetTextAngle();
     newAngle.Normalize();
 
     bool needsFlipped = newAngle >= ANGLE_180;
@@ -384,6 +384,7 @@ void PCB_TEXT::KeepUpright( const EDA_ANGLE& aNewOrientation )
     if( needsFlipped )
     {
         SetHorizJustify( static_cast<GR_TEXT_H_ALIGN_T>( -GetHorizJustify() ) );
+        SetVertJustify( static_cast<GR_TEXT_V_ALIGN_T>( -GetVertJustify() ) );
         SetTextAngle( GetTextAngle() + ANGLE_180 );
     }
 }
@@ -398,7 +399,7 @@ const BOX2I PCB_TEXT::GetBoundingBox() const
         rect.Inflate( getKnockoutMargin() );
 
     if( !angle.IsZero() )
-        rect = rect.GetBoundingBoxRotated( GetTextPos(), GetTextAngle() );
+        rect = rect.GetBoundingBoxRotated( GetTextPos(), angle );
 
     return rect;
 }
@@ -474,9 +475,9 @@ void PCB_TEXT::Flip( const VECTOR2I& aCentre, bool aFlipLeftRight )
         SetTextAngle( ANGLE_180 - GetTextAngle() );
     }
 
-    SetLayer( FlipLayer( GetLayer(), GetBoard()->GetCopperLayerCount() ) );
+    SetLayer( GetBoard()->FlipLayer( GetLayer() ) );
 
-    if( ( GetLayerSet() & LSET::SideSpecificMask() ).any() )
+    if( IsSideSpecific() )
         SetMirrored( !IsMirrored() );
 }
 
@@ -487,17 +488,17 @@ wxString PCB_TEXT::GetTextTypeDescription() const
 }
 
 
-wxString PCB_TEXT::GetItemDescription( UNITS_PROVIDER* aUnitsProvider ) const
+wxString PCB_TEXT::GetItemDescription( UNITS_PROVIDER* aUnitsProvider, bool aFull ) const
 {
+    wxString content = aFull ? GetShownText( false ) : KIUI::EllipsizeMenuText( GetText() );
+
     if( FOOTPRINT* parentFP = GetParentFootprint() )
     {
-        return wxString::Format( _( "Footprint Text '%s' of %s" ),
-                                 KIUI::EllipsizeMenuText( GetText() ), parentFP->GetReference() );
+        wxString ref = parentFP->GetReference();
+        return wxString::Format( _( "Footprint text of %s (%s)" ), ref, content );
     }
 
-    return wxString::Format( _( "PCB Text '%s' on %s" ),
-                             KIUI::EllipsizeMenuText( GetText() ),
-                             GetLayerName() );
+    return wxString::Format( _( "PCB text '%s' on %s" ), content, GetLayerName() );
 }
 
 
@@ -635,14 +636,20 @@ void PCB_TEXT::TransformShapeToPolygon( SHAPE_POLY_SET& aBuffer, PCB_LAYER_ID aL
 }
 
 
-bool PCB_TEXT::operator==( const BOARD_ITEM& aOther ) const
+bool PCB_TEXT::operator==( const BOARD_ITEM& aBoardItem ) const
 {
-    if( aOther.Type() != Type() )
+    if( aBoardItem.Type() != Type() )
         return false;
 
-    const PCB_TEXT& other = static_cast<const PCB_TEXT&>( aOther );
+    const PCB_TEXT& other = static_cast<const PCB_TEXT&>( aBoardItem );
 
-    return EDA_TEXT::operator==( other );
+    return *this == other;
+}
+
+
+bool PCB_TEXT::operator==( const PCB_TEXT& aOther ) const
+{
+    return EDA_TEXT::operator==( aOther );
 }
 
 

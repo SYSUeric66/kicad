@@ -21,16 +21,10 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA
  */
 
-/**
- * @brief Functions to plot one board layer (silkscreen layers or other layers).
- * Silkscreen layers have specific requirement for pads (not filled) and texts
- * (with option to remove them from some copper areas (pads...)
- */
-
-
 #include <wx/log.h>
 #include <eda_item.h>
 #include <layer_ids.h>
+#include <lset.h>
 #include <geometry/geometry_utils.h>
 #include <geometry/shape_segment.h>
 #include <pcb_base_frame.h>
@@ -63,10 +57,33 @@ static void PlotSolderMaskLayer( BOARD *aBoard, PLOTTER* aPlotter, LSET aLayerMa
 void PlotBoardLayers( BOARD* aBoard, PLOTTER* aPlotter, const LSEQ& aLayers,
                       const PCB_PLOT_PARAMS& aPlotOptions )
 {
-    wxCHECK( aBoard && aPlotter && aLayers.size(), /* void */ );
+    if( !aBoard || !aPlotter || aLayers.empty() )
+        return;
 
-    for( LSEQ seq = aLayers; seq; ++seq )
-        PlotOneBoardLayer( aBoard, aPlotter, *seq, aPlotOptions );
+    // if a drill mark must be plotted, the copper layer needs to be plotted
+    // after other layers because the drill mark must be plotted as a filled
+    // white shape *after* all other shapes are plotted
+    bool plot_mark = aPlotOptions.GetDrillMarksType() != DRILL_MARKS::NO_DRILL_SHAPE;
+
+    for( PCB_LAYER_ID layer : aLayers )
+    {
+        // copper layers with drill marks will be plotted after all other layers
+        if( layer <= B_Cu && plot_mark )
+            continue;
+
+        PlotOneBoardLayer( aBoard, aPlotter, layer, aPlotOptions );
+    }
+
+    if( !plot_mark )
+        return;
+
+    for( PCB_LAYER_ID layer : aLayers )
+    {
+        if( layer > B_Cu )   // already plotted
+            continue;
+
+        PlotOneBoardLayer( aBoard, aPlotter, layer, aPlotOptions );
+    }
 }
 
 
@@ -141,6 +158,16 @@ void PlotInteractiveLayer( BOARD* aBoard, PLOTTER* aPlotter, const PCB_PLOT_PARA
 void PlotOneBoardLayer( BOARD *aBoard, PLOTTER* aPlotter, PCB_LAYER_ID aLayer,
                         const PCB_PLOT_PARAMS& aPlotOpt )
 {
+    auto plotLayer =
+            [&]( LSET layerMask, PCB_PLOT_PARAMS& plotOpts )
+            {
+                // PlotLayerOutlines() is designed only for DXF plotters.
+                if( plotOpts.GetFormat() == PLOT_FORMAT::DXF && plotOpts.GetDXFPlotPolygonMode() )
+                    PlotLayerOutlines( aBoard, aPlotter, layerMask, plotOpts );
+                else
+                    PlotStandardLayer( aBoard, aPlotter, layerMask, plotOpts );
+            };
+
     PCB_PLOT_PARAMS plotOpt = aPlotOpt;
     int soldermask_min_thickness = aBoard->GetDesignSettings().m_SolderMaskMinWidth;
 
@@ -155,17 +182,13 @@ void PlotOneBoardLayer( BOARD *aBoard, PLOTTER* aPlotter, PCB_LAYER_ID aLayer,
     if( IsCopperLayer( aLayer ) )
     {
         // Skip NPTH pads on copper layers ( only if hole size == pad size ):
-        // Drill mark will be plotted if drill mark is SMALL_DRILL_SHAPE  or FULL_DRILL_SHAPE
+        // Drill mark will be plotted if drill mark is SMALL_DRILL_SHAPE or FULL_DRILL_SHAPE
         if( plotOpt.GetFormat() == PLOT_FORMAT::DXF )
-        {
-            plotOpt.SetSkipPlotNPTH_Pads( false );
-            PlotLayerOutlines( aBoard, aPlotter, layer_mask, plotOpt );
-        }
+            plotOpt.SetDXFPlotPolygonMode( true );
         else
-        {
             plotOpt.SetSkipPlotNPTH_Pads( true );
-            PlotStandardLayer( aBoard, aPlotter, layer_mask, plotOpt );
-        }
+
+        plotLayer( layer_mask, plotOpt );
     }
     else
     {
@@ -173,18 +196,16 @@ void PlotOneBoardLayer( BOARD *aBoard, PLOTTER* aPlotter, PCB_LAYER_ID aLayer,
         {
         case B_Mask:
         case F_Mask:
-            plotOpt.SetSkipPlotNPTH_Pads( false );
-
             // Disable plot pad holes
             plotOpt.SetDrillMarksType( DRILL_MARKS::NO_DRILL_SHAPE );
+
+            // Use outline mode for DXF
+            plotOpt.SetDXFPlotPolygonMode( true );
 
             // Plot solder mask:
             if( soldermask_min_thickness == 0 )
             {
-                if( plotOpt.GetFormat() == PLOT_FORMAT::DXF )
-                    PlotLayerOutlines( aBoard, aPlotter, layer_mask, plotOpt );
-                else
-                    PlotStandardLayer( aBoard, aPlotter, layer_mask, plotOpt );
+                plotLayer( layer_mask, plotOpt );
             }
             else
             {
@@ -198,26 +219,19 @@ void PlotOneBoardLayer( BOARD *aBoard, PLOTTER* aPlotter, PCB_LAYER_ID aLayer,
         case F_Adhes:
         case B_Paste:
         case F_Paste:
-            plotOpt.SetSkipPlotNPTH_Pads( false );
-
             // Disable plot pad holes
             plotOpt.SetDrillMarksType( DRILL_MARKS::NO_DRILL_SHAPE );
 
-            if( plotOpt.GetFormat() == PLOT_FORMAT::DXF )
-                PlotLayerOutlines( aBoard, aPlotter, layer_mask, plotOpt );
-            else
-                PlotStandardLayer( aBoard, aPlotter, layer_mask, plotOpt );
+            // Use outline mode for DXF
+            plotOpt.SetDXFPlotPolygonMode( true );
+
+            plotLayer( layer_mask, plotOpt );
 
             break;
 
         case F_SilkS:
         case B_SilkS:
-            if( plotOpt.GetFormat() == PLOT_FORMAT::DXF && plotOpt.GetDXFPlotPolygonMode() )
-                // PlotLayerOutlines() is designed only for DXF plotters.
-                // and must not be used for other plot formats
-                PlotLayerOutlines( aBoard, aPlotter, layer_mask, plotOpt );
-            else
-                PlotStandardLayer( aBoard, aPlotter, layer_mask, plotOpt );
+            plotLayer( layer_mask, plotOpt );
 
             // Gerber: Subtract soldermask from silkscreen if enabled
             if( aPlotter->GetPlotterType() == PLOT_FORMAT::GERBER
@@ -243,9 +257,6 @@ void PlotOneBoardLayer( BOARD *aBoard, PLOTTER* aPlotter, PCB_LAYER_ID aLayer,
 
             break;
 
-        // These layers are plotted like silk screen layers.
-        // Mainly, pads on these layers are not filled.
-        // This is not necessary the best choice.
         case Dwgs_User:
         case Cmts_User:
         case Eco1_User:
@@ -256,29 +267,8 @@ void PlotOneBoardLayer( BOARD *aBoard, PLOTTER* aPlotter, PCB_LAYER_ID aLayer,
         case B_CrtYd:
         case F_Fab:
         case B_Fab:
-            plotOpt.SetSkipPlotNPTH_Pads( false );
-            plotOpt.SetDrillMarksType( DRILL_MARKS::NO_DRILL_SHAPE );
-
-            if( plotOpt.GetFormat() == PLOT_FORMAT::DXF && plotOpt.GetDXFPlotPolygonMode() )
-                // PlotLayerOutlines() is designed only for DXF plotters.
-                // and must not be used for other plot formats
-                PlotLayerOutlines( aBoard, aPlotter, layer_mask, plotOpt );
-            else
-                PlotStandardLayer( aBoard, aPlotter, layer_mask, plotOpt );
-
-            break;
-
         default:
-            plotOpt.SetSkipPlotNPTH_Pads( false );
-            plotOpt.SetDrillMarksType( DRILL_MARKS::NO_DRILL_SHAPE );
-
-            if( plotOpt.GetFormat() == PLOT_FORMAT::DXF && plotOpt.GetDXFPlotPolygonMode() )
-                // PlotLayerOutlines() is designed only for DXF plotters.
-                // and must not be used for other plot formats
-                PlotLayerOutlines( aBoard, aPlotter, layer_mask, plotOpt );
-            else
-                PlotStandardLayer( aBoard, aPlotter, layer_mask, plotOpt );
-
+            plotLayer( layer_mask, plotOpt );
             break;
         }
     }
@@ -286,9 +276,7 @@ void PlotOneBoardLayer( BOARD *aBoard, PLOTTER* aPlotter, PCB_LAYER_ID aLayer,
 
 
 /**
- * Plot a copper layer or mask.
- *
- * Silk screen layers are not plotted here.
+ * Plot any layer EXCEPT a solder-mask with an enforced minimum width.
  */
 void PlotStandardLayer( BOARD* aBoard, PLOTTER* aPlotter, LSET aLayerMask,
                         const PCB_PLOT_PARAMS& aPlotOpt )
@@ -300,9 +288,9 @@ void PlotStandardLayer( BOARD* aBoard, PLOTTER* aPlotter, LSET aLayerMask,
 
     OUTLINE_MODE plotMode = aPlotOpt.GetPlotMode();
     bool onCopperLayer = ( LSET::AllCuMask() & aLayerMask ).any();
-    bool onSolderMaskLayer = ( LSET( 2, F_Mask, B_Mask ) & aLayerMask ).any();
-    bool onSolderPasteLayer = ( LSET( 2, F_Paste, B_Paste ) & aLayerMask ).any();
-    bool onFrontFab = ( LSET(  F_Fab ) & aLayerMask ).any();
+    bool onSolderMaskLayer = ( LSET( { F_Mask, B_Mask } ) & aLayerMask ).any();
+    bool onSolderPasteLayer = ( LSET( { F_Paste, B_Paste } ) & aLayerMask ).any();
+    bool onFrontFab = ( LSET( F_Fab ) & aLayerMask ).any();
     bool onBackFab  = ( LSET( B_Fab ) & aLayerMask ).any();
     bool sketchPads = ( onFrontFab || onBackFab ) && aPlotOpt.GetSketchPadsOnFabLayers();
 
@@ -367,6 +355,14 @@ void PlotStandardLayer( BOARD* aBoard, PLOTTER* aPlotter, LSET aLayerMask,
                     color = aPlotOpt.ColorSettings()->GetColor( F_Fab );
                 else if( sketchPads && aLayerMask[B_Fab] )
                     color = aPlotOpt.ColorSettings()->GetColor( B_Fab );
+            }
+
+            if( sketchPads &&
+                    ( ( onFrontFab && pad->GetLayerSet().Contains( F_Cu ) ) ||
+                      ( onBackFab && pad->GetLayerSet().Contains( B_Cu ) ) ) )
+            {
+                if( aPlotOpt.GetPlotPadNumbers() )
+                    itemplotter.PlotPadNumber( pad, color );
             }
 
             VECTOR2I margin;
@@ -695,6 +691,9 @@ void PlotStandardLayer( BOARD* aBoard, PLOTTER* aPlotter, LSET aLayerMask,
 
     for( const ZONE* zone : aBoard->Zones() )
     {
+        if( zone->GetIsRuleArea() )
+            continue;
+
         for( PCB_LAYER_ID layer : zone->GetLayerSet().Seq() )
         {
             if( !aLayerMask[layer] )
@@ -732,7 +731,7 @@ void PlotStandardLayer( BOARD* aBoard, PLOTTER* aPlotter, LSET aLayerMask,
 
 
 /**
- * Plot outlines of copper layer.
+ * Plot outlines.
  */
 void PlotLayerOutlines( BOARD* aBoard, PLOTTER* aPlotter, LSET aLayerMask,
                         const PCB_PLOT_PARAMS& aPlotOpt )
@@ -742,10 +741,8 @@ void PlotLayerOutlines( BOARD* aBoard, PLOTTER* aPlotter, LSET aLayerMask,
 
     SHAPE_POLY_SET outlines;
 
-    for( LSEQ seq = aLayerMask.Seq( aLayerMask.SeqStackupForPlotting() );  seq;  ++seq )
+    for( PCB_LAYER_ID layer : aLayerMask.Seq( aLayerMask.SeqStackupForPlotting() ) )
     {
-        PCB_LAYER_ID layer = *seq;
-
         outlines.RemoveAllContours();
         aBoard->ConvertBrdLayerToPolygonalContours( layer, outlines );
 
@@ -806,7 +803,7 @@ void PlotLayerOutlines( BOARD* aBoard, PLOTTER* aPlotter, LSET aLayerMask,
 
             const PCB_VIA* via = static_cast<const PCB_VIA*>( track );
 
-            if( via->IsOnLayer( layer ) )    // via holes can be not through holes
+            if( via->GetLayerSet().Contains( layer ) )   // via holes can be not through holes
                 aPlotter->Circle( via->GetPosition(), via->GetDrillValue(), FILL_T::NO_FILL );
         }
     }
@@ -986,6 +983,9 @@ void PlotSolderMaskLayer( BOARD *aBoard, PLOTTER* aPlotter, LSET aLayerMask,
 
         for( ZONE* zone : aBoard->Zones() )
         {
+            if( zone->GetIsRuleArea() )
+                continue;
+
             if( !zone->IsOnLayer( layer ) )
                 continue;
 
@@ -1151,8 +1151,8 @@ static void ConfigureHPGLPenSizes( HPGL_PLOTTER *aPlotter, const PCB_PLOT_PARAMS
  * @return the plotter object if OK, NULL if the file is not created (or has a problem).
  */
 PLOTTER* StartPlotBoard( BOARD *aBoard, const PCB_PLOT_PARAMS *aPlotOpts, int aLayer,
-                         const wxString& aFullFileName, const wxString& aSheetName,
-                         const wxString& aSheetPath )
+                         const wxString& aLayerName, const wxString& aFullFileName,
+                         const wxString& aSheetName, const wxString& aSheetPath )
 {
     // Create the plotter driver and set the few plotter specific options
     PLOTTER*    plotter = nullptr;
@@ -1213,9 +1213,7 @@ PLOTTER* StartPlotBoard( BOARD *aBoard, const PCB_PLOT_PARAMS *aPlotOpts, int aL
     KIGFX::PCB_RENDER_SETTINGS* renderSettings = new KIGFX::PCB_RENDER_SETTINGS();
     renderSettings->LoadColors( aPlotOpts->ColorSettings() );
     renderSettings->SetDefaultPenWidth( pcbIUScale.mmToIU( 0.0212 ) );  // Hairline at 1200dpi
-
-    if( aLayer >= 0 && aLayer < GAL_LAYER_ID_END )
-        renderSettings->SetLayerName( aBoard->GetLayerName( ToLAYER_ID( aLayer ) ) );
+    renderSettings->SetLayerName( aLayerName );
 
     plotter->SetRenderSettings( renderSettings );
 

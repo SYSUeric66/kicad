@@ -227,6 +227,20 @@ extern KICOMMON_API const wxChar* const traceKiCad2Step;
  */
 extern KICOMMON_API const wxChar* const traceUiProfile;
 
+/**
+ * Flag to enable Git debugging output.
+ *
+ * Use "KICAD_GIT" to enable.
+ */
+extern KICOMMON_API const wxChar* const traceGit;
+
+/*
+ * Flag to enable Eagle I/O debug tracing.
+ *
+ * Use "KICAD_EAGLE_IO" to enable.
+ */
+extern KICOMMON_API const wxChar* const traceEagleIo;
+
 ///@}
 
 /**

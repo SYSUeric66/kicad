@@ -34,6 +34,7 @@
 #include <3d_math.h>
 #include "3d_fastmath.h"
 #include <geometry/geometry_utils.h>
+#include <lset.h>
 #include <pgm_base.h>
 #include <settings/settings_manager.h>
 #include <wx/log.h>
@@ -698,6 +699,10 @@ std::map<int, COLOR4D> BOARD_ADAPTER::GetLayerColors() const
     }
 
     colors[ LAYER_3D_COPPER_BOTTOM ] = colors[ LAYER_3D_COPPER_TOP ];
+
+    for( const auto& [layer, val] : m_ColorOverrides )
+        colors[layer] = val;
+
     return colors;
 }
 

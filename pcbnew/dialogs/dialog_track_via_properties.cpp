@@ -98,6 +98,11 @@ DIALOG_TRACK_VIA_PROPERTIES::DIALOG_TRACK_VIA_PROPERTIES( PCB_BASE_FRAME* aParen
     m_ViaEndLayer->SetBoardFrame( aParent );
     m_ViaEndLayer->Resync();
 
+    m_btnLinkTenting->SetBitmap( KiBitmapBundle( BITMAPS::edit_cmp_symb_links ) );
+    m_btnLinkTenting->SetValue( true );
+    m_tentingBackCtrl->Disable();
+    m_tentingBackLabel->Disable();
+
     bool nets = false;
     int  net = 0;
     bool hasLocked = false;
@@ -115,12 +120,29 @@ DIALOG_TRACK_VIA_PROPERTIES::DIALOG_TRACK_VIA_PROPERTIES( PCB_BASE_FRAME* aParen
     auto getAnnularRingSelection =
             []( const PCB_VIA* via ) -> int
             {
-                if( !via->GetRemoveUnconnected() )
-                    return 0;
-                else if( via->GetKeepStartEnd() )
-                    return 1;
-                else
-                    return 2;
+                switch( via->Padstack().UnconnectedLayerMode() )
+                {
+                default:
+                case PADSTACK::UNCONNECTED_LAYER_MODE::KEEP_ALL:                    return 0;
+                case PADSTACK::UNCONNECTED_LAYER_MODE::REMOVE_EXCEPT_START_AND_END: return 1;
+                case PADSTACK::UNCONNECTED_LAYER_MODE::REMOVE_ALL:                  return 2;
+                }
+            };
+
+    auto getTentingSelection =
+            []( const PCB_VIA* via, PCB_LAYER_ID aLayer ) -> int
+            {
+                std::optional<bool> tentingOverride = via->Padstack().IsTented( aLayer );
+
+                if( tentingOverride.has_value() )
+                {
+                    if( *tentingOverride )
+                        return 1;   // Tented
+
+                    return 2;   // Not tented
+                }
+
+                return 0;   // From design rules
             };
 
     // Look for values that are common for every item that is selected
@@ -196,6 +218,17 @@ DIALOG_TRACK_VIA_PROPERTIES::DIALOG_TRACK_VIA_PROPERTIES( PCB_BASE_FRAME* aParen
                     viaType = v->GetViaType();
                     m_viaNotFree->SetValue( !v->GetIsFree() );
                     m_annularRingsCtrl->SetSelection( getAnnularRingSelection( v ) );
+
+                    m_tentingFrontCtrl->SetSelection( getTentingSelection( v, F_Mask ) );
+                    m_tentingBackCtrl->SetSelection( getTentingSelection( v, B_Mask ) );
+
+                    bool link = m_tentingFrontCtrl->GetSelection()
+                                == m_tentingBackCtrl->GetSelection();
+
+                    m_btnLinkTenting->SetValue( link );
+                    m_tentingBackCtrl->Enable( !link );
+                    m_tentingBackLabel->Enable( !link );
+
                     selection_first_layer = v->TopLayer();
                     selection_last_layer = v->BottomLayer();
 
@@ -207,7 +240,6 @@ DIALOG_TRACK_VIA_PROPERTIES::DIALOG_TRACK_VIA_PROPERTIES( PCB_BASE_FRAME* aParen
                     m_teardropWidthPercent.SetDoubleValue( v->GetTeardropParams().m_BestWidthRatio*100.0 );
                     m_teardropHDPercent.SetDoubleValue( v->GetTeardropParams().m_WidthtoSizeFilterRatio*100.0 );
                     m_curvedEdges->SetValue( v->GetTeardropParams().IsCurved() );
-                    m_curvePointsCtrl->SetValue( v->GetTeardropParams().m_CurveSegCount );
                 }
                 else        // check if values are the same for every selected via
                 {
@@ -263,12 +295,6 @@ DIALOG_TRACK_VIA_PROPERTIES::DIALOG_TRACK_VIA_PROPERTIES( PCB_BASE_FRAME* aParen
 
                     if( m_teardropHDPercent.GetDoubleValue() != v->GetTeardropParams().m_WidthtoSizeFilterRatio*100.0 )
                         m_teardropHDPercent.SetValue( INDETERMINATE_STATE );
-
-                    if( m_curvePointsCtrl->GetValue() != v->GetTeardropParams().m_CurveSegCount )
-                    {
-                        m_curvedEdges->Set3StateValue( wxCHK_UNDETERMINED );
-                        m_curvePointsCtrl->SetValue( 5 );
-                    }
                 }
 
                 if( v->IsLocked() )
@@ -649,18 +675,35 @@ bool DIALOG_TRACK_VIA_PROPERTIES::TransferDataFromWindow()
                 switch( m_annularRingsCtrl->GetSelection() )
                 {
                 case 0:
-                    v->SetRemoveUnconnected( false );
+                    v->Padstack().SetUnconnectedLayerMode(
+                            PADSTACK::UNCONNECTED_LAYER_MODE::KEEP_ALL );
                     break;
                 case 1:
-                    v->SetRemoveUnconnected( true );
-                    v->SetKeepStartEnd( true );
+                    v->Padstack().SetUnconnectedLayerMode(
+                            PADSTACK::UNCONNECTED_LAYER_MODE::REMOVE_EXCEPT_START_AND_END );
                     break;
                 case 2:
-                    v->SetRemoveUnconnected( true );
-                    v->SetKeepStartEnd( false );
+                    v->Padstack().SetUnconnectedLayerMode(
+                            PADSTACK::UNCONNECTED_LAYER_MODE::REMOVE_ALL );
                     break;
                 default:
                     break;
+                }
+
+                switch( m_tentingFrontCtrl->GetSelection() )
+                {
+                default:
+                case 0: v->Padstack().FrontOuterLayers().has_solder_mask.reset();  break;
+                case 1: v->Padstack().FrontOuterLayers().has_solder_mask = true;   break;
+                case 2: v->Padstack().FrontOuterLayers().has_solder_mask = false;  break;
+                }
+
+                switch( m_tentingBackCtrl->GetSelection() )
+                {
+                default:
+                case 0: v->Padstack().BackOuterLayers().has_solder_mask.reset();  break;
+                case 1: v->Padstack().BackOuterLayers().has_solder_mask = true;   break;
+                case 2: v->Padstack().BackOuterLayers().has_solder_mask = false;  break;
                 }
 
                 v->SanitizeLayers();
@@ -698,7 +741,7 @@ bool DIALOG_TRACK_VIA_PROPERTIES::TransferDataFromWindow()
                 if( m_curvedEdges->Get3StateValue() != wxCHK_UNDETERMINED )
                 {
                     if( m_curvedEdges->GetValue() )
-                        targetParams->m_CurveSegCount = m_curvePointsCtrl->GetValue();
+                        targetParams->m_CurveSegCount = 1;
                     else
                         targetParams->m_CurveSegCount = 0;
                 }
@@ -868,14 +911,31 @@ void DIALOG_TRACK_VIA_PROPERTIES::onViaEdit( wxCommandEvent& aEvent )
 }
 
 
+void DIALOG_TRACK_VIA_PROPERTIES::onFrontTentingChanged( wxCommandEvent& event )
+{
+    if( m_btnLinkTenting->GetValue() )
+        m_tentingBackCtrl->SetSelection( m_tentingFrontCtrl->GetSelection() );
+
+    event.Skip();
+}
+
+
+void DIALOG_TRACK_VIA_PROPERTIES::onTentingLinkToggle( wxCommandEvent& event )
+{
+    bool link = m_btnLinkTenting->GetValue();
+
+    m_tentingBackCtrl->Enable( !link );
+    m_tentingBackLabel->Enable( !link );
+
+    if( link )
+        m_tentingBackCtrl->SetSelection( m_tentingFrontCtrl->GetSelection() );
+
+    event.Skip();
+}
+
+
 void DIALOG_TRACK_VIA_PROPERTIES::onTeardropsUpdateUi( wxUpdateUIEvent& event )
 {
     event.Enable( !m_frame->GetBoard()->LegacyTeardrops() );
 }
 
-
-void DIALOG_TRACK_VIA_PROPERTIES::onCurvedEdgesUpdateUi( wxUpdateUIEvent& event )
-{
-    event.Enable( !m_frame->GetBoard()->LegacyTeardrops()
-                  && m_curvedEdges->Get3StateValue() == wxCHK_CHECKED );
-}

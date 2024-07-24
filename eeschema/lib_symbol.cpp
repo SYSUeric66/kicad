@@ -24,6 +24,7 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA
  */
 
+#include <font/outline_font.h>
 #include <sch_draw_panel.h>
 #include <plotters/plotter.h>
 #include <sch_screen.h>
@@ -232,282 +233,6 @@ unsigned LIB_SYMBOL::GetInheritanceDepth() const
 
     return depth;
 }
-
-
-#define REPORT( msg ) { if( aReporter ) aReporter->Report( msg ); }
-#define ITEM_DESC( item ) ( item )->GetItemDescription( &unitsProvider )
-
-int LIB_SYMBOL::Compare( const LIB_SYMBOL& aRhs, int aCompareFlags, REPORTER* aReporter ) const
-{
-    UNITS_PROVIDER unitsProvider( schIUScale, EDA_UNITS::MILLIMETRES );
-
-    if( m_me == aRhs.m_me )
-        return 0;
-
-    if( !aReporter && ( aCompareFlags & SCH_ITEM::COMPARE_FLAGS::ERC ) == 0 )
-    {
-        if( int tmp = m_name.Cmp( aRhs.m_name ) )
-            return tmp;
-
-        if( int tmp = m_libId.compare( aRhs.m_libId ) )
-            return tmp;
-
-        if( m_parent.lock() < aRhs.m_parent.lock() )
-            return -1;
-
-        if( m_parent.lock() > aRhs.m_parent.lock() )
-            return 1;
-    }
-
-    int retv = 0;
-
-    if( m_options != aRhs.m_options )
-    {
-        retv = ( m_options == ENTRY_NORMAL ) ? -1 : 1;
-        REPORT( _( "Power flag differs." ) );
-
-        if( !aReporter )
-            return retv;
-    }
-
-    if( int tmp = m_unitCount - aRhs.m_unitCount )
-    {
-        retv = tmp;
-        REPORT( _( "Unit count differs." ) );
-
-        if( !aReporter )
-            return retv;
-    }
-
-    // Make sure shapes and pins are sorted. No need with fields as those are
-    // matched by id/name.
-
-    std::set<const SCH_ITEM*, SCH_ITEM::cmp_items> aShapes;
-    std::set<const SCH_ITEM*>                      aFields;
-    std::set<const SCH_ITEM*, SCH_ITEM::cmp_items> aPins;
-
-    for( auto it = m_drawings.begin(); it != m_drawings.end(); ++it )
-    {
-        if( it->Type() == SCH_SHAPE_T )
-            aShapes.insert( &(*it) );
-        else if( it->Type() == SCH_FIELD_T )
-            aFields.insert( &(*it) );
-        else if( it->Type() == SCH_PIN_T )
-            aPins.insert( &(*it) );
-    }
-
-    std::set<const SCH_ITEM*, SCH_ITEM::cmp_items> bShapes;
-    std::set<const SCH_ITEM*>                      bFields;
-    std::set<const SCH_ITEM*, SCH_ITEM::cmp_items> bPins;
-
-    for( auto it = aRhs.m_drawings.begin(); it != aRhs.m_drawings.end(); ++it )
-    {
-        if( it->Type() == SCH_SHAPE_T )
-            bShapes.insert( &(*it) );
-        else if( it->Type() == SCH_FIELD_T )
-            bFields.insert( &(*it) );
-        else if( it->Type() == SCH_PIN_T )
-            bPins.insert( &(*it) );
-    }
-
-    if( int tmp = static_cast<int>( aShapes.size() - bShapes.size() ) )
-    {
-        retv = tmp;
-        REPORT( _( "Graphic item count differs." ) );
-
-        if( !aReporter )
-            return retv;
-    }
-    else
-    {
-        for( auto aIt = aShapes.begin(), bIt = bShapes.begin(); aIt != aShapes.end(); aIt++, bIt++ )
-        {
-            if( int tmp2 = (*aIt)->compare( *(*bIt), aCompareFlags ) )
-            {
-                retv = tmp2;
-                REPORT( wxString::Format( _( "%s differs." ), ITEM_DESC( *aIt ) ) );
-
-                if( !aReporter )
-                    return retv;
-            }
-        }
-    }
-
-    if( int tmp = static_cast<int>( aPins.size() - bPins.size() ) )
-    {
-        retv = tmp;
-        REPORT( _( "Pin count differs." ) );
-
-        if( !aReporter )
-            return retv;
-    }
-    else
-    {
-        for( const SCH_ITEM* aPinItem : aPins )
-        {
-            const SCH_PIN* aPin = static_cast<const SCH_PIN*>( aPinItem );
-            const SCH_PIN* bPin = aRhs.GetPin( aPin->GetNumber(), aPin->GetUnit(),
-                                               aPin->GetBodyStyle() );
-
-            if( !bPin )
-            {
-                retv = 1;
-                REPORT( wxString::Format( _( "Pin %s not found." ), aPin->GetNumber() ) );
-
-                if( !aReporter )
-                    return retv;
-            }
-            else if( int tmp2 = aPinItem->compare( *bPin, aCompareFlags ) )
-            {
-                retv = tmp2;
-                REPORT( wxString::Format( _( "Pin %s differs." ), aPin->GetNumber() ) );
-
-                if( !aReporter )
-                    return retv;
-            }
-        }
-    }
-
-    for( const SCH_ITEM* aFieldItem : aFields )
-    {
-        const SCH_FIELD* aField = static_cast<const SCH_FIELD*>( aFieldItem );
-        const SCH_FIELD* bField = nullptr;
-        int              tmp = 0;
-
-        if( aField->IsMandatory() )
-            bField = aRhs.GetFieldById( aField->GetId() );
-        else
-            bField = aRhs.FindField( aField->GetName() );
-
-        if( !bField )
-            tmp = 1;
-        else
-            tmp = aFieldItem->compare( *bField, aCompareFlags );
-
-        if( tmp )
-        {
-            retv = tmp;
-            REPORT( wxString::Format( _( "%s field differs." ), aField->GetName( false ) ) );
-
-            if( !aReporter )
-                return retv;
-        }
-    }
-
-    if( int tmp = static_cast<int>( aFields.size() - bFields.size() ) )
-    {
-        retv = tmp;
-        REPORT( _( "Field count differs." ) );
-
-        if( !aReporter )
-            return retv;
-    }
-
-    if( int tmp = static_cast<int>( m_fpFilters.GetCount() - aRhs.m_fpFilters.GetCount() ) )
-    {
-        retv = tmp;
-        REPORT( _( "Footprint filters differs." ) );
-
-        if( !aReporter )
-            return retv;
-    }
-    else
-    {
-        for( size_t i = 0; i < m_fpFilters.GetCount(); i++ )
-        {
-            if( int tmp2 = m_fpFilters[i].Cmp( aRhs.m_fpFilters[i] ) )
-            {
-                retv = tmp2;
-                REPORT( _( "Footprint filters differ." ) );
-
-                if( !aReporter )
-                    return retv;
-            }
-        }
-    }
-
-    if( int tmp = m_keyWords.Cmp( aRhs.m_keyWords ) )
-    {
-        retv = tmp;
-        REPORT( _( "Symbol keywords differ." ) );
-
-        if( !aReporter )
-            return retv;
-    }
-
-    if( int tmp = m_pinNameOffset - aRhs.m_pinNameOffset )
-    {
-        retv = tmp;
-        REPORT( _( "Symbol pin name offsets differ." ) );
-
-        if( !aReporter )
-            return retv;
-    }
-
-    if( ( aCompareFlags & SCH_ITEM::COMPARE_FLAGS::ERC ) == 0 )
-    {
-        if( m_showPinNames != aRhs.m_showPinNames )
-        {
-            retv = ( m_showPinNames ) ? 1 : -1;
-            REPORT( _( "Show pin names settings differ." ) );
-
-            if( !aReporter )
-                return retv;
-        }
-
-        if( m_showPinNumbers != aRhs.m_showPinNumbers )
-        {
-            retv = ( m_showPinNumbers ) ? 1 : -1;
-            REPORT( _( "Show pin numbers settings differ." ) );
-
-            if( !aReporter )
-                return retv;
-        }
-
-        if( m_excludedFromSim != aRhs.m_excludedFromSim )
-        {
-            retv = ( m_excludedFromSim ) ? -1 : 1;
-            REPORT( _( "Exclude from simulation settings differ." ) );
-
-            if( !aReporter )
-                return retv;
-        }
-
-        if( m_excludedFromBOM != aRhs.m_excludedFromBOM )
-        {
-            retv = ( m_excludedFromBOM ) ? -1 : 1;
-            REPORT( _( "Exclude from bill of materials settings differ." ) );
-
-            if( !aReporter )
-                return retv;
-        }
-
-        if( m_excludedFromBoard != aRhs.m_excludedFromBoard )
-        {
-            retv = ( m_excludedFromBoard ) ? -1 : 1;
-            REPORT( _( "Exclude from board settings differ." ) );
-
-            if( !aReporter )
-                return retv;
-        }
-    }
-
-    if( !aReporter )
-    {
-        if( m_unitsLocked != aRhs.m_unitsLocked )
-            return ( m_unitsLocked ) ? 1 : -1;
-
-        // Compare unit display names
-        if( m_unitDisplayNames < aRhs.m_unitDisplayNames )
-            return -1;
-        else if( m_unitDisplayNames > aRhs.m_unitDisplayNames )
-            return 1;
-    }
-
-    return retv;
-}
-
-
 LIB_SYMBOL_SPTR LIB_SYMBOL::GetRootSymbol() const
 {
     const LIB_SYMBOL_SPTR sp = m_parent.lock();
@@ -641,6 +366,7 @@ std::unique_ptr< LIB_SYMBOL > LIB_SYMBOL::Flatten() const
         retv->SetExcludedFromBoard( parent->GetExcludedFromBoard() );
 
         retv->UpdateFieldOrdinals();
+        retv->m_parent.reset();
     }
     else
     {
@@ -734,6 +460,107 @@ wxString LIB_SYMBOL::LetterSubReference( int aUnit, int aFirstId )
     } while( aUnit > 0 );
 
     return suffix;
+}
+
+
+bool LIB_SYMBOL::ResolveTextVar( wxString* token, int aDepth ) const
+{
+    wxString footprint;
+
+    for( const SCH_ITEM& item : m_drawings )
+    {
+        if( item.Type() == SCH_FIELD_T )
+        {
+            const SCH_FIELD& field = static_cast<const SCH_FIELD&>( item );
+
+            if( field.GetId() == FOOTPRINT_FIELD )
+                footprint = field.GetShownText( nullptr, false, aDepth + 1 );
+
+            if( token->IsSameAs( field.GetCanonicalName().Upper() )
+               || token->IsSameAs( field.GetName(), false ) )
+            {
+                *token = field.GetShownText( nullptr, false, aDepth + 1 );
+                return true;
+            }
+        }
+    }
+
+    // Consider missing simulation fields as empty, not un-resolved
+    if( token->IsSameAs( wxT( "SIM.DEVICE" ) )
+            || token->IsSameAs( wxT( "SIM.TYPE" ) )
+            || token->IsSameAs( wxT( "SIM.PINS" ) )
+            || token->IsSameAs( wxT( "SIM.PARAMS" ) )
+            || token->IsSameAs( wxT( "SIM.LIBRARY" ) )
+            || token->IsSameAs( wxT( "SIM.NAME" ) ) )
+    {
+        *token = wxEmptyString;
+        return true;
+    }
+
+    if( token->IsSameAs( wxT( "FOOTPRINT_LIBRARY" ) ) )
+    {
+        wxArrayString parts = wxSplit( footprint, ':' );
+
+        if( parts.Count() > 0 )
+            *token = parts[ 0 ];
+        else
+            *token = wxEmptyString;
+
+        return true;
+    }
+    else if( token->IsSameAs( wxT( "FOOTPRINT_NAME" ) ) )
+    {
+        wxArrayString parts = wxSplit( footprint, ':' );
+
+        if( parts.Count() > 1 )
+            *token = parts[ std::min( 1, (int) parts.size() - 1 ) ];
+        else
+            *token = wxEmptyString;
+
+        return true;
+    }
+    else if( token->IsSameAs( wxT( "SYMBOL_LIBRARY" ) ) )
+    {
+        *token = m_libId.GetUniStringLibNickname();
+        return true;
+    }
+    else if( token->IsSameAs( wxT( "SYMBOL_NAME" ) ) )
+    {
+        *token = m_libId.GetUniStringLibItemName();
+        return true;
+    }
+    else if( token->IsSameAs( wxT( "SYMBOL_DESCRIPTION" ) ) )
+    {
+        *token = GetDescription();
+        return true;
+    }
+    else if( token->IsSameAs( wxT( "SYMBOL_KEYWORDS" ) ) )
+    {
+        *token = GetKeyWords();
+        return true;
+    }
+    else if( token->IsSameAs( wxT( "EXCLUDE_FROM_BOM" ) ) )
+    {
+        *token = this->GetExcludedFromBOM() ? _( "Excluded from BOM" ) : wxString( "" );
+        return true;
+    }
+    else if( token->IsSameAs( wxT( "EXCLUDE_FROM_BOARD" ) ) )
+    {
+        *token = this->GetExcludedFromBoard() ? _( "Excluded from board" ) : wxString( "" );
+        return true;
+    }
+    else if( token->IsSameAs( wxT( "EXCLUDE_FROM_SIM" ) ) )
+    {
+        *token = this->GetExcludedFromSim() ? _( "Excluded from simulation" ) : wxString( "" );
+        return true;
+    }
+    else if( token->IsSameAs( wxT( "DNP" ) ) )
+    {
+        *token = this->GetDNP() ? _( "DNP" ) : wxString( "" );
+        return true;
+    }
+
+    return false;
 }
 
 
@@ -968,14 +795,15 @@ void LIB_SYMBOL::RemoveDrawItem( SCH_ITEM* aItem )
 
 void LIB_SYMBOL::AddDrawItem( SCH_ITEM* aItem, bool aSort )
 {
-    wxCHECK( aItem, /* void */ );
+    if( aItem )
+    {
+        aItem->SetParent( this );
 
-    aItem->SetParent( this );
+        m_drawings.push_back( aItem );
 
-    m_drawings.push_back( aItem );
-
-    if( aSort )
-        m_drawings.sort();
+        if( aSort )
+            m_drawings.sort();
+    }
 }
 
 
@@ -1681,64 +1509,290 @@ std::vector<LIB_SYMBOL_UNIT> LIB_SYMBOL::GetUnitDrawItems()
 }
 
 
-bool LIB_SYMBOL::operator==( const LIB_SYMBOL& aOther ) const
+
+
+#define REPORT( msg ) { if( aReporter ) aReporter->Report( msg ); }
+#define ITEM_DESC( item ) ( item )->GetItemDescription( &unitsProvider, true )
+
+int LIB_SYMBOL::Compare( const LIB_SYMBOL& aRhs, int aCompareFlags, REPORTER* aReporter ) const
 {
-    if( m_libId != aOther.m_libId )
-        return false;
+    UNITS_PROVIDER unitsProvider( schIUScale, EDA_UNITS::MILLIMETRES );
 
-    if( m_excludedFromBoard != aOther.m_excludedFromBoard )
-        return false;
+    if( m_me == aRhs.m_me )
+        return 0;
 
-    if( m_excludedFromBOM != aOther.m_excludedFromBOM )
-        return false;
-
-    if( m_excludedFromSim != aOther.m_excludedFromSim )
-        return false;
-
-    if( m_flags != aOther.m_flags )
-        return false;
-
-    if( m_unitCount != aOther.m_unitCount )
-        return false;
-
-    if( m_pinNameOffset != aOther.m_pinNameOffset )
-        return false;
-
-    if( m_showPinNames != aOther.m_showPinNames )
-        return false;
-
-    if( m_showPinNumbers != aOther.m_showPinNumbers )
-        return false;
-
-    if( m_drawings.size() != aOther.m_drawings.size() )
-        return false;
-
-    for( auto it1 = m_drawings.begin(), it2 = aOther.m_drawings.begin();
-         it1 != m_drawings.end(); ++it1, ++it2 )
+    if( !aReporter && ( aCompareFlags & SCH_ITEM::COMPARE_FLAGS::ERC ) == 0 )
     {
-        if( !( *it1 == *it2 ) )
-            return false;
+        if( int tmp = m_name.Cmp( aRhs.m_name ) )
+            return tmp;
+
+        if( int tmp = m_libId.compare( aRhs.m_libId ) )
+            return tmp;
+
+        if( m_parent.lock() < aRhs.m_parent.lock() )
+            return -1;
+
+        if( m_parent.lock() > aRhs.m_parent.lock() )
+            return 1;
     }
 
-    const std::vector<SCH_PIN*> thisPinList = GetAllLibPins();
-    const std::vector<SCH_PIN*> otherPinList = aOther.GetAllLibPins();
+    int retv = 0;
 
-    if( thisPinList.size() != otherPinList.size() )
-        return false;
+    if( m_options != aRhs.m_options )
+    {
+        retv = ( m_options == ENTRY_NORMAL ) ? -1 : 1;
+        REPORT( _( "Power flag differs." ) );
 
-    for( auto it1 = thisPinList.begin(), it2 = otherPinList.begin();
-         it1 != thisPinList.end(); ++it1, ++it2 )
-    {
-        if( !( **it1 == **it2 ) )
-            return false;
-    }
-    for( size_t ii = 0; ii < thisPinList.size(); ++ii )
-    {
-        if( !( *thisPinList[ii] == *otherPinList[ii] ) )
-            return false;
+        if( !aReporter )
+            return retv;
     }
 
-    return true;
+    if( int tmp = m_unitCount - aRhs.m_unitCount )
+    {
+        retv = tmp;
+        REPORT( _( "Unit count differs." ) );
+
+        if( !aReporter )
+            return retv;
+    }
+
+    // Make sure shapes and pins are sorted. No need with fields as those are
+    // matched by id/name.
+
+    std::set<const SCH_ITEM*, SCH_ITEM::cmp_items> aShapes;
+    std::set<const SCH_ITEM*>                      aFields;
+    std::set<const SCH_ITEM*, SCH_ITEM::cmp_items> aPins;
+
+    for( auto it = m_drawings.begin(); it != m_drawings.end(); ++it )
+    {
+        if( it->Type() == SCH_SHAPE_T )
+            aShapes.insert( &(*it) );
+        else if( it->Type() == SCH_FIELD_T )
+            aFields.insert( &(*it) );
+        else if( it->Type() == SCH_PIN_T )
+            aPins.insert( &(*it) );
+    }
+
+    std::set<const SCH_ITEM*, SCH_ITEM::cmp_items> bShapes;
+    std::set<const SCH_ITEM*>                      bFields;
+    std::set<const SCH_ITEM*, SCH_ITEM::cmp_items> bPins;
+
+    for( auto it = aRhs.m_drawings.begin(); it != aRhs.m_drawings.end(); ++it )
+    {
+        if( it->Type() == SCH_SHAPE_T )
+            bShapes.insert( &(*it) );
+        else if( it->Type() == SCH_FIELD_T )
+            bFields.insert( &(*it) );
+        else if( it->Type() == SCH_PIN_T )
+            bPins.insert( &(*it) );
+    }
+
+    if( int tmp = static_cast<int>( aShapes.size() - bShapes.size() ) )
+    {
+        retv = tmp;
+        REPORT( _( "Graphic item count differs." ) );
+
+        if( !aReporter )
+            return retv;
+    }
+    else
+    {
+        for( auto aIt = aShapes.begin(), bIt = bShapes.begin(); aIt != aShapes.end(); aIt++, bIt++ )
+        {
+            if( int tmp2 = (*aIt)->compare( *(*bIt), aCompareFlags ) )
+            {
+                retv = tmp2;
+                REPORT( wxString::Format( _( "%s differs." ), ITEM_DESC( *aIt ) ) );
+
+                if( !aReporter )
+                    return retv;
+            }
+        }
+    }
+
+    if( int tmp = static_cast<int>( aPins.size() - bPins.size() ) )
+    {
+        retv = tmp;
+        REPORT( _( "Pin count differs." ) );
+
+        if( !aReporter )
+            return retv;
+    }
+    else
+    {
+        for( const SCH_ITEM* aPinItem : aPins )
+        {
+            const SCH_PIN* aPin = static_cast<const SCH_PIN*>( aPinItem );
+            const SCH_PIN* bPin = aRhs.GetPin( aPin->GetNumber(), aPin->GetUnit(),
+                                               aPin->GetBodyStyle() );
+
+            if( !bPin )
+            {
+                retv = 1;
+                REPORT( wxString::Format( _( "Pin %s not found." ), aPin->GetNumber() ) );
+
+                if( !aReporter )
+                    return retv;
+            }
+            else if( int tmp2 = aPinItem->compare( *bPin, aCompareFlags ) )
+            {
+                retv = tmp2;
+                REPORT( wxString::Format( _( "Pin %s differs." ), aPin->GetNumber() ) );
+
+                if( !aReporter )
+                    return retv;
+            }
+        }
+    }
+
+    for( const SCH_ITEM* aFieldItem : aFields )
+    {
+        const SCH_FIELD* aField = static_cast<const SCH_FIELD*>( aFieldItem );
+        const SCH_FIELD* bField = nullptr;
+        int              tmp = 0;
+
+        if( aField->IsMandatory() )
+            bField = aRhs.GetFieldById( aField->GetId() );
+        else
+            bField = aRhs.FindField( aField->GetName() );
+
+        if( !bField )
+            tmp = 1;
+        else
+            tmp = aFieldItem->compare( *bField, aCompareFlags );
+
+        if( tmp )
+        {
+            retv = tmp;
+            REPORT( wxString::Format( _( "%s field differs." ), aField->GetName( false ) ) );
+
+            if( !aReporter )
+                return retv;
+        }
+    }
+
+    if( int tmp = static_cast<int>( aFields.size() - bFields.size() ) )
+    {
+        retv = tmp;
+        REPORT( _( "Field count differs." ) );
+
+        if( !aReporter )
+            return retv;
+    }
+
+    if( int tmp = static_cast<int>( m_fpFilters.GetCount() - aRhs.m_fpFilters.GetCount() ) )
+    {
+        retv = tmp;
+        REPORT( _( "Footprint filters differs." ) );
+
+        if( !aReporter )
+            return retv;
+    }
+    else
+    {
+        for( size_t i = 0; i < m_fpFilters.GetCount(); i++ )
+        {
+            if( int tmp2 = m_fpFilters[i].Cmp( aRhs.m_fpFilters[i] ) )
+            {
+                retv = tmp2;
+                REPORT( _( "Footprint filters differ." ) );
+
+                if( !aReporter )
+                    return retv;
+            }
+        }
+    }
+
+    if( int tmp = m_keyWords.Cmp( aRhs.m_keyWords ) )
+    {
+        retv = tmp;
+        REPORT( _( "Symbol keywords differ." ) );
+
+        if( !aReporter )
+            return retv;
+    }
+
+    if( int tmp = m_pinNameOffset - aRhs.m_pinNameOffset )
+    {
+        retv = tmp;
+        REPORT( _( "Symbol pin name offsets differ." ) );
+
+        if( !aReporter )
+            return retv;
+    }
+
+    if( ( aCompareFlags & SCH_ITEM::COMPARE_FLAGS::ERC ) == 0 )
+    {
+        if( m_showPinNames != aRhs.m_showPinNames )
+        {
+            retv = ( m_showPinNames ) ? 1 : -1;
+            REPORT( _( "Show pin names settings differ." ) );
+
+            if( !aReporter )
+                return retv;
+        }
+
+        if( m_showPinNumbers != aRhs.m_showPinNumbers )
+        {
+            retv = ( m_showPinNumbers ) ? 1 : -1;
+            REPORT( _( "Show pin numbers settings differ." ) );
+
+            if( !aReporter )
+                return retv;
+        }
+
+        if( m_excludedFromSim != aRhs.m_excludedFromSim )
+        {
+            retv = ( m_excludedFromSim ) ? -1 : 1;
+            REPORT( _( "Exclude from simulation settings differ." ) );
+
+            if( !aReporter )
+                return retv;
+        }
+
+        if( m_excludedFromBOM != aRhs.m_excludedFromBOM )
+        {
+            retv = ( m_excludedFromBOM ) ? -1 : 1;
+            REPORT( _( "Exclude from bill of materials settings differ." ) );
+
+            if( !aReporter )
+                return retv;
+        }
+
+        if( m_excludedFromBoard != aRhs.m_excludedFromBoard )
+        {
+            retv = ( m_excludedFromBoard ) ? -1 : 1;
+            REPORT( _( "Exclude from board settings differ." ) );
+
+            if( !aReporter )
+                return retv;
+        }
+    }
+
+    if( !aReporter )
+    {
+        if( m_unitsLocked != aRhs.m_unitsLocked )
+            return ( m_unitsLocked ) ? 1 : -1;
+
+        // Compare unit display names
+        if( m_unitDisplayNames < aRhs.m_unitDisplayNames )
+            return -1;
+        else if( m_unitDisplayNames > aRhs.m_unitDisplayNames )
+            return 1;
+    }
+
+    return retv;
+}
+
+
+int LIB_SYMBOL::compare( const SCH_ITEM& aOther, int aCompareFlags ) const
+{
+    if( Type() != aOther.Type() )
+        return Type() - aOther.Type();
+
+    const LIB_SYMBOL* tmp = static_cast<const LIB_SYMBOL*>( &aOther );
+
+    return Compare( *tmp, aCompareFlags );
 }
 
 
@@ -1817,4 +1871,51 @@ double LIB_SYMBOL::Similarity( const SCH_ITEM& aOther ) const
         similarity *= 0.9;
 
     return similarity;
+}
+
+
+EMBEDDED_FILES* LIB_SYMBOL::GetEmbeddedFiles()
+{
+    return static_cast<EMBEDDED_FILES*>( this );
+}
+
+
+const EMBEDDED_FILES* LIB_SYMBOL::GetEmbeddedFiles() const
+{
+    return static_cast<const EMBEDDED_FILES*>( this );
+}
+
+
+void LIB_SYMBOL::EmbedFonts()
+{
+    using OUTLINE_FONT = KIFONT::OUTLINE_FONT;
+    using EMBEDDING_PERMISSION = OUTLINE_FONT::EMBEDDING_PERMISSION;
+
+    std::set<OUTLINE_FONT*> fonts;
+
+    for( SCH_ITEM& item : m_drawings )
+    {
+        if( item.Type() == SCH_TEXT_T )
+        {
+            auto* text = static_cast<SCH_TEXT*>( &item );
+
+            if( auto* font = text->GetFont(); font && !font->IsStroke() )
+            {
+                auto* outline = static_cast<OUTLINE_FONT*>( font );
+                auto permission = outline->GetEmbeddingPermission();
+
+                if( permission == EMBEDDING_PERMISSION::EDITABLE
+                    || permission == EMBEDDING_PERMISSION::INSTALLABLE )
+                {
+                    fonts.insert( outline );
+                }
+            }
+        }
+    }
+
+    for( auto* font : fonts )
+    {
+        auto file = GetEmbeddedFiles()->AddFile( font->GetFileName(), false );
+        file->type = EMBEDDED_FILES::EMBEDDED_FILE::FILE_TYPE::FONT;
+    }
 }

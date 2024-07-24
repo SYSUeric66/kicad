@@ -49,7 +49,10 @@ enum ERCE_T
     ERCE_NOCONNECT_NOT_CONNECTED, ///< A no connect symbol is not connected to anything.
     ERCE_LABEL_NOT_CONNECTED,     ///< Label not connected to anything.
     ERCE_SIMILAR_LABELS,          ///< 2 labels are equal for case insensitive comparisons.
+    ERCE_SIMILAR_POWER,           ///< 2 power pins are equal for case insensitive comparisons.
+    ERCE_SIMILAR_LABEL_AND_POWER, ///< label and pin are equal for case insensitive comparisons.
     ERCE_SINGLE_GLOBAL_LABEL,     ///< A global label only exists once in the schematic.
+    ERCE_SAME_LOCAL_GLOBAL_LABEL, ///< 2 labels are equal for case insensitive comparisons.
     ERCE_DIFFERENT_UNIT_FP,       ///< Different units of the same symbol have different
                                   ///<   footprints assigned.
     ERCE_MISSING_POWER_INPUT_PIN, ///< Symbol has power input pins that are not placed on the
@@ -83,16 +86,21 @@ enum ERCE_T
     ERCE_DUPLICATE_REFERENCE,     ///< More than one symbol with the same reference.
     ERCE_BUS_ENTRY_NEEDED,        ///< Importer failed to auto-place a bus entry.
     ERCE_FOUR_WAY_JUNCTION,       ///< A four-way junction was found.
+    ERCE_LABEL_MULTIPLE_WIRES,    ///< A label is connected to more than one wire.
+    ERCE_UNCONNECTED_WIRE_ENDPOINT, ///< A label is connected to more than one wire.
 
 
-    ERCE_LAST = ERCE_FOUR_WAY_JUNCTION,
+    ERCE_LAST = ERCE_UNCONNECTED_WIRE_ENDPOINT,
 
     // Errors after this point will not automatically appear in the Severities Panel
 
+    ERCE_DUPLICATE_PIN_ERROR,
     ERCE_PIN_TO_PIN_WARNING,    // pin connected to an other pin: warning level
     ERCE_PIN_TO_PIN_ERROR,      // pin connected to an other pin: error level
-    ERCE_ANNOTATION_ACTION      // Not actually an error; just an action performed during
+    ERCE_ANNOTATION_ACTION,     // Not actually an error; just an action performed during
                                 // annotation which is passed back through the error handler.
+    ERCE_GENERIC_WARNING,
+    ERCE_GENERIC_ERROR
 };
 
 /// The values a pin-to-pin entry in the pin matrix can take on

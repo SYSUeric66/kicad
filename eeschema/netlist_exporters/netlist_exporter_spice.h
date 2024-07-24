@@ -58,14 +58,16 @@ public:
         OPTION_SAVE_ALL_DISSIPATIONS = 0x0100,
         OPTION_CUR_SHEET_AS_ROOT     = 0x0200,
         OPTION_SIM_COMMAND           = 0x0400,
+        OPTION_SAVE_ALL_EVENTS       = 0x0800,
         OPTION_DEFAULT_FLAGS =   OPTION_ADJUST_INCLUDE_PATHS
                                | OPTION_ADJUST_PASSIVE_VALS
                                | OPTION_SAVE_ALL_VOLTAGES
                                | OPTION_SAVE_ALL_CURRENTS
                                | OPTION_SAVE_ALL_DISSIPATIONS
+                               | OPTION_SAVE_ALL_EVENTS
     };
 
-    NETLIST_EXPORTER_SPICE( SCHEMATIC_IFACE* aSchematic, wxWindow* aDialogParent = nullptr );
+    NETLIST_EXPORTER_SPICE( SCHEMATIC_IFACE* aSchematic );
 
     /**
      * Write to specified output file.
@@ -100,12 +102,12 @@ public:
     /**
      * Remove formatting wrappers and replace illegal spice net name characters with underscores.
      */
-    static void ConvertToSpiceMarkup( std::string& aNetName );
+    static void ConvertToSpiceMarkup( wxString* aNetName );
 
     /**
      * Return the list of nets.
      */
-    std::set<std::string> GetNets() const { return m_nets; }
+    std::set<wxString> GetNets() const { return m_nets; }
 
     /**
      * Return name of Spice device corresponding to a schematic symbol.
@@ -116,7 +118,7 @@ public:
      * corresponds to the assigned device model type or a reference prefixed with a character
      * defining the device model type.
      */
-    std::string GetItemName( const std::string& aRefName ) const;
+    wxString GetItemName( const wxString& aRefName ) const;
 
     /**
      * Return the list of items representing schematic symbols in the Spice world.
@@ -126,7 +128,7 @@ public:
     /**
      * Find and return the item corresponding to \a aRefName.
      */
-    const SPICE_ITEM* FindItem( const std::string& aRefName ) const;
+    const SPICE_ITEM* FindItem( const wxString& aRefName ) const;
 
     const std::vector<wxString>& GetDirectives() { return m_directives; }
 
@@ -135,13 +137,12 @@ protected:
     virtual void WriteDirectives( const wxString& aSimCommand, unsigned aSimOptions,
                                   OUTPUTFORMATTER& candidate ) const;
 
-    virtual std::string GenerateItemPinNetName( const std::string& aNetName,
-                                                int& aNcCounter ) const;
+    virtual wxString GenerateItemPinNetName( const wxString& aNetName, int& aNcCounter ) const;
 
     /**
      * Return the paths of exported sheets (either all or the current one).
      */
-    SCH_SHEET_LIST GetSheets( unsigned aNetlistOptions = 0 ) const;
+    SCH_SHEET_LIST BuildSheetList( unsigned aNetlistOptions = 0 ) const;
 
 private:
     void readRefName( SCH_SHEET_PATH& aSheet, SCH_SYMBOL& aSymbol, SPICE_ITEM& aItem,
@@ -165,16 +166,12 @@ private:
     SIM_LIB_MGR             m_libMgr;             ///< Holds libraries and models
     NAME_GENERATOR          m_modelNameGenerator; ///< Generates unique model names
 
-    ///< Generates unique net names (only unique for NC nets for now)
-    NAME_GENERATOR          m_netNameGenerator;
     std::vector<wxString>   m_directives;         ///< Spice directives found in the schematic sheet
     std::set<wxString>      m_rawIncludes;        ///< include directives found in symbols
-    std::set<std::string>   m_nets;
+    std::set<wxString>      m_nets;
 
     ///< Items representing schematic symbols in Spice world.
     std::list<SPICE_ITEM>   m_items;
-
-    wxWindow*               m_dialogParent;
 };
 
 

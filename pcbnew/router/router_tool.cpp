@@ -1624,9 +1624,7 @@ int ROUTER_TOOL::RouteSelected( const TOOL_EVENT& aEvent )
     {
         if( item->Type() == PCB_FOOTPRINT_T )
         {
-            const PADS& fpPads = ( static_cast<FOOTPRINT*>( item ) )->Pads();
-
-            for( PAD* pad : fpPads )
+            for( PAD* pad : static_cast<FOOTPRINT*>( item )->Pads() )
                 itemList.push_back( pad );
         }
         else if( dynamic_cast<BOARD_CONNECTED_ITEM*>( item ) != nullptr )
@@ -1815,12 +1813,7 @@ int ROUTER_TOOL::MainLoop( const TOOL_EVENT& aEvent )
             updateStartItem( *evt );
 
             if( evt->HasPosition() )
-            {
-                if( evt->Modifier( MD_SHIFT ) )
-                    performDragging( PNS::DM_ANY );
-                else
-                    performRouting();
-            }
+                performRouting();
         }
         else if( evt->IsAction( &ACT_PlaceThroughVia ) )
         {
@@ -2109,7 +2102,7 @@ bool ROUTER_TOOL::CanInlineDrag( int aDragMode )
     if( item->IsType( GENERAL_COLLECTOR::DraggableItems ) )
     {
         // Footprints cannot be dragged freely.
-        if( item->IsType( { PCB_FOOTPRINT_T } ) )
+        if( item->Type() == PCB_FOOTPRINT_T )
             return !( aDragMode & PNS::DM_FREE_ANGLE );
         else
             return true;

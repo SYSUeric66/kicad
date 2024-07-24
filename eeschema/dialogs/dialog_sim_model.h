@@ -32,7 +32,7 @@
 
 #include <sim/sim_model.h>
 #include <sim/sim_library.h>
-#include <sim/sim_library_kibis.h>
+#include <sim/sim_library_ibis.h>
 #include <sch_symbol.h>
 
 
@@ -79,7 +79,8 @@ private:
 
     void removeOrphanedPinAssignments( SIM_MODEL* aModel );
 
-    bool loadLibrary( const wxString& aLibraryPath, bool aForceReload = false );
+    bool loadLibrary( const wxString& aLibraryPath, REPORTER& aReporter,
+                      bool aForceReload = false );
 
     void addParamPropertyIfRelevant( SIM_MODEL* aModel, int aParamIndex );
     wxPGProperty* newParamProperty( SIM_MODEL* aModel, int aParamIndex ) const;
@@ -94,7 +95,7 @@ private:
     int getModelPinIndex( const wxString& aModelPinString ) const;
 
     void onRadioButton( wxCommandEvent& aEvent ) override;
-    void onLibrarayPathText( wxCommandEvent& aEvent ) override;
+    void onLibraryPathText( wxCommandEvent& aEvent ) override;
     void onLibraryPathTextEnter( wxCommandEvent& aEvent ) override;
     void onLibraryPathTextKillFocus( wxFocusEvent& aEvent ) override;
     void onBrowseButtonClick( wxCommandEvent& aEvent ) override;
@@ -118,7 +119,7 @@ private:
 
     void adjustParamGridColumns( int aWidth, bool aForce );
 
-    bool isIbisLoaded() { return dynamic_cast<const SIM_LIBRARY_KIBIS*>( library() ); }
+    bool isIbisLoaded() { return dynamic_cast<const SIM_LIBRARY_IBIS*>( library() ); }
 
 private:
     EDA_BASE_FRAME*         m_frame;
@@ -141,7 +142,6 @@ private:
     wxPGProperty*           m_prevParamGridSelection;
 
     int                     m_lastParamGridWidth;
-    bool                    m_inKillFocus;
 };
 
 #endif /* DIALOG_SIM_MODEL_H */

@@ -327,9 +327,17 @@ set( BMAPS_MID
     hole_to_hole_clearance
     hole_to_copper_clearance
     hv45mode
+    icon_bitmap2component_24
     icon_cvpcb_24
+    icon_eeschema_24
     icon_footprint_browser
     icon_gerbview_24
+    icon_kicad_24
+    icon_libedit_24
+    icon_modedit_24
+    icon_pagelayout_editor_24
+    icon_pcbcalculator_24
+    icon_pcbnew_24
     icon_pcm_24
     import3d
     image
@@ -558,20 +566,15 @@ set( BMAPS_MID
     zoom_center_on_screen
     zoom_in
     zoom_out
+    zoom_in_horizontally
+    zoom_out_horizontally
+    zoom_in_vertically
+    zoom_out_vertically
     zoom_selection
     )
 
 # 24 x 24 for internal icons
 set( BMAPS_24
-    icon_bitmap2component_24
-    icon_eeschema_24
-    icon_gerbview_24
-    icon_kicad_24
-    icon_libedit_24
-    icon_modedit_24
-    icon_pagelayout_editor_24
-    icon_pcbcalculator_24
-    icon_pcbnew_24
     )
 
 # 32 x 32 for icon sets
@@ -629,6 +632,7 @@ set( BMAPS_64
     icon_pagelayout_editor
     icon_bitmap2component
     icon_pcbcalculator
+    icon_pcm
     )
 
 # 128 x 128 for icon sets
@@ -644,6 +648,7 @@ set( BMAPS_128
     icon_pagelayout_editor
     icon_bitmap2component
     icon_pcbcalculator
+    icon_pcm
     )
 
 # 256 x 256 for icon sets (windows namely)
@@ -659,6 +664,7 @@ set( BMAPS_256
     icon_pagelayout_editor
     icon_bitmap2component
     icon_pcbcalculator
+    icon_pcm
     )
 
 # Teardrop images (275x130 native size) for teardrop dialogs

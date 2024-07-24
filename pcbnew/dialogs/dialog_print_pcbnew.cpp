@@ -146,10 +146,8 @@ bool DIALOG_PRINT_PCBNEW::TransferDataToWindow()
     m_layerList = board->GetEnabledLayers().UIOrder();
 
     // Populate the check list box by all enabled layers names
-    for( LSEQ seq = m_layerList;  seq;  ++seq )
+    for( PCB_LAYER_ID layer : m_layerList )
     {
-        PCB_LAYER_ID layer = *seq;
-
         int checkIndex = m_layerCheckListBox->Append( board->GetLayerName( layer ) );
 
         if( settings()->m_LayerSet.test( layer ) )
@@ -353,7 +351,7 @@ void DIALOG_PRINT_PCBNEW::onColorModeClicked( wxCommandEvent& event )
 void DIALOG_PRINT_PCBNEW::onPopUpLayers( wxCommandEvent& event )
 {
     // Build a list of layers for usual fabrication: copper layers + tech layers without courtyard
-    LSET fab_layer_set = ( LSET::AllCuMask() | LSET::AllTechMask() ) & ~LSET( 2, B_CrtYd, F_CrtYd );
+    LSET fab_layer_set = ( LSET::AllCuMask() | LSET::AllTechMask() ) & ~LSET( { B_CrtYd, F_CrtYd } );
 
     switch( event.GetId() )
     {

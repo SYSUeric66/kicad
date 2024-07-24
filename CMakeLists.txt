@@ -31,6 +31,11 @@ cmake_policy( SET CMP0116 OLD )
 # The current structure requires the add_custom_command to get called twice, the NEW behavior deduplicates it
 cmake_policy( SET CMP0113 OLD )
 
+#  Enable CMAKE_MSVC_DEBUG_INFORMATION_FORMAT to override the cmake pdb flags easily
+if (POLICY CMP0141)
+  cmake_policy(SET CMP0141 NEW)
+endif (POLICY CMP0141)
+
 # Default to CMAKE_BUILD_TYPE = Release unless overridden on command line
 # http://www.cmake.org/pipermail/cmake/2008-September/023808.html
 if( DEFINED CMAKE_BUILD_TYPE )
@@ -354,13 +359,9 @@ add_compile_definitions( $<$<BOOL:${KICAD_BUILD_ARCH_ARM64}>:KICAD_BUILD_ARCH_AR
 if (USE_CCACHE)
   find_program(CCACHE_FOUND ccache)
   if(CCACHE_FOUND)
-    get_property(RULE_LAUNCH_COMPILE GLOBAL PROPERTY RULE_LAUNCH_COMPILE)
-    set(RULE_LAUNCH_COMPILE "${RULE_LAUNCH_COMPILE} ${CCACHE_FOUND}")
-    set_property(GLOBAL PROPERTY RULE_LAUNCH_COMPILE ${RULE_LAUNCH_COMPILE})
-
-    get_property(RULE_LAUNCH_LINK GLOBAL PROPERTY RULE_LAUNCH_LINK)
-    set(RULE_LAUNCH_LINK "${RULE_LAUNCH_LINK} ${CCACHE_FOUND}")
-    set_property(GLOBAL PROPERTY RULE_LAUNCH_LINK ${RULE_LAUNCH_LINK})
+    # Set ccache on the actual lang
+    list(PREPEND CMAKE_C_COMPILER_LAUNCHER ${CCACHE_FOUND})
+    list(PREPEND CMAKE_CXX_COMPILER_LAUNCHER ${CCACHE_FOUND})
 
     message(STATUS "Used ${CCACHE_FOUND} for compilation.")
   else(CCACHE_FOUND)
@@ -375,9 +376,9 @@ endif(USE_CCACHE)
 if (USE_DISTCC)
   find_program(DISTCC_FOUND distcc)
   if(DISTCC_FOUND)
-    get_property(RULE_LAUNCH_COMPILE GLOBAL PROPERTY RULE_LAUNCH_COMPILE)
-    set(RULE_LAUNCH_COMPILE "${RULE_LAUNCH_COMPILE} ${DISTCC_FOUND}")
-    set_property(GLOBAL PROPERTY RULE_LAUNCH_COMPILE ${RULE_LAUNCH_COMPILE})
+    list(APPEND CMAKE_C_COMPILER_LAUNCHER ${DISTCC_FOUND})
+    list(APPEND CMAKE_CXX_COMPILER_LAUNCHER ${DISTCC_FOUND})
+
     message(STATUS "Using ${DISTCC_FOUND} for distributed build.")
   else(DISTCC_FOUND)
     message(INFO "Distcc was requested but not found.")
@@ -457,7 +458,7 @@ if( CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang" )
 
     if( KICAD_SANITIZE_ADDRESS )
         add_compile_definitions( KICAD_SANITIZE_ADDRESS )
-        set( CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -D_GLIBCXX_SANITIZE_VECTOR -fsanitize=address -fno-optimize-sibling-calls -fsanitize-address-use-after-scope -fno-omit-frame-pointer" )
+        set( CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -D_GLIBCXX_SANITIZE_VECTOR -fsanitize=address -fsanitize-recover=address -fno-optimize-sibling-calls -fsanitize-address-use-after-scope -fno-omit-frame-pointer" )
 
         # ASAN shouldn't be used with these options (https://github.com/google/sanitizers/wiki/AddressSanitizer#faq)
         set( CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-stack-protector -U_FORTIFY_SOURCE" )
@@ -535,8 +536,18 @@ if( MSVC )
     string( APPEND CMAKE_CXX_FLAGS " /wd4290" )
     # C4800: non-bool is explicitly cast to bool, forcing value of 0 or 1
     string( APPEND CMAKE_CXX_FLAGS " /wd4800" )
-    # /Zi: create PDB
-    string( APPEND CMAKE_CXX_FLAGS " /Zi" )
+
+    # cmake 3.25 or higher requried for MSVC, should be fine
+    if( USE_CCACHE AND CCACHE_FOUND )
+        # Equivalent to /Z7, ensures cmake doesn't fight over the default
+        # ccache may encounter external PDB file write errors due to paralleism
+        # Using the embedded PDB mode is ok for development use of ccache
+        set(CMAKE_MSVC_DEBUG_INFORMATION_FORMAT "Embedded")
+    else()
+        # Equivalent to /Zi, ensures cmake doesn't fight over the default
+        set(CMAKE_MSVC_DEBUG_INFORMATION_FORMAT "ProgramDatabase")
+    endif()
+
     # /Zc:__cplusplus: define this macro according to C++ standard version
     string( APPEND CMAKE_CXX_FLAGS " /Zc:__cplusplus" )
     # /GF: enable string pooling
@@ -799,6 +810,11 @@ include_directories( SYSTEM ${GLM_INCLUDE_DIR} )
 find_package(ZLIB REQUIRED)
 
 #
+# Find Zstd library, required
+#
+find_package(ZSTD REQUIRED)
+
+#
 # Find libcurl, required
 #
 find_package( CURL REQUIRED )
@@ -1046,6 +1062,25 @@ find_package( wxWidgets ${wxWidgets_REQ_VERSION} COMPONENTS gl aui adv html core
 
 # Include wxWidgets macros.
 include( ${wxWidgets_USE_FILE} )
+
+# Detect wxWidgets port being used
+if( wxWidgets_FIND_STYLE STREQUAL "win32" )
+    string(REGEX MATCH "^[msw|qt|gtk]*" KICAD_WX_PORT "${WX_CONFIGURATION}")
+
+    if( KICAD_WX_PORT STREQUAL "qt" )
+        add_compile_definitions( __WXQT__ )
+    elseif( KICAD_WX_PORT STREQUAL "gtk" )
+        add_compile_definitions( __WXGTK__ )
+    endif()
+elseif( _wx_selected_config )
+    string(REGEX MATCH "^[msw|qt|gtk|osx]*" KICAD_WX_PORT "${_wx_selected_config}")
+endif()
+
+if( KICAD_WX_PORT )
+    message( STATUS "Detected wxWidgets port: ${KICAD_WX_PORT}")
+else()
+    message( FATAL_ERROR "Unable to detect wxWidgets port")
+endif()
 
 if( NOT MSVC )
     if( ${wxWidgets_VERSION_STRING} VERSION_LESS 3.2 )

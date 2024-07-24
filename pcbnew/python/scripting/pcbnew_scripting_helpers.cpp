@@ -44,8 +44,10 @@
 #include <core/ignore.h>
 #include <pcb_io/pcb_io_mgr.h>
 #include <string_utils.h>
+#include <filename_resolver.h>
 #include <macros.h>
 #include <pcbnew_scripting_helpers.h>
+#include <pgm_base.h>
 #include <project.h>
 #include <project_pcb.h>
 #include <project/net_settings.h>
@@ -179,31 +181,41 @@ BOARD* LoadBoard( wxString& aFileName, PCB_IO_MGR::PCB_FILE_T aFormat, bool aSet
 
     BASE_SCREEN::m_DrawingSheetFileName = project->GetProjectFile().m_BoardDrawingSheetFile;
 
-    // Load the drawing sheet from the filename stored in BASE_SCREEN::m_DrawingSheetFileName.
-    // If empty, or not existing, the default drawing sheet is loaded.
-    wxString filename = DS_DATA_MODEL::ResolvePath( BASE_SCREEN::m_DrawingSheetFileName,
-                                                    project->GetProjectPath() );
-
-    if( !DS_DATA_MODEL::GetTheInstance().LoadDrawingSheet( filename ) )
-        wxFprintf( stderr, _( "Error loading drawing sheet." ) );
-
     BOARD* brd = PCB_IO_MGR::Load( aFormat, aFileName );
 
     if( brd )
     {
+        // Load the drawing sheet from the filename stored in BASE_SCREEN::m_DrawingSheetFileName.
+        // If empty, or not existing, the default drawing sheet is loaded.
+        FILENAME_RESOLVER resolver;
+        resolver.SetProject( project );
+        resolver.SetProgramBase( &Pgm() );
+
+        wxString filename = resolver.ResolvePath( BASE_SCREEN::m_DrawingSheetFileName,
+                                              project->GetProjectPath(),
+                                              brd->GetEmbeddedFiles() );
+
+        wxString msg;
+
+        if( !DS_DATA_MODEL::GetTheInstance().LoadDrawingSheet( filename, &msg ) )
+        {
+            wxFprintf( stderr, _( "Error loading drawing sheet '%s': %s" ),
+                       BASE_SCREEN::m_DrawingSheetFileName, msg );
+        }
+
         // JEY TODO: move this global to the board
         ENUM_MAP<PCB_LAYER_ID>& layerEnum = ENUM_MAP<PCB_LAYER_ID>::Instance();
 
         layerEnum.Choices().Clear();
         layerEnum.Undefined( UNDEFINED_LAYER );
 
-        for( LSEQ seq = LSET::AllLayersMask().Seq(); seq; ++seq )
+        for( PCB_LAYER_ID layer : LSET::AllLayersMask().Seq() )
         {
             // Canonical name
-            layerEnum.Map( *seq, LSET::Name( *seq ) );
+            layerEnum.Map( layer, LSET::Name( layer ) );
 
             // User name
-            layerEnum.Map( *seq, brd->GetLayerName( *seq ) );
+            layerEnum.Map( layer, brd->GetLayerName( layer ) );
         }
 
         brd->SetProject( project );
@@ -544,10 +556,9 @@ bool WriteDRCReport( BOARD* aBoard, const wxString& aFileName, EDA_UNITS aUnits,
 
     // Load the global fp-lib-table otherwise we can't check the libs parity
     wxFileName  fn_flp = FP_LIB_TABLE::GetGlobalTableFileName();
-    if( fn_flp.FileExists() ) {
-        GFootprintTable.Clear();
+
+    if( fn_flp.FileExists() )
         GFootprintTable.Load( fn_flp.GetFullPath() );
-    }
 
     wxString drcRulesPath = prj->AbsolutePath( fn.GetFullName() );
 
@@ -557,10 +568,10 @@ bool WriteDRCReport( BOARD* aBoard, const wxString& aFileName, EDA_UNITS aUnits,
     layerEnum.Choices().Clear();
     layerEnum.Undefined( UNDEFINED_LAYER );
 
-    for( LSEQ seq = LSET::AllLayersMask().Seq(); seq; ++seq )
+    for( PCB_LAYER_ID layer : LSET::AllLayersMask().Seq() )
     {
-        layerEnum.Map( *seq, LSET::Name( *seq ) );              // Add Canonical name
-        layerEnum.Map( *seq, aBoard->GetLayerName( *seq ) );    // Add User name
+        layerEnum.Map( layer, LSET::Name( layer ) );              // Add Canonical name
+        layerEnum.Map( layer, aBoard->GetLayerName( layer ) );    // Add User name
     }
 
     try

@@ -28,8 +28,10 @@
 
 #include <wx/string.h>
 
+#include <font/fontconfig.h>
 #include <pcb_io_altium_designer.h>
 #include <altium_pcb.h>
+#include <altium_pcb_compound_file.h>
 #include <io/io_utils.h>
 #include <io/altium/altium_binary_parser.h>
 #include <pcb_io/pcb_io.h>
@@ -40,14 +42,32 @@
 #include <compoundfilereader.h>
 #include <utf.h>
 
-PCB_IO_ALTIUM_DESIGNER::PCB_IO_ALTIUM_DESIGNER() : PCB_IO( wxS( "Altium Designer" ) )
+PCB_IO_ALTIUM_DESIGNER::PCB_IO_ALTIUM_DESIGNER() :
+        PCB_IO( wxS( "Altium Designer" ) )
 {
     m_reporter = &WXLOG_REPORTER::GetInstance();
+
+    RegisterCallback( PCB_IO_ALTIUM_DESIGNER::DefaultLayerMappingCallback );
 }
 
 
 PCB_IO_ALTIUM_DESIGNER::~PCB_IO_ALTIUM_DESIGNER()
 {
+}
+
+
+std::map<wxString, PCB_LAYER_ID> PCB_IO_ALTIUM_DESIGNER::DefaultLayerMappingCallback(
+        const std::vector<INPUT_LAYER_DESC>& aInputLayerDescriptionVector )
+{
+    std::map<wxString, PCB_LAYER_ID> retval;
+
+    // Just return a the auto-mapped layers
+    for( INPUT_LAYER_DESC layerDesc : aInputLayerDescriptionVector )
+    {
+        retval.insert( { layerDesc.Name, layerDesc.AutoMapLayer } );
+    }
+
+    return retval;
 }
 
 
@@ -79,9 +99,12 @@ bool PCB_IO_ALTIUM_DESIGNER::CanReadLibrary( const wxString& aFileName ) const
 BOARD* PCB_IO_ALTIUM_DESIGNER::LoadBoard( const wxString& aFileName, BOARD* aAppendToMe,
                                           const STRING_UTF8_MAP* aProperties, PROJECT* aProject )
 {
+
     m_props = aProperties;
 
     m_board = aAppendToMe ? aAppendToMe : new BOARD();
+
+    fontconfig::FONTCONFIG::SetReporter( &WXLOG_REPORTER::GetInstance() );
 
     // Give the filename to the board if it's new
     if( !aAppendToMe )
@@ -113,12 +136,12 @@ BOARD* PCB_IO_ALTIUM_DESIGNER::LoadBoard( const wxString& aFileName, BOARD* aApp
     };
     // clang-format on
 
-    ALTIUM_COMPOUND_FILE altiumPcbFile( aFileName );
+    ALTIUM_PCB_COMPOUND_FILE altiumPcbFile( aFileName );
 
     try
     {
         // Parse File
-        ALTIUM_PCB pcb( m_board, m_progressReporter, m_reporter );
+        ALTIUM_PCB pcb( m_board, m_progressReporter, m_layer_mapping_handler, m_reporter );
         pcb.Parse( altiumPcbFile, mapping );
     }
     catch( CFB::CFBException& exception )
@@ -153,6 +176,8 @@ long long PCB_IO_ALTIUM_DESIGNER::GetLibraryTimestamp( const wxString& aLibraryP
 
 void PCB_IO_ALTIUM_DESIGNER::loadAltiumLibrary( const wxString& aLibraryPath )
 {
+    fontconfig::FONTCONFIG::SetReporter( nullptr );
+
     try
     {
         auto it = m_fplibFiles.find( aLibraryPath );
@@ -163,18 +188,24 @@ void PCB_IO_ALTIUM_DESIGNER::loadAltiumLibrary( const wxString& aLibraryPath )
         if( aLibraryPath.Lower().EndsWith( wxS( ".pcblib" ) ) )
         {
             m_fplibFiles[aLibraryPath].emplace_back(
-                    std::make_unique<ALTIUM_COMPOUND_FILE>( aLibraryPath ) );
+                    std::make_unique<ALTIUM_PCB_COMPOUND_FILE>( aLibraryPath ) );
         }
         else if( aLibraryPath.Lower().EndsWith( wxS( ".intlib" ) ) )
         {
-            std::unique_ptr<ALTIUM_COMPOUND_FILE> intCom =
-                    std::make_unique<ALTIUM_COMPOUND_FILE>( aLibraryPath );
+            std::unique_ptr<ALTIUM_PCB_COMPOUND_FILE> intCom =
+                    std::make_unique<ALTIUM_PCB_COMPOUND_FILE>( aLibraryPath );
 
             std::map<wxString, const CFB::COMPOUND_FILE_ENTRY*> pcbLibFiles =
                     intCom->EnumDir( L"PCBLib" );
-
             for( const auto& [pcbLibName, pcbCfe] : pcbLibFiles )
-                m_fplibFiles[aLibraryPath].push_back( intCom->DecodeIntLibStream( *pcbCfe ) );
+            {
+                auto decodedStream = intCom->DecodeIntLibStream( *pcbCfe );
+                m_fplibFiles[aLibraryPath].push_back(
+                    std::unique_ptr<ALTIUM_PCB_COMPOUND_FILE>(
+                        static_cast<ALTIUM_PCB_COMPOUND_FILE*>(decodedStream.release())
+                    )
+                );
+            }
         }
     }
     catch( CFB::CFBException& exception )
@@ -272,15 +303,16 @@ FOOTPRINT* PCB_IO_ALTIUM_DESIGNER::FootprintLoad( const wxString& aLibraryPath,
 
     try
     {
-        for( std::unique_ptr<ALTIUM_COMPOUND_FILE>& altiumLibFile : it->second )
+        for( std::unique_ptr<ALTIUM_PCB_COMPOUND_FILE>& altiumLibFile : it->second )
         {
+            altiumLibFile->CacheLibModels();
             auto [dirName, fpCfe] = altiumLibFile->FindLibFootprintDirName( aFootprintName );
 
             if( dirName.IsEmpty() )
                 continue;
 
             // Parse File
-            ALTIUM_PCB pcb( m_board, nullptr, m_reporter, aLibraryPath, aFootprintName );
+            ALTIUM_PCB pcb( m_board, nullptr, m_layer_mapping_handler, m_reporter, aLibraryPath, aFootprintName );
             return pcb.ParseFootprint( *altiumLibFile, aFootprintName );
         }
     }

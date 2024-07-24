@@ -3,7 +3,7 @@
  *
  * Copyright (C) 2012 Torsten Hueter, torstenhtr <at> gmx.de
  * Copyright (C) 2013-2015 CERN
- * Copyright (C) 2012-2022 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2012-2024 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * @author Tomasz Wlostowski <tomasz.wlostowski@cern.ch>
  * @author Maciej Suminski <maciej.suminski@cern.ch>
@@ -45,7 +45,7 @@
 #include <wx/log.h>
 
 #ifdef __WXMSW__
-    #define USE_MOUSE_CAPTURE
+   #define USE_MOUSE_CAPTURE
 #endif
 
 using namespace KIGFX;
@@ -82,7 +82,8 @@ WX_VIEW_CONTROLS::WX_VIEW_CONTROLS( VIEW* aView, EDA_DRAW_PANEL_GAL* aParentPane
 #endif
         m_cursorPos( 0, 0 ),
         m_updateCursor( true ),
-        m_infinitePanWorks( false )
+        m_infinitePanWorks( false ),
+        m_gestureLastZoomFactor( 1.0 )
 {
     LoadSettings();
 
@@ -130,6 +131,19 @@ WX_VIEW_CONTROLS::WX_VIEW_CONTROLS( VIEW* aView, EDA_DRAW_PANEL_GAL* aParentPane
 #if defined USE_MOUSE_CAPTURE
     m_parentPanel->Connect( wxEVT_MOUSE_CAPTURE_LOST,
                             wxMouseEventHandler( WX_VIEW_CONTROLS::onCaptureLost ), nullptr, this );
+#endif
+
+#ifdef __WXMSW__
+    if( m_parentPanel->EnableTouchEvents( wxTOUCH_ZOOM_GESTURE | wxTOUCH_PAN_GESTURES ) )
+    {
+        m_parentPanel->Connect( wxEVT_GESTURE_ZOOM,
+                                wxZoomGestureEventHandler( WX_VIEW_CONTROLS::onZoomGesture ),
+                                nullptr, this );
+
+        m_parentPanel->Connect( wxEVT_GESTURE_PAN,
+                                wxPanGestureEventHandler( WX_VIEW_CONTROLS::onPanGesture ), nullptr,
+                                this );
+    }
 #endif
 
     m_cursorWarped = false;
@@ -369,28 +383,25 @@ void WX_VIEW_CONTROLS::onWheel( wxMouseEvent& aEvent )
     // Restrict zoom handling to the vertical axis, otherwise horizontal
     // scrolling events (e.g. touchpads and some mice) end up interpreted
     // as vertical scroll events and confuse the user.
-    if( modifiers == m_settings.m_scrollModifierZoom )
+    if( modifiers == m_settings.m_scrollModifierZoom && axis == wxMOUSE_WHEEL_VERTICAL )
     {
-        if ( axis == wxMOUSE_WHEEL_VERTICAL )
+        const int    rotation  = aEvent.GetWheelRotation();
+        const double zoomScale = m_zoomController->GetScaleForRotation( rotation );
+
+        if( IsCursorWarpingEnabled() )
         {
-            const int    rotation  = aEvent.GetWheelRotation();
-            const double zoomScale = m_zoomController->GetScaleForRotation( rotation );
-
-            if( IsCursorWarpingEnabled() )
-            {
-                CenterOnCursor();
-                m_view->SetScale( m_view->GetScale() * zoomScale );
-            }
-            else
-            {
-                const VECTOR2D anchor = m_view->ToWorld( VECTOR2D( aEvent.GetX(), aEvent.GetY() ) );
-                m_view->SetScale( m_view->GetScale() * zoomScale, anchor );
-            }
-
-            // Refresh the zoom level and mouse position on message panel
-            // (mouse position has not changed, only the zoom level has changed):
-            refreshMouse( true );
+            CenterOnCursor();
+            m_view->SetScale( m_view->GetScale() * zoomScale );
         }
+        else
+        {
+            const VECTOR2D anchor = m_view->ToWorld( VECTOR2D( aEvent.GetX(), aEvent.GetY() ) );
+            m_view->SetScale( m_view->GetScale() * zoomScale, anchor );
+        }
+
+        // Refresh the zoom level and mouse position on message panel
+        // (mouse position has not changed, only the zoom level has changed):
+        refreshMouse( true );
     }
     else
     {
@@ -612,6 +623,40 @@ void WX_VIEW_CONTROLS::onTimer( wxTimerEvent& aEvent )
 }
 
 
+void WX_VIEW_CONTROLS::onZoomGesture( wxZoomGestureEvent& aEvent )
+{
+    if( aEvent.IsGestureStart() )
+    {
+        m_gestureLastZoomFactor = 1.0;
+        m_gestureLastPos = VECTOR2D( aEvent.GetPosition().x, aEvent.GetPosition().y );
+    }
+
+    VECTOR2D evtPos( aEvent.GetPosition().x, aEvent.GetPosition().y );
+    VECTOR2D deltaWorld = m_view->ToWorld( evtPos - m_gestureLastPos, false );
+
+    m_view->SetCenter( m_view->GetCenter() - deltaWorld );
+
+    m_view->SetScale( m_view->GetScale() * aEvent.GetZoomFactor() / m_gestureLastZoomFactor,
+                      m_view->ToWorld( evtPos ) );
+
+    m_gestureLastZoomFactor = aEvent.GetZoomFactor();
+    m_gestureLastPos = evtPos;
+
+    refreshMouse( true );
+}
+
+
+void WX_VIEW_CONTROLS::onPanGesture( wxPanGestureEvent& aEvent )
+{
+    VECTOR2I screenDelta( aEvent.GetDelta().x, aEvent.GetDelta().y );
+    VECTOR2D deltaWorld = m_view->ToWorld( screenDelta, false );
+
+    m_view->SetCenter( m_view->GetCenter() - deltaWorld );
+
+    refreshMouse( true );
+}
+
+
 void WX_VIEW_CONTROLS::onScroll( wxScrollWinEvent& aEvent )
 {
     const double linePanDelta = 0.05;
@@ -694,7 +739,11 @@ void WX_VIEW_CONTROLS::CaptureCursor( bool aEnabled )
     // Note: for some reason, m_parentPanel->HasCapture() can be false even if CaptureMouse()
     // was called (i.e. mouse was captured, so when need to test m_MouseCapturedLost to be
     // sure a wxEVT_MOUSE_CAPTURE_LOST event was fired before. Otherwise wxMSW complains
-    if( aEnabled && !m_parentPanel->HasCapture() && m_parentPanel->m_MouseCapturedLost )
+    // The IsModalDialogFocused is checked because it's possible to start a capture
+    // due to event ordering while a modal dialog was just opened, the mouse capture steels focus
+    // from the modal and causes odd behavior
+    if( aEnabled && !m_parentPanel->HasCapture() && m_parentPanel->m_MouseCapturedLost
+        && !KIUI::IsModalDialogFocused() )
     {
         m_parentPanel->CaptureMouse();
 

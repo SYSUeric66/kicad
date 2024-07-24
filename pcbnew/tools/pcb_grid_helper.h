@@ -27,9 +27,11 @@
 #define PCB_GRID_HELPER_H
 
 #include <vector>
+
 #include <pcb_item_containers.h>
 #include <tool/grid_helper.h>
 
+class LSET;
 class SHAPE_ARC;
 class TOOL_MANAGER;
 struct MAGNETIC_SETTINGS;
@@ -62,7 +64,7 @@ public:
 
     VECTOR2I AlignToArc ( const VECTOR2I& aPoint, const SHAPE_ARC& aSeg );
 
-    VECTOR2I AlignToNearestPad( const VECTOR2I& aMousePos, PADS& aPads );
+    VECTOR2I AlignToNearestPad( const VECTOR2I& aMousePos, std::deque<PAD*>& aPads );
 
     /**
      * Chooses the "best" snap anchor around the given point, optionally taking layers from

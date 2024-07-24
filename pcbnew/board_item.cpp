@@ -31,6 +31,7 @@
 #include <macros.h>
 #include <board.h>
 #include <board_design_settings.h>
+#include <lset.h>
 #include <pcb_group.h>
 #include <pcb_generator.h>
 #include <footprint.h>
@@ -84,13 +85,15 @@ bool BOARD_ITEM::IsLocked() const
 
 STROKE_PARAMS BOARD_ITEM::GetStroke() const
 {
-    wxCHECK( false, STROKE_PARAMS( pcbIUScale.mmToIU( DEFAULT_LINE_WIDTH ) ) );
+    wxFAIL_MSG( wxString( "GetStroke() not defined by " ) + GetClass() );
+
+    return STROKE_PARAMS( pcbIUScale.mmToIU( DEFAULT_LINE_WIDTH ) );
 }
 
 
 void BOARD_ITEM::SetStroke( const STROKE_PARAMS& aStroke )
 {
-    wxCHECK( false, /* void */ );
+    wxFAIL_MSG( wxString( "SetStroke() not defined by " ) + GetClass() );
 }
 
 
@@ -102,13 +105,28 @@ const KIFONT::METRICS& BOARD_ITEM::GetFontMetrics() const
 
 wxString BOARD_ITEM::GetLayerName() const
 {
-    const BOARD* board = GetBoard();
-
-    if( board )
+    if( const BOARD* board = GetBoard() )
         return board->GetLayerName( m_layer );
 
     // If no parent, return standard name
     return BOARD::GetStandardLayerName( m_layer );
+}
+
+
+bool BOARD_ITEM::IsSideSpecific() const
+{
+    if( ( GetLayerSet() & LSET::SideSpecificMask() ).any() )
+        return true;
+
+    if( const BOARD* board = GetBoard() )
+    {
+        LAYER_T principalLayerType = board->GetLayerType( m_layer );
+
+        if( principalLayerType == LT_FRONT || principalLayerType == LT_BACK )
+            return true;
+    }
+
+    return false;
 }
 
 
@@ -247,9 +265,24 @@ std::shared_ptr<SHAPE_SEGMENT> BOARD_ITEM::GetEffectiveHoleShape() const
 
 FOOTPRINT* BOARD_ITEM::GetParentFootprint() const
 {
+    // EDA_ITEM::IsType is too slow here.
+    auto isContainer = []( BOARD_ITEM_CONTAINER* aTest )
+    {
+        switch( aTest->Type() )
+        {
+        case PCB_GROUP_T:
+        case PCB_GENERATOR_T:
+        case PCB_TABLE_T:
+            return true;
+
+        default:
+            return false;
+        }
+    };
+
     BOARD_ITEM_CONTAINER* ancestor = GetParent();
 
-    while( ancestor && ancestor->Type() == PCB_GROUP_T )
+    while( ancestor && isContainer( ancestor ) )
         ancestor = ancestor->GetParent();
 
     if( ancestor && ancestor->Type() == PCB_FOOTPRINT_T )
@@ -318,8 +351,8 @@ static struct BOARD_ITEM_DESC
         {
             layerEnum.Undefined( UNDEFINED_LAYER );
 
-            for( LSEQ seq = LSET::AllLayersMask().Seq(); seq; ++seq )
-                layerEnum.Map( *seq, LSET::Name( *seq ) );
+            for( PCB_LAYER_ID layer : LSET::AllLayersMask().Seq() )
+                layerEnum.Map( layer, LSET::Name( layer ) );
         }
 
         PROPERTY_MANAGER& propMgr = PROPERTY_MANAGER::Instance();

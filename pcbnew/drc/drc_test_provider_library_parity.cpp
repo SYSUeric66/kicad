@@ -88,7 +88,7 @@ public:
                 return diff;                                \
         } while (0)
 
-#define EPSILON 1
+#define EPSILON 2
 #define TEST_PT( a, b, msg )                                \
         do {                                                \
             if( abs( a.x - b.x ) > EPSILON                  \
@@ -104,7 +104,7 @@ public:
                 return diff;                                \
         } while (0)
 
-#define EPSILON_D 0.000001
+#define EPSILON_D 0.000002
 #define TEST_D( a, b, msg )                                 \
         do {                                                \
             if( abs( a - b ) > EPSILON_D )                  \
@@ -119,7 +119,7 @@ public:
                 return diff;                                \
         } while (0)
 
-#define ITEM_DESC( item ) ( item )->GetItemDescription( &g_unitsProvider )
+#define ITEM_DESC( item ) ( item )->GetItemDescription( &g_unitsProvider, true )
 #define PAD_DESC( pad ) wxString::Format( _( "Pad %s" ), ( pad )->GetNumber() )
 
 
@@ -284,7 +284,7 @@ bool padNeedsUpdate( const PAD* a, const PAD* b, REPORTER* aReporter )
         layerSettingsDiffer |= a->GetKeepTopBottom() != b->GetKeepTopBottom();
 
     // Trim layersets to the current board before comparing
-    LSET enabledLayers = a->GetBoard()->GetEnabledLayers();
+    LSET enabledLayers = a->GetBoard() ? a->GetBoard()->GetEnabledLayers() : LSET::AllLayersMask();
     LSET aLayers = a->GetLayerSet() & enabledLayers;
     LSET bLayers = b->GetLayerSet() & enabledLayers;
 
@@ -643,7 +643,7 @@ bool FOOTPRINT::FootprintNeedsUpdate( const FOOTPRINT* aLibFP, int aCompareFlags
                 && GetLocalSolderPasteMarginRatio() != aLibFP->GetLocalSolderPasteMarginRatio() )
         {
             diff = true;
-            aReporter->Report( _( "\"Solder paste relative clearance overridden." ) );
+            aReporter->Report( _( "Solder paste relative clearance overridden." ) );
         }
 
         if( GetLocalZoneConnection() != ZONE_CONNECTION::INHERITED

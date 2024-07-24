@@ -110,14 +110,15 @@ protected:
         if( event.GetId() == MYID_SELECT_FOOTPRINT )
         {
             // pick a footprint using the footprint picker.
-            wxString      fpid = m_grid->GetCellValue( m_grid->GetGridCursorRow(),
-                                                       FOOTPRINT_FIELD );
-            KIWAY_PLAYER* frame = m_dlg->Kiway().Player( FRAME_FOOTPRINT_CHOOSER, true, m_dlg );
+            wxString fpid = m_grid->GetCellValue( m_grid->GetGridCursorRow(), FOOTPRINT_FIELD );
 
-            if( frame->ShowModal( &fpid, m_dlg ) )
-                m_grid->SetCellValue( m_grid->GetGridCursorRow(), FOOTPRINT_FIELD, fpid );
+            if( KIWAY_PLAYER* frame = m_dlg->Kiway().Player( FRAME_FOOTPRINT_CHOOSER, true, m_dlg ) )
+            {
+                if( frame->ShowModal( &fpid, m_dlg ) )
+                    m_grid->SetCellValue( m_grid->GetGridCursorRow(), FOOTPRINT_FIELD, fpid );
 
-            frame->Destroy();
+                frame->Destroy();
+            }
         }
         else if (event.GetId() == MYID_SHOW_DATASHEET )
         {
@@ -175,7 +176,7 @@ DIALOG_SYMBOL_FIELDS_TABLE::DIALOG_SYMBOL_FIELDS_TABLE( SCH_EDIT_FRAME* parent )
         m_schSettings( parent->Schematic().Settings() )
 {
     // Get all symbols from the list of schematic sheets
-    m_parent->Schematic().GetSheets().GetSymbols( m_symbolsList, false );
+    m_parent->Schematic().BuildUnorderedSheetList().GetSymbols( m_symbolsList, false );
 
     m_bRefresh->SetBitmap( KiBitmapBundle( BITMAPS::small_refresh ) );
     m_bRefreshPreview->SetBitmap( KiBitmapBundle( BITMAPS::small_refresh ) );
@@ -342,8 +343,8 @@ void DIALOG_SYMBOL_FIELDS_TABLE::SetupColumnProperties( int aCol )
     else if( m_dataModel->GetColFieldName( aCol ) == GetCanonicalFieldName( DATASHEET_FIELD ) )
     {
         // set datasheet column viewer button
-        attr->SetEditor(
-                new GRID_CELL_URL_EDITOR( this, PROJECT_SCH::SchSearchS( &Prj() ) ) );
+        attr->SetEditor( new GRID_CELL_URL_EDITOR( this, PROJECT_SCH::SchSearchS( &Prj() ),
+                                                   &m_parent->Schematic() ) );
         m_grid->SetColAttr( aCol, attr );
     }
     else if( m_dataModel->ColIsQuantity( aCol ) || m_dataModel->ColIsItemNumber( aCol ) )
@@ -1267,7 +1268,7 @@ void DIALOG_SYMBOL_FIELDS_TABLE::OnExport( wxCommandEvent& aEvent )
 
     if( path.IsEmpty() )
     {
-        DisplayError( this, _( "No filename specified in exporter" ) );
+        DisplayError( this, _( "No output file specified in Export tab." ) );
         return;
     }
 
@@ -1381,9 +1382,7 @@ void DIALOG_SYMBOL_FIELDS_TABLE::OnClose( wxCloseEvent& aEvent )
 
     wxCommandEvent* evt = new wxCommandEvent( EDA_EVT_CLOSE_DIALOG_SYMBOL_FIELDS_TABLE, wxID_ANY );
 
-    wxWindow* parent = GetParent();
-
-    if( parent )
+    if( wxWindow* parent = GetParent() )
         wxQueueEvent( parent, evt );
 }
 
@@ -1506,14 +1505,25 @@ void DIALOG_SYMBOL_FIELDS_TABLE::syncBomPresetSelection()
                                 const BOM_PRESET& preset = aPair.second;
 
                                 // Check the simple settings first
-                                if( !( preset.sortField == current.sortField
-                                       && preset.sortAsc == current.sortAsc
+                                if( !( preset.sortAsc == current.sortAsc
                                        && preset.filterString == current.filterString
                                        && preset.groupSymbols == current.groupSymbols
-                                       && preset.excludeDNP == current.excludeDNP ) )
+                                       && preset.excludeDNP == current.excludeDNP
+                                       && preset.includeExcludedFromBOM
+                                                  == current.includeExcludedFromBOM ) )
                                 {
                                     return false;
                                 }
+
+                                // We should compare preset.name and current.name.
+                                // unfortunately current.name is empty because
+                                // m_dataModel->GetBomSettings() does not store the .name member
+                                // So use sortField member as a (not very efficient) auxiliary filter.
+                                // sortField can be translated in m_bomPresets list,
+                                // so current.sortField needs to be translated
+                                // Probably this not efficient and error prone test should be removed (JPC).
+                                if( preset.sortField != wxGetTranslation( current.sortField ) )
+                                    return false;
 
                                 // Only compare shown or grouped fields
                                 std::vector<BOM_FIELD> A, B;
@@ -1539,7 +1549,6 @@ void DIALOG_SYMBOL_FIELDS_TABLE::syncBomPresetSelection()
         // but these items are translated if they are predefined items.
         bool     do_translate = it->second.readOnly;
         wxString text = do_translate ? wxGetTranslation( it->first ) : it->first;
-
         m_cbBomPresets->SetStringSelection( text );
     }
     else
@@ -2200,16 +2209,18 @@ void DIALOG_SYMBOL_FIELDS_TABLE::savePresetsToSchematic()
 void DIALOG_SYMBOL_FIELDS_TABLE::OnSchItemsAdded( SCHEMATIC&              aSch,
                                                   std::vector<SCH_ITEM*>& aSchItem )
 {
-    SCH_SHEET_LIST     allSheets = m_parent->Schematic().GetSheets();
     SCH_REFERENCE_LIST allRefs;
-
-    allSheets.GetSymbols( allRefs );
+    m_parent->Schematic().BuildUnorderedSheetList().GetSymbols( allRefs );
 
     for( SCH_ITEM* item : aSchItem )
     {
         if( item->Type() == SCH_SYMBOL_T )
         {
             SCH_SYMBOL* symbol = static_cast<SCH_SYMBOL*>( item );
+
+            // Don't add power symbols
+            if( !symbol->IsMissingLibSymbol() && symbol->IsPower() )
+                continue;
 
             // Add all fields again in case this symbol has a new one
             for( SCH_FIELD& field : symbol->GetFields() )
@@ -2267,16 +2278,18 @@ void DIALOG_SYMBOL_FIELDS_TABLE::OnSchItemsRemoved( SCHEMATIC&              aSch
 void DIALOG_SYMBOL_FIELDS_TABLE::OnSchItemsChanged( SCHEMATIC&              aSch,
                                                     std::vector<SCH_ITEM*>& aSchItem )
 {
-    SCH_SHEET_LIST     allSheets = m_parent->Schematic().GetSheets();
     SCH_REFERENCE_LIST allRefs;
-
-    allSheets.GetSymbols( allRefs );
+    m_parent->Schematic().BuildUnorderedSheetList().GetSymbols( allRefs );
 
     for( SCH_ITEM* item : aSchItem )
     {
         if( item->Type() == SCH_SYMBOL_T )
         {
             SCH_SYMBOL* symbol = static_cast<SCH_SYMBOL*>( item );
+
+            // Don't add power symbols
+            if( !symbol->IsMissingLibSymbol() && symbol->IsPower() )
+                continue;
 
             // Add all fields again in case this symbol has a new one
             for( SCH_FIELD& field : symbol->GetFields() )
@@ -2344,7 +2357,6 @@ SCH_REFERENCE_LIST
 DIALOG_SYMBOL_FIELDS_TABLE::getSymbolReferences( SCH_SYMBOL*         aSymbol,
                                                  SCH_REFERENCE_LIST& aCachedRefs )
 {
-    SCH_SHEET_LIST     allSheets = m_parent->Schematic().GetSheets();
     SCH_REFERENCE_LIST symbolRefs;
 
     for( size_t i = 0; i < aCachedRefs.GetCount(); i++ )
@@ -2364,7 +2376,7 @@ DIALOG_SYMBOL_FIELDS_TABLE::getSymbolReferences( SCH_SYMBOL*         aSymbol,
 
 SCH_REFERENCE_LIST DIALOG_SYMBOL_FIELDS_TABLE::getSheetSymbolReferences( SCH_SHEET& aSheet )
 {
-    SCH_SHEET_LIST     allSheets = m_parent->Schematic().GetSheets();
+    SCH_SHEET_LIST     allSheets = m_parent->Schematic().BuildUnorderedSheetList();
     SCH_REFERENCE_LIST sheetRefs;
 
     // We need to operate on all instances of the sheet

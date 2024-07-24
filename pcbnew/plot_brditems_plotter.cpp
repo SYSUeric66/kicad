@@ -41,6 +41,7 @@
 #include <gbr_metadata.h>
 #include <gbr_netlist_metadata.h>             // for GBR_NETLIST_METADATA
 #include <layer_ids.h>                        // for LSET, IsCopperLayer
+#include <lset.h>
 #include <pcbplot.h>
 #include <pcb_plot_params.h>                  // for PCB_PLOT_PARAMS, PCB_PL...
 #include <advanced_config.h>
@@ -69,6 +70,73 @@ COLOR4D BRDITEMS_PLOTTER::getColor( int aLayer ) const
         color = COLOR4D( LIGHTGRAY );
 
     return color;
+}
+
+
+void BRDITEMS_PLOTTER::PlotPadNumber( const PAD* aPad, const COLOR4D& aColor )
+{
+    wxString padNumber = UnescapeString( aPad->GetNumber() );
+
+    if( padNumber.IsEmpty() )
+        return;
+
+    BOX2I    padBBox = aPad->GetBoundingBox();
+    VECTOR2I position = padBBox.Centre();
+    VECTOR2I padsize = padBBox.GetSize();
+
+    if( aPad->GetShape() == PAD_SHAPE::CUSTOM )
+    {
+        // See if we have a number box
+        for( const std::shared_ptr<PCB_SHAPE>& primitive : aPad->GetPrimitives() )
+        {
+            if( primitive->IsProxyItem() && primitive->GetShape() == SHAPE_T::RECTANGLE )
+            {
+                position = primitive->GetCenter();
+                RotatePoint( position, aPad->GetOrientation() );
+                position += aPad->ShapePos();
+
+                padsize.x = abs( primitive->GetBotRight().x - primitive->GetTopLeft().x );
+                padsize.y = abs( primitive->GetBotRight().y - primitive->GetTopLeft().y );
+
+                break;
+            }
+        }
+    }
+
+    if( aPad->GetShape() != PAD_SHAPE::CUSTOM )
+    {
+        // Don't allow a 45° rotation to bloat a pad's bounding box unnecessarily
+        int limit = KiROUND( std::min( aPad->GetSize().x, aPad->GetSize().y ) * 1.1 );
+
+        if( padsize.x > limit && padsize.y > limit )
+        {
+            padsize.x = limit;
+            padsize.y = limit;
+        }
+    }
+
+    TEXT_ATTRIBUTES textAttrs;
+
+    if( padsize.x < ( padsize.y * 0.95 ) )
+    {
+        textAttrs.m_Angle = ANGLE_90;
+        std::swap( padsize.x, padsize.y );
+    }
+
+    // approximate the size of the pad number text:
+    // We use a size for at least 3 chars, to give a good look even for short numbers
+    int tsize = KiROUND( padsize.x / std::max( PrintableCharCount( padNumber ), 3 ) );
+    tsize = std::min( tsize, padsize.y );
+
+    // enforce a max size
+    tsize = std::min( tsize, pcbIUScale.mmToIU( 5.0 ) );
+
+    textAttrs.m_Size = VECTOR2I( tsize, tsize );
+
+    // use a somewhat spindly font to go with the outlined pads
+    textAttrs.m_StrokeWidth = KiROUND( tsize / 12.0 );
+
+    m_plotter->PlotText( position, aColor, padNumber, textAttrs );
 }
 
 
@@ -1014,21 +1082,21 @@ void BRDITEMS_PLOTTER::PlotTableBorders( const PCB_TABLE* aTable )
 }
 
 
-void BRDITEMS_PLOTTER::plotOneDrillMark( PAD_DRILL_SHAPE_T aDrillShape, const VECTOR2I& aDrillPos,
+void BRDITEMS_PLOTTER::plotOneDrillMark( PAD_DRILL_SHAPE aDrillShape, const VECTOR2I& aDrillPos,
                                          const VECTOR2I& aDrillSize, const VECTOR2I& aPadSize,
                                          const EDA_ANGLE& aOrientation, int aSmallDrill )
 {
     VECTOR2I drillSize = aDrillSize;
 
     // Small drill marks have no significance when applied to slots
-    if( aSmallDrill && aDrillShape == PAD_DRILL_SHAPE_CIRCLE )
+    if( aSmallDrill && aDrillShape == PAD_DRILL_SHAPE::CIRCLE )
         drillSize.x = std::min( aSmallDrill, drillSize.x );
 
     // Round holes only have x diameter, slots have both
     drillSize.x -= getFineWidthAdj();
     drillSize.x = Clamp( 1, drillSize.x, aPadSize.x - 1 );
 
-    if( aDrillShape == PAD_DRILL_SHAPE_OBLONG )
+    if( aDrillShape == PAD_DRILL_SHAPE::OBLONG )
     {
         drillSize.y -= getFineWidthAdj();
         drillSize.y = Clamp( 1, drillSize.y, aPadSize.y - 1 );
@@ -1044,23 +1112,23 @@ void BRDITEMS_PLOTTER::plotOneDrillMark( PAD_DRILL_SHAPE_T aDrillShape, const VE
 
 void BRDITEMS_PLOTTER::PlotDrillMarks()
 {
-    /* If small drills marks were requested prepare a clamp value to pass
-       to the helper function */
-    int smallDrill = GetDrillMarksType() == DRILL_MARKS::SMALL_DRILL_SHAPE
-                    ? pcbIUScale.mmToIU( ADVANCED_CFG::GetCfg().m_SmallDrillMarkSize ) : 0;
+    bool onCopperLayer = ( LSET::AllCuMask() & m_layerMask ).any();
+    int  smallDrill =  0;
 
-    /* In the filled trace mode drill marks are drawn white-on-black to scrape
-       the underlying pad. This works only for drivers supporting color change,
-       obviously... it means that:
+    if( GetDrillMarksType() == DRILL_MARKS::SMALL_DRILL_SHAPE )
+        smallDrill = pcbIUScale.mmToIU( ADVANCED_CFG::GetCfg().m_SmallDrillMarkSize );
+
+    /* In the filled trace mode drill marks are drawn white-on-black to knock-out the underlying
+       pad.  This works only for drivers supporting color change, obviously... it means that:
        - PS, SVG and PDF output is correct (i.e. you have a 'donut' pad)
        - In HPGL you can't see them
-       - In gerbers you can't see them, too. This is arguably the right thing to
-         do since having drill marks and high speed drill stations is a sure
-         recipe for broken tools and angry manufacturers. If you *really* want them
-         you could start a layer with negative polarity to scrape the film.
+       - In gerbers you can't see them, too. This is arguably the right thing to do since having
+         drill marks and high speed drill stations is a sure recipe for broken tools and angry
+         manufacturers. If you *really* want them you could start a layer with negative polarity
+         to knock-out the film.
        - In DXF they go into the 'WHITE' layer. This could be useful.
      */
-    if( GetPlotMode() == FILLED )
+    if( GetPlotMode() == FILLED && onCopperLayer )
          m_plotter->SetColor( WHITE );
 
     for( PCB_TRACK* track : m_board->Tracks() )
@@ -1073,7 +1141,7 @@ void BRDITEMS_PLOTTER::PlotDrillMarks()
             if( ( via->GetLayerSet() & m_layerMask ).none() )
                 continue;
 
-            plotOneDrillMark( PAD_DRILL_SHAPE_CIRCLE, via->GetStart(),
+            plotOneDrillMark( PAD_DRILL_SHAPE::CIRCLE, via->GetStart(),
                               VECTOR2I( via->GetDrillValue(), 0 ), VECTOR2I( via->GetWidth(), 0 ),
                               ANGLE_0, smallDrill );
         }
@@ -1091,6 +1159,6 @@ void BRDITEMS_PLOTTER::PlotDrillMarks()
         }
     }
 
-    if( GetPlotMode() == FILLED )
+    if( GetPlotMode() == FILLED && onCopperLayer )
         m_plotter->SetColor( BLACK );
 }

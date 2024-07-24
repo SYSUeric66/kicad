@@ -298,8 +298,8 @@ int BOARD_EDITOR_CONTROL::PageSettings( const TOOL_EVENT& aEvent )
     undoCmd.SetDescription( _( "Page Settings" ) );
     m_frame->SaveCopyInUndoList( undoCmd, UNDO_REDO::PAGESETTINGS );
 
-    DIALOG_PAGES_SETTINGS dlg( m_frame, pcbIUScale.IU_PER_MILS, VECTOR2I( MAX_PAGE_SIZE_PCBNEW_MILS,
-                                                                          MAX_PAGE_SIZE_PCBNEW_MILS ) );
+    DIALOG_PAGES_SETTINGS dlg( m_frame, m_frame->GetBoard()->GetEmbeddedFiles(), pcbIUScale.IU_PER_MILS,
+                               VECTOR2I( MAX_PAGE_SIZE_PCBNEW_MILS, MAX_PAGE_SIZE_PCBNEW_MILS ) );
     dlg.SetWksFileName( BASE_SCREEN::m_DrawingSheetFileName );
 
     if( dlg.ShowModal() == wxID_OK )
@@ -477,6 +477,7 @@ int BOARD_EDITOR_CONTROL::ExportNetlist( const TOOL_EVENT& aEvent )
         }
 
         nlohmann::ordered_map<wxString, wxString> fields;
+
         for( PCB_FIELD* field : footprint->Fields() )
             fields[field->GetCanonicalName()] = field->GetText();
 
@@ -750,7 +751,7 @@ int BOARD_EDITOR_CONTROL::TrackWidthInc( const TOOL_EVENT& aEvent )
             }
         }
 
-        commit.Push( wxT( "Increase Track Width" ) );
+        commit.Push( _( "Increase Track Width" ) );
         return 0;
     }
 
@@ -832,7 +833,7 @@ int BOARD_EDITOR_CONTROL::TrackWidthDec( const TOOL_EVENT& aEvent )
             }
         }
 
-        commit.Push( wxT( "Decrease Track Width" ) );
+        commit.Push( _( "Decrease Track Width" ) );
         return 0;
     }
 
@@ -916,7 +917,7 @@ int BOARD_EDITOR_CONTROL::ViaSizeInc( const TOOL_EVENT& aEvent )
             }
         }
 
-        commit.Push( wxT( "Increase Via Size" ) );
+        commit.Push( _( "Increase Via Size" ) );
     }
     else
     {
@@ -1407,7 +1408,7 @@ int BOARD_EDITOR_CONTROL::ZoneMerge( const TOOL_EVENT& aEvent )
     {
         if( mergeZones( m_frame, commit, toMerge, merged ) )
         {
-            commit.Push( wxT( "Merge Zones" ) );
+            commit.Push( _( "Merge Zones" ) );
 
             for( EDA_ITEM* item : merged )
                 m_toolMgr->RunAction( PCB_ACTIONS::selectItem, item );
@@ -1593,15 +1594,18 @@ int BOARD_EDITOR_CONTROL::EditFpInFpEditor( const TOOL_EVENT& aEvent )
 
     PCB_BASE_EDIT_FRAME* editFrame = getEditFrame<PCB_BASE_EDIT_FRAME>();
 
-    auto editor = (FOOTPRINT_EDIT_FRAME*) editFrame->Kiway().Player( FRAME_FOOTPRINT_EDITOR, true );
+    if( KIWAY_PLAYER* frame = editFrame->Kiway().Player( FRAME_FOOTPRINT_EDITOR, true ) )
+    {
+        FOOTPRINT_EDIT_FRAME* fp_editor = static_cast<FOOTPRINT_EDIT_FRAME*>( frame );
 
-    if( aEvent.IsAction( &PCB_ACTIONS::editFpInFpEditor ) )
-        editor->LoadFootprintFromBoard( fp );
-    else if( aEvent.IsAction( &PCB_ACTIONS::editLibFpInFpEditor ) )
-        editor->LoadFootprintFromLibrary( fp->GetFPID() );
+        if( aEvent.IsAction( &PCB_ACTIONS::editFpInFpEditor ) )
+            fp_editor->LoadFootprintFromBoard( fp );
+        else if( aEvent.IsAction( &PCB_ACTIONS::editLibFpInFpEditor ) )
+            fp_editor->LoadFootprintFromLibrary( fp->GetFPID() );
 
-    editor->Show( true );
-    editor->Raise();        // Iconize( false );
+        fp_editor->Show( true );
+        fp_editor->Raise();        // Iconize( false );
+    }
 
     if( selection.IsHover() )
         m_toolMgr->RunAction( PCB_ACTIONS::selectionClear );
@@ -1635,12 +1639,12 @@ int BOARD_EDITOR_CONTROL::DrillOrigin( const TOOL_EVENT& aEvent )
     Activate();
 
     picker->SetClickHandler(
-        [this] ( const VECTOR2D& pt ) -> bool
-        {
-            m_frame->SaveCopyInUndoList( m_placeOrigin.get(), UNDO_REDO::DRILLORIGIN );
-            DoSetDrillOrigin( getView(), m_frame, m_placeOrigin.get(), pt );
-            return false;   // drill origin is a one-shot; don't continue with tool
-        } );
+            [this] ( const VECTOR2D& pt ) -> bool
+            {
+                m_frame->SaveCopyInUndoList( m_placeOrigin.get(), UNDO_REDO::DRILLORIGIN );
+                DoSetDrillOrigin( getView(), m_frame, m_placeOrigin.get(), pt );
+                return false;   // drill origin is a one-shot; don't continue with tool
+            } );
 
     m_toolMgr->RunAction( ACTIONS::pickerTool, &aEvent );
 
@@ -1669,9 +1673,11 @@ void BOARD_EDITOR_CONTROL::setTransitions()
     Go( &BOARD_EDITOR_CONTROL::ImportSpecctraSession,  PCB_ACTIONS::importSpecctraSession.MakeEvent() );
     Go( &BOARD_EDITOR_CONTROL::ExportSpecctraDSN,      PCB_ACTIONS::exportSpecctraDSN.MakeEvent() );
 
-    if( ADVANCED_CFG::GetCfg().m_ShowPcbnewExportNetlist && m_frame &&
-        m_frame->GetExportNetlistAction() )
+    if( ADVANCED_CFG::GetCfg().m_ShowPcbnewExportNetlist && m_frame
+            && m_frame->GetExportNetlistAction() )
+    {
         Go( &BOARD_EDITOR_CONTROL::ExportNetlist, m_frame->GetExportNetlistAction()->MakeEvent() );
+    }
 
     Go( &BOARD_EDITOR_CONTROL::GenerateDrillFiles,     PCB_ACTIONS::generateDrillFiles.MakeEvent() );
     Go( &BOARD_EDITOR_CONTROL::GenerateFabFiles,       PCB_ACTIONS::generateGerbers.MakeEvent() );

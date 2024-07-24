@@ -248,15 +248,16 @@ void DIALOG_CHANGE_SYMBOLS::launchMatchIdSymbolBrowser( wxCommandEvent& aEvent )
 {
     wxString newName = getLibIdValue( m_specifiedId );
 
-    KIWAY_PLAYER* frame = Kiway().Player( FRAME_SYMBOL_CHOOSER, true, this );
-
-    if( frame->ShowModal( &newName, this ) )
+    if( KIWAY_PLAYER* frame = Kiway().Player( FRAME_SYMBOL_CHOOSER, true, this ) )
     {
-        m_specifiedId->SetValue( UnescapeString( newName ) );
-        updateFieldsList();
-    }
+        if( frame->ShowModal( &newName, this ) )
+        {
+            m_specifiedId->SetValue( UnescapeString( newName ) );
+            updateFieldsList();
+        }
 
-    frame->Destroy();
+        frame->Destroy();
+    }
 }
 
 
@@ -264,15 +265,16 @@ void DIALOG_CHANGE_SYMBOLS::launchNewIdSymbolBrowser( wxCommandEvent& aEvent )
 {
     wxString newName = getLibIdValue( m_newId );
 
-    KIWAY_PLAYER* frame = Kiway().Player( FRAME_SYMBOL_CHOOSER, true, this );
-
-    if( frame->ShowModal( &newName, this ) )
+    if( KIWAY_PLAYER* frame = Kiway().Player( FRAME_SYMBOL_CHOOSER, true, this ) )
     {
-        m_newId->SetValue( UnescapeString( newName ) );
-        updateFieldsList();
-    }
+        if( frame->ShowModal( &newName, this ) )
+        {
+            m_newId->SetValue( UnescapeString( newName ) );
+            updateFieldsList();
+        }
 
-    frame->Destroy();
+        frame->Destroy();
+    }
 }
 
 
@@ -282,14 +284,12 @@ void DIALOG_CHANGE_SYMBOLS::updateFieldsList()
 
     wxCHECK( frame, /* void */ );
 
-    SCH_SHEET_LIST  hierarchy = frame->Schematic().GetSheets();
-
     // Load non-mandatory fields from all matching symbols and their library symbols
     std::vector<SCH_FIELD*> fields;
     std::vector<SCH_FIELD*> libFields;
     std::set<wxString>      fieldNames;
 
-    for( SCH_SHEET_PATH& instance : hierarchy )
+    for( SCH_SHEET_PATH& instance : frame->Schematic().BuildUnorderedSheetList() )
     {
         SCH_SCREEN* screen = instance.LastScreen();
 
@@ -435,13 +435,12 @@ void DIALOG_CHANGE_SYMBOLS::onOkButtonClicked( wxCommandEvent& aEvent )
 
 bool DIALOG_CHANGE_SYMBOLS::isMatch( SCH_SYMBOL* aSymbol, SCH_SHEET_PATH* aInstance )
 {
-    LIB_ID id;
-
-    wxCHECK( aSymbol, false );
-
     SCH_EDIT_FRAME* frame = dynamic_cast<SCH_EDIT_FRAME*>( GetParent() );
 
     wxCHECK( frame, false );
+
+    if( !aSymbol )
+        return false;
 
     if( m_matchAll->GetValue() )
     {
@@ -465,6 +464,8 @@ bool DIALOG_CHANGE_SYMBOLS::isMatch( SCH_SYMBOL* aSymbol, SCH_SHEET_PATH* aInsta
     }
     else if( m_matchById )
     {
+        LIB_ID id;
+
         id.Parse( getLibIdValue( m_specifiedId ) );
         return aSymbol->GetLibId() == id;
     }
@@ -479,11 +480,10 @@ int DIALOG_CHANGE_SYMBOLS::processMatchingSymbols( SCH_COMMIT* aCommit )
 
     wxCHECK( frame, false );
 
-    LIB_ID newId;
-    wxString msg;
-    int matchesProcessed = 0;
+    LIB_ID      newId;
+    wxString    msg;
+    int         matchesProcessed = 0;
     SCH_SYMBOL* symbol = nullptr;
-    SCH_SHEET_LIST hierarchy = frame->Schematic().GetSheets();
 
     if( m_mode == MODE::CHANGE )
     {
@@ -495,7 +495,7 @@ int DIALOG_CHANGE_SYMBOLS::processMatchingSymbols( SCH_COMMIT* aCommit )
 
     std::map<SCH_SYMBOL*, SYMBOL_CHANGE_INFO> symbols;
 
-    for( SCH_SHEET_PATH& instance : hierarchy )
+    for( SCH_SHEET_PATH& instance : frame->Schematic().BuildSheetListSortedByPageNumbers() )
     {
         SCH_SCREEN* screen = instance.LastScreen();
 
@@ -796,7 +796,7 @@ wxString DIALOG_CHANGE_SYMBOLS::getSymbolReferences( SCH_SYMBOL& aSymbol,
 
     wxCHECK( parent, msg );
 
-    SCH_SHEET_LIST sheets = parent->Schematic().GetSheets();
+    SCH_SHEET_LIST sheets = parent->Schematic().BuildUnorderedSheetList();
 
     for( const SCH_SYMBOL_INSTANCE& instance : aSymbol.GetInstances() )
     {

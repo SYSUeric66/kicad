@@ -22,51 +22,54 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA
  */
 
-#include <advanced_config.h>
-#include <board.h>
-#include <board_design_settings.h>
-#include <confirm.h>
-#include <convert_basic_shapes_to_polygon.h> // for enum RECT_CHAMFER_POSITIONS definition
-#include <string_utils.h>
-#include <kiface_base.h>
-#include <locale_io.h>
-#include <macros.h>
-#include <fmt/core.h>
-#include <callback_gal.h>
-#include <pad.h>
-#include <footprint.h>
-#include <pcb_group.h>
-#include <pcb_generator.h>
-#include <pcb_shape.h>
-#include <pcb_dimension.h>
-#include <pcb_reference_image.h>
-#include <pcb_target.h>
-#include <pcb_text.h>
-#include <pcb_textbox.h>
-#include <pcb_tablecell.h>
-#include <pcb_table.h>
-#include <pcb_track.h>
-#include <zone.h>
-#include <pcbnew_settings.h>
-#include <pgm_base.h>
-#include <io/kicad/kicad_io_utils.h>
-#include <pcb_io/kicad_sexpr/pcb_io_kicad_sexpr.h>
-#include <pcb_io/kicad_sexpr/pcb_io_kicad_sexpr_parser.h>
-#include <trace_helpers.h>
-#include <progress_reporter.h>
-#include <wildcards_and_files_ext.h>
+// base64 code. Needed for PCB_REFERENCE_IMAGE
+#define wxUSE_BASE64 1
+#include <wx/base64.h>
 #include <wx/dir.h>
 #include <wx/ffile.h>
 #include <wx/log.h>
 #include <wx/msgdlg.h>
-#include <build_version.h>
-
-// For some reason wxWidgets is built with wxUSE_BASE64 unset so expose the wxWidgets
-// base64 code. Needed for PCB_REFERENCE_IMAGE
-#define wxUSE_BASE64 1
-#include <wx/base64.h>
 #include <wx/mstream.h>
+
+#include <advanced_config.h>
+#include <board.h>
+#include <board_design_settings.h>
+#include <callback_gal.h>
+#include <confirm.h>
+#include <convert_basic_shapes_to_polygon.h> // for enum RECT_CHAMFER_POSITIONS definition
+#include <fmt/core.h>
+#include <font/fontconfig.h>
+#include <footprint.h>
+#include <io/kicad/kicad_io_utils.h>
+#include <kiface_base.h>
+#include <locale_io.h>
+#include <macros.h>
+#include <pad.h>
+#include <pcb_dimension.h>
+#include <pcb_generator.h>
+#include <pcb_group.h>
+#include <pcb_io/kicad_sexpr/pcb_io_kicad_sexpr.h>
+#include <pcb_io/kicad_sexpr/pcb_io_kicad_sexpr_parser.h>
+#include <pcb_reference_image.h>
+#include <pcb_shape.h>
+#include <pcb_table.h>
+#include <pcb_tablecell.h>
+#include <pcb_target.h>
+#include <pcb_text.h>
+#include <pcb_textbox.h>
+#include <pcb_track.h>
+#include <pcbnew_settings.h>
+#include <pgm_base.h>
+#include <progress_reporter.h>
+#include <reporter.h>
+#include <string_utils.h>
+#include <trace_helpers.h>
+#include <wildcards_and_files_ext.h>
+#include <zone.h>
+
+#include <build_version.h>
 #include <filter_reader.h>
+#include <ctl_flags.h>
 
 
 using namespace PCB_KEYS_T;
@@ -108,6 +111,14 @@ void FP_CACHE::Save( FOOTPRINT* aFootprint )
     {
         if( aFootprint && aFootprint != it->second->GetFootprint() )
             continue;
+
+        // If we've requested to embed the fonts in the footprint, do so.
+        // Otherwise, clear the embedded fonts from the footprint.  Embedded
+        // fonts will be used if available
+        if( aFootprint->GetAreFontsEmbedded() )
+            aFootprint->EmbedFonts();
+        else
+            aFootprint->GetEmbeddedFiles()->ClearEmbeddedFonts();
 
         WX_FILENAME fn = it->second->GetFileName();
 
@@ -317,6 +328,13 @@ void PCB_IO_KICAD_SEXPR::SaveBoard( const wxString& aFileName, BOARD* aBoard,
     init( aProperties );
 
     m_board = aBoard;       // after init()
+
+    // If the user wants fonts embedded, make sure that they are added to the board.  Otherwise,
+    // remove any fonts that were previously embedded.
+    if( m_board->GetAreFontsEmbedded() )
+        m_board->EmbedFonts();
+    else
+        m_board->GetEmbeddedFiles()->ClearEmbeddedFonts();
 
     // Prepare net mapping that assures that net codes saved in a file are consecutive integers
     m_mapping->SetBoard( aBoard );
@@ -587,6 +605,22 @@ void PCB_IO_KICAD_SEXPR::formatSetup( const BOARD* aBoard, int aNestLevel ) cons
     KICAD_FORMAT::FormatBool( m_out, aNestLevel + 1, "allow_soldermask_bridges_in_footprints",
                               dsnSettings.m_AllowSoldermaskBridgesInFPs );
 
+    m_out->Print( 0, " (tenting " );
+
+    if( dsnSettings.m_TentViasFront || dsnSettings.m_TentViasBack )
+    {
+        if( dsnSettings.m_TentViasFront )
+            m_out->Print( 0, "front " );
+        if( dsnSettings.m_TentViasBack )
+            m_out->Print( 0, "back " );
+
+        m_out->Print( 0, ")" );
+    }
+    else
+    {
+        m_out->Print( 0, " none)" );
+    }
+
     VECTOR2I origin = dsnSettings.GetAuxOrigin();
 
     if( origin != VECTOR2I( 0, 0 ) )
@@ -637,11 +671,11 @@ void PCB_IO_KICAD_SEXPR::formatBoardLayers( const BOARD* aBoard, int aNestLevel 
 
     // Save only the used copper layers from front to back.
 
-    for( LSEQ cu = aBoard->GetEnabledLayers().CuStack();  cu;  ++cu )
+    for( PCB_LAYER_ID layer : aBoard->GetEnabledLayers().CuStack() )
     {
-        PCB_LAYER_ID layer = *cu;
 
-        m_out->Print( aNestLevel+1, "(%d %s %s", layer,
+        m_out->Print( aNestLevel+1, "(%d %s %s",
+                      layer,
                       m_out->Quotew( LSET::Name( layer ) ).c_str(),
                       LAYER::ShowType( aBoard->GetLayerType( layer ) ) );
 
@@ -684,12 +718,16 @@ void PCB_IO_KICAD_SEXPR::formatBoardLayers( const BOARD* aBoard, int aNestLevel 
         User_9
     };
 
-    for( LSEQ seq = aBoard->GetEnabledLayers().Seq( non_cu, arrayDim( non_cu ) ); seq; ++seq )
+    for( PCB_LAYER_ID layer : aBoard->GetEnabledLayers().Seq( non_cu, arrayDim( non_cu ) ) )
     {
-        PCB_LAYER_ID layer = *seq;
-
-        m_out->Print( aNestLevel+1, "(%d %s user", layer,
+        m_out->Print( aNestLevel+1, "(%d %s",
+                      layer,
                       m_out->Quotew( LSET::Name( layer ) ).c_str() );
+
+        if( layer >= User_1 && layer <= User_9 )
+            m_out->Print( 0, " %s", LAYER::ShowType( aBoard->GetLayerType( layer ) ) );
+        else
+            m_out->Print( 0, " user" );
 
         if( m_board->GetLayerName( layer ) != LSET::Name( layer ) )
             m_out->Print( 0, " %s", m_out->Quotew( m_board->GetLayerName( layer ) ).c_str() );
@@ -837,6 +875,31 @@ void PCB_IO_KICAD_SEXPR::format( const BOARD* aBoard, int aNestLevel ) const
     // Save the generators
     for( BOARD_ITEM* gen : sorted_generators )
         Format( gen, aNestLevel );
+
+    // Save any embedded files
+    // Consolidate the embedded models in footprints into a single map
+    // to avoid duplicating the same model in the board file.
+    EMBEDDED_FILES files_to_write;
+
+    for( auto& file : aBoard->GetEmbeddedFiles()->EmbeddedFileMap() )
+        files_to_write.AddFile( file.second );
+
+    for( BOARD_ITEM* item : sorted_footprints )
+    {
+        FOOTPRINT* fp = static_cast<FOOTPRINT*>( item );
+
+        for( auto& file : fp->GetEmbeddedFiles()->EmbeddedFileMap() )
+            files_to_write.AddFile( file.second );
+    }
+
+    m_out->Print( aNestLevel + 1, "(embedded_fonts %s)\n",
+                  aBoard->GetEmbeddedFiles()->GetAreFontsEmbedded() ? "yes" : "no" );
+
+    if( !files_to_write.IsEmpty() )
+        files_to_write.WriteEmbeddedFiles( *m_out, aNestLevel + 1, ( m_ctl & CTL_FOR_BOARD ) );
+
+    // Remove the files so that they are not freed in the DTOR
+    files_to_write.ClearEmbeddedFiles( false );
 }
 
 
@@ -1318,6 +1381,14 @@ void PCB_IO_KICAD_SEXPR::format( const FOOTPRINT* aFootprint, int aNestLevel ) c
     for( BOARD_ITEM* group : sorted_groups )
         Format( group, aNestLevel + 1 );
 
+    m_out->Print( aNestLevel + 1, "(embedded_fonts %s)\n",
+                  aFootprint->GetEmbeddedFiles()->GetAreFontsEmbedded() ? "yes" : "no" );
+
+    if( !aFootprint->GetEmbeddedFiles()->IsEmpty() )
+    {
+        aFootprint->WriteEmbeddedFiles( *m_out, aNestLevel + 1, !( m_ctl & CTL_FOR_BOARD ) );
+    }
+
     // Save 3D info.
     auto bs3D = aFootprint->Models().begin();
     auto es3D = aFootprint->Models().end();
@@ -1370,13 +1441,13 @@ void PCB_IO_KICAD_SEXPR::formatLayers( LSET aLayerMask, int aNestLevel ) const
     output += "(layers";
 
     static const LSET cu_all( LSET::AllCuMask() );
-    static const LSET fr_bk(  2, B_Cu,       F_Cu );
-    static const LSET adhes(  2, B_Adhes,    F_Adhes );
-    static const LSET paste(  2, B_Paste,    F_Paste );
-    static const LSET silks(  2, B_SilkS,    F_SilkS );
-    static const LSET mask(   2, B_Mask,     F_Mask );
-    static const LSET crt_yd( 2, B_CrtYd,    F_CrtYd );
-    static const LSET fab(    2, B_Fab,      F_Fab );
+    static const LSET fr_bk(  { B_Cu, F_Cu } );
+    static const LSET adhes(  { B_Adhes, F_Adhes } );
+    static const LSET paste(  { B_Paste, F_Paste } );
+    static const LSET silks(  { B_SilkS, F_SilkS } );
+    static const LSET mask(   { B_Mask, F_Mask } );
+    static const LSET crt_yd( { B_CrtYd, F_CrtYd } );
+    static const LSET fab(    { B_Fab, F_Fab } );
 
     LSET cu_mask = cu_all;
 
@@ -1522,7 +1593,7 @@ void PCB_IO_KICAD_SEXPR::format( const PAD* aPad, int aNestLevel ) const
     {
         m_out->Print( 0, " (drill" );
 
-        if( aPad->GetDrillShape() == PAD_DRILL_SHAPE_OBLONG )
+        if( aPad->GetDrillShape() == PAD_DRILL_SHAPE::OBLONG )
             m_out->Print( 0, " oval" );
 
         if( sz.x > 0 )
@@ -1555,10 +1626,10 @@ void PCB_IO_KICAD_SEXPR::format( const PAD* aPad, int aNestLevel ) const
             {
                 m_out->Print( 0, " (zone_layer_connections" );
 
-                for( LSEQ cu = board->GetEnabledLayers().CuStack();  cu;  ++cu )
+                for( PCB_LAYER_ID layer : board->GetEnabledLayers().CuStack() )
                 {
-                    if( aPad->GetZoneLayerOverride( *cu ) == ZLO_FORCE_FLASHED )
-                        m_out->Print( 0, " %s", m_out->Quotew( LSET::Name( *cu ) ).c_str() );
+                    if( aPad->GetZoneLayerOverride( layer ) == ZLO_FORCE_FLASHED )
+                        m_out->Print( 0, " %s", m_out->Quotew( LSET::Name( layer ) ).c_str() );
                 }
 
                 m_out->Print( 0, ")" );
@@ -1697,7 +1768,7 @@ void PCB_IO_KICAD_SEXPR::format( const PAD* aPad, int aNestLevel ) const
         m_out->Print( 0, "\n");
         m_out->Print( aNestLevel+1, "(options" );
 
-        if( aPad->GetCustomShapeInZoneOpt() == CUST_PAD_SHAPE_IN_ZONE_CONVEXHULL )
+        if( aPad->GetCustomShapeInZoneOpt() == PADSTACK::CUSTOM_SHAPE_ZONE_MODE::CONVEXHULL )
             m_out->Print( 0, " (clearance convexhull)" );
         #if 1   // Set to 1 to output the default option
         else
@@ -1879,7 +1950,13 @@ void PCB_IO_KICAD_SEXPR::format( const PCB_TEXT* aText, int aNestLevel ) const
 
     KICAD_FORMAT::FormatUuid( m_out, aText->m_Uuid );
 
-    aText->EDA_TEXT::Format( m_out, aNestLevel, m_ctl | CTL_OMIT_HIDE );
+    int ctl_flags = m_ctl | CTL_OMIT_HIDE;
+
+    // Currently, texts have no specific color and no hyperlink.
+    // so ensure they are never written in kicad_pcb file
+    ctl_flags |= CTL_OMIT_COLOR | CTL_OMIT_HYPERLINK;
+
+    aText->EDA_TEXT::Format( m_out, aNestLevel, ctl_flags );
 
     if( aText->GetFont() && aText->GetFont()->IsOutline() )
         formatRenderCache( aText, aNestLevel + 1 );
@@ -1966,13 +2043,26 @@ void PCB_IO_KICAD_SEXPR::format( const PCB_TABLE* aTable, int aNestLevel ) const
 {
     wxCHECK_RET( aTable != nullptr && m_out != nullptr, "" );
 
-    m_out->Print( aNestLevel, "(table (column_count %d)\n",
+    m_out->Print( aNestLevel, "(table (column_count %d)",
                   aTable->GetColCount() );
 
     if( aTable->IsLocked() )
-        KICAD_FORMAT::FormatBool( m_out, aNestLevel, "locked", aTable->IsLocked() );
+        KICAD_FORMAT::FormatBool( m_out, 0, "locked", aTable->IsLocked() );
+
+    EDA_ANGLE angle = aTable->GetOrientation();
+
+    if( FOOTPRINT* parentFP = aTable->GetParentFootprint() )
+    {
+        angle -= parentFP->GetOrientation();
+        angle.Normalize720();
+    }
+
+    if( !angle.IsZero() )
+        m_out->Print( 0, " (angle %s)", EDA_UNIT_UTILS::FormatAngle( angle ).c_str() );
 
     formatLayer( aTable->GetLayer() );
+
+    m_out->Print( 0, "\n" );
 
     m_out->Print( aNestLevel + 1, "(border (external %s) (header %s)",
                   aTable->StrokeExternal() ? "yes" : "no",
@@ -2199,12 +2289,20 @@ void PCB_IO_KICAD_SEXPR::format( const PCB_TRACK* aTrack, int aNestLevel ) const
                       m_out->Quotew( LSET::Name( layer1 ) ).c_str(),
                       m_out->Quotew( LSET::Name( layer2 ) ).c_str() );
 
-        if( via->GetRemoveUnconnected() )
+        switch( via->Padstack().UnconnectedLayerMode() )
         {
-            KICAD_FORMAT::FormatBool( m_out, 0, "remove_unused_layers",
-                                      via->GetRemoveUnconnected() );
+        case PADSTACK::UNCONNECTED_LAYER_MODE::REMOVE_ALL:
+            m_out->Print( 0, "(remove_unused_layers yes)" );
+            m_out->Print( 0, "(keep_end_layers no)" );
+            break;
 
-            KICAD_FORMAT::FormatBool( m_out, 0, "keep_end_layers", via->GetKeepStartEnd() );
+        case PADSTACK::UNCONNECTED_LAYER_MODE::REMOVE_EXCEPT_START_AND_END:
+            m_out->Print( 0, "(remove_unused_layers yes)" );
+            m_out->Print( 0, "(keep_end_layers yes)" );
+            break;
+
+        case PADSTACK::UNCONNECTED_LAYER_MODE::KEEP_ALL:
+            break;
         }
 
         if( via->IsLocked() )
@@ -2217,13 +2315,35 @@ void PCB_IO_KICAD_SEXPR::format( const PCB_TRACK* aTrack, int aNestLevel ) const
         {
             m_out->Print( 0, " (zone_layer_connections" );
 
-            for( LSEQ cu = board->GetEnabledLayers().CuStack();  cu;  ++cu )
+            for( PCB_LAYER_ID layer : board->GetEnabledLayers().CuStack() )
             {
-                if( via->GetZoneLayerOverride( *cu ) == ZLO_FORCE_FLASHED )
-                    m_out->Print( 0, " %s", m_out->Quotew( LSET::Name( *cu ) ).c_str() );
+                if( via->GetZoneLayerOverride( layer ) == ZLO_FORCE_FLASHED )
+                    m_out->Print( 0, " %s", m_out->Quotew( LSET::Name( layer ) ).c_str() );
             }
 
             m_out->Print( 0, ")" );
+        }
+
+        std::optional<bool> front = via->Padstack().FrontOuterLayers().has_solder_mask;
+        std::optional<bool> back = via->Padstack().BackOuterLayers().has_solder_mask;
+
+        if( front.has_value() || back.has_value() )
+        {
+            if( front.value_or( false ) || back.value_or( false ) )
+            {
+                m_out->Print( 0, " (tenting " );
+
+                if( front.value_or( false ) )
+                    m_out->Print( 0, " front" );
+                if( back.value_or( false ) )
+                    m_out->Print( 0, " back" );
+
+                m_out->Print( 0, ")" );
+            }
+            else
+            {
+                m_out->Print( 0, " (tenting none)" );
+            }
         }
 
         if( !isDefaultTeardropParameters( via->GetTeardropParams() ) )
@@ -2514,6 +2634,8 @@ BOARD* PCB_IO_KICAD_SEXPR::LoadBoard( const wxString& aFileName, BOARD* aAppendT
 
     unsigned lineCount = 0;
 
+    fontconfig::FONTCONFIG::SetReporter( &WXLOG_REPORTER::GetInstance() );
+
     if( m_progressReporter )
     {
         m_progressReporter->Report( wxString::Format( _( "Loading %s..." ), aFileName ) );
@@ -2583,6 +2705,8 @@ void PCB_IO_KICAD_SEXPR::init( const STRING_UTF8_MAP* aProperties )
 
 void PCB_IO_KICAD_SEXPR::validateCache( const wxString& aLibraryPath, bool checkModified )
 {
+    fontconfig::FONTCONFIG::SetReporter( nullptr );
+
     if( !m_cache || !m_cache->IsPath( aLibraryPath ) || ( checkModified && m_cache->IsModified() ) )
     {
         // a spectacular episode in memory management:
@@ -2680,6 +2804,8 @@ FOOTPRINT* PCB_IO_KICAD_SEXPR::ImportFootprint( const wxString& aFootprintPath, 
     wxString fcontents;
     wxFFile  f( aFootprintPath );
 
+    fontconfig::FONTCONFIG::SetReporter( nullptr );
+
     if( !f.IsOpened() )
         return nullptr;
 
@@ -2696,6 +2822,8 @@ FOOTPRINT* PCB_IO_KICAD_SEXPR::FootprintLoad( const wxString& aLibraryPath,
                                       bool  aKeepUUID,
                                       const STRING_UTF8_MAP* aProperties )
 {
+    fontconfig::FONTCONFIG::SetReporter( nullptr );
+
     const FOOTPRINT* footprint = getFootprint( aLibraryPath, aFootprintName, aProperties, true );
 
     if( footprint )

@@ -299,7 +299,7 @@ void DIALOG_BOARD_STATISTICS::getDataFromPCB()
             }
 
             DRILL_LINE_ITEM drill( via->GetDrillValue(), via->GetDrillValue(),
-                                   PAD_DRILL_SHAPE_CIRCLE, true, false, via->TopLayer(),
+                                   PAD_DRILL_SHAPE::CIRCLE, true, false, via->TopLayer(),
                                    via->BottomLayer() );
 
             auto it = m_drillTypes.begin();
@@ -325,26 +325,8 @@ void DIALOG_BOARD_STATISTICS::getDataFromPCB()
     sort( m_drillTypes.begin(), m_drillTypes.end(),
           DRILL_LINE_ITEM::COMPARE( DRILL_LINE_ITEM::COL_COUNT, false ) );
 
-    bool           boundingBoxCreated = false; //flag if bounding box initialized
-    BOX2I          bbox;
     SHAPE_POLY_SET polySet;
     m_hasOutline = board->GetBoardPolygonOutlines( polySet );
-
-    // If board has no Edge Cuts lines, board->GetBoardPolygonOutlines will
-    // return small rectangle, so we double check that
-    bool edgeCutsExists = false;
-
-    for( BOARD_ITEM* drawing : board->Drawings() )
-    {
-        if( drawing->GetLayer() == Edge_Cuts )
-        {
-            edgeCutsExists = true;
-            break;
-        }
-    }
-
-    if( !edgeCutsExists )
-        m_hasOutline = false;
 
     if( m_hasOutline )
     {
@@ -391,17 +373,10 @@ void DIALOG_BOARD_STATISTICS::getDataFromPCB()
                     }
                 }
             }
-
-            if( boundingBoxCreated )
-            {
-                bbox.Merge( outline.BBox() );
-            }
-            else
-            {
-                bbox = outline.BBox();
-                boundingBoxCreated = true;
-            }
         }
+
+        // Compute the bounding box to get a rectangular size
+        BOX2I bbox = board->GetBoardEdgesBoundingBox();
 
         m_boardWidth = bbox.GetWidth();
         m_boardHeight = bbox.GetHeight();
@@ -509,8 +484,8 @@ void DIALOG_BOARD_STATISTICS::updateDrillGrid()
 
         switch( line.shape )
         {
-        case PAD_DRILL_SHAPE_CIRCLE: shapeStr = _( "Round" ); break;
-        case PAD_DRILL_SHAPE_OBLONG: shapeStr = _( "Slot" );  break;
+        case PAD_DRILL_SHAPE::CIRCLE: shapeStr = _( "Round" ); break;
+        case PAD_DRILL_SHAPE::OBLONG: shapeStr = _( "Slot" );  break;
         default:                     shapeStr = _( "???" );   break;
         }
 

@@ -23,6 +23,7 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA
  */
 
+#include <advanced_config.h>
 #include <base_units.h>
 #include <pgm_base.h>
 #include <sch_edit_frame.h>
@@ -202,6 +203,12 @@ SPIN_STYLE SPIN_STYLE::MirrorY()
 }
 
 
+unsigned SPIN_STYLE::CCWRotationsTo( const SPIN_STYLE& aOther ) const
+{
+    return ( ( (int) m_spin - (int) aOther.m_spin ) % 4 + 4 ) % 4;
+}
+
+
 SCH_LABEL_BASE::SCH_LABEL_BASE( const VECTOR2I& aPos, const wxString& aText, KICAD_T aType ) :
         SCH_TEXT( aPos, aText, LAYER_NOTES, aType ),
         m_shape( L_UNSPECIFIED ),
@@ -259,6 +266,9 @@ const wxString SCH_LABEL_BASE::GetDefaultFieldName( const wxString& aName, bool 
 
 bool SCH_LABEL_BASE::IsType( const std::vector<KICAD_T>& aScanTypes ) const
 {
+    static const std::vector<KICAD_T> wireAndPinTypes = { SCH_ITEM_LOCATE_WIRE_T, SCH_PIN_T };
+    static const std::vector<KICAD_T> busTypes = { SCH_ITEM_LOCATE_BUS_T };
+
     if( SCH_TEXT::IsType( aScanTypes ) )
         return true;
 
@@ -283,7 +293,7 @@ bool SCH_LABEL_BASE::IsType( const std::vector<KICAD_T>& aScanTypes ) const
         {
             for( SCH_ITEM* connection : item_set )
             {
-                if( connection->IsType( { SCH_ITEM_LOCATE_WIRE_T, SCH_PIN_T } ) )
+                if( connection->IsType( wireAndPinTypes ) )
                     return true;
             }
         }
@@ -292,7 +302,7 @@ bool SCH_LABEL_BASE::IsType( const std::vector<KICAD_T>& aScanTypes ) const
         {
             for( SCH_ITEM* connection : item_set )
             {
-                if( connection->IsType( { SCH_ITEM_LOCATE_BUS_T } ) )
+                if( connection->IsType( busTypes ) )
                     return true;
             }
         }
@@ -428,10 +438,10 @@ void SCH_LABEL_BASE::Move( const VECTOR2I& aMoveVector )
 void SCH_LABEL_BASE::Rotate( const VECTOR2I& aCenter, bool aRotateCCW )
 {
     VECTOR2I pt = GetTextPos();
-    RotatePoint( pt, aCenter, aRotateCCW ? ANGLE_270 : ANGLE_90 );
+    RotatePoint( pt, aCenter, aRotateCCW ? ANGLE_90 : ANGLE_270 );
     VECTOR2I offset = pt - GetTextPos();
 
-    Rotate90( aRotateCCW );
+    Rotate90( !aRotateCCW );
 
     SetTextPos( GetTextPos() + offset );
 
@@ -452,42 +462,7 @@ void SCH_LABEL_BASE::Rotate90( bool aClockwise )
     {
         for( SCH_FIELD& field : m_fields )
         {
-            if( field.GetTextAngle().IsVertical()
-                    && field.GetHorizJustify() == GR_TEXT_H_ALIGN_LEFT )
-            {
-                if( !aClockwise )
-                    field.SetHorizJustify( GR_TEXT_H_ALIGN_RIGHT );
-
-                field.SetTextAngle( ANGLE_HORIZONTAL );
-            }
-            else if( field.GetTextAngle().IsVertical()
-                        && field.GetHorizJustify() == GR_TEXT_H_ALIGN_RIGHT )
-            {
-                if( !aClockwise )
-                    field.SetHorizJustify( GR_TEXT_H_ALIGN_LEFT );
-
-                field.SetTextAngle( ANGLE_HORIZONTAL );
-            }
-            else if( field.GetTextAngle().IsHorizontal()
-                        && field.GetHorizJustify() == GR_TEXT_H_ALIGN_LEFT )
-            {
-                if( aClockwise )
-                    field.SetHorizJustify( GR_TEXT_H_ALIGN_LEFT );
-
-                field.SetTextAngle( ANGLE_VERTICAL );
-            }
-            else if( field.GetTextAngle().IsHorizontal()
-                        && field.GetHorizJustify() == GR_TEXT_H_ALIGN_RIGHT )
-            {
-                if( aClockwise )
-                    field.SetHorizJustify( GR_TEXT_H_ALIGN_LEFT );
-
-                field.SetTextAngle( ANGLE_VERTICAL );
-            }
-
-            VECTOR2I pos = field.GetTextPos();
-            RotatePoint( pos, GetPosition(), aClockwise ? -ANGLE_90 : ANGLE_90 );
-            field.SetTextPos( pos );
+            field.Rotate( GetPosition(), !aClockwise );
         }
     }
 }
@@ -895,7 +870,7 @@ wxString SCH_LABEL_BASE::GetShownText( const SCH_SHEET_PATH* aPath, bool aAllowE
     std::function<bool( wxString* )> textResolver =
             [&]( wxString* token ) -> bool
             {
-                return ResolveTextVar( aPath, token, aDepth );
+                return ResolveTextVar( aPath, token, aDepth + 1 );
             };
 
     wxString text = EDA_TEXT::GetShownText( aAllowExtraText, aDepth );
@@ -906,7 +881,7 @@ wxString SCH_LABEL_BASE::GetShownText( const SCH_SHEET_PATH* aPath, bool aAllowE
     }
     else if( HasTextVars() )
     {
-        if( aDepth < 10 )
+        if( aDepth < ADVANCED_CFG::GetCfg().m_ResolveTextRecursionDepth )
             text = ExpandTextVars( text, &textResolver );
     }
 
@@ -1526,10 +1501,10 @@ const BOX2I SCH_LABEL::GetBodyBoundingBox() const
 }
 
 
-wxString SCH_LABEL::GetItemDescription( UNITS_PROVIDER* aUnitsProvider ) const
+wxString SCH_LABEL::GetItemDescription( UNITS_PROVIDER* aUnitsProvider, bool aFull ) const
 {
     return wxString::Format( _( "Label '%s'" ),
-                             KIUI::EllipsizeMenuText( GetShownText( false ) ) );
+                             aFull ? GetShownText( false ) : KIUI::EllipsizeMenuText( GetText() ) );
 }
 
 
@@ -1793,7 +1768,7 @@ void SCH_DIRECTIVE_LABEL::AutoplaceFields( SCH_SCREEN* aScreen, bool aManual )
 }
 
 
-wxString SCH_DIRECTIVE_LABEL::GetItemDescription( UNITS_PROVIDER* aUnitsProvider ) const
+wxString SCH_DIRECTIVE_LABEL::GetItemDescription( UNITS_PROVIDER* aUnitsProvider, bool aFull ) const
 {
     if( m_fields.empty() )
     {
@@ -1803,7 +1778,8 @@ wxString SCH_DIRECTIVE_LABEL::GetItemDescription( UNITS_PROVIDER* aUnitsProvider
     {
         return wxString::Format( _( "Directive Label [%s %s]" ),
                                  UnescapeString( m_fields[0].GetName() ),
-                                 KIUI::EllipsizeMenuText( m_fields[0].GetShownText( false ) ) );
+                                 aFull ? m_fields[0].GetShownText( false )
+                                       : KIUI::EllipsizeMenuText( m_fields[0].GetText() ) );
     }
 }
 
@@ -2046,10 +2022,10 @@ void SCH_GLOBALLABEL::CreateGraphicShape( const RENDER_SETTINGS* aRenderSettings
 }
 
 
-wxString SCH_GLOBALLABEL::GetItemDescription( UNITS_PROVIDER* aUnitsProvider ) const
+wxString SCH_GLOBALLABEL::GetItemDescription( UNITS_PROVIDER* aUnitsProvider, bool aFull ) const
 {
     return wxString::Format( _( "Global Label '%s'" ),
-                             KIUI::EllipsizeMenuText( GetShownText( false ) ) );
+                             aFull ? GetShownText( false ) : KIUI::EllipsizeMenuText( GetText() ) );
 }
 
 
@@ -2193,10 +2169,10 @@ VECTOR2I SCH_HIERLABEL::GetSchematicTextOffset( const RENDER_SETTINGS* aSettings
 }
 
 
-wxString SCH_HIERLABEL::GetItemDescription( UNITS_PROVIDER* aUnitsProvider ) const
+wxString SCH_HIERLABEL::GetItemDescription( UNITS_PROVIDER* aUnitsProvider, bool aFull ) const
 {
     return wxString::Format( _( "Hierarchical Label '%s'" ),
-                             KIUI::EllipsizeMenuText( GetShownText( false ) ) );
+                             aFull ? GetShownText( false ) : KIUI::EllipsizeMenuText( GetText() ) );
 }
 
 

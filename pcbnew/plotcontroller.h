@@ -35,6 +35,7 @@
 
 class PLOTTER;
 class BOARD;
+class LSEQ;
 
 
 /**

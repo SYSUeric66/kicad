@@ -220,6 +220,11 @@ public:
     void SaveSettings( APP_SETTINGS_BASE* aCfg ) override;
 
     /**
+     * Load the drawing sheet file.
+     */
+    void LoadDrawingSheet();
+
+    /**
      * Get the last path for a particular type.
      *
      * @return the absolute path and file name of the last file successfully read.
@@ -530,10 +535,13 @@ public:
      * @param aUseThou set to true if the desired IDF unit is thou (mil).
      * @param aXRef the board Reference Point in mm, X value.
      * @param aYRef the board Reference Point in mm, Y value.
+     * @param aIncludeUnspecified true to include unspecified-type footprint models
+     * @param aIncludeDNP true to include DNP footprint models
      * @return true if OK.
      */
     bool Export_IDF3( BOARD* aPcb, const wxString& aFullFileName,
-                      bool aUseThou, double aXRef, double aYRef );
+                      bool aUseThou, double aXRef, double aYRef,
+                      bool aIncludeUnspecified, bool aIncludeDNP );
 
     /**
      * Export the current BOARD to a STEP assembly.
@@ -575,7 +583,8 @@ public:
     void ExchangeFootprint( FOOTPRINT* aExisting, FOOTPRINT* aNew, BOARD_COMMIT& aCommit,
                             bool deleteExtraTexts = true, bool resetTextLayers = true,
                             bool resetTextEffects = true, bool resetFabricationAttrs = true,
-                            bool reset3DModels = true, bool* aUpdated = nullptr );
+                            bool resetTextContent = true, bool reset3DModels = true,
+                            bool* aUpdated = nullptr );
 
     /**
      * Install the corresponding dialog editor for the given item.
@@ -822,7 +831,7 @@ protected:
 
     int inferLegacyEdgeClearance( BOARD* aBoard, bool aShowUserMsg = true );
 
-    void redrawNetnames( wxTimerEvent& aEvent );
+    void redrawNetnames();
 
     void saveProjectSettings() override;
 
@@ -870,8 +879,7 @@ private:
     /**
      * Keep track of viewport so that track net labels can be adjusted when it changes.
      */
-    BOX2D        m_lastViewport;
-    wxTimer      m_redrawNetnamesTimer;
+    BOX2D        m_lastNetnamesViewport;
 
     wxTimer*     m_eventCounterTimer;
 

@@ -30,6 +30,7 @@
 #include <unordered_map>
 #include <font/fontinfo.h>
 
+class REPORTER;
 namespace fontconfig
 {
 
@@ -58,18 +59,30 @@ public:
      *
      * A return value of false indicates a serious error in the font system.
      */
-    FF_RESULT FindFont( const wxString& aFontName, wxString& aFontFile, int& aFaceIndex, bool aBold, bool aItalic );
+    FF_RESULT FindFont( const wxString& aFontName, wxString& aFontFile, int& aFaceIndex, bool aBold,
+                        bool aItalic, const std::vector<wxString>* aEmbeddedFiles = nullptr );
 
     /**
      * List the current available font families.
      *
      * @param aDesiredLang The desired language of font name to report back if available, otherwise it will fallback
+     * @param aEmbeddedFiles A list of embedded to use for searching fonts, if nullptr, this is not used
+     * @param aForce If true, force rebuilding the font cache
      */
-    void ListFonts( std::vector<std::string>& aFonts, const std::string& aDesiredLang );
+    void ListFonts( std::vector<std::string>& aFonts, const std::string& aDesiredLang,
+                    const std::vector<wxString>* aEmbeddedFiles = nullptr, bool aForce = false );
+
+    /**
+     * Set the reporter to use for reporting font substitution warnings.
+     *
+     * @param aReporter The reporter to use for reporting font substitution warnings.
+     */
+    static void SetReporter( REPORTER* aReporter );
 
 private:
     std::map<std::string, FONTINFO> m_fontInfoCache;
     wxString                        m_fontCacheLastLang;
+    static REPORTER*                s_reporter;
 
     /**
      * Matches the two rfc 3306 language entries, used for when searching for matching family names

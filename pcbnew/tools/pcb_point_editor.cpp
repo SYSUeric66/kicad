@@ -1389,11 +1389,9 @@ void PCB_POINT_EDITOR::updateItem( BOARD_COMMIT* aCommit )
             for( unsigned i = 0; i < m_editPoints->LinesSize(); ++i )
             {
                 if( !isModified( m_editPoints->Line( i ) ) )
-                    m_editPoints->Line( i ).SetConstraint(
-                            new EC_PERPLINE( m_editPoints->Line( i ) ) );
+                    m_editPoints->Line( i ).SetConstraint( new EC_PERPLINE( m_editPoints->Line( i ) ) );
             }
 
-            validatePolygon( outline );
             break;
         }
 
@@ -1407,7 +1405,7 @@ void PCB_POINT_EDITOR::updateItem( BOARD_COMMIT* aCommit )
             else if( isModified( m_editPoints->Point( BEZIER_END ) ) )
                 shape->SetEnd( m_editPoints->Point( BEZIER_END ).GetPosition() );
 
-            shape->RebuildBezierToSegmentsPointsList( shape->GetWidth() );
+            shape->RebuildBezierToSegmentsPointsList( ARC_HIGH_DEF );
             break;
 
         default:        // suppress warnings
@@ -1473,7 +1471,7 @@ void PCB_POINT_EDITOR::updateItem( BOARD_COMMIT* aCommit )
         case PAD_SHAPE::CIRCLE:
         {
             VECTOR2I end = m_editPoints->Point( 0 ).GetPosition();
-            int      diameter = (int) EuclideanNorm( end - pad->GetPosition() ) * 2;
+            int      diameter = 2 * ( end - pad->GetPosition() ).EuclideanNorm();
 
             pad->SetSize( VECTOR2I( diameter, diameter ) );
             break;
@@ -1589,7 +1587,6 @@ void PCB_POINT_EDITOR::updateItem( BOARD_COMMIT* aCommit )
                 m_editPoints->Line( i ).SetConstraint( new EC_PERPLINE( m_editPoints->Line( i ) ) );
         }
 
-        validatePolygon( outline );
         zone->HatchBorder();
         break;
     }
@@ -1841,12 +1838,6 @@ void PCB_POINT_EDITOR::updateItem( BOARD_COMMIT* aCommit )
     getView()->Update( item );
 
     frame()->SetMsgPanel( item );
-}
-
-
-bool PCB_POINT_EDITOR::validatePolygon( SHAPE_POLY_SET& aPoly ) const
-{
-    return true;
 }
 
 
@@ -2544,7 +2535,6 @@ int PCB_POINT_EDITOR::removeCorner( const TOOL_EVENT& aEvent )
             // the usual case: remove just the corner when there are >3 vertices
             commit.Modify( item );
             polygon->RemoveVertex( vertexIdx );
-            validatePolygon( *polygon );
         }
         else
         {

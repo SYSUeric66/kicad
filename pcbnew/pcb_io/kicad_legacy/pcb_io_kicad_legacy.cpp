@@ -285,14 +285,16 @@ static GR_TEXT_V_ALIGN_T vertJustify( const char* vertical )
 
 
 /// Count the number of set layers in the mask
-inline int layerMaskCountSet( LEG_MASK aMask )
+int layerMaskCountSet( LEG_MASK aMask )
 {
     int count = 0;
 
-    for( int i = 0;  aMask;  ++i, aMask >>= 1 )
+    while( aMask )
     {
         if( aMask & 1 )
             ++count;
+
+        aMask >>= 1;
     }
 
     return count;
@@ -926,6 +928,13 @@ void PCB_IO_KICAD_LEGACY::loadSETUP()
             plot_opts.Parse( &parser );
 
             m_board->SetPlotOptions( plot_opts );
+
+            if( plot_opts.GetLegacyPlotViaOnMaskLayer().has_value() )
+            {
+                bool tent = *plot_opts.GetLegacyPlotViaOnMaskLayer();
+                m_board->GetDesignSettings().m_TentViasFront = tent;
+                m_board->GetDesignSettings().m_TentViasBack = tent;
+            }
         }
 
         else if( TESTLINE( "AuxiliaryAxisOrg" ) )
@@ -1449,7 +1458,7 @@ void PCB_IO_KICAD_LEGACY::loadPAD( FOOTPRINT* aFootprint )
             BIU offs_x  = biuParse( data, &data );
             BIU offs_y  = biuParse( data, &data );
 
-            PAD_DRILL_SHAPE_T drShape = PAD_DRILL_SHAPE_CIRCLE;
+            PAD_DRILL_SHAPE drShape = PAD_DRILL_SHAPE::CIRCLE;
 
             data = strtok_r( (char*) data, delims, &saveptr );
 
@@ -1457,7 +1466,7 @@ void PCB_IO_KICAD_LEGACY::loadPAD( FOOTPRINT* aFootprint )
             {
                 if( data[0] == 'O' )
                 {
-                    drShape = PAD_DRILL_SHAPE_OBLONG;
+                    drShape = PAD_DRILL_SHAPE::OBLONG;
 
                     data    = strtok_r( nullptr, delims, &saveptr );
                     drill_x = biuParse( data );

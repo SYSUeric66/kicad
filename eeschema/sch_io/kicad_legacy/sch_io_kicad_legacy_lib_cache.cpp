@@ -584,7 +584,7 @@ void SCH_IO_KICAD_LEGACY_LIB_CACHE::loadField( std::unique_ptr<LIB_SYMBOL>& aSym
     VECTOR2I pos;
 
     pos.x = schIUScale.MilsToIU( parseInt( aReader, line, &line ) );
-    pos.y = schIUScale.MilsToIU( parseInt( aReader, line, &line ) );
+    pos.y = -schIUScale.MilsToIU( parseInt( aReader, line, &line ) );
     field->SetPosition( pos );
 
     VECTOR2I textSize;
@@ -848,7 +848,7 @@ SCH_SHAPE* SCH_IO_KICAD_LEGACY_LIB_CACHE::loadArc( LINE_READER& aReader )
     VECTOR2I center;
 
     center.x = schIUScale.MilsToIU( parseInt( aReader, line, &line ) );
-    center.y = schIUScale.MilsToIU( parseInt( aReader, line, &line ) );
+    center.y = -schIUScale.MilsToIU( parseInt( aReader, line, &line ) );
 
     arc->SetPosition( center );
 
@@ -878,9 +878,9 @@ SCH_SHAPE* SCH_IO_KICAD_LEGACY_LIB_CACHE::loadArc( LINE_READER& aReader )
         VECTOR2I arcStart, arcEnd;
 
         arcStart.x = schIUScale.MilsToIU( parseInt( aReader, line, &line ) );
-        arcStart.y = schIUScale.MilsToIU( parseInt( aReader, line, &line ) );
+        arcStart.y = -schIUScale.MilsToIU( parseInt( aReader, line, &line ) );
         arcEnd.x = schIUScale.MilsToIU( parseInt( aReader, line, &line ) );
-        arcEnd.y = schIUScale.MilsToIU( parseInt( aReader, line, &line ) );
+        arcEnd.y = -schIUScale.MilsToIU( parseInt( aReader, line, &line ) );
 
         arc->SetStart( arcStart );
         arc->SetEnd( arcEnd );
@@ -892,10 +892,10 @@ SCH_SHAPE* SCH_IO_KICAD_LEGACY_LIB_CACHE::loadArc( LINE_READER& aReader )
         VECTOR2I arcStart( radius, 0 );
         VECTOR2I arcEnd( radius, 0 );
 
-        RotatePoint( arcStart, EDA_ANGLE( -angle1, EDA_ANGLE_T::TENTHS_OF_A_DEGREE_T ) );
+        RotatePoint( arcStart, EDA_ANGLE( angle1, EDA_ANGLE_T::TENTHS_OF_A_DEGREE_T ) );
         arcStart += arc->GetCenter();
         arc->SetStart( arcStart );
-        RotatePoint( arcEnd, EDA_ANGLE( -angle2, EDA_ANGLE_T::TENTHS_OF_A_DEGREE_T ) );
+        RotatePoint( arcEnd, EDA_ANGLE( angle2, EDA_ANGLE_T::TENTHS_OF_A_DEGREE_T ) );
         arcEnd += arc->GetCenter();
         arc->SetEnd( arcEnd );
     }
@@ -907,11 +907,11 @@ SCH_SHAPE* SCH_IO_KICAD_LEGACY_LIB_CACHE::loadArc( LINE_READER& aReader )
      * these points were stored in the file, so we need to mimic the swapping of start/end
      * points rather than using the stored angles in order to properly map edge cases.
      */
-    if( !MapAnglesV6( &angle1, &angle2 ) )
+    if( MapAnglesV6( &angle1, &angle2 ) )
     {
-        VECTOR2I temp = arc->GetStart();
-        arc->SetStart( arc->GetEnd() );
-        arc->SetEnd( temp );
+        VECTOR2I temp = arc->GetEnd();
+        arc->SetEnd( arc->GetStart() );
+        arc->SetStart( temp );
     }
 
     return arc;
@@ -929,7 +929,7 @@ SCH_SHAPE* SCH_IO_KICAD_LEGACY_LIB_CACHE::loadCircle( LINE_READER& aReader )
     VECTOR2I center;
 
     center.x = schIUScale.MilsToIU( parseInt( aReader, line, &line ) );
-    center.y = schIUScale.MilsToIU( parseInt( aReader, line, &line ) );
+    center.y = -schIUScale.MilsToIU( parseInt( aReader, line, &line ) );
 
     int radius = schIUScale.MilsToIU( parseInt( aReader, line, &line ) );
 
@@ -968,7 +968,7 @@ SCH_TEXT* SCH_IO_KICAD_LEGACY_LIB_CACHE::loadText( LINE_READER& aReader,
     angleInTenths = parseInt( aReader, line, &line );
 
     center.x = schIUScale.MilsToIU( parseInt( aReader, line, &line ) );
-    center.y = schIUScale.MilsToIU( parseInt( aReader, line, &line ) );
+    center.y = -schIUScale.MilsToIU( parseInt( aReader, line, &line ) );
     size.x = size.y = schIUScale.MilsToIU( parseInt( aReader, line, &line ) );
     visible = !parseInt( aReader, line, &line );
     unit = parseInt( aReader, line, &line );
@@ -1059,13 +1059,13 @@ SCH_SHAPE* SCH_IO_KICAD_LEGACY_LIB_CACHE::loadRect( LINE_READER& aReader )
     VECTOR2I pos;
 
     pos.x = schIUScale.MilsToIU( parseInt( aReader, line, &line ) );
-    pos.y = schIUScale.MilsToIU( parseInt( aReader, line, &line ) );
+    pos.y = -schIUScale.MilsToIU( parseInt( aReader, line, &line ) );
     rectangle->SetPosition( pos );
 
     VECTOR2I end;
 
     end.x = schIUScale.MilsToIU( parseInt( aReader, line, &line ) );
-    end.y = schIUScale.MilsToIU( parseInt( aReader, line, &line ) );
+    end.y = -schIUScale.MilsToIU( parseInt( aReader, line, &line ) );
     rectangle->SetEnd( end );
 
     rectangle->SetUnit( parseInt( aReader, line, &line ) );
@@ -1133,7 +1133,7 @@ SCH_PIN* SCH_IO_KICAD_LEGACY_LIB_CACHE::loadPin( std::unique_ptr<LIB_SYMBOL>& aS
     }
 
     pos += tmp.size() + 1;
-    position.y = schIUScale.MilsToIU( (int) num );
+    position.y = -schIUScale.MilsToIU( (int) num );
 
     tmp = tokens.GetNextToken();
 
@@ -1157,11 +1157,16 @@ SCH_PIN* SCH_IO_KICAD_LEGACY_LIB_CACHE::loadPin( std::unique_ptr<LIB_SYMBOL>& aS
 
     pos += tmp.size() + 1;
 
-    PIN_ORIENTATION orientation = PIN_ORIENTATION::PIN_RIGHT;
-    std::optional<PIN_ORIENTATION> optVal = magic_enum::enum_cast<PIN_ORIENTATION>( tmp[0] );
+    PIN_ORIENTATION orientation;
 
-    if( optVal.has_value() )
-        orientation = optVal.value();
+    switch( static_cast<char>( tmp[0] ) )
+    {
+    case 'U': orientation = PIN_ORIENTATION::PIN_UP; break;
+    case 'D': orientation = PIN_ORIENTATION::PIN_DOWN; break;
+    case 'L': orientation = PIN_ORIENTATION::PIN_LEFT; break;
+    case 'R': /* fall-through */
+    default:  orientation = PIN_ORIENTATION::PIN_RIGHT; break;
+    }
 
     tmp = tokens.GetNextToken();
 
@@ -1327,7 +1332,7 @@ SCH_SHAPE* SCH_IO_KICAD_LEGACY_LIB_CACHE::loadPolyLine( LINE_READER& aReader )
     for( int i = 0; i < points; i++ )
     {
         pt.x = schIUScale.MilsToIU( parseInt( aReader, line, &line ) );
-        pt.y = schIUScale.MilsToIU( parseInt( aReader, line, &line ) );
+        pt.y = -schIUScale.MilsToIU( parseInt( aReader, line, &line ) );
         polyLine->AddPoint( pt );
     }
 
@@ -1361,22 +1366,22 @@ SCH_SHAPE* SCH_IO_KICAD_LEGACY_LIB_CACHE::loadBezier( LINE_READER& aReader )
     VECTOR2I pt;
 
     pt.x = schIUScale.MilsToIU( parseInt( aReader, line, &line ) );
-    pt.y = schIUScale.MilsToIU( parseInt( aReader, line, &line ) );
+    pt.y = -schIUScale.MilsToIU( parseInt( aReader, line, &line ) );
     bezier->SetStart( pt );
 
     pt.x = schIUScale.MilsToIU( parseInt( aReader, line, &line ) );
-    pt.y = schIUScale.MilsToIU( parseInt( aReader, line, &line ) );
+    pt.y = -schIUScale.MilsToIU( parseInt( aReader, line, &line ) );
     bezier->SetBezierC1( pt );
 
     pt.x = schIUScale.MilsToIU( parseInt( aReader, line, &line ) );
-    pt.y = schIUScale.MilsToIU( parseInt( aReader, line, &line ) );
+    pt.y = -schIUScale.MilsToIU( parseInt( aReader, line, &line ) );
     bezier->SetBezierC2( pt );
 
     pt.x = schIUScale.MilsToIU( parseInt( aReader, line, &line ) );
-    pt.y = schIUScale.MilsToIU( parseInt( aReader, line, &line ) );
+    pt.y = -schIUScale.MilsToIU( parseInt( aReader, line, &line ) );
     bezier->SetEnd( pt );
 
-    bezier->RebuildBezierToSegmentsPointsList( bezier->GetWidth() );
+    bezier->RebuildBezierToSegmentsPointsList( bezier->GetWidth() / 2 );
 
     if( *line != 0 )
         bezier->SetFillMode( parseFillMode( aReader, line, &line ) );
@@ -1618,13 +1623,13 @@ void SCH_IO_KICAD_LEGACY_LIB_CACHE::saveArc( SCH_SHAPE* aArc, OUTPUTFORMATTER& a
 
     EDA_ANGLE startAngle, endAngle;
 
-    aArc->CalcArcAngles( startAngle, endAngle );
+    aArc->CalcArcAngles( endAngle, startAngle );
     startAngle.Normalize180();
     endAngle.Normalize180();
 
     aFormatter.Print( 0, "A %d %d %d %d %d %d %d %d %c %d %d %d %d\n",
                       schIUScale.IUToMils( aArc->GetPosition().x ),
-                      schIUScale.IUToMils( aArc->GetPosition().y ),
+                      schIUScale.IUToMils( -aArc->GetPosition().y ),
                       schIUScale.IUToMils( aArc->GetRadius() ),
                       startAngle.AsTenthsOfADegree(),
                       endAngle.AsTenthsOfADegree(),
@@ -1633,9 +1638,9 @@ void SCH_IO_KICAD_LEGACY_LIB_CACHE::saveArc( SCH_SHAPE* aArc, OUTPUTFORMATTER& a
                       schIUScale.IUToMils( aArc->GetWidth() ),
                       fill_tab[ static_cast<int>( aArc->GetFillMode() ) - 1 ],
                       schIUScale.IUToMils( aArc->GetStart().x ),
-                      schIUScale.IUToMils( aArc->GetStart().y ),
+                      schIUScale.IUToMils( -aArc->GetStart().y ),
                       schIUScale.IUToMils( aArc->GetEnd().x ),
-                      schIUScale.IUToMils( aArc->GetEnd().y ) );
+                      schIUScale.IUToMils( -aArc->GetEnd().y ) );
 }
 
 
@@ -1650,13 +1655,13 @@ void SCH_IO_KICAD_LEGACY_LIB_CACHE::saveBezier( SCH_SHAPE* aBezier, OUTPUTFORMAT
 
     aFormatter.Print( 0, " %d %d %d %d %d %d %d %d",
                       schIUScale.IUToMils( aBezier->GetStart().x ),
-                      schIUScale.IUToMils( aBezier->GetStart().y ),
+                      schIUScale.IUToMils( -aBezier->GetStart().y ),
                       schIUScale.IUToMils( aBezier->GetBezierC1().x ),
-                      schIUScale.IUToMils( aBezier->GetBezierC1().y ),
+                      schIUScale.IUToMils( -aBezier->GetBezierC1().y ),
                       schIUScale.IUToMils( aBezier->GetBezierC2().x ),
-                      schIUScale.IUToMils( aBezier->GetBezierC2().y ),
+                      schIUScale.IUToMils( -aBezier->GetBezierC2().y ),
                       schIUScale.IUToMils( aBezier->GetEnd().x ),
-                      schIUScale.IUToMils( aBezier->GetEnd().y ) );
+                      schIUScale.IUToMils( -aBezier->GetEnd().y ) );
 
     aFormatter.Print( 0, " %c\n", fill_tab[ static_cast<int>( aBezier->GetFillMode() ) - 1 ] );
 }
@@ -1668,7 +1673,7 @@ void SCH_IO_KICAD_LEGACY_LIB_CACHE::saveCircle( SCH_SHAPE* aCircle, OUTPUTFORMAT
 
     aFormatter.Print( 0, "C %d %d %d %d %d %d %c\n",
                       schIUScale.IUToMils( aCircle->GetPosition().x ),
-                      schIUScale.IUToMils( aCircle->GetPosition().y ),
+                      schIUScale.IUToMils( -aCircle->GetPosition().y ),
                       schIUScale.IUToMils( aCircle->GetRadius() ),
                       aCircle->GetUnit(),
                       aCircle->GetBodyStyle(),
@@ -1704,7 +1709,7 @@ void SCH_IO_KICAD_LEGACY_LIB_CACHE::saveField( const SCH_FIELD* aField,
                       id,
                       EscapedUTF8( text ).c_str(),       // wraps in quotes
                       schIUScale.IUToMils( aField->GetTextPos().x ),
-                      schIUScale.IUToMils( aField->GetTextPos().y ),
+                      schIUScale.IUToMils( -aField->GetTextPos().y ),
                       schIUScale.IUToMils( aField->GetTextWidth() ),
                       aField->GetTextAngle().IsHorizontal() ? 'H' : 'V',
                       aField->IsVisible() ? 'V' : 'I',
@@ -1753,12 +1758,23 @@ void SCH_IO_KICAD_LEGACY_LIB_CACHE::savePin( const SCH_PIN* aPin, OUTPUTFORMATTE
     else
         aFormatter.Print( 0, "X ~" );
 
+    int pin_orient = 'L';   // Printed as a char in lib file
+
+    switch( aPin->GetOrientation() )
+    {
+        case PIN_ORIENTATION::PIN_RIGHT: pin_orient = 'R'; break;
+        case PIN_ORIENTATION::PIN_LEFT: pin_orient = 'L'; break;
+        case PIN_ORIENTATION::PIN_UP: pin_orient = 'U'; break;
+        case PIN_ORIENTATION::PIN_DOWN: pin_orient = 'D'; break;
+        case PIN_ORIENTATION::INHERIT: pin_orient = 'L'; break;     // Should not happens
+    }
+
     aFormatter.Print( 0, " %s %d %d %d %c %d %d %d %d %c",
                       aPin->GetNumber().IsEmpty() ? "~" : TO_UTF8( aPin->GetNumber() ),
                       schIUScale.IUToMils( aPin->GetPosition().x ),
-                      schIUScale.IUToMils( aPin->GetPosition().y ),
+                      schIUScale.IUToMils( -aPin->GetPosition().y ),
                       schIUScale.IUToMils( (int) aPin->GetLength() ),
-                      (int) aPin->GetOrientation(),
+                      pin_orient,
                       schIUScale.IUToMils( aPin->GetNumberTextSize() ),
                       schIUScale.IUToMils( aPin->GetNameTextSize() ),
                       aPin->GetUnit(),
@@ -1803,7 +1819,7 @@ void SCH_IO_KICAD_LEGACY_LIB_CACHE::savePolyLine( SCH_SHAPE* aPolyLine,
                       schIUScale.IUToMils( aPolyLine->GetWidth() ) );
 
     for( const VECTOR2I& pt : aPolyLine->GetPolyShape().Outline( 0 ).CPoints() )
-        aFormatter.Print( 0, " %d %d", schIUScale.IUToMils( pt.x ), schIUScale.IUToMils( pt.y ) );
+        aFormatter.Print( 0, " %d %d", schIUScale.IUToMils( pt.x ), -schIUScale.IUToMils( pt.y ) );
 
     aFormatter.Print( 0, " %c\n", fill_tab[ static_cast<int>( aPolyLine->GetFillMode() ) - 1 ] );
 }
@@ -1817,9 +1833,9 @@ void SCH_IO_KICAD_LEGACY_LIB_CACHE::saveRectangle( SCH_SHAPE* aRectangle,
 
     aFormatter.Print( 0, "S %d %d %d %d %d %d %d %c\n",
                       schIUScale.IUToMils( aRectangle->GetPosition().x ),
-                      schIUScale.IUToMils( aRectangle->GetPosition().y ),
+                      schIUScale.IUToMils( -aRectangle->GetPosition().y ),
                       schIUScale.IUToMils( aRectangle->GetEnd().x ),
-                      schIUScale.IUToMils( aRectangle->GetEnd().y ),
+                      schIUScale.IUToMils( -aRectangle->GetEnd().y ),
                       aRectangle->GetUnit(),
                       aRectangle->GetBodyStyle(),
                       schIUScale.IUToMils( aRectangle->GetWidth() ),
@@ -1843,7 +1859,7 @@ void SCH_IO_KICAD_LEGACY_LIB_CACHE::saveText( const SCH_TEXT* aText, OUTPUTFORMA
     aFormatter.Print( 0, "T %g %d %d %d %d %d %d %s",
                       (double) aText->GetTextAngle().AsTenthsOfADegree(),
                       schIUScale.IUToMils( aText->GetTextPos().x ),
-                      schIUScale.IUToMils( aText->GetTextPos().y ),
+                      schIUScale.IUToMils( -aText->GetTextPos().y ),
                       schIUScale.IUToMils( aText->GetTextWidth() ),
                       !aText->IsVisible(),
                       aText->GetUnit(),

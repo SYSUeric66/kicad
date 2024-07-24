@@ -790,7 +790,7 @@ void FOOTPRINT_VIEWER_FRAME::AddFootprintToPCB( wxCommandEvent& aEvent )
 
         newFootprint->SetPosition( VECTOR2I( 0, 0 ) );
         viewControls->SetCrossHairCursorPosition( cursorPos, false );
-        commit.Push( wxT( "Insert footprint" ) );
+        commit.Push( _( "Insert Footprint" ) );
 
         pcbframe->Raise();
         toolMgr->PostAction( PCB_ACTIONS::placeFootprint, newFootprint );
@@ -951,6 +951,13 @@ void FOOTPRINT_VIEWER_FRAME::ReloadFootprint( FOOTPRINT* aFootprint )
     SelectAndViewFootprint( RELOAD_PART );
 }
 
+
+void FOOTPRINT_VIEWER_FRAME::HardRedraw()
+{
+    ReCreateLibraryList();
+    ReCreateFootprintList();
+    ReloadFootprint( GetBoard()->GetFirstFootprint() );
+}
 
 void FOOTPRINT_VIEWER_FRAME::KiwayMailIn( KIWAY_EXPRESS& mail )
 {

@@ -75,6 +75,14 @@ void TOOL_BASE::Reset( RESET_REASON aReason )
     delete m_router;
     delete m_iface; // Delete after m_router because PNS::NODE dtor needs m_ruleResolver
 
+    if( aReason == RESET_REASON::SHUTDOWN )
+    {
+        m_gridHelper = nullptr;
+        m_router = nullptr;
+        m_iface = nullptr;
+        return;
+    }
+
     m_iface = new PNS_KICAD_IFACE;
     m_iface->SetBoard( board() );
     m_iface->SetView( getView() );
@@ -324,6 +332,14 @@ void TOOL_BASE::updateStartItem( const TOOL_EVENT& aEvent, bool aIgnorePads )
     VECTOR2I pos = aEvent.HasPosition() ? (VECTOR2I) aEvent.Position() : m_startSnapPoint;
 
     pos = GetClampedCoords( pos, COORDS_PADDING );
+
+    if( aEvent.Modifier( MD_CTRL ) && aEvent.Modifier( MD_SHIFT ) )
+    {
+        m_startItem = nullptr;
+        m_startSnapPoint = controls()->GetMousePosition();
+        controls()->ForceCursorPosition( true, m_startSnapPoint );
+        return;
+    }
 
     controls()->ForceCursorPosition( false );
     m_gridHelper->SetUseGrid( gal->GetGridSnapping() && !aEvent.DisableGridSnapping()  );

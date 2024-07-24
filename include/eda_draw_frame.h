@@ -3,7 +3,7 @@
  *
  * Copyright (C) 2009 Jean-Pierre Charras, jaen-pierre.charras@gipsa-lab.inpg.com
  * Copyright (C) 2011 Wayne Stambaugh <stambaughw@gmail.com>
- * Copyright (C) 1992-2023 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2024 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -35,7 +35,8 @@
 #include <gal/color4d.h>
 #include <class_draw_panel_gal.h>
 #include <kiid.h>
-#include "hotkeys_basic.h"
+#include <hotkeys_basic.h>
+#include <widgets/lib_tree.h>
 
 class EDA_ITEM;
 class wxSingleInstanceChecker;
@@ -396,6 +397,13 @@ public:
      */
     virtual void UpdateMsgPanel();
 
+    virtual LIB_TREE* GetLibTree() const { return nullptr; }
+    virtual LIB_ID GetTargetLibId() const { return LIB_ID(); }
+
+    virtual bool IsLibraryTreeShown() const { return false; }
+    virtual void ToggleLibraryTree() {};
+    virtual void FocusLibraryTreeInput() {};
+
     PROPERTIES_PANEL* GetPropertiesPanel() { return m_propertiesPanel; }
 
     void UpdateProperties();
@@ -508,6 +516,8 @@ protected:
     void unitsChangeRefresh() override;
 
     void setupUnits( APP_SETTINGS_BASE* aCfg );
+
+    void updateStatusBarWidths();
 
     std::vector<wxWindow*> findDialogs();
 

@@ -37,6 +37,8 @@
 
 #include <board.h>
 #include <board_design_settings.h>
+#include <embedded_files.h>
+#include <font/fontconfig.h>
 #include <pcb_dimension.h>
 #include <pcb_shape.h>
 #include <pcb_reference_image.h>
@@ -72,6 +74,7 @@
 // base64 code. Needed for PCB_REFERENCE_IMAGE
 #define wxUSE_BASE64 1
 #include <wx/base64.h>
+#include <wx/log.h>
 #include <wx/mstream.h>
 
 // We currently represent board units as integers.  Any values that are
@@ -109,13 +112,13 @@ void PCB_IO_KICAD_SEXPR_PARSER::init()
 
     m_layerMasks[ "*.Cu" ]      = LSET::AllCuMask();
     m_layerMasks[ "*In.Cu" ]    = LSET::InternalCuMask();
-    m_layerMasks[ "F&B.Cu" ]    = LSET( 2, F_Cu, B_Cu );
-    m_layerMasks[ "*.Adhes" ]   = LSET( 2, B_Adhes, F_Adhes );
-    m_layerMasks[ "*.Paste" ]   = LSET( 2, B_Paste, F_Paste );
-    m_layerMasks[ "*.Mask" ]    = LSET( 2, B_Mask,  F_Mask );
-    m_layerMasks[ "*.SilkS" ]   = LSET( 2, B_SilkS, F_SilkS );
-    m_layerMasks[ "*.Fab" ]     = LSET( 2, B_Fab,   F_Fab );
-    m_layerMasks[ "*.CrtYd" ]   = LSET( 2, B_CrtYd, F_CrtYd );
+    m_layerMasks[ "F&B.Cu" ]    = LSET( { F_Cu, B_Cu } );
+    m_layerMasks[ "*.Adhes" ]   = LSET( { B_Adhes, F_Adhes } );
+    m_layerMasks[ "*.Paste" ]   = LSET( { B_Paste, F_Paste } );
+    m_layerMasks[ "*.Mask" ]    = LSET( { B_Mask,  F_Mask } );
+    m_layerMasks[ "*.SilkS" ]   = LSET( { B_SilkS, F_SilkS } );
+    m_layerMasks[ "*.Fab" ]     = LSET( { B_Fab,   F_Fab } );
+    m_layerMasks[ "*.CrtYd" ]   = LSET( { B_CrtYd, F_CrtYd } );
 
     // This is for the first pretty & *.kicad_pcb formats, which had
     // Inner1_Cu - Inner14_Cu with the numbering sequence
@@ -580,8 +583,7 @@ void PCB_IO_KICAD_SEXPR_PARSER::parseEDA_TEXT( EDA_TEXT* aText )
 
             if( !faceName.IsEmpty() )
             {
-                aText->SetFont( KIFONT::FONT::GetFont( faceName, aText->IsBold(),
-                                                       aText->IsItalic() ) );
+                m_fontTextMap[aText] = { faceName, aText->IsBold(), aText->IsItalic() };
             }
 
             break;
@@ -650,7 +652,7 @@ void PCB_IO_KICAD_SEXPR_PARSER::parseRenderCache( EDA_TEXT* text )
     wxString  cacheText = From_UTF8( CurText() );
     EDA_ANGLE cacheAngle( parseDouble( "render cache angle" ), DEGREES_T );
 
-    text->SetupRenderCache( cacheText, cacheAngle );
+    text->SetupRenderCache( cacheText, text->GetFont(), cacheAngle, { 0, 0 } );
 
     for( token = NextTok(); token != T_RIGHT; token = NextTok() )
     {
@@ -865,6 +867,17 @@ BOARD_ITEM* PCB_IO_KICAD_SEXPR_PARSER::Parse()
         THROW_PARSE_ERROR( err, CurSource(), CurLine(), CurLineNumber(), CurOffset() );
     }
 
+    // Assign the fonts after we have parsed any potential embedded fonts from the board
+    // or footprint.  This also ensures that the embedded fonts are cached
+    for( auto& [text, params] : m_fontTextMap )
+    {
+        const std::vector<wxString>* embeddedFonts = item->GetEmbeddedFiles()->UpdateFontFiles();
+
+        text->SetFont( KIFONT::FONT::GetFont( std::get<0>( params ), std::get<1>( params ),
+                                              std::get<2>( params ),
+                                              embeddedFonts ) );
+    }
+
     resolveGroups( item );
 
     return item;
@@ -1073,6 +1086,31 @@ BOARD* PCB_IO_KICAD_SEXPR_PARSER::parseBOARD_unchecked()
             bulkAddedItems.push_back( item );
             break;
 
+        case T_embedded_fonts:
+        {
+            m_board->GetEmbeddedFiles()->SetAreFontsEmbedded( parseBool() );
+            NeedRIGHT();
+            break;
+        }
+
+        case T_embedded_files:
+        {
+            EMBEDDED_FILES_PARSER embeddedFilesParser( reader );
+            embeddedFilesParser.SyncLineReaderWith( *this );
+
+            try
+            {
+                embeddedFilesParser.ParseEmbedded( m_board->GetEmbeddedFiles() );
+            }
+            catch( const PARSE_ERROR& e )
+            {
+                wxLogError( e.What() );
+            }
+
+            SyncLineReaderWith( embeddedFilesParser );
+            break;
+        }
+
         default:
             wxString err;
             err.Printf( _( "Unknown token '%s'" ), FromUTF8() );
@@ -1184,32 +1222,36 @@ BOARD* PCB_IO_KICAD_SEXPR_PARSER::parseBOARD_unchecked()
         }
     }
 
+    // Ensure all footprints have their embedded data from the board
+    m_board->FixupEmbeddedData();
+
     return m_board;
 }
 
 
 void PCB_IO_KICAD_SEXPR_PARSER::resolveGroups( BOARD_ITEM* aParent )
 {
-    auto getItem = [&]( const KIID& aId )
-    {
-        BOARD_ITEM* aItem = nullptr;
+    auto getItem =
+            [&]( const KIID& aId )
+            {
+                BOARD_ITEM* aItem = nullptr;
 
-        if( BOARD* board = dynamic_cast<BOARD*>( aParent ) )
-        {
-            aItem = board->GetItem( aId );
-        }
-        else if( FOOTPRINT* footprint = dynamic_cast<FOOTPRINT*>( aParent ) )
-        {
-            footprint->RunOnChildren(
-                    [&]( BOARD_ITEM* child )
-                    {
-                        if( child->m_Uuid == aId )
-                            aItem = child;
-                    } );
-        }
+                if( BOARD* board = dynamic_cast<BOARD*>( aParent ) )
+                {
+                    aItem = board->GetItem( aId );
+                }
+                else if( FOOTPRINT* footprint = dynamic_cast<FOOTPRINT*>( aParent ) )
+                {
+                    footprint->RunOnChildren(
+                            [&]( BOARD_ITEM* child )
+                            {
+                                if( child->m_Uuid == aId )
+                                    aItem = child;
+                            } );
+                }
 
-        return aItem;
-    };
+                return aItem;
+            };
 
     // Now that we've parsed the other Uuids in the file we can resolve the uuids referred
     // to in the group declarations we saw.
@@ -2316,6 +2358,22 @@ void PCB_IO_KICAD_SEXPR_PARSER::parseSetup()
             NeedRIGHT();
             break;
 
+        case T_tenting:
+        {
+            for( token = NextTok();  token != T_RIGHT;  token = NextTok() )
+            {
+                if( token == T_front )
+                    bds.m_TentViasFront = true;
+                else if( token == T_back )
+                    bds.m_TentViasBack = true;
+                else if( token == T_none )
+                    bds.m_TentViasFront = bds.m_TentViasBack = false;
+                else
+                    Expecting( "front, back, or none" );
+            }
+            break;
+        }
+
         case T_aux_axis_origin:
         {
             int x = parseBoardUnits( "auxiliary origin X" );
@@ -2378,6 +2436,14 @@ void PCB_IO_KICAD_SEXPR_PARSER::parseSetup()
             SyncLineReaderWith( parser );
 
             m_board->SetPlotOptions( plotParams );
+
+            if( plotParams.GetLegacyPlotViaOnMaskLayer().has_value() )
+            {
+                bool tent = !( *plotParams.GetLegacyPlotViaOnMaskLayer() );
+                m_board->GetDesignSettings().m_TentViasFront = tent;
+                m_board->GetDesignSettings().m_TentViasBack = tent;
+            }
+
             break;
         }
 
@@ -2811,6 +2877,7 @@ PCB_SHAPE* PCB_IO_KICAD_SEXPR_PARSER::parsePCB_SHAPE( BOARD_ITEM* aParent )
         shape->SetBezierC1( parseXY());
         shape->SetBezierC2( parseXY());
         shape->SetEnd( parseXY() );
+        shape->RebuildBezierToSegmentsPointsList( ARC_HIGH_DEF );
         NeedRIGHT();
         break;
 
@@ -3056,7 +3123,7 @@ PCB_SHAPE* PCB_IO_KICAD_SEXPR_PARSER::parsePCB_SHAPE( BOARD_ITEM* aParent )
 
     shape->SetStroke( stroke );
 
-    if( FOOTPRINT* parentFP = dynamic_cast<FOOTPRINT*>( aParent ) )
+    if( FOOTPRINT* parentFP = shape->GetParentFootprint() )
     {
         shape->Rotate( { 0, 0 }, parentFP->GetOrientation() );
         shape->Move( parentFP->GetPosition() );
@@ -3452,7 +3519,6 @@ void PCB_IO_KICAD_SEXPR_PARSER::parseTextBoxContent( PCB_TEXTBOX* aTextBox )
             while( (token = NextTok() ) != T_RIGHT )
                 parseOutlinePoints( aTextBox->GetPolyShape().Outline( 0 ) );
 
-            NeedRIGHT();
             break;
         }
 
@@ -3544,7 +3610,7 @@ void PCB_IO_KICAD_SEXPR_PARSER::parseTextBoxContent( PCB_TEXTBOX* aTextBox )
         aTextBox->SetMarginBottom( margin );
     }
 
-    if( FOOTPRINT* parentFP = dynamic_cast<FOOTPRINT*>( aTextBox->GetParent() ) )
+    if( FOOTPRINT* parentFP = aTextBox->GetParentFootprint() )
     {
         aTextBox->Rotate( { 0, 0 }, parentFP->GetOrientation() );
         aTextBox->Move( parentFP->GetPosition() );
@@ -3564,12 +3630,6 @@ PCB_TABLE* PCB_IO_KICAD_SEXPR_PARSER::parsePCB_TABLE( BOARD_ITEM* aParent )
 
     for( token = NextTok(); token != T_RIGHT; token = NextTok() )
     {
-        if( token == T_locked )
-        {
-            table->SetLocked( true );
-            token = NextTok();
-        }
-
         if( token != T_LEFT )
             Expecting( T_LEFT );
 
@@ -3579,6 +3639,16 @@ PCB_TABLE* PCB_IO_KICAD_SEXPR_PARSER::parsePCB_TABLE( BOARD_ITEM* aParent )
         {
         case T_column_count:
             table->SetColCount( parseInt( "column count" ) );
+            NeedRIGHT();
+            break;
+
+        case T_locked:
+            table->SetLocked( parseBool() );
+            NeedRIGHT();
+            break;
+
+        case T_angle:
+            table->SetOrientation( EDA_ANGLE( parseDouble( "table angle" ), DEGREES_T ) );
             NeedRIGHT();
             break;
 
@@ -3708,6 +3778,9 @@ PCB_TABLE* PCB_IO_KICAD_SEXPR_PARSER::parsePCB_TABLE( BOARD_ITEM* aParent )
                        "cells" );
         }
     }
+
+    if( FOOTPRINT* parentFP = table->GetParentFootprint() )
+        table->SetOrientation( table->GetOrientation() + parentFP->GetOrientation() );
 
     return table.release();
 }
@@ -4643,13 +4716,38 @@ FOOTPRINT* PCB_IO_KICAD_SEXPR_PARSER::parseFOOTPRINT_unchecked( wxArrayString* a
             parseGROUP( footprint.get() );
             break;
 
+        case T_embedded_fonts:
+        {
+            footprint->GetEmbeddedFiles()->SetAreFontsEmbedded( parseBool() );
+            NeedRIGHT();
+            break;
+        }
+
+        case T_embedded_files:
+        {
+            EMBEDDED_FILES_PARSER embeddedFilesParser( reader );
+            embeddedFilesParser.SyncLineReaderWith( *this );
+
+            try
+            {
+                embeddedFilesParser.ParseEmbedded( footprint->GetEmbeddedFiles() );
+            }
+            catch( const PARSE_ERROR& e )
+            {
+                wxLogError( e.What() );
+            }
+
+            SyncLineReaderWith( embeddedFilesParser );
+            break;
+        }
+
         default:
-            Expecting( "locked, placed, tedit, tstamp, uuid, at, descr, tags, path, "
-                       "autoplace_cost90, autoplace_cost180, solder_mask_margin, "
-                       "solder_paste_margin, solder_paste_margin_ratio, clearance, "
-                       "zone_connect, thermal_gap, attr, fp_text, "
-                       "fp_arc, fp_circle, fp_curve, fp_line, fp_poly, fp_rect, pad, "
-                       "zone, group, generator, version or model" );
+            Expecting( "at, descr, locked, placed, tedit, tstamp, uuid, "
+                       "autoplace_cost90, autoplace_cost180, attr, clearance, "
+                       "embedded_files, fp_arc, fp_circle, fp_curve, fp_line, fp_poly, "
+                       "fp_rect, fp_text, pad, group, generator, model, path, solder_mask_margin, "
+                       "solder_paste_margin, solder_paste_margin_ratio, tags, thermal_gap, "
+                       "version, zone, or zone_connect" );
         }
     }
 
@@ -4698,9 +4796,6 @@ PAD* PCB_IO_KICAD_SEXPR_PARSER::parsePAD( FOOTPRINT* aParent )
     bool     foundNet = false;
 
     std::unique_ptr<PAD> pad = std::make_unique<PAD>( aParent );
-
-    // File only contains a token if KeepTopBottom is true
-    pad->SetKeepTopBottom( false );
 
     NeedSYMBOLorNUMBER();
     pad->SetNumber( FromUTF8() );
@@ -4840,7 +4935,7 @@ PAD* PCB_IO_KICAD_SEXPR_PARSER::parsePAD( FOOTPRINT* aParent )
 
                 switch( token )
                 {
-                case T_oval: pad->SetDrillShape( PAD_DRILL_SHAPE_OBLONG ); break;
+                case T_oval: pad->SetDrillShape( PAD_DRILL_SHAPE::OBLONG ); break;
 
                 case T_NUMBER:
                 {
@@ -5286,11 +5381,11 @@ bool PCB_IO_KICAD_SEXPR_PARSER::parsePAD_option( PAD* aPad )
             switch( token )
             {
             case T_outline:
-                aPad->SetCustomShapeInZoneOpt( CUST_PAD_SHAPE_IN_ZONE_OUTLINE );
+                aPad->SetCustomShapeInZoneOpt( PADSTACK::CUSTOM_SHAPE_ZONE_MODE::OUTLINE );
                 break;
 
             case T_convexhull:
-                aPad->SetCustomShapeInZoneOpt( CUST_PAD_SHAPE_IN_ZONE_CONVEXHULL );
+                aPad->SetCustomShapeInZoneOpt( PADSTACK::CUSTOM_SHAPE_ZONE_MODE::CONVEXHULL );
                 break;
 
             default:
@@ -5715,8 +5810,7 @@ PCB_VIA* PCB_IO_KICAD_SEXPR_PARSER::parsePCB_VIA()
     std::unique_ptr<PCB_VIA> via = std::make_unique<PCB_VIA>( m_board );
 
     // File format default is no-token == no-feature.
-    via->SetRemoveUnconnected( false );
-    via->SetKeepStartEnd( false );
+    via->Padstack().SetUnconnectedLayerMode( PADSTACK::UNCONNECTED_LAYER_MODE::KEEP_ALL );
 
     for( token = NextTok();  token != T_RIGHT;  token = NextTok() )
     {
@@ -5819,6 +5913,28 @@ PCB_VIA* PCB_IO_KICAD_SEXPR_PARSER::parsePCB_VIA()
         case T_teardrops:
             parseTEARDROP_PARAMETERS( &via->GetTeardropParams() );
             break;
+
+        case T_tenting:
+        {
+            bool front = false;
+            bool back = false;
+
+            // If the via has a tenting token, it means this individual via has a tenting override
+            for( token = NextTok(); token != T_RIGHT; token = NextTok() )
+            {
+                if( token == T_front )
+                    front = true;
+                else if( token == T_back )
+                    back = true;
+                else if( token != T_none )
+                    Expecting( "front, back, or none" );
+            }
+
+            via->Padstack().FrontOuterLayers().has_solder_mask = front;
+            via->Padstack().BackOuterLayers().has_solder_mask = back;
+
+            break;
+        }
 
         case T_tstamp:
         case T_uuid:

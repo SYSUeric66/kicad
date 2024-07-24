@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2013-2017 CERN
- * Copyright (C) 2013-2023 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2013-2024, 2024 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * @author Tomasz Wlostowski <tomasz.wlostowski@cern.ch>
  * @author Maciej Suminski <maciej.suminski@cern.ch>
@@ -55,6 +55,15 @@
 #include <pgm_base.h>
 #include <confirm.h>
 
+
+/**
+ * Flag to enable drawing panel debugging output.
+ *
+ * @ingroup trace_env_vars
+ */
+static const wxChar traceDrawPanel[] = wxT( "KICAD_DRAW_PANEL" );
+
+
 EDA_DRAW_PANEL_GAL::EDA_DRAW_PANEL_GAL( wxWindow* aParentWindow, wxWindowID aWindowId,
                                         const wxPoint& aPosition, const wxSize& aSize,
                                         KIGFX::GAL_DISPLAY_OPTIONS& aOptions, GAL_TYPE aGalType ) :
@@ -80,6 +89,11 @@ EDA_DRAW_PANEL_GAL::EDA_DRAW_PANEL_GAL( wxWindow* aParentWindow, wxWindowID aWin
 {
     m_PaintEventCounter = std::make_unique<PROF_COUNTER>( "Draw panel paint events" );
 
+    if( Pgm().GetCommonSettings()->m_Appearance.show_scrollbars )
+        ShowScrollbars( wxSHOW_SB_ALWAYS, wxSHOW_SB_ALWAYS );
+    else
+        ShowScrollbars( wxSHOW_SB_NEVER, wxSHOW_SB_NEVER );
+
     SetLayoutDirection( wxLayout_LeftToRight );
 
     m_edaFrame = dynamic_cast<EDA_DRAW_FRAME*>( m_parent );
@@ -98,15 +112,6 @@ EDA_DRAW_PANEL_GAL::EDA_DRAW_PANEL_GAL( wxWindow* aParentWindow, wxWindowID aWin
 
     SwitchBackend( aGalType );
     SetBackgroundStyle( wxBG_STYLE_CUSTOM );
-
-    if( Pgm().GetCommonSettings()->m_Appearance.show_scrollbars )
-    {
-        ShowScrollbars( wxSHOW_SB_ALWAYS, wxSHOW_SB_ALWAYS );
-    }
-    else
-    {
-        ShowScrollbars( wxSHOW_SB_NEVER, wxSHOW_SB_NEVER );
-    }
 
     EnableScrolling( false, false ); // otherwise Zoom Auto disables GAL canvas
     KIPLATFORM::UI::SetOverlayScrolling( this, false ); // Prevent excessive repaint on GTK
@@ -177,6 +182,7 @@ EDA_DRAW_PANEL_GAL::~EDA_DRAW_PANEL_GAL()
 
 void EDA_DRAW_PANEL_GAL::SetFocus()
 {
+    KIPLATFORM::UI::ImeNotifyCancelComposition( this );
     wxScrolledCanvas::SetFocus();
     m_lostFocus = false;
 }
@@ -236,6 +242,7 @@ bool EDA_DRAW_PANEL_GAL::DoRePaint()
     bool isDirty = false;
 
     cntTotal.Start();
+
     try
     {
         cntUpd.Start();
@@ -248,9 +255,7 @@ bool EDA_DRAW_PANEL_GAL::DoRePaint()
         {
             // Don't do anything here but don't fail
             // This can happen when we don't catch `at()` calls
-            wxString msg;
-            msg.Printf( wxT( "Out of Range error: %s" ), err.what() );
-            wxLogDebug( msg );
+            wxLogTrace( traceDrawPanel, wxS( "Out of Range error: %s" ), err.what() );
         }
 
         cntUpd.Stop();
@@ -272,20 +277,10 @@ bool EDA_DRAW_PANEL_GAL::DoRePaint()
             m_gal->SetGridColor( settings->GetGridColor() );
             m_gal->SetCursorColor( settings->GetCursorColor() );
 
-            // TODO: find why ClearScreen() must be called here in opengl mode
-            // and only if m_view->IsDirty() in Cairo mode to avoid display artifacts
-            // when moving the mouse cursor
-            if( m_backend == GAL_TYPE_OPENGL )
-                m_gal->ClearScreen();
+            m_gal->ClearScreen();
 
             if( m_view->IsDirty() )
             {
-                if( m_backend != GAL_TYPE_OPENGL  // Already called in opengl
-                        && m_view->IsTargetDirty( KIGFX::TARGET_NONCACHED ) )
-                {
-                    m_gal->ClearScreen();
-                }
-
                 m_view->ClearTargets();
 
                 // Grid has to be redrawn only when the NONCACHED target is redrawn
@@ -382,10 +377,16 @@ void EDA_DRAW_PANEL_GAL::onSize( wxSizeEvent& aEvent )
 }
 
 
+void EDA_DRAW_PANEL_GAL::RequestRefresh()
+{
+    m_needIdleRefresh = true;
+}
+
+
 void EDA_DRAW_PANEL_GAL::Refresh( bool aEraseBackground, const wxRect* aRect )
 {
     if( !DoRePaint() )
-        m_needIdleRefresh = true;
+        RequestRefresh();
 }
 
 
@@ -589,7 +590,7 @@ void EDA_DRAW_PANEL_GAL::OnEvent( wxEvent& aEvent )
     if( endDelta > timeLimit )
         Refresh();
     else
-        m_needIdleRefresh = true;
+        RequestRefresh();
 }
 
 
@@ -648,8 +649,21 @@ void EDA_DRAW_PANEL_GAL::onShowTimer( wxTimerEvent& aEvent )
 
 void EDA_DRAW_PANEL_GAL::SetCurrentCursor( KICURSOR aCursor )
 {
-    if( m_gal )
-        m_gal->SetNativeCursorStyle( aCursor );
+    if( !m_gal )
+        return;
+
+    DPI_SCALING_COMMON dpi( nullptr, m_parent );
+
+    bool hidpi = false;
+
+    // Cursor scaling factor cannot be set for a wxCursor on GTK and OSX (at least before wx 3.3),
+    // resulting in 4x rendered size on 2x window scale.
+    // MSW renders the bitmap as-is, without scaling, so this works here.
+#ifdef __WXMSW__
+    hidpi = dpi.GetContentScaleFactor() >= 2.0;
+#endif
+
+    m_gal->SetNativeCursorStyle( aCursor, hidpi );
 }
 
 

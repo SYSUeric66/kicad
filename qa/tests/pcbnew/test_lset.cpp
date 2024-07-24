@@ -24,6 +24,8 @@
 #include <qa_utils/wx_utils/unit_test_utils.h>
 
 #include <layer_ids.h>
+#include <lset.h>
+
 
 BOOST_AUTO_TEST_SUITE( LSet )
 
@@ -37,9 +39,9 @@ struct LSETS_TO_TEST
 
 
 const static std::vector<LSETS_TO_TEST> type_to_ext_cases = {
-    { LSET( 2, F_Cu, F_Fab ), "0020000_00000001",
+    { LSET( { F_Cu, F_Fab } ), "0020000_00000001",
             "0000|0000_0010|0000_0000|0000_0000|0000_0000|0000_0000|0000_0000|0000_0001" },
-    { LSET( 3, In14_Cu, B_Adhes, Rescue ), "8000001_00004000",
+    { LSET( { In14_Cu, B_Adhes, Rescue } ), "8000001_00004000",
       "1000|0000_0000|0000_0000|0000_0001|0000_0000|0000_0000|0100_0000|0000_0000" }
 };
 

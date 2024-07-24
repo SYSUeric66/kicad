@@ -159,6 +159,8 @@ static bool isCopperOutside( const FOOTPRINT* aFootprint, SHAPE_POLY_SET& aShape
     {
         SHAPE_POLY_SET poly = aShape.CloneDropTriangulation();
 
+        poly.ClearArcs();
+
         poly.BooleanIntersection( *pad->GetEffectivePolygon( ERROR_INSIDE ),
                                   SHAPE_POLY_SET::PM_FAST );
 
@@ -352,6 +354,11 @@ bool doConvertOutlineToPolygon( std::vector<PCB_SHAPE*>& aShapeList, SHAPE_POLY_
                     SHAPE_LINE_CHAIN arcChain;
                     arcChain.Append( sarc, aErrorMax );
 
+                    // if this arc is after another object, pop off the first point
+                    // the previous point from the last object should be already close enough as part of chaining
+                    if( prevGraphic != nullptr )
+                        arcChain.Remove( 0 );
+
                     if( !aAllowUseArcsInPolygons )
                         arcChain.ClearArcs();
 
@@ -388,11 +395,7 @@ bool doConvertOutlineToPolygon( std::vector<PCB_SHAPE*>& aShapeList, SHAPE_POLY_
                     }
 
                     // Ensure the approximated Bezier shape is built
-                    // a good value is between (Bezier curve width / 2) and (Bezier curve width)
-                    // ( and at least 0.05 mm to avoid very small segments)
-                    int min_segm_length = std::max( pcbIUScale.mmToIU( 0.05 ),
-                                                    graphic->GetWidth() );
-                    graphic->RebuildBezierToSegmentsPointsList( min_segm_length );
+                    graphic->RebuildBezierToSegmentsPointsList( ARC_HIGH_DEF );
 
                     if( reverse )
                     {
@@ -649,9 +652,8 @@ bool TestBoardOutlinesGraphicItems( BOARD* aBoard, int aMinDist,
 
                 if( aErrorHandler )
                 {
-                    (*aErrorHandler)( wxString::Format( _( "(Rectangle has null or very small "
-                                                           "size: %d nm)" ),
-                                                        dim ),
+                    (*aErrorHandler)( wxString::Format( _( "(rectangle has null or very small "
+                                                           "size: %d nm)" ), dim ),
                                       graphic, nullptr, graphic->GetStart() );
                 }
             }
@@ -660,15 +662,16 @@ bool TestBoardOutlinesGraphicItems( BOARD* aBoard, int aMinDist,
 
         case SHAPE_T::CIRCLE:
         {
-            if( graphic->GetRadius()  <= min_dist )
+            int r = graphic->GetRadius();
+
+            if( r <= min_dist )
             {
                 success = false;
 
                 if( aErrorHandler )
                 {
-                    (*aErrorHandler)( wxString::Format( _( "(Circle has null or very small "
-                                                           "radius: %d nm)" ),
-                                                        (int)graphic->GetRadius() ),
+                    (*aErrorHandler)( wxString::Format( _( "(circle has null or very small "
+                                                           "radius: %d nm)" ), r ),
                                       graphic, nullptr, graphic->GetStart() );
                 }
             }
@@ -686,7 +689,7 @@ bool TestBoardOutlinesGraphicItems( BOARD* aBoard, int aMinDist,
 
                 if( aErrorHandler )
                 {
-                    (*aErrorHandler)( wxString::Format( _( "(Segment has null or very small "
+                    (*aErrorHandler)( wxString::Format( _( "(segment has null or very small "
                                                            "length: %d nm)" ), dim ),
                                       graphic, nullptr, graphic->GetStart() );
                 }
@@ -709,7 +712,8 @@ bool TestBoardOutlinesGraphicItems( BOARD* aBoard, int aMinDist,
 
                 if( aErrorHandler )
                 {
-                    (*aErrorHandler)( wxString::Format( _( "(Arc has null or very small size: %d nm)" ), dim ),
+                    (*aErrorHandler)( wxString::Format( _( "(arc has null or very small size: "
+                                                           "%d nm)" ), dim ),
                                       graphic, nullptr, graphic->GetStart() );
                 }
             }

@@ -269,7 +269,8 @@ UseBoundingBox:
  * BOARD_OUTLINE section as appropriate,  Compiles data for the PLACEMENT section and compiles
  * data for the library ELECTRICAL section.
  */
-static void idf_export_footprint( BOARD* aPcb, FOOTPRINT* aFootprint, IDF3_BOARD& aIDFBoard )
+static void idf_export_footprint( BOARD* aPcb, FOOTPRINT* aFootprint, IDF3_BOARD& aIDFBoard,
+                                  bool aIncludeUnspecified, bool aIncludeDNP )
 {
     // Reference Designator
     std::string crefdes = TO_UTF8( aFootprint->Reference().GetShownText( false ) );
@@ -345,7 +346,7 @@ static void idf_export_footprint( BOARD* aPcb, FOOTPRINT* aFootprint, IDF3_BOARD
 
             if( tstr.empty() || !tstr.compare( "0" ) || !tstr.compare( "~" )
                 || ( kplate == IDF3::NPTH )
-                || ( pad->GetDrillShape() == PAD_DRILL_SHAPE_OBLONG ) )
+                || ( pad->GetDrillShape() == PAD_DRILL_SHAPE::OBLONG ) )
                 pintype = "MTG";
             else
                 pintype = "PIN";
@@ -358,7 +359,7 @@ static void idf_export_footprint( BOARD* aPcb, FOOTPRINT* aFootprint, IDF3_BOARD
             // 5. Assoc. part : BOARD | NOREFDES | PANEL | {"refdes"}
             // 6. type : PIN | VIA | MTG | TOOL | { "other" }
             // 7. owner : MCAD | ECAD | UNOWNED
-            if( ( pad->GetDrillShape() == PAD_DRILL_SHAPE_OBLONG )
+            if( ( pad->GetDrillShape() == PAD_DRILL_SHAPE::OBLONG )
                 && ( pad->GetDrillSize().x != pad->GetDrillSize().y ) )
             {
                 // NOTE: IDF does not have direct support for slots;
@@ -412,6 +413,12 @@ static void idf_export_footprint( BOARD* aPcb, FOOTPRINT* aFootprint, IDF3_BOARD
         }
     }
 
+    if( ( !(aFootprint->GetAttributes() & (FP_THROUGH_HOLE|FP_SMD)) ) && !aIncludeUnspecified )
+        return;
+
+    if( aFootprint->IsDNP() && !aIncludeDNP )
+        return;
+
     // add any valid models to the library item list
     std::string refdes;
 
@@ -430,7 +437,7 @@ static void idf_export_footprint( BOARD* aPcb, FOOTPRINT* aFootprint, IDF3_BOARD
             continue;
         }
 
-        idfFile.Assign( resolver->ResolvePath( sM->m_Filename, footprintBasePath ) );
+        idfFile.Assign( resolver->ResolvePath( sM->m_Filename, footprintBasePath, aFootprint ) );
         idfExt = idfFile.GetExt();
 
         if( idfExt.Cmp( wxT( "idf" ) ) && idfExt.Cmp( wxT( "IDF" ) ) )
@@ -459,9 +466,9 @@ static void idf_export_footprint( BOARD* aPcb, FOOTPRINT* aFootprint, IDF3_BOARD
             throw( std::runtime_error( aIDFBoard.GetError() ) );
 
         double rotz = aFootprint->GetOrientation().AsDegrees();
-        double locx = sM->m_Offset.x * 25.4;  // part offsets are in inches
-        double locy = sM->m_Offset.y * 25.4;
-        double locz = sM->m_Offset.z * 25.4;
+        double locx = sM->m_Offset.x;  // part offsets are in mm
+        double locy = sM->m_Offset.y;
+        double locz = sM->m_Offset.z;
         double lrot = sM->m_Rotation.z;
 
         bool top = ( aFootprint->GetLayer() == B_Cu ) ? false : true;
@@ -599,7 +606,8 @@ static void idf_export_footprint( BOARD* aPcb, FOOTPRINT* aFootprint, IDF3_BOARD
  * PCB design.
  */
 bool PCB_EDIT_FRAME::Export_IDF3( BOARD* aPcb, const wxString& aFullFileName,
-                                  bool aUseThou, double aXRef, double aYRef )
+                                  bool aUseThou, double aXRef, double aYRef,
+                                  bool aIncludeUnspecified, bool aIncludeDNP )
 {
     IDF3_BOARD idfBoard( IDF3::CAD_ELEC );
 
@@ -645,7 +653,7 @@ bool PCB_EDIT_FRAME::Export_IDF3( BOARD* aPcb, const wxString& aFullFileName,
 
         // Output the drill holes and footprint (library) data.
         for( FOOTPRINT* footprint : aPcb->Footprints() )
-            idf_export_footprint( aPcb, footprint, idfBoard );
+            idf_export_footprint( aPcb, footprint, idfBoard, aIncludeUnspecified, aIncludeDNP );
 
         if( !idfBoard.WriteFile( aFullFileName, idfUnit, false ) )
         {

@@ -34,6 +34,7 @@
 #include <settings/settings_manager.h>
 #include <validators.h>
 #include <wildcards_and_files_ext.h>
+#include <eda_pattern_match.h>
 
 #include <wx/wupdlock.h>
 #include <wx/headerctrl.h>
@@ -101,7 +102,7 @@ PCB_NET_INSPECTOR_PANEL::~PCB_NET_INSPECTOR_PANEL()
     m_netsList->Unbind( wxEVT_DATAVIEW_ITEM_ACTIVATED,
                         &PCB_NET_INSPECTOR_PANEL::OnNetsListItemActivated, this );
     m_netsList->Unbind( wxEVT_DATAVIEW_COLUMN_SORTED,
-                      &PCB_NET_INSPECTOR_PANEL::OnColumnSorted, this );
+                        &PCB_NET_INSPECTOR_PANEL::OnColumnSorted, this );
 }
 
 
@@ -443,7 +444,12 @@ void PCB_NET_INSPECTOR_PANEL::buildNetsList( bool rebuildColumns )
     }
 
     m_data_model->deleteAllItems();
-    m_custom_group_rules = cfg->custom_group_rules;
+
+    m_custom_group_rules.clear();
+
+    for( const wxString& rule : cfg->custom_group_rules )
+        m_custom_group_rules.push_back( std::make_unique<EDA_COMBINED_MATCHER>( rule, CTX_NET ) );
+
     m_data_model->addCustomGroups();
 
     std::vector<std::unique_ptr<LIST_ITEM>> new_items;
@@ -518,17 +524,16 @@ void PCB_NET_INSPECTOR_PANEL::buildNetsList( bool rebuildColumns )
 
         for( wxString& groupName : cfg->expanded_rows )
         {
-            auto pred = [&groupName]( const std::pair<wxString, wxDataViewItem>& item )
-            {
-                return groupName == item.first;
-            };
+            auto pred =
+                    [&groupName]( const std::pair<wxString, wxDataViewItem>& item )
+                    {
+                        return groupName == item.first;
+                    };
 
             auto tableItem = std::find_if( groupItems.begin(), groupItems.end(), pred );
 
             if( tableItem != groupItems.end() )
-            {
                 m_netsList->Expand( tableItem->second );
-            }
         }
 
         m_row_expanding = false;
@@ -637,8 +642,9 @@ PCB_NET_INSPECTOR_PANEL::buildNewItem( NETINFO_ITEM* aNet, unsigned int aPadCoun
         BOARD_CONNECTED_ITEM* item = ( *i )->Parent();
 
         if( item->Type() == PCB_PAD_T )
+        {
             new_item->AddPadDieLength( static_cast<PAD*>( item )->GetPadToDieLength() );
-
+        }
         else if( PCB_TRACK* track = dynamic_cast<PCB_TRACK*>( item ) )
         {
             new_item->AddLayerWireLength( track->GetLength(),
@@ -760,8 +766,8 @@ void PCB_NET_INSPECTOR_PANEL::updateNet( NETINFO_ITEM* aNet )
         return;
     }
 
-    std::unique_ptr<LIST_ITEM> new_list_item =
-            buildNewItem( aNet, node_count, relevantConnectivityItems() );
+    std::unique_ptr<LIST_ITEM> new_list_item = buildNewItem( aNet, node_count,
+                                                             relevantConnectivityItems() );
 
     if( !cur_net_row )
     {
@@ -821,9 +827,9 @@ wxString PCB_NET_INSPECTOR_PANEL::formatCount( unsigned int aValue ) const
 
 wxString PCB_NET_INSPECTOR_PANEL::formatLength( int64_t aValue ) const
 {
-    return m_frame->MessageTextFromValue(
-            static_cast<long long int>( aValue ),
-            !m_in_reporting /* Don't include unit label in the string when reporting */ );
+    return m_frame->MessageTextFromValue( static_cast<long long int>( aValue ),
+                                          // don't include unit label in the string when reporting
+                                          !m_in_reporting);
 }
 
 
@@ -1167,14 +1173,14 @@ void PCB_NET_INSPECTOR_PANEL::OnNetsListContextMenu( wxDataViewEvent& event )
     wxMenu menu;
 
     // Net edit menu items
-    wxMenuItem* highlightNet =
-            new wxMenuItem( &menu, ID_HIGHLIGHT_SELECTED_NETS, _( "Highlight Selected Net" ),
-                            wxEmptyString, wxITEM_NORMAL );
+    wxMenuItem* highlightNet = new wxMenuItem( &menu, ID_HIGHLIGHT_SELECTED_NETS,
+                                               _( "Highlight Selected Net" ),
+                                               wxEmptyString, wxITEM_NORMAL );
     menu.Append( highlightNet );
 
-    wxMenuItem* clearHighlighting =
-            new wxMenuItem( &menu, ID_CLEAR_HIGHLIGHTING, _( "Clear Net Highlighting" ),
-                            wxEmptyString, wxITEM_NORMAL );
+    wxMenuItem* clearHighlighting = new wxMenuItem( &menu, ID_CLEAR_HIGHLIGHTING,
+                                                    _( "Clear Net Highlighting" ),
+                                                    wxEmptyString, wxITEM_NORMAL );
     menu.Append( clearHighlighting );
 
     RENDER_SETTINGS* renderSettings = m_frame->GetCanvas()->GetView()->GetPainter()->GetSettings();
@@ -1195,8 +1201,8 @@ void PCB_NET_INSPECTOR_PANEL::OnNetsListContextMenu( wxDataViewEvent& event )
 
     menu.AppendSeparator();
 
-    wxMenuItem* addNet =
-            new wxMenuItem( &menu, ID_ADD_NET, _( "Add Net" ), wxEmptyString, wxITEM_NORMAL );
+    wxMenuItem* addNet = new wxMenuItem( &menu, ID_ADD_NET, _( "Add Net" ),
+                                         wxEmptyString, wxITEM_NORMAL );
     menu.Append( addNet );
 
     if( !selItem && !multipleSelections )
@@ -1217,15 +1223,13 @@ void PCB_NET_INSPECTOR_PANEL::OnNetsListContextMenu( wxDataViewEvent& event )
 
     menu.AppendSeparator();
 
-    wxMenuItem* removeSelectedGroup =
-            new wxMenuItem( &menu, ID_REMOVE_SELECTED_GROUP, _( "Remove Selected Custom Group" ),
-                            wxEmptyString, wxITEM_NORMAL );
+    wxMenuItem* removeSelectedGroup = new wxMenuItem( &menu, ID_REMOVE_SELECTED_GROUP,
+                                                      _( "Remove Selected Custom Group" ),
+                                                      wxEmptyString, wxITEM_NORMAL );
     menu.Append( removeSelectedGroup );
 
     if( !selItem || !selItem->GetIsGroup() )
-    {
         removeSelectedGroup->Enable( false );
-    }
 
     menu.Bind( wxEVT_COMMAND_MENU_SELECTED, &PCB_NET_INSPECTOR_PANEL::onSettingsMenu, this );
 
@@ -1245,8 +1249,13 @@ void PCB_NET_INSPECTOR_PANEL::onAddGroup()
     wxString          newGroupName;
     NETNAME_VALIDATOR validator( &newGroupName );
 
-    WX_TEXT_ENTRY_DIALOG dlg( this, _( "Group name:" ), _( "New Group" ), newGroupName );
+    WX_TEXT_ENTRY_DIALOG dlg( this, _( "Group name / pattern:" ), _( "New Group" ), newGroupName );
+    wxStaticText* help = new wxStaticText( &dlg, wxID_ANY,
+                                           _( "(Use /.../ to indicate a regular expression.)" ) );
+    help->SetFont( KIUI::GetInfoFont( this ).Italic() );
+   	dlg.m_ContentSizer->Add( help, 0, wxALL|wxEXPAND, 5 );
     dlg.SetTextValidator( validator );
+    dlg.GetSizer()->SetSizeHints( &dlg );
 
     if( dlg.ShowModal() != wxID_OK || dlg.GetValue().IsEmpty() )
         return; //Aborted by user
@@ -1254,19 +1263,16 @@ void PCB_NET_INSPECTOR_PANEL::onAddGroup()
     newGroupName = UnescapeString( dlg.GetValue() );
 
     if( newGroupName == "" )
-    {
         return;
-    }
 
-    auto pred = [&]( wxString& rule )
+    if( std::find_if( m_custom_group_rules.begin(), m_custom_group_rules.end(),
+                      [&]( std::unique_ptr<EDA_COMBINED_MATCHER>& rule )
+                      {
+                          return rule->GetPattern().Upper() == newGroupName.Upper();
+                      } ) == m_custom_group_rules.end() )
     {
-        return rule.Upper() == newGroupName.Upper();
-    };
-
-    if( std::find_if( m_custom_group_rules.begin(), m_custom_group_rules.end(), pred )
-        == m_custom_group_rules.end() )
-    {
-        m_custom_group_rules.push_back( newGroupName );
+        m_custom_group_rules.push_back( std::make_unique<EDA_COMBINED_MATCHER>( newGroupName,
+                                                                                CTX_NET ) );
         SaveSettings();
     }
 
@@ -1317,13 +1323,15 @@ void PCB_NET_INSPECTOR_PANEL::OnConfigButton( wxCommandEvent& event )
     wxMenu menu;
 
     // Filtering menu items
-    wxMenuItem* filterByNetName = new wxMenuItem(
-            &menu, ID_FILTER_BY_NET_NAME, _( "Filter by Net Name" ), wxEmptyString, wxITEM_CHECK );
+    wxMenuItem* filterByNetName = new wxMenuItem( &menu, ID_FILTER_BY_NET_NAME,
+                                                  _( "Filter by Net Name" ),
+                                                  wxEmptyString, wxITEM_CHECK );
     filterByNetName->Check( cfg.filter_by_net_name );
     menu.Append( filterByNetName );
 
-    wxMenuItem* filterByNetclass = new wxMenuItem(
-            &menu, ID_FILTER_BY_NETCLASS, _( "Filter by Netclass" ), wxEmptyString, wxITEM_CHECK );
+    wxMenuItem* filterByNetclass = new wxMenuItem( &menu, ID_FILTER_BY_NETCLASS,
+                                                   _( "Filter by Netclass" ),
+                                                   wxEmptyString, wxITEM_CHECK );
     filterByNetclass->Check( cfg.filter_by_netclass );
     menu.Append( filterByNetclass );
 
@@ -1336,8 +1344,9 @@ void PCB_NET_INSPECTOR_PANEL::OnConfigButton( wxCommandEvent& event )
     //groupConstraint->Check( m_group_by_constraint );
     //menu.Append( groupConstraint );
 
-    wxMenuItem* groupNetclass = new wxMenuItem(
-            &menu, ID_GROUP_BY_NETCLASS, _( "Group by Netclass" ), wxEmptyString, wxITEM_CHECK );
+    wxMenuItem* groupNetclass = new wxMenuItem( &menu, ID_GROUP_BY_NETCLASS,
+                                                _( "Group by Netclass" ),
+                                                wxEmptyString, wxITEM_CHECK );
     groupNetclass->Check( m_group_by_netclass );
     menu.Append( groupNetclass );
 
@@ -1347,41 +1356,40 @@ void PCB_NET_INSPECTOR_PANEL::OnConfigButton( wxCommandEvent& event )
                                            wxEmptyString, wxITEM_NORMAL );
     menu.Append( addGroup );
 
-    wxMenuItem* removeSelectedGroup =
-            new wxMenuItem( &menu, ID_REMOVE_SELECTED_GROUP, _( "Remove Selected Custom Group" ),
-                            wxEmptyString, wxITEM_NORMAL );
+    wxMenuItem* removeSelectedGroup = new wxMenuItem( &menu, ID_REMOVE_SELECTED_GROUP,
+                                                      _( "Remove Selected Custom Group" ),
+                                                      wxEmptyString, wxITEM_NORMAL );
     menu.Append( removeSelectedGroup );
 
     if( !selItem || !selItem->GetIsGroup() )
-    {
         removeSelectedGroup->Enable( false );
-    }
 
-    wxMenuItem* removeCustomGroups =
-            new wxMenuItem( &menu, ID_REMOVE_GROUPS, _( "Remove All Custom Groups" ), wxEmptyString,
-                            wxITEM_NORMAL );
+    wxMenuItem* removeCustomGroups = new wxMenuItem( &menu, ID_REMOVE_GROUPS,
+                                                     _( "Remove All Custom Groups" ),
+                                                     wxEmptyString, wxITEM_NORMAL );
     menu.Append( removeCustomGroups );
     removeCustomGroups->Enable( m_custom_group_rules.size() != 0 );
 
     menu.AppendSeparator();
 
-    wxMenuItem* showZeroNetPads = new wxMenuItem(
-            &menu, ID_SHOW_ZERO_NET_PADS, _( "Show Zero Pad Nets" ), wxEmptyString, wxITEM_CHECK );
+    wxMenuItem* showZeroNetPads = new wxMenuItem( &menu, ID_SHOW_ZERO_NET_PADS,
+                                                  _( "Show Zero Pad Nets" ),
+                                                  wxEmptyString, wxITEM_CHECK );
     showZeroNetPads->Check( m_show_zero_pad_nets );
     menu.Append( showZeroNetPads );
 
-    wxMenuItem* showUnconnectedNets =
-            new wxMenuItem( &menu, ID_SHOW_UNCONNECTED_NETS, _( "Show Unconnected Nets" ),
-                            wxEmptyString, wxITEM_CHECK );
+    wxMenuItem* showUnconnectedNets = new wxMenuItem( &menu, ID_SHOW_UNCONNECTED_NETS,
+                                                      _( "Show Unconnected Nets" ),
+                                                      wxEmptyString, wxITEM_CHECK );
     showUnconnectedNets->Check( m_show_unconnected_nets );
     menu.Append( showUnconnectedNets );
 
     menu.AppendSeparator();
 
     // Report generation
-    wxMenuItem* generateReport =
-            new wxMenuItem( &menu, ID_GENERATE_REPORT, _( "Save Net Inspector Report" ),
-                            wxEmptyString, wxITEM_NORMAL );
+    wxMenuItem* generateReport = new wxMenuItem( &menu, ID_GENERATE_REPORT,
+                                                 _( "Save Net Inspector Report" ),
+                                                 wxEmptyString, wxITEM_NORMAL );
     menu.Append( generateReport );
 
     menu.AppendSeparator();
@@ -1428,85 +1436,69 @@ void PCB_NET_INSPECTOR_PANEL::onSettingsMenu( wxCommandEvent& event )
     switch( event.GetId() )
     {
     case ID_ADD_NET:
-    {
         onAddNet();
         break;
-    }
+
     case ID_RENAME_NET:
-    {
         onRenameSelectedNet();
         break;
-    }
+
     case ID_DELETE_NET:
-    {
         onDeleteSelectedNet();
         break;
-    }
+
     case ID_ADD_GROUP:
-    {
         onAddGroup();
         break;
-    }
+
     case ID_GROUP_BY_CONSTRAINT:
-    {
         m_group_by_constraint = !m_group_by_constraint;
         break;
-    }
+
     case ID_GROUP_BY_NETCLASS:
-    {
         m_group_by_netclass = !m_group_by_netclass;
         break;
-    }
+
     case ID_FILTER_BY_NET_NAME:
-    {
         m_filter_by_net_name = !m_filter_by_net_name;
         break;
-    }
+
     case ID_FILTER_BY_NETCLASS:
-    {
         m_filter_by_netclass = !m_filter_by_netclass;
         break;
-    }
+
     case ID_REMOVE_SELECTED_GROUP:
-    {
         onRemoveSelectedGroup();
         break;
-    }
+
     case ID_REMOVE_GROUPS:
-    {
         m_custom_group_rules.clear();
         break;
-    }
+
     case ID_SHOW_ZERO_NET_PADS:
-    {
         m_show_zero_pad_nets = !m_show_zero_pad_nets;
         break;
-    }
+
     case ID_SHOW_UNCONNECTED_NETS:
-    {
         m_show_unconnected_nets = !m_show_unconnected_nets;
         break;
-    }
+
     case ID_GENERATE_REPORT:
-    {
         generateReport();
         saveAndRebuild = false;
         break;
-    }
+
     case ID_HIGHLIGHT_SELECTED_NETS:
-    {
         highlightSelectedNets();
         saveAndRebuild = false;
         break;
-    }
+
     case ID_CLEAR_HIGHLIGHTING:
-    {
         onClearHighlighting();
         saveAndRebuild = false;
         break;
-    }
+
     default:
-    {
         if( event.GetId() >= ID_HIDE_COLUMN )
         {
             const int         columnId = event.GetId() - ID_HIDE_COLUMN;
@@ -1516,7 +1508,6 @@ void PCB_NET_INSPECTOR_PANEL::onSettingsMenu( wxCommandEvent& event )
             col->SetHidden( !col->IsHidden() );
         }
         break;
-    }
     }
 
     if( saveAndRebuild )
@@ -1531,14 +1522,16 @@ void PCB_NET_INSPECTOR_PANEL::onRemoveSelectedGroup()
 {
     if( m_netsList->GetSelectedItemsCount() == 1 )
     {
-        const LIST_ITEM* selItem =
-                static_cast<const LIST_ITEM*>( m_netsList->GetSelection().GetID() );
+        auto* selItem = static_cast<const LIST_ITEM*>( m_netsList->GetSelection().GetID() );
 
         if( selItem->GetIsGroup() )
         {
             wxString groupName = selItem->GetGroupName();
-            auto groupIter = std::find( m_custom_group_rules.begin(), m_custom_group_rules.end(),
-                                        groupName );
+            auto groupIter = std::find_if( m_custom_group_rules.begin(), m_custom_group_rules.end(),
+                                           [&]( std::unique_ptr<EDA_COMBINED_MATCHER>& rule )
+                                           {
+                                               return rule->GetPattern() == groupName;
+                                           } );
 
             if( groupIter != m_custom_group_rules.end() )
             {
@@ -1575,13 +1568,15 @@ void PCB_NET_INSPECTOR_PANEL::generateReport()
 
         if( col.has_units )
         {
-            txt += wxString::Format( _( "%s (%s)" ), col.csv_name,
+            txt += wxString::Format( _( "%s (%s)" ),
+                                     col.csv_name,
                                      EDA_UNIT_UTILS::GetLabel( m_frame->GetUserUnits() ) );
         }
         else
         {
             txt += col.csv_name;
         }
+
         txt += wxT( "\";" );
     }
 
@@ -1958,16 +1953,12 @@ void PCB_NET_INSPECTOR_PANEL::SaveSettings()
     for( std::pair<wxString, wxDataViewItem>& item : groupItems )
     {
         if( m_netsList->IsExpanded( item.second ) )
-        {
             cfg.expanded_rows.push_back( item.first );
-        }
     }
 
     // Customer group rules
     cfg.custom_group_rules.clear();
 
-    for( const wxString& rule : m_custom_group_rules )
-    {
-        cfg.custom_group_rules.push_back( rule );
-    }
+    for( const std::unique_ptr<EDA_COMBINED_MATCHER>& rule : m_custom_group_rules )
+        cfg.custom_group_rules.push_back( rule->GetPattern() );
 }

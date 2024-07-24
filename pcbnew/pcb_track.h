@@ -43,6 +43,8 @@
 #include <geometry/shape_segment.h>
 #include <core/minoptmax.h>
 #include <core/arraydim.h>
+#include <lset.h>
+#include <padstack.h>
 
 class PCB_TRACK;
 class PCB_VIA;
@@ -67,6 +69,13 @@ enum class VIATYPE : int
     MICROVIA     = 1, /* this via which connect from an external layer
                        * to the near neighbor internal layer */
     NOT_DEFINED  = 0  /* not yet used */
+};
+
+enum class TENTING_MODE
+{
+    FROM_RULES = 0,
+    TENTED = 1,
+    NOT_TENTED = 2
 };
 
 #define UNDEFINED_DRILL_DIAMETER  -1       //< Undefined via drill diameter.
@@ -103,8 +112,8 @@ public:
     VECTOR2I GetPosition() const override             { return m_Start; }
     const VECTOR2I GetFocusPosition() const override  { return ( m_Start + m_End ) / 2; }
 
-    void SetWidth( int aWidth )             { m_Width = aWidth; }
-    int GetWidth() const                    { return m_Width; }
+    virtual void SetWidth( int aWidth )             { m_Width = aWidth; }
+    virtual int GetWidth() const                    { return m_Width; }
 
     void SetEnd( const VECTOR2I& aEnd )     { m_End = aEnd; }
     const VECTOR2I& GetEnd() const          { return m_End; }
@@ -191,7 +200,7 @@ public:
 
     virtual MINOPTMAX<int> GetWidthConstraint( wxString* aSource = nullptr ) const;
 
-    wxString GetItemDescription( UNITS_PROVIDER* aUnitsProvider ) const override;
+    wxString GetItemDescription( UNITS_PROVIDER* aUnitsProvider, bool aFull ) const override;
 
     BITMAPS GetMenuImage() const override;
 
@@ -211,50 +220,10 @@ public:
         return true;
     }
 
-    /**
-     * Get last used LOD for the track net name.
-     *
-     * @return LOD from ViewGetLOD()
-     */
-    double GetCachedLOD()
-    {
-        return m_CachedLOD;
-    }
-
-    /**
-     * Set the cached LOD.
-     *
-     * @param aLOD value from ViewGetLOD() or 0.0 to always display.
-     */
-    void SetCachedLOD( double aLOD )
-    {
-        m_CachedLOD = aLOD;
-    }
-
-    /**
-     * Get last used zoom scale for the track net name.
-     *
-     * @return scale from GetScale()
-     */
-    double GetCachedScale()
-    {
-        return m_CachedScale;
-    }
-
     virtual double Similarity( const BOARD_ITEM& aOther ) const override;
 
     virtual bool operator==( const BOARD_ITEM& aOther ) const override;
     virtual bool operator==( const PCB_TRACK& aOther ) const;
-
-    /**
-     * Set the cached scale.
-     *
-     * @param aScale value from GetScale()
-     */
-    void SetCachedScale( double aScale )
-    {
-        m_CachedScale = aScale;
-    }
 
     struct cmp_tracks
     {
@@ -275,12 +244,9 @@ protected:
                                      std::vector<MSG_PANEL_ITEM>& aList ) const;
 
 protected:
-    int      m_Width;        ///< Thickness of track, or via diameter
+    int      m_Width;        ///< Thickness of track
     VECTOR2I m_Start;        ///< Line start point
     VECTOR2I m_End;          ///< Line end point
-
-    double   m_CachedLOD;    ///< Last LOD used to draw this track's net
-    double   m_CachedScale;  ///< Last zoom scale used to draw this track's net.
 };
 
 
@@ -363,7 +329,8 @@ public:
 
     double Similarity( const BOARD_ITEM& aOther ) const override;
 
-    bool operator==( const BOARD_ITEM& aOther ) const override;
+    bool operator==( const PCB_ARC& aOther ) const;
+    bool operator==( const BOARD_ITEM& aBoardItem ) const override;
 
     void Serialize( google::protobuf::Any &aContainer ) const override;
     bool Deserialize( const google::protobuf::Any &aContainer ) override;
@@ -410,9 +377,21 @@ public:
     VIATYPE GetViaType() const { return m_viaType; }
     void SetViaType( VIATYPE aViaType ) { m_viaType = aViaType; }
 
+    const PADSTACK& Padstack() const              { return m_padStack; }
+    PADSTACK& Padstack()                          { return m_padStack; }
+    void SetPadstack( const PADSTACK& aPadstack ) { m_padStack = aPadstack; }
+
+    void SetWidth( int aWidth ) override;
+    int GetWidth() const override;
+
     bool HasHole() const override
     {
         return true;
+    }
+
+    bool HasDrilledHole() const override
+    {
+        return m_viaType == VIATYPE::THROUGH || m_viaType == VIATYPE::BLIND_BURIED;
     }
 
     std::shared_ptr<SHAPE_SEGMENT> GetEffectiveHoleShape() const override;
@@ -420,8 +399,16 @@ public:
     MINOPTMAX<int> GetWidthConstraint( wxString* aSource = nullptr ) const override;
     MINOPTMAX<int> GetDrillConstraint( wxString* aSource = nullptr ) const;
 
-    bool IsTented() const override;
+    void SetFrontTentingMode( TENTING_MODE aMode );
+    TENTING_MODE GetFrontTentingMode() const;
+    void SetBackTentingMode( TENTING_MODE aMode );
+    TENTING_MODE GetBackTentingMode() const;
+
+    bool IsTented( PCB_LAYER_ID aLayer ) const override;
     int GetSolderMaskExpansion() const;
+
+    PCB_LAYER_ID GetLayer() const override;
+    void SetLayer( PCB_LAYER_ID aLayer ) override;
 
     bool IsOnLayer( PCB_LAYER_ID aLayer ) const override;
 
@@ -475,7 +462,7 @@ public:
         return wxT( "PCB_VIA" );
     }
 
-    wxString GetItemDescription( UNITS_PROVIDER* aUnitsProvider ) const override;
+    wxString GetItemDescription( UNITS_PROVIDER* aUnitsProvider, bool aFull ) const override;
 
     BITMAPS GetMenuImage() const override;
 
@@ -494,25 +481,55 @@ public:
     int GetMinAnnulus( PCB_LAYER_ID aLayer, wxString* aSource ) const;
 
     /**
+     * @deprecated - use Padstack().SetUnconnectedLayerMode()
      * Sets the unconnected removal property.  If true, the copper is removed on zone fill
      * or when specifically requested when the via is not connected on a layer.
      */
-    void SetRemoveUnconnected( bool aSet )      { m_removeUnconnectedLayer = aSet; }
-    bool GetRemoveUnconnected() const           { return m_removeUnconnectedLayer; }
+    void SetRemoveUnconnected( bool aSet )
+    {
+        m_padStack.SetUnconnectedLayerMode( aSet
+                ? PADSTACK::UNCONNECTED_LAYER_MODE::REMOVE_ALL
+                : PADSTACK::UNCONNECTED_LAYER_MODE::KEEP_ALL );
+    }
+
+    bool GetRemoveUnconnected() const
+    {
+        return m_padStack.UnconnectedLayerMode() != PADSTACK::UNCONNECTED_LAYER_MODE::KEEP_ALL;
+    }
 
     /**
+     * @deprecated - use Padstack().SetUnconnectedLayerMode()
      * Sets whether we keep the start and end annular rings even if they are not connected
      */
-    void SetKeepStartEnd( bool aSet )      { m_keepStartEndLayer = aSet; }
-    bool GetKeepStartEnd() const           { return m_keepStartEndLayer; }
+    void SetKeepStartEnd( bool aSet )
+    {
+        m_padStack.SetUnconnectedLayerMode( aSet
+                ? PADSTACK::UNCONNECTED_LAYER_MODE::REMOVE_EXCEPT_START_AND_END
+                : PADSTACK::UNCONNECTED_LAYER_MODE::REMOVE_ALL );
+    }
+
+    bool GetKeepStartEnd() const
+    {
+        return m_padStack.UnconnectedLayerMode()
+               == PADSTACK::UNCONNECTED_LAYER_MODE::REMOVE_EXCEPT_START_AND_END;
+    }
 
     bool ConditionallyFlashed( PCB_LAYER_ID aLayer ) const
     {
-        if( !m_removeUnconnectedLayer )
+        switch( m_padStack.UnconnectedLayerMode() )
+        {
+        case PADSTACK::UNCONNECTED_LAYER_MODE::KEEP_ALL:
             return false;
 
-        if( m_keepStartEndLayer && ( aLayer == m_layer || aLayer == m_bottomLayer ) )
-            return false;
+        case PADSTACK::UNCONNECTED_LAYER_MODE::REMOVE_ALL:
+            return true;
+
+        case PADSTACK::UNCONNECTED_LAYER_MODE::REMOVE_EXCEPT_START_AND_END:
+        {
+            if( aLayer == m_padStack.Drill().start || aLayer == m_padStack.Drill().end )
+                return false;
+        }
+        }
 
         return true;
     }
@@ -547,14 +564,17 @@ public:
      *
      * @param aDrill is the new drill diameter
      */
-    void SetDrill( int aDrill )             { m_drill = aDrill; }
+    void SetDrill( int aDrill )
+    {
+        m_padStack.Drill().size = { aDrill, aDrill };
+    }
 
     /**
      * Return the local drill setting for this PCB_VIA.
      *
      * @note Use GetDrillValue() to get the calculated value.
      */
-    int GetDrill() const                    { return m_drill; }
+    int GetDrill() const                    { return m_padStack.Drill().size.x; }
 
     /**
      * Calculate the drill value for vias (m_drill if > 0, or default drill value for the board).
@@ -566,7 +586,10 @@ public:
     /**
      * Set the drill value for vias to the default value #UNDEFINED_DRILL_DIAMETER.
      */
-    void SetDrillDefault()      { m_drill = UNDEFINED_DRILL_DIAMETER; }
+    void SetDrillDefault()
+    {
+        m_padStack.Drill().size = { UNDEFINED_DRILL_DIAMETER, UNDEFINED_DRILL_DIAMETER };
+    }
 
     /**
      * Check if the via is a free via (as opposed to one created on a track by the router).
@@ -600,6 +623,7 @@ public:
 
     double Similarity( const BOARD_ITEM& aOther ) const override;
 
+    bool operator==( const PCB_VIA& aOther ) const;
     bool operator==( const BOARD_ITEM& aOther ) const override;
 
     void Serialize( google::protobuf::Any &aContainer ) const override;
@@ -611,15 +635,10 @@ protected:
     wxString layerMaskDescribe() const override;
 
 private:
-    /// The bottom layer of the via (the top layer is in m_layer)
-    PCB_LAYER_ID m_bottomLayer;
-
     VIATYPE      m_viaType;                  ///< through, blind/buried or micro
 
-    int          m_drill;                    ///< for vias: via drill (- 1 for default value)
+    PADSTACK     m_padStack;
 
-    bool         m_removeUnconnectedLayer;   ///< Remove annular rings on unconnected layers
-    bool         m_keepStartEndLayer;        ///< Keep the start and end annular rings
     bool         m_isFree;                   ///< "Free" vias don't get their nets auto-updated
 
     std::mutex                                     m_zoneLayerOverridesMutex;

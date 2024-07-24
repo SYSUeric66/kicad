@@ -61,7 +61,11 @@ BOOST_FIXTURE_TEST_CASE( ERCGlobalLabels, ERC_REGRESSION_TEST_FIXTURE )
         settings.m_ERCSeverities[ERCE_LIB_SYMBOL_ISSUES] = RPT_SEVERITY_IGNORE;
         settings.m_ERCSeverities[ERCE_LIB_SYMBOL_MISMATCH] = RPT_SEVERITY_IGNORE;
 
-        m_schematic->ConnectionGraph()->Recalculate( m_schematic->GetSheets(), true );
+        // Skip the unconnected wire endpoints warning
+        settings.m_ERCSeverities[ERCE_UNCONNECTED_WIRE_ENDPOINT] = RPT_SEVERITY_IGNORE;
+
+        SCH_SHEET_LIST sheets = m_schematic->BuildSheetListSortedByPageNumbers();
+        m_schematic->ConnectionGraph()->Recalculate( sheets, true );
         m_schematic->ConnectionGraph()->RunERC();
 
         ERC_TESTER tester( m_schematic.get() );
@@ -107,7 +111,8 @@ BOOST_FIXTURE_TEST_CASE( ERCSingleGlobalLabels, ERC_REGRESSION_TEST_FIXTURE )
         settings.m_ERCSeverities[ERCE_GLOBLABEL] = RPT_SEVERITY_IGNORE;
         settings.m_ERCSeverities[ERCE_SINGLE_GLOBAL_LABEL] = RPT_SEVERITY_ERROR;
 
-        m_schematic->ConnectionGraph()->Recalculate( m_schematic->GetSheets(), true );
+        SCH_SHEET_LIST sheets = m_schematic->BuildSheetListSortedByPageNumbers();
+        m_schematic->ConnectionGraph()->Recalculate( sheets, true );
         m_schematic->ConnectionGraph()->RunERC();
 
         ERC_TESTER tester( m_schematic.get() );

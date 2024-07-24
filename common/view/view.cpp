@@ -57,6 +57,7 @@ public:
         m_flags( KIGFX::VISIBLE ),
         m_requiredUpdate( KIGFX::NONE ),
         m_drawPriority( 0 ),
+        m_cachedIndex( -1 ),
         m_groups( nullptr ),
         m_groupsSize( 0 ) {}
 
@@ -228,6 +229,7 @@ private:
     int                  m_flags;            ///< Visibility flags
     int                  m_requiredUpdate;   ///< Flag required for updating
     int                  m_drawPriority;     ///< Order to draw this item in a layer, lowest first
+    int                  m_cachedIndex;      ///< Cached index in m_allItems.
 
     std::pair<int, int>* m_groups;           ///< layer_number:group_id pairs for each layer the
                                              ///< item occupies.
@@ -330,6 +332,7 @@ void VIEW::Add( VIEW_ITEM* aItem, int aDrawPriority )
     aItem->m_viewPrivData->m_drawPriority = aDrawPriority;
     const BOX2I bbox = aItem->ViewBBox();
     aItem->m_viewPrivData->m_bbox = bbox;
+    aItem->m_viewPrivData->m_cachedIndex = m_allItems->size();
 
     aItem->ViewGetLayers( layers, layers_count );
     aItem->viewPrivData()->saveLayers( layers, layers_count );
@@ -353,15 +356,47 @@ void VIEW::Add( VIEW_ITEM* aItem, int aDrawPriority )
 
 void VIEW::Remove( VIEW_ITEM* aItem )
 {
+    static int s_gcCounter = 0;
+
     if( aItem && aItem->m_viewPrivData )
     {
         wxCHECK( aItem->m_viewPrivData->m_view == this, /*void*/ );
-        auto item = std::find( m_allItems->begin(), m_allItems->end(), aItem );
+
+        std::vector<VIEW_ITEM*>::iterator item = m_allItems->end();
+        int                               cachedIndex = aItem->m_viewPrivData->m_cachedIndex;
+
+        if( cachedIndex >= 0 && cachedIndex < static_cast<ssize_t>( m_allItems->size() )
+            && ( *m_allItems )[cachedIndex] == aItem )
+        {
+            item = m_allItems->begin() + cachedIndex;
+        }
+        else
+        {
+            item = std::find( m_allItems->begin(), m_allItems->end(), aItem );
+        }
 
         if( item != m_allItems->end() )
         {
-            m_allItems->erase( item );
+            *item = nullptr;
             aItem->m_viewPrivData->clearUpdateFlags();
+
+            s_gcCounter++;
+
+            if( s_gcCounter > 4096 )
+            {
+                // Perform defragmentation
+                alg::delete_if( *m_allItems,
+                                []( VIEW_ITEM* it )
+                                {
+                                    return it == nullptr;
+                                } );
+
+                // Update cached indices
+                for( size_t idx = 0; idx < m_allItems->size(); idx++ )
+                    ( *m_allItems )[idx]->m_viewPrivData->m_cachedIndex = idx;
+
+                s_gcCounter = 0;
+            }
         }
 
         int layers[VIEW::VIEW_MAX_LAYERS], layers_count;
@@ -399,34 +434,18 @@ void VIEW::SetRequired( int aLayerId, int aRequiredId, bool aRequired )
 }
 
 
-// stupid C++... python lambda would do this in one line
-template <class CONTAINER>
-struct QUERY_VISITOR
-{
-    typedef typename CONTAINER::value_type item_type;
-
-    QUERY_VISITOR( CONTAINER& aCont, int aLayer ) :
-        m_cont( aCont ), m_layer( aLayer )
-    {
-    }
-
-    bool operator()( VIEW_ITEM* aItem )
-    {
-        if( aItem->viewPrivData()->GetFlags() & VISIBLE )
-            m_cont.push_back( VIEW::LAYER_ITEM_PAIR( aItem, m_layer ) );
-
-        return true;
-    }
-
-    CONTAINER&  m_cont;
-    int         m_layer;
-};
-
-
 int VIEW::Query( const BOX2I& aRect, std::vector<LAYER_ITEM_PAIR>& aResult ) const
 {
     if( m_orderedLayers.empty() )
         return 0;
+
+    int  layer = UNDEFINED_LAYER;
+    auto visitor =
+            [&]( VIEW_ITEM* item ) -> bool
+            {
+                aResult.push_back( VIEW::LAYER_ITEM_PAIR( item, layer ) );
+                return true;
+            };
 
     std::vector<VIEW_LAYER*>::const_reverse_iterator i;
 
@@ -438,11 +457,27 @@ int VIEW::Query( const BOX2I& aRect, std::vector<LAYER_ITEM_PAIR>& aResult ) con
         if( ( *i )->displayOnly || !( *i )->visible )
             continue;
 
-        QUERY_VISITOR<std::vector<LAYER_ITEM_PAIR> > visitor( aResult, ( *i )->id );
+        layer = ( *i )->id;
         ( *i )->items->Query( aRect, visitor );
     }
 
     return aResult.size();
+}
+
+
+void VIEW::Query( const BOX2I& aRect, const std::function<bool( VIEW_ITEM* )>& aFunc ) const
+{
+    if( m_orderedLayers.empty() )
+        return;
+
+    for( const auto& i : m_orderedLayers )
+    {
+        // ignore layers that do not contain actual items (i.e. the selection box, menus, floats)
+        if( i->displayOnly || !i->visible )
+            continue;
+
+        i->items->Query( aRect, aFunc );
+    }
 }
 
 
@@ -696,6 +731,9 @@ void VIEW::ReorderLayerData( std::unordered_map<int, int> aReorderMap )
 
     for( VIEW_ITEM* item : *m_allItems )
     {
+        if( !item )
+            continue;
+
         VIEW_ITEM_DATA* viewData = item->viewPrivData();
 
         if( !viewData )
@@ -771,6 +809,9 @@ void VIEW::UpdateAllLayersColor()
 
         for( VIEW_ITEM* item : *m_allItems )
         {
+            if( !item )
+                continue;
+
             VIEW_ITEM_DATA* viewData = item->viewPrivData();
 
             if( !viewData )
@@ -904,6 +945,9 @@ void VIEW::UpdateAllLayersOrder()
 
         for( VIEW_ITEM* item : *m_allItems )
         {
+            if( !item )
+                continue;
+
             VIEW_ITEM_DATA* viewData = item->viewPrivData();
 
             if( !viewData )
@@ -1434,6 +1478,9 @@ void VIEW::UpdateItems()
 
     for( VIEW_ITEM* item : *m_allItems )
     {
+        if( !item )
+            continue;
+
         auto vpd = item->viewPrivData();
 
         if( !vpd )
@@ -1472,6 +1519,9 @@ void VIEW::UpdateItems()
         // and re-insert items from scratch
         for( VIEW_ITEM* item : allItems )
         {
+            if( !item )
+                continue;
+
             const BOX2I bbox = item->ViewBBox();
             item->m_viewPrivData->m_bbox = bbox;
 
@@ -1497,7 +1547,7 @@ void VIEW::UpdateItems()
 
         for( VIEW_ITEM* item : *m_allItems.get() )
         {
-            if( item->viewPrivData() && item->viewPrivData()->m_requiredUpdate != NONE )
+            if( item && item->viewPrivData() && item->viewPrivData()->m_requiredUpdate != NONE )
             {
                 invalidateItem( item, item->viewPrivData()->m_requiredUpdate );
                 item->viewPrivData()->m_requiredUpdate = NONE;
@@ -1514,7 +1564,7 @@ void VIEW::UpdateAllItems( int aUpdateFlags )
 {
     for( VIEW_ITEM* item : *m_allItems )
     {
-        if( item->viewPrivData() )
+        if( item && item->viewPrivData() )
             item->viewPrivData()->m_requiredUpdate |= aUpdateFlags;
     }
 }
@@ -1525,6 +1575,9 @@ void VIEW::UpdateAllItemsConditionally( int aUpdateFlags,
 {
     for( VIEW_ITEM* item : *m_allItems )
     {
+        if( !item )
+            continue;
+
         if( aCondition( item ) )
         {
             if( item->viewPrivData() )
@@ -1538,6 +1591,9 @@ void VIEW::UpdateAllItemsConditionally( std::function<int( VIEW_ITEM* )> aItemFl
 {
     for( VIEW_ITEM* item : *m_allItems )
     {
+        if( !item )
+            continue;
+
         if( item->viewPrivData() )
             item->viewPrivData()->m_requiredUpdate |= aItemFlagsProvider( item );
     }

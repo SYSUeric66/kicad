@@ -54,12 +54,16 @@ set( QA_EESCHEMA_SRCS
     erc/test_erc_four_way.cpp
 	erc/test_erc_label_not_connected.cpp
 	erc/test_erc_stacking_pins.cpp
+    erc/test_erc_label_names.cpp
 	erc/test_erc_global_labels.cpp
 	erc/test_erc_no_connect.cpp
     erc/test_erc_hierarchical_schematics.cpp
+    erc/test_erc_label_multiple_wires.cpp
     erc/test_erc_rule_areas.cpp
+    erc/test_erc_unconnected_wire_endpoints.cpp
 
     test_eagle_plugin.cpp
+    test_junction_helpers.cpp
     test_lib_part.cpp
     test_netlist_exporter_kicad.cpp
     test_ee_item.cpp
@@ -116,4 +120,3 @@ target_compile_definitions( qa_eeschema
 )
 
 kicad_add_boost_test( qa_eeschema qa_eeschema )
-

@@ -24,6 +24,7 @@
 #include <footprint_edit_frame.h>
 #include <pcbnew_id.h>
 #include <bitmaps.h>
+#include <lset.h>
 #include <tool/action_toolbar.h>
 #include <tool/tool_manager.h>
 #include <tools/pcb_actions.h>
@@ -249,7 +250,7 @@ void FOOTPRINT_EDIT_FRAME::ReCreateOptToolbar()
         m_optionsToolBar->Add( ACTIONS::toggleBoundingBoxes, ACTION_TOOLBAR::TOGGLE );
 
     m_optionsToolBar->AddScaledSeparator( this );
-    m_optionsToolBar->Add( PCB_ACTIONS::showFootprintTree,   ACTION_TOOLBAR::TOGGLE );
+    m_optionsToolBar->Add( ACTIONS::showLibraryTree,         ACTION_TOOLBAR::TOGGLE );
     m_optionsToolBar->Add( PCB_ACTIONS::showLayersManager,   ACTION_TOOLBAR::TOGGLE );
     m_optionsToolBar->Add( PCB_ACTIONS::showProperties,      ACTION_TOOLBAR::TOGGLE );
 

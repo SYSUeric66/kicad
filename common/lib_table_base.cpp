@@ -128,7 +128,7 @@ LIB_TABLE::~LIB_TABLE()
 }
 
 
-void LIB_TABLE::Clear()
+void LIB_TABLE::clear()
 {
     m_rows.clear();
     m_rowsMap.clear();
@@ -199,16 +199,7 @@ LIB_TABLE_ROW* LIB_TABLE::findRow( const wxString& aNickName, bool aCheckIfEnabl
 
     do
     {
-        try
-        {
-            std::shared_lock<std::shared_mutex> lock( cur->m_mutex );
-        }
-        catch( std::system_error& e )
-        {
-            wxASSERT_MSG( false, wxString::Format( wxS( "Failed to lock lib table mutex: %s" ),
-                                                   e.what() ) );
-            continue;
-        }
+        std::shared_lock<std::shared_mutex> lock( cur->m_mutex );
 
         if( cur->m_rowsMap.count( aNickName ) )
             row = &*cur->m_rowsMap.at( aNickName );
@@ -318,6 +309,15 @@ bool LIB_TABLE::InsertRow( LIB_TABLE_ROW* aRow, bool doReplace )
 {
     std::lock_guard<std::shared_mutex> lock( m_mutex );
 
+    doInsertRow( aRow, doReplace );
+    reindex();
+
+    return true;
+}
+
+
+bool LIB_TABLE::doInsertRow( LIB_TABLE_ROW* aRow, bool doReplace )
+{
     auto it = m_rowsMap.find( aRow->GetNickName() );
 
     if( it != m_rowsMap.end() )
@@ -415,6 +415,7 @@ void LIB_TABLE::TransferRows( LIB_TABLE_ROWS& aRowsList )
 {
     std::lock_guard<std::shared_mutex> lock( m_mutex );
 
+    clear();
     m_rows.transfer( m_rows.end(), aRowsList.begin(), aRowsList.end(), aRowsList );
 
     reindex();
@@ -460,6 +461,9 @@ bool LIB_TABLE::migrate()
 
 void LIB_TABLE::Load( const wxString& aFileName )
 {
+    std::lock_guard<std::shared_mutex> lock( m_mutex );
+    clear();
+
     // It's OK if footprint library tables are missing.
     if( wxFileName::IsFileReadable( aFileName ) )
     {
@@ -470,6 +474,8 @@ void LIB_TABLE::Load( const wxString& aFileName )
 
         if( m_version != 7 && migrate() && wxFileName::IsFileWritable( aFileName ) )
             Save( aFileName );
+
+        reindex();
     }
 }
 

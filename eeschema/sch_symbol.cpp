@@ -22,16 +22,14 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA
  */
 
+#include <ee_collectors.h>
+#include <sch_commit.h>
 #include <sch_edit_frame.h>
 #include <widgets/msgpanel.h>
 #include <bitmaps.h>
 #include <core/mirror.h>
-#include <sch_pin.h>
 #include <sch_shape.h>
 #include <pgm_base.h>
-#include <sch_symbol.h>
-#include <sch_sheet_path.h>
-#include <schematic.h>
 #include <sim/sim_model.h>
 #include <sim/spice_generator.h>
 #include <sim/sim_lib_mgr.h>
@@ -97,7 +95,7 @@ static LIB_SYMBOL* dummy()
 
 
 SCH_SYMBOL::SCH_SYMBOL() :
-    SYMBOL( nullptr, SCH_SYMBOL_T )
+        SYMBOL( nullptr, SCH_SYMBOL_T )
 {
     Init( VECTOR2I( 0, 0 ) );
 }
@@ -157,7 +155,7 @@ SCH_SYMBOL::SCH_SYMBOL( const LIB_SYMBOL& aSymbol, const SCH_SHEET_PATH* aSheet,
 
 
 SCH_SYMBOL::SCH_SYMBOL( const SCH_SYMBOL& aSymbol ) :
-    SYMBOL( aSymbol )
+        SYMBOL( aSymbol )
 {
     m_parent      = aSymbol.m_parent;
     m_pos         = aSymbol.m_pos;
@@ -424,13 +422,27 @@ void SCH_SYMBOL::UpdatePins()
 }
 
 
-void SCH_SYMBOL::SetBodyStyle( int aBodyStyle )
+void SCH_SYMBOL::SetBodyStyleUnconditional( int aBodyStyle )
 {
     if( m_bodyStyle != aBodyStyle )
     {
-        m_bodyStyle = aBodyStyle;
+        m_bodyStyle = ( m_bodyStyle == BODY_STYLE::BASE ) ? BODY_STYLE::DEMORGAN
+                                                          : BODY_STYLE::BASE;
 
-        // The convert may have a different pin layout so the update the pin map.
+        // The body style may have a different pin layout so the update the pin map.
+        UpdatePins();
+    }
+}
+
+
+void SCH_SYMBOL::SetBodyStyle( int aBodyStyle )
+{
+    if( HasAlternateBodyStyle() && m_bodyStyle != aBodyStyle )
+    {
+        m_bodyStyle = ( m_bodyStyle == BODY_STYLE::BASE ) ? BODY_STYLE::DEMORGAN
+                                                          : BODY_STYLE::BASE;
+
+        // The body style may have a different pin layout so the update the pin map.
         UpdatePins();
     }
 }
@@ -460,7 +472,7 @@ int SCH_SYMBOL::GetUnitCount() const
 }
 
 
-wxString SCH_SYMBOL::GetUnitDisplayName( int aUnit )
+wxString SCH_SYMBOL::GetUnitDisplayName( int aUnit ) const
 {
     wxCHECK( m_part, ( wxString::Format( _( "Unit %s" ), SubReference( aUnit ) ) ) );
 
@@ -468,7 +480,7 @@ wxString SCH_SYMBOL::GetUnitDisplayName( int aUnit )
 }
 
 
-bool SCH_SYMBOL::HasUnitDisplayName( int aUnit )
+bool SCH_SYMBOL::HasUnitDisplayName( int aUnit ) const
 {
     wxCHECK( m_part, false );
 
@@ -545,9 +557,16 @@ void SCH_SYMBOL::Print( const SCH_RENDER_SETTINGS* aSettings, int aUnit, int aBo
 
     if( m_DNP )
     {
-        BOX2I bbox = GetBodyAndPinsBoundingBox();
-        wxDC* DC = localRenderSettings.GetPrintDC();
-        COLOR4D dnp_color = localRenderSettings.GetLayerColor( LAYER_DNP_MARKER );
+        wxDC*    DC = localRenderSettings.GetPrintDC();
+        BOX2I    bbox = GetBodyBoundingBox();
+        BOX2I    pins = GetBodyAndPinsBoundingBox();
+        COLOR4D  dnp_color = localRenderSettings.GetLayerColor( LAYER_DNP_MARKER );
+        VECTOR2D margins( std::max( bbox.GetX() - pins.GetX(), pins.GetEnd().x - bbox.GetEnd().x ),
+                          std::max( bbox.GetY() - pins.GetY(), pins.GetEnd().y - bbox.GetEnd().y ) );
+
+        margins.x = std::max( margins.x * 0.6, margins.y * 0.3 );
+        margins.y = std::max( margins.y * 0.6, margins.x * 0.3 );
+        bbox.Inflate( KiROUND( margins.x ), KiROUND( margins.y ) );
 
         GRFilledSegment( DC, bbox.GetOrigin(), bbox.GetEnd(),
                              3.0 * schIUScale.MilsToIU( DEFAULT_LINE_WIDTH_MILS ),
@@ -1086,6 +1105,115 @@ void SCH_SYMBOL::UpdateFields( const SCH_SHEET_PATH* aPath, bool aUpdateStyle, b
 }
 
 
+void SCH_SYMBOL::SyncOtherUnits( const SCH_SHEET_PATH& aSourceSheet, SCH_COMMIT& aCommit,
+                                 PROPERTY_BASE* aProperty )
+{
+    bool updateValue = true;
+    bool updateExclFromBOM = true;
+    bool updateExclFromBoard = true;
+    bool updateDNP = true;
+    bool updateOtherFields = true;
+    bool updatePins = true;
+
+    if( aProperty )
+    {
+        updateValue = aProperty->Name() == _HKI( "Value" );
+        updateExclFromBoard = aProperty->Name() == _HKI( "Exclude From Board" );
+        updateExclFromBOM = aProperty->Name() == _HKI( "Exclude From Bill of Materials" );
+        updateDNP = aProperty->Name() == _HKI( "Do not Populate" );
+        updateOtherFields = false;
+        updatePins = false;
+    }
+
+    if( !updateValue
+            && !updateExclFromBOM
+            && !updateExclFromBoard
+            && !updateDNP
+            && !updateOtherFields
+            && !updatePins )
+    {
+        return;
+    }
+
+    // Keep fields other than the reference, include/exclude flags, and alternate pin assignements
+    // in sync in multi-unit parts.
+    if( GetUnitCount() > 1 && IsAnnotated( &aSourceSheet ) )
+    {
+        wxString ref = GetRef( &aSourceSheet );
+
+        for( SCH_SHEET_PATH& sheet : Schematic()->BuildUnorderedSheetList() )
+        {
+            SCH_SCREEN*              screen = sheet.LastScreen();
+            std::vector<SCH_SYMBOL*> otherUnits;
+
+            CollectOtherUnits( ref, m_unit, m_lib_id, sheet, &otherUnits );
+
+            for( SCH_SYMBOL* otherUnit : otherUnits )
+            {
+                aCommit.Modify( otherUnit, screen );
+
+                if( updateValue )
+                    otherUnit->SetValueFieldText( GetField( VALUE_FIELD )->GetText() );
+
+                if( updateOtherFields )
+                {
+                    otherUnit->SetFootprintFieldText( GetField( FOOTPRINT_FIELD )->GetText() );
+
+                    for( size_t ii = DATASHEET_FIELD; ii < m_fields.size(); ++ii )
+                    {
+                        SCH_FIELD* otherField = otherUnit->FindField( m_fields[ii].GetName() );
+
+                        if( otherField )
+                        {
+                            otherField->SetText( m_fields[ii].GetText() );
+                        }
+                        else
+                        {
+                            SCH_FIELD newField( m_fields[ii] );
+                            const_cast<KIID&>( newField.m_Uuid ) = KIID();
+
+                            newField.Offset( -GetPosition() );
+                            newField.Offset( otherUnit->GetPosition() );
+
+                            newField.SetParent( otherUnit );
+                            otherUnit->AddField( newField );
+                        }
+                    }
+
+                    for( size_t ii = otherUnit->GetFields().size() - 1; ii > DATASHEET_FIELD; ii-- )
+                    {
+                        SCH_FIELD& otherField = otherUnit->GetFields().at( ii );
+
+                        if( !FindField( otherField.GetName() ) )
+                            otherUnit->GetFields().erase( otherUnit->GetFields().begin() + ii );
+                    }
+                }
+
+                if( updateExclFromBOM )
+                    otherUnit->SetExcludedFromBOM( m_excludedFromBOM );
+
+                if( updateExclFromBoard )
+                    otherUnit->SetExcludedFromBoard( m_excludedFromBoard );
+
+                if( updateDNP )
+                    otherUnit->SetDNP( m_DNP );
+
+                if( updatePins )
+                {
+                    for( const std::unique_ptr<SCH_PIN>& model_pin : m_pins )
+                    {
+                        SCH_PIN* src_pin = otherUnit->GetPin( model_pin->GetNumber() );
+
+                        if( src_pin )
+                            src_pin->SetAlt( model_pin->GetAlt() );
+                    }
+                }
+            }
+        }
+    }
+}
+
+
 void SCH_SYMBOL::RunOnChildren( const std::function<void( SCH_ITEM* )>& aFunction )
 {
     for( const std::unique_ptr<SCH_PIN>& pin : m_pins )
@@ -1259,6 +1387,7 @@ void SCH_SYMBOL::GetContextualTextVars( wxArrayString* aVars ) const
     aVars->push_back( wxT( "FOOTPRINT_LIBRARY" ) );
     aVars->push_back( wxT( "FOOTPRINT_NAME" ) );
     aVars->push_back( wxT( "UNIT" ) );
+    aVars->push_back( wxT( "SHORT_REFERENCE" ) );
     aVars->push_back( wxT( "SYMBOL_LIBRARY" ) );
     aVars->push_back( wxT( "SYMBOL_NAME" ) );
     aVars->push_back( wxT( "SYMBOL_DESCRIPTION" ) );
@@ -1329,7 +1458,7 @@ bool SCH_SYMBOL::ResolveTextVar( const SCH_SHEET_PATH* aPath, wxString* token, i
         {
             pin = pin.SubString( 1, -1 );   // Strip ':' from front
 
-            for( const std::reference_wrapper<const SIM_MODEL::PIN>& modelPin : model.GetPins() )
+            for( const std::reference_wrapper<const SIM_MODEL_PIN>& modelPin : model.GetPins() )
             {
                 SCH_PIN* symbolPin = GetPin( modelPin.get().symbolPinNumber );
 
@@ -1341,7 +1470,7 @@ bool SCH_SYMBOL::ResolveTextVar( const SCH_SHEET_PATH* aPath, wxString* token, i
                     }
                     else
                     {
-                        wxString signalName = spiceRef + wxS( ":" ) + modelPin.get().name;
+                        wxString signalName = spiceRef + wxS( ":" ) + modelPin.get().modelPinName;
                         *token = schematic->GetOperatingPoint( signalName, precision, range );
                     }
 
@@ -1360,9 +1489,21 @@ bool SCH_SYMBOL::ResolveTextVar( const SCH_SHEET_PATH* aPath, wxString* token, i
             return true;
     }
 
+    wxString upperToken = token->Upper();
+
     for( int i = 0; i < MANDATORY_FIELDS; ++i )
     {
-        if( token->IsSameAs( m_fields[ i ].GetCanonicalName().Upper() ) )
+        wxString field = m_fields[i].GetCanonicalName();
+
+        wxString textToken = m_fields[i].GetText();
+        textToken.Replace( " ", wxEmptyString );
+        wxString tokenString = "${" + field + "}";
+
+        // If the field data is just a reference to the field, don't resolve
+        if( textToken.IsSameAs( tokenString, false ) )
+            return true;
+
+        if( token->IsSameAs( field, false ) )
         {
             if( i == REFERENCE_FIELD )
                 *token = GetRef( aPath, true );
@@ -1375,8 +1516,16 @@ bool SCH_SYMBOL::ResolveTextVar( const SCH_SHEET_PATH* aPath, wxString* token, i
 
     for( size_t i = MANDATORY_FIELDS; i < m_fields.size(); ++i )
     {
-        if( token->IsSameAs( m_fields[ i ].GetName() )
-            || token->IsSameAs( m_fields[ i ].GetName().Upper() ) )
+        wxString field = m_fields[ i ].GetName();
+
+        wxString textToken = m_fields[i].GetText();
+        textToken.Replace( " ", wxEmptyString );
+        wxString tokenString = "${" + field + "}";
+
+        if( textToken.IsSameAs( tokenString, false ) )
+            return true;
+
+        if( token->IsSameAs( field, false ) )
         {
             *token = m_fields[ i ].GetShownText( aPath, false, aDepth + 1 );
             return true;
@@ -1439,6 +1588,11 @@ bool SCH_SYMBOL::ResolveTextVar( const SCH_SHEET_PATH* aPath, wxString* token, i
         *token = SubReference( GetUnitSelection( aPath ) );
         return true;
     }
+    else if( token->IsSameAs( wxT( "SHORT_REFERENCE" ) ) )
+    {
+        GetRef( aPath, false );
+        return true;
+    }
     else if( token->IsSameAs( wxT( "SYMBOL_LIBRARY" ) ) )
     {
         *token = m_lib_id.GetUniStringLibNickname();
@@ -1461,22 +1615,38 @@ bool SCH_SYMBOL::ResolveTextVar( const SCH_SHEET_PATH* aPath, wxString* token, i
     }
     else if( token->IsSameAs( wxT( "EXCLUDE_FROM_BOM" ) ) )
     {
-        *token = this->GetExcludedFromBOM() ? _( "Excluded from BOM" ) : wxString( "" );
+        *token = wxEmptyString;
+
+        if( aPath->GetExcludedFromBOM() || this->GetExcludedFromBOM() )
+            *token = _( "Excluded from BOM" );
+
         return true;
     }
     else if( token->IsSameAs( wxT( "EXCLUDE_FROM_BOARD" ) ) )
     {
-        *token = this->GetExcludedFromBoard() ? _( "Excluded from board" ) : wxString( "" );
+        *token = wxEmptyString;
+
+        if( aPath->GetExcludedFromBoard() || this->GetExcludedFromBoard() )
+            *token = _( "Excluded from board" );
+
         return true;
     }
     else if( token->IsSameAs( wxT( "EXCLUDE_FROM_SIM" ) ) )
     {
-        *token = this->GetExcludedFromSim() ? _( "Excluded from simulation" ) : wxString( "" );
+        *token = wxEmptyString;
+
+        if( aPath->GetExcludedFromSim() || this->GetExcludedFromSim() )
+            *token = _( "Excluded from simulation" );
+
         return true;
     }
     else if( token->IsSameAs( wxT( "DNP" ) ) )
     {
-        *token = this->GetDNP() ? _( "DNP" ) : wxString( "" );
+        *token = wxEmptyString;
+
+        if( aPath->GetDNP() || this->GetDNP() )
+            *token = _( "DNP" );
+
         return true;
     }
     else if( token->StartsWith( wxT( "SHORT_NET_NAME(" ) )
@@ -1848,11 +2018,9 @@ BOX2I SCH_SYMBOL::GetBodyBoundingBox() const
     {
         return doGetBoundingBox( false, false );
     }
-    catch( const boost::bad_pointer& exc )
+    catch( const boost::bad_pointer& e )
     {
-        // This may be overkill and could be an assertion but we are more likely to
-        // find any boost pointer container errors this way.
-        wxLogError( wxT( "Boost bad pointer exception '%s' occurred." ), exc.what() );
+        wxFAIL_MSG( wxString::Format( wxT( "Boost pointer exception occurred: %s" ), e.what() ) );
         return BOX2I();
     }
 }
@@ -2213,7 +2381,7 @@ SCH_ITEM* SCH_SYMBOL::GetDrawItem( const VECTOR2I& aPosition, KICAD_T aType )
 }
 
 
-wxString SCH_SYMBOL::GetItemDescription( UNITS_PROVIDER* aUnitsProvider ) const
+wxString SCH_SYMBOL::GetItemDescription( UNITS_PROVIDER* aUnitsProvider, bool aFull ) const
 {
     return wxString::Format( _( "Symbol %s [%s]" ),
                              KIUI::EllipsizeMenuText( GetField( REFERENCE_FIELD )->GetText() ),
@@ -2534,8 +2702,17 @@ void SCH_SYMBOL::Plot( PLOTTER* aPlotter, bool aBackground, const SCH_PLOT_OPTS&
 void SCH_SYMBOL::PlotDNP( PLOTTER* aPlotter ) const
 {
     COLOR_SETTINGS* colors = Pgm().GetSettingsManager().GetColorSettings();
-    BOX2I           bbox = GetBodyAndPinsBoundingBox();
+    BOX2I           bbox = GetBodyBoundingBox();
+    BOX2I           pins = GetBodyAndPinsBoundingBox();
+    VECTOR2D        margins( std::max( bbox.GetX() - pins.GetX(),
+                                       pins.GetEnd().x - bbox.GetEnd().x ),
+                             std::max( bbox.GetY() - pins.GetY(),
+                                       pins.GetEnd().y - bbox.GetEnd().y ) );
     int             strokeWidth = 3.0 * schIUScale.MilsToIU( DEFAULT_LINE_WIDTH_MILS );
+
+    margins.x = std::max( margins.x * 0.6, margins.y * 0.3 );
+    margins.y = std::max( margins.y * 0.6, margins.x * 0.3 );
+    bbox.Inflate( KiROUND( margins.x ), KiROUND( margins.y ) );
 
     aPlotter->SetColor( colors->GetColor( LAYER_DNP_MARKER ) );
 
@@ -2715,7 +2892,7 @@ bool SCH_SYMBOL::operator==( const SCH_ITEM& aOther ) const
 
     for( unsigned i = 0; i < m_pins.size(); ++i )
     {
-        if( !( *m_pins[i] == *symbol.m_pins[i] ) )
+        if( *m_pins[i] != *symbol.m_pins[i] )
             return false;
     }
 
@@ -2803,6 +2980,32 @@ static struct SCH_SYMBOL_DESC
         propMgr.AddProperty( new PROPERTY<SCH_SYMBOL, wxString>( _HKI( "Keywords" ),
                     NO_SETTER( SCH_SYMBOL, wxString ), &SCH_SYMBOL::GetKeyWords ),
                     groupFields );
+
+        auto multiUnit =
+                [=]( INSPECTABLE* aItem ) -> bool
+                {
+                    if( SCH_SYMBOL* symbol = dynamic_cast<SCH_SYMBOL*>( aItem ) )
+                        return symbol->IsMulti();
+
+                    return false;
+                };
+
+        auto multiBodyStyle =
+                [=]( INSPECTABLE* aItem ) -> bool
+                {
+                    if( SCH_SYMBOL* symbol = dynamic_cast<SCH_SYMBOL*>( aItem ) )
+                        return symbol->HasAlternateBodyStyle();
+
+                    return false;
+                };
+
+        propMgr.AddProperty( new PROPERTY<SCH_SYMBOL, int>( _HKI( "Unit" ),
+                    &SCH_SYMBOL::SetUnitProp, &SCH_SYMBOL::GetUnitProp ) )
+                .SetAvailableFunc( multiUnit );
+
+        propMgr.AddProperty( new PROPERTY<SCH_SYMBOL, int>( _HKI( "Body Style" ),
+                    &SCH_SYMBOL::SetBodyStyleProp, &SCH_SYMBOL::GetBodyStyleProp ) )
+                .SetAvailableFunc( multiBodyStyle );
 
         const wxString groupAttributes = _HKI( "Attributes" );
 

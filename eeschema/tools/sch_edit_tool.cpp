@@ -25,7 +25,6 @@
 #include <kiway.h>
 #include <tool/picker_tool.h>
 #include <tools/sch_edit_tool.h>
-#include <tools/ee_selection_tool.h>
 #include <tools/ee_inspection_tool.h>
 #include <tools/sch_line_wire_bus_tool.h>
 #include <tools/sch_move_tool.h>
@@ -36,22 +35,12 @@
 #include <sch_bitmap.h>
 #include <sch_bus_entry.h>
 #include <sch_commit.h>
-#include <sch_edit_frame.h>
-#include <sch_item.h>
 #include <sch_junction.h>
-#include <sch_line.h>
 #include <sch_marker.h>
 #include <sch_rule_area.h>
-#include <sch_symbol.h>
-#include <sch_shape.h>
-#include <sch_sheet.h>
 #include <sch_sheet_pin.h>
-#include <sch_text.h>
 #include <sch_textbox.h>
 #include <sch_table.h>
-#include <sch_tablecell.h>
-#include <sch_view.h>
-#include <schematic.h>
 #include <drawing_sheet/ds_proxy_view_item.h>
 #include <eeschema_id.h>
 #include <dialogs/dialog_change_symbols.h>
@@ -106,10 +95,14 @@ private:
 
         for( int ii = 0; ii < symbol->GetLibSymbolRef()->GetUnitCount(); ii++ )
         {
-            wxString num_unit;
-            num_unit.Printf( _( "Unit %s" ), symbol->SubReference( ii + 1, false ) );
+            wxString unit_text;
 
-            wxMenuItem* item = Append( ID_POPUP_SCH_SELECT_UNIT1 + ii, num_unit, wxEmptyString,
+            if( symbol->GetLibSymbolRef()->HasUnitDisplayName( ii + 1 ) )
+                unit_text = symbol->GetLibSymbolRef()->GetUnitDisplayName( ii + 1 );
+            else
+                unit_text.Printf( _( "Unit %s" ), symbol->SubReference( ii + 1, false ) );
+
+            wxMenuItem* item = Append( ID_POPUP_SCH_SELECT_UNIT1 + ii, unit_text, wxEmptyString,
                                        wxITEM_CHECK );
 
             if( unit == ii + 1 )
@@ -120,6 +113,43 @@ private:
             if( ii >= ( ID_POPUP_SCH_SELECT_UNIT_END - ID_POPUP_SCH_SELECT_UNIT1) )
                 break;      // We have used all IDs for these submenus
         }
+    }
+};
+
+
+class BODY_STYLE_MENU : public ACTION_MENU
+{
+public:
+    BODY_STYLE_MENU() :
+        ACTION_MENU( true )
+    {
+        SetIcon( BITMAPS::component_select_alternate_shape );
+        SetTitle( _( "Body Style" ) );
+    }
+
+protected:
+    ACTION_MENU* create() const override
+    {
+        return new BODY_STYLE_MENU();
+    }
+
+private:
+    void update() override
+    {
+        EE_SELECTION_TOOL* selTool = getToolManager()->GetTool<EE_SELECTION_TOOL>();
+        EE_SELECTION&      selection = selTool->GetSelection();
+        SCH_SYMBOL*        symbol = dynamic_cast<SCH_SYMBOL*>( selection.Front() );
+        wxMenuItem*        item;
+
+        Clear();
+
+        wxCHECK( symbol, /* void */ );
+
+        item = Append( ID_POPUP_SCH_SELECT_BASE, _( "Standard" ), wxEmptyString, wxITEM_CHECK );
+        item->Check( symbol->GetBodyStyle() == BODY_STYLE::BASE );
+
+        item = Append( ID_POPUP_SCH_SELECT_ALT, _( "Alternate" ), wxEmptyString, wxITEM_CHECK );
+        item->Check( symbol->GetBodyStyle() != BODY_STYLE::BASE );
     }
 };
 
@@ -243,7 +273,9 @@ bool SCH_EDIT_TOOL::Init()
                 return false;
             };
 
-    auto sheetSelection = E_C::Count( 1 ) && E_C::OnlyTypes( { SCH_SHEET_T } );
+    static const std::vector<KICAD_T> sheetTypes = { SCH_SHEET_T };
+
+    auto sheetSelection = E_C::Count( 1 ) && E_C::OnlyTypes( sheetTypes );
 
     auto haveHighlight =
             [&]( const SELECTION& sel )
@@ -378,66 +410,88 @@ bool SCH_EDIT_TOOL::Init()
 
     // allTextTypes does not include SCH_SHEET_PIN_T because one cannot convert other
     // types to/from this type, living only in a SHEET
-    static std::vector<KICAD_T> allTextTypes = { SCH_LABEL_T,
-                                                 SCH_DIRECTIVE_LABEL_T,
-                                                 SCH_GLOBAL_LABEL_T,
-                                                 SCH_HIER_LABEL_T,
-                                                 SCH_TEXT_T,
-                                                 SCH_TEXTBOX_T };
+    static const std::vector<KICAD_T> allTextTypes = { SCH_LABEL_T,
+                                                       SCH_DIRECTIVE_LABEL_T,
+                                                       SCH_GLOBAL_LABEL_T,
+                                                       SCH_HIER_LABEL_T,
+                                                       SCH_TEXT_T,
+                                                       SCH_TEXTBOX_T };
 
     auto toChangeCondition = ( E_C::OnlyTypes( allTextTypes ) );
 
-    auto toLabelCondition = ( E_C::Count( 1 ) && E_C::OnlyTypes( { SCH_DIRECTIVE_LABEL_T,
-                                                                   SCH_GLOBAL_LABEL_T,
-                                                                   SCH_HIER_LABEL_T,
-                                                                   SCH_TEXT_T,
-                                                                   SCH_TEXTBOX_T } ) )
+    static const std::vector<KICAD_T> toLabelTypes = { SCH_DIRECTIVE_LABEL_T,
+                                                       SCH_GLOBAL_LABEL_T,
+                                                       SCH_HIER_LABEL_T,
+                                                       SCH_TEXT_T,
+                                                       SCH_TEXTBOX_T };
+
+    auto toLabelCondition = ( E_C::Count( 1 ) && E_C::OnlyTypes( toLabelTypes ) )
                                 || ( E_C::MoreThan( 1 ) && E_C::OnlyTypes( allTextTypes ) );
 
-    auto toCLabelCondition = ( E_C::Count( 1 ) && E_C::OnlyTypes( { SCH_LABEL_T,
-                                                                    SCH_HIER_LABEL_T,
-                                                                    SCH_GLOBAL_LABEL_T,
-                                                                    SCH_TEXT_T,
-                                                                    SCH_TEXTBOX_T } ) )
+    static const std::vector<KICAD_T> toCLabelTypes = { SCH_LABEL_T,
+                                                        SCH_HIER_LABEL_T,
+                                                        SCH_GLOBAL_LABEL_T,
+                                                        SCH_TEXT_T,
+                                                        SCH_TEXTBOX_T };
+
+    auto toCLabelCondition = ( E_C::Count( 1 ) && E_C::OnlyTypes( toCLabelTypes ) )
                                 || ( E_C::MoreThan( 1 ) && E_C::OnlyTypes( allTextTypes ) );
 
-    auto toHLabelCondition = ( E_C::Count( 1 ) && E_C::OnlyTypes( { SCH_LABEL_T,
-                                                                    SCH_DIRECTIVE_LABEL_T,
-                                                                    SCH_GLOBAL_LABEL_T,
-                                                                    SCH_TEXT_T,
-                                                                    SCH_TEXTBOX_T } ) )
+    static const std::vector<KICAD_T> toHLabelTypes = { SCH_LABEL_T,
+                                                        SCH_DIRECTIVE_LABEL_T,
+                                                        SCH_GLOBAL_LABEL_T,
+                                                        SCH_TEXT_T,
+                                                        SCH_TEXTBOX_T };
+
+    auto toHLabelCondition = ( E_C::Count( 1 ) && E_C::OnlyTypes( toHLabelTypes ) )
                                 || ( E_C::MoreThan( 1 ) && E_C::OnlyTypes( allTextTypes ) );
 
-    auto toGLabelCondition = ( E_C::Count( 1 ) && E_C::OnlyTypes( { SCH_LABEL_T,
-                                                                    SCH_DIRECTIVE_LABEL_T,
-                                                                    SCH_HIER_LABEL_T,
-                                                                    SCH_TEXT_T,
-                                                                    SCH_TEXTBOX_T } ) )
+    static const std::vector<KICAD_T> toGLabelTypes = { SCH_LABEL_T,
+                                                        SCH_DIRECTIVE_LABEL_T,
+                                                        SCH_HIER_LABEL_T,
+                                                        SCH_TEXT_T,
+                                                        SCH_TEXTBOX_T };
+
+    auto toGLabelCondition = ( E_C::Count( 1 ) && E_C::OnlyTypes( toGLabelTypes ) )
                                 || ( E_C::MoreThan( 1 ) && E_C::OnlyTypes( allTextTypes ) );
 
-    auto toTextCondition = ( E_C::Count( 1 ) && E_C::OnlyTypes( { SCH_LABEL_T,
-                                                                  SCH_DIRECTIVE_LABEL_T,
-                                                                  SCH_GLOBAL_LABEL_T,
-                                                                  SCH_HIER_LABEL_T,
-                                                                  SCH_TEXTBOX_T } ) )
+    static const std::vector<KICAD_T> toTextTypes = { SCH_LABEL_T,
+                                                      SCH_DIRECTIVE_LABEL_T,
+                                                      SCH_GLOBAL_LABEL_T,
+                                                      SCH_HIER_LABEL_T,
+                                                      SCH_TEXTBOX_T };
+
+    auto toTextCondition = ( E_C::Count( 1 ) && E_C::OnlyTypes( toTextTypes ) )
                                 || ( E_C::MoreThan( 1 ) && E_C::OnlyTypes( allTextTypes ) );
 
-    auto toTextBoxCondition = ( E_C::Count( 1 ) && E_C::OnlyTypes( { SCH_LABEL_T,
-                                                                     SCH_DIRECTIVE_LABEL_T,
-                                                                     SCH_GLOBAL_LABEL_T,
-                                                                     SCH_HIER_LABEL_T,
-                                                                     SCH_TEXT_T } ) )
+    static const std::vector<KICAD_T> toTextBoxTypes = { SCH_LABEL_T,
+                                                         SCH_DIRECTIVE_LABEL_T,
+                                                         SCH_GLOBAL_LABEL_T,
+                                                         SCH_HIER_LABEL_T,
+                                                         SCH_TEXT_T };
+
+    auto toTextBoxCondition = ( E_C::Count( 1 ) && E_C::OnlyTypes( toTextBoxTypes ) )
                                    || ( E_C::MoreThan( 1 ) && E_C::OnlyTypes( allTextTypes ) );
 
-    auto entryCondition = E_C::MoreThan( 0 ) && E_C::OnlyTypes( { SCH_BUS_WIRE_ENTRY_T,
-                                                                  SCH_BUS_BUS_ENTRY_T} );
+    static const std::vector<KICAD_T> busEntryTypes = { SCH_BUS_WIRE_ENTRY_T, SCH_BUS_BUS_ENTRY_T};
 
-    auto singleSheetCondition =  E_C::Count( 1 ) && E_C::OnlyTypes( { SCH_SHEET_T } );
+    auto entryCondition = E_C::MoreThan( 0 ) && E_C::OnlyTypes( busEntryTypes );
+
+    auto singleSheetCondition =  E_C::Count( 1 ) && E_C::OnlyTypes( sheetTypes );
 
     auto makeSymbolUnitMenu =
             [&]( TOOL_INTERACTIVE* tool )
             {
                 std::shared_ptr<SYMBOL_UNIT_MENU> menu = std::make_shared<SYMBOL_UNIT_MENU>();
+                menu->SetTool( tool );
+                tool->GetToolMenu().RegisterSubMenu( menu );
+                return menu.get();
+            };
+
+    auto makeBodyStyleMenu =
+            [&]( TOOL_INTERACTIVE* tool )
+            {
+                std::shared_ptr<BODY_STYLE_MENU> menu = std::make_shared<BODY_STYLE_MENU>();
                 menu->SetTool( tool );
                 tool->GetToolMenu().RegisterSubMenu( menu );
                 return menu.get();
@@ -540,6 +594,7 @@ bool SCH_EDIT_TOOL::Init()
 
     moveMenu.AddSeparator();
     moveMenu.AddMenu( makeSymbolUnitMenu( moveTool ), E_C::SingleMultiUnitSymbol, 1 );
+    moveMenu.AddMenu( makeBodyStyleMenu( moveTool ),  E_C::SingleDeMorganSymbol, 1 );
 
     moveMenu.AddMenu( makeTransformMenu(),            orientCondition, 200 );
     moveMenu.AddMenu( makeAttributesMenu(),           E_C::HasType( SCH_SYMBOL_T ), 200 );
@@ -565,6 +620,7 @@ bool SCH_EDIT_TOOL::Init()
     drawMenu.AddSeparator(                            sheetSelection && EE_CONDITIONS::Idle, 1 );
 
     drawMenu.AddMenu( makeSymbolUnitMenu( drawingTools ), E_C::SingleMultiUnitSymbol, 1 );
+    drawMenu.AddMenu( makeBodyStyleMenu( drawingTools ),  E_C::SingleDeMorganSymbol, 1 );
 
     drawMenu.AddMenu( makeTransformMenu(),            orientCondition, 200 );
     drawMenu.AddMenu( makeAttributesMenu(),           E_C::HasType( SCH_SYMBOL_T ), 200 );
@@ -586,6 +642,7 @@ bool SCH_EDIT_TOOL::Init()
     CONDITIONAL_MENU& selToolMenu = m_selectionTool->GetToolMenu().GetMenu();
 
     selToolMenu.AddMenu( makeSymbolUnitMenu( m_selectionTool ),  E_C::SingleMultiUnitSymbol, 1 );
+    selToolMenu.AddMenu( makeBodyStyleMenu( m_selectionTool ),   E_C::SingleDeMorganSymbol, 1 );
     selToolMenu.AddMenu( makePinFunctionMenu( m_selectionTool ), E_C::SingleMultiFunctionPin, 1 );
     selToolMenu.AddMenu( makePinTricksMenu( m_selectionTool ),   E_C::AllPinsOrSheetPins, 1 );
 
@@ -837,60 +894,51 @@ int SCH_EDIT_TOOL::Rotate( const TOOL_EVENT& aEvent )
         if( !moving )
             commit->Modify( item, m_frame->GetScreen() );
 
-        for( int i = 0; clockwise ? i < 3 : i < 1; ++i )
+        if( item->Type() == SCH_LINE_T )
         {
-            if( item->Type() == SCH_LINE_T )
+            SCH_LINE* line = (SCH_LINE*) item;
+
+            line->Rotate( rotPoint, !clockwise );
+        }
+        else if( item->Type() == SCH_SHEET_PIN_T )
+        {
+            if( item->GetParent()->IsSelected() )
             {
-                SCH_LINE* line = (SCH_LINE*) item;
-
-                // If we are rotating more than one item, we do not have start/end
-                // points separately selected
-                if( item->HasFlag( STARTPOINT ) )
-                    line->RotateStart( rotPoint );
-
-                if( item->HasFlag( ENDPOINT ) )
-                    line->RotateEnd( rotPoint );
-            }
-            else if( item->Type() == SCH_SHEET_PIN_T )
-            {
-                if( item->GetParent()->IsSelected() )
-                {
-                    // parent will rotate us
-                }
-                else
-                {
-                    // rotate within parent
-                    SCH_SHEET_PIN* pin = static_cast<SCH_SHEET_PIN*>( item );
-                    SCH_SHEET*     sheet = pin->GetParent();
-
-                    pin->Rotate( sheet->GetBodyBoundingBox().GetCenter(), false );
-                }
-            }
-            else if( item->Type() == SCH_FIELD_T )
-            {
-                if( item->GetParent()->IsSelected() )
-                {
-                    // parent will rotate us
-                }
-                else
-                {
-                    SCH_FIELD* field = static_cast<SCH_FIELD*>( item );
-
-                    field->Rotate( rotPoint, true );
-
-                    if( field->GetTextAngle().IsHorizontal() )
-                        field->SetTextAngle( ANGLE_VERTICAL );
-                    else
-                        field->SetTextAngle( ANGLE_HORIZONTAL );
-
-                    // Now that we're moving a field, they're no longer autoplaced.
-                    static_cast<SCH_ITEM*>( field->GetParent() )->ClearFieldsAutoplaced();
-                }
+                // parent will rotate us
             }
             else
             {
-                item->Rotate( rotPoint, true );
+                // rotate within parent
+                SCH_SHEET_PIN* pin = static_cast<SCH_SHEET_PIN*>( item );
+                SCH_SHEET*     sheet = pin->GetParent();
+
+                pin->Rotate( sheet->GetBodyBoundingBox().GetCenter(), !clockwise );
             }
+        }
+        else if( item->Type() == SCH_FIELD_T )
+        {
+            if( item->GetParent()->IsSelected() )
+            {
+                // parent will rotate us
+            }
+            else
+            {
+                SCH_FIELD* field = static_cast<SCH_FIELD*>( item );
+
+                field->Rotate( rotPoint, !clockwise );
+
+                if( field->GetTextAngle().IsHorizontal() )
+                    field->SetTextAngle( ANGLE_VERTICAL );
+                else
+                    field->SetTextAngle( ANGLE_HORIZONTAL );
+
+                // Now that we're moving a field, they're no longer autoplaced.
+                static_cast<SCH_ITEM*>( field->GetParent() )->ClearFieldsAutoplaced();
+            }
+        }
+        else
+        {
+            item->Rotate( rotPoint, !clockwise );
         }
 
         m_frame->UpdateItem( item, false, true );
@@ -1139,6 +1187,90 @@ const std::vector<KICAD_T> swappableItems = {
 };
 
 
+/**
+ * Swap the positions of the fields in the two lists, aAFields and aBFields,
+ * relative to their parent positions.
+ *
+ * If a field is in both lists, it will be swapped to the position of the
+ * matching field on the counterpart.
+ *
+ * If a field is in only one list, it will simply be rotated by aFallbackRotation
+ * (CW or CCW depending on which list it is in)
+ */
+static void swapFieldPositionsWithMatching( std::vector<SCH_FIELD>& aAFields,
+                                            std::vector<SCH_FIELD>& aBFields,
+                                            unsigned                aFallbackRotationsCCW )
+{
+    std::set<wxString> handledKeys;
+
+    const auto swapFieldTextProps = []( SCH_FIELD& aField, SCH_FIELD& bField )
+    {
+        const VECTOR2I          aRelPos = aField.GetPosition() - aField.GetParentPosition();
+        const GR_TEXT_H_ALIGN_T aTextJustifyH = aField.GetHorizJustify();
+        const GR_TEXT_V_ALIGN_T aTextJustifyV = aField.GetVertJustify();
+        const EDA_ANGLE         aTextAngle = aField.GetTextAngle();
+
+        const VECTOR2I          bRelPos = bField.GetPosition() - bField.GetParentPosition();
+        const GR_TEXT_H_ALIGN_T bTextJustifyH = bField.GetHorizJustify();
+        const GR_TEXT_V_ALIGN_T bTextJustifyV = bField.GetVertJustify();
+        const EDA_ANGLE         bTextAngle = bField.GetTextAngle();
+
+        aField.SetPosition( aField.GetParentPosition() + bRelPos );
+        aField.SetHorizJustify( bTextJustifyH );
+        aField.SetVertJustify( bTextJustifyV );
+        aField.SetTextAngle( bTextAngle );
+
+        bField.SetPosition( bField.GetParentPosition() + aRelPos );
+        bField.SetHorizJustify( aTextJustifyH );
+        bField.SetVertJustify( aTextJustifyV );
+        bField.SetTextAngle( aTextAngle );
+    };
+
+    for( SCH_FIELD& aField : aAFields )
+    {
+        const wxString name = aField.GetCanonicalName();
+
+        auto it = std::find_if( aBFields.begin(), aBFields.end(),
+                                [name]( const SCH_FIELD& bField )
+                                {
+                                    return bField.GetCanonicalName() == name;
+                                } );
+
+        if( it != aBFields.end() )
+        {
+            // We have a field with the same key in both labels
+            SCH_FIELD& bField = *it;
+            swapFieldTextProps( aField, bField );
+        }
+        else
+        {
+            // We only have this field in A, so just rotate it
+            for( unsigned ii = 0; ii < aFallbackRotationsCCW; ii++ )
+            {
+                aField.Rotate( aField.GetParentPosition(), true );
+            }
+        }
+
+        // And keep track that we did this one
+        handledKeys.insert( name );
+    }
+
+    // Any fields in B that weren't in A weren't handled and need to be rotated
+    // in reverse
+    for( SCH_FIELD& bField : aBFields )
+    {
+        const wxString bName = bField.GetCanonicalName();
+        if( handledKeys.find( bName ) == handledKeys.end() )
+        {
+            for( unsigned ii = 0; ii < aFallbackRotationsCCW; ii++ )
+            {
+                bField.Rotate( bField.GetParentPosition(), false );
+            }
+        }
+    }
+}
+
+
 int SCH_EDIT_TOOL::Swap( const TOOL_EVENT& aEvent )
 {
     EE_SELECTION&          selection = m_selectionTool->RequestSelection( swappableItems );
@@ -1169,8 +1301,6 @@ int SCH_EDIT_TOOL::Swap( const TOOL_EVENT& aEvent )
     bool isMoving    = selection.Front()->IsMoving();
     bool appendUndo  = isMoving;
     bool connections = false;
-
-    SCH_SCREEN* screen = this->m_frame->GetScreen();
 
     for( size_t i = 0; i < sorted.size() - 1; i++ )
     {
@@ -1207,9 +1337,26 @@ int SCH_EDIT_TOOL::Swap( const TOOL_EVENT& aEvent )
             case SCH_GLOBAL_LABEL_T:
             case SCH_HIER_LABEL_T:
             case SCH_DIRECTIVE_LABEL_T:
-                m_frame->AutoRotateItem( screen, a );
-                m_frame->AutoRotateItem( screen, b );
+            {
+                SCH_LABEL_BASE& aLabelBase = static_cast<SCH_LABEL_BASE&>( *a );
+                SCH_LABEL_BASE& bLabelBase = static_cast<SCH_LABEL_BASE&>( *b );
+
+                const SPIN_STYLE aSpinStyle = aLabelBase.GetSpinStyle();
+                const SPIN_STYLE bSpinStyle = bLabelBase.GetSpinStyle();
+
+                // First, swap the label orientations
+                aLabelBase.SetSpinStyle( bSpinStyle );
+                bLabelBase.SetSpinStyle( aSpinStyle );
+
+                // And swap the fields as best we can
+                std::vector<SCH_FIELD>& aFields = aLabelBase.GetFields();
+                std::vector<SCH_FIELD>& bFields = bLabelBase.GetFields();
+
+                const unsigned rotationsAtoB = aSpinStyle.CCWRotationsTo( bSpinStyle );
+
+                swapFieldPositionsWithMatching( aFields, bFields, rotationsAtoB );
                 break;
+            }
             case SCH_SYMBOL_T:
             {
                 SCH_SYMBOL* aSymbol = static_cast<SCH_SYMBOL*>( a );
@@ -1300,9 +1447,18 @@ int SCH_EDIT_TOOL::RepeatDrawItem( const TOOL_EVENT& aEvent )
             if( m_frame->CheckSheetForRecursion( sheet, currentSheet ) )
             {
                 // Clear out the filename so that the user can pick a new one
+                const wxString originalFileName = sheet->GetFileName();
+                const wxString originalScreenFileName = sheet->GetScreen()->GetFileName();
+
                 sheet->SetFileName( wxEmptyString );
                 sheet->GetScreen()->SetFileName( wxEmptyString );
-                restore_state = !m_frame->EditSheetProperties( sheet, currentSheet, nullptr );
+                restore_state = !m_frame->EditSheetProperties( sheet, currentSheet );
+
+                if( restore_state )
+                {
+                    sheet->SetFileName( originalFileName );
+                    sheet->GetScreen()->SetFileName( originalScreenFileName );
+                }
             }
         }
 
@@ -1826,37 +1982,35 @@ int SCH_EDIT_TOOL::Properties( const TOOL_EVENT& aEvent )
         }
         else if( retval == SYMBOL_PROPS_EDIT_SCHEMATIC_SYMBOL )
         {
-            auto editor = (SYMBOL_EDIT_FRAME*) m_frame->Kiway().Player( FRAME_SCH_SYMBOL_EDITOR,
-                                                                        true );
+            if( KIWAY_PLAYER* frame = m_frame->Kiway().Player( FRAME_SCH_SYMBOL_EDITOR, true ) )
+            {
+                SYMBOL_EDIT_FRAME* editor = static_cast<SYMBOL_EDIT_FRAME*>( frame );
 
-            wxCHECK( editor, 0 );
+                if( wxWindow* blocking_win = editor->Kiway().GetBlockingDialog() )
+                    blocking_win->Close( true );
 
-            if( wxWindow* blocking_win = editor->Kiway().GetBlockingDialog() )
-                blocking_win->Close( true );
+                // The broken library symbol link indicator cannot be edited.
+                if( symbol->IsMissingLibSymbol() )
+                    return 0;
 
-            // The broken library symbol link indicator cannot be edited.
-            if( symbol->IsMissingLibSymbol() )
-                return 0;
-
-            editor->LoadSymbolFromSchematic( symbol );
-
-            editor->Show( true );
-            editor->Raise();
+                editor->LoadSymbolFromSchematic( symbol );
+                editor->Show( true );
+                editor->Raise();
+            }
         }
         else if( retval == SYMBOL_PROPS_EDIT_LIBRARY_SYMBOL )
         {
-            auto editor = (SYMBOL_EDIT_FRAME*) m_frame->Kiway().Player( FRAME_SCH_SYMBOL_EDITOR,
-                                                                        true );
+            if( KIWAY_PLAYER* frame = m_frame->Kiway().Player( FRAME_SCH_SYMBOL_EDITOR, true ) )
+            {
+                SYMBOL_EDIT_FRAME* editor = static_cast<SYMBOL_EDIT_FRAME*>( frame );
 
-            wxCHECK( editor, 0 );
+                if( wxWindow* blocking_win = editor->Kiway().GetBlockingDialog() )
+                    blocking_win->Close( true );
 
-            if( wxWindow* blocking_win = editor->Kiway().GetBlockingDialog() )
-                blocking_win->Close( true );
-
-            editor->LoadSymbol( symbol->GetLibId(), symbol->GetUnit(), symbol->GetBodyStyle() );
-
-            editor->Show( true );
-            editor->Raise();
+                editor->LoadSymbol( symbol->GetLibId(), symbol->GetUnit(), symbol->GetBodyStyle() );
+                editor->Show( true );
+                editor->Raise();
+            }
         }
         else if( retval == SYMBOL_PROPS_WANT_UPDATE_SYMBOL )
         {
@@ -1875,17 +2029,33 @@ int SCH_EDIT_TOOL::Properties( const TOOL_EVENT& aEvent )
     case SCH_SHEET_T:
     {
         SCH_SHEET*     sheet = static_cast<SCH_SHEET*>( curr_item );
-        bool           doClearAnnotation;
-        bool           doRefresh = false;
+        bool           isUndoable = false;
+        bool           doClearAnnotation = false;
+        bool           okPressed = false;
         bool           updateHierarchyNavigator = false;
 
         // Keep track of existing sheet paths. EditSheet() can modify this list.
         // Note that we use the validity checking/repairing version here just to make sure
         // we've got a valid hierarchy to begin with.
-        SCH_SHEET_LIST originalHierarchy( &m_frame->Schematic().Root(), true );
+        SCH_SHEET_LIST originalHierarchy;
+        originalHierarchy.BuildSheetList( &m_frame->Schematic().Root(), true );
 
-        doRefresh = m_frame->EditSheetProperties( sheet, &m_frame->GetCurrentSheet(),
+        SCH_COMMIT commit( m_toolMgr );
+        commit.Modify( sheet, m_frame->GetScreen() );
+        okPressed = m_frame->EditSheetProperties( sheet, &m_frame->GetCurrentSheet(), &isUndoable,
                                                   &doClearAnnotation, &updateHierarchyNavigator );
+
+        if( okPressed )
+        {
+            if( isUndoable )
+                commit.Push( _( "Edit Sheet Properties" ) );
+        }
+        else
+        {
+            // If we are renaming files, the undo/redo list becomes invalid and must be cleared.
+            m_frame->ClearUndoRedoList();
+            m_frame->OnModify();
+        }
 
         // If the sheet file is changed and new sheet contents are loaded then we have to
         // clear the annotations on the new content (as it may have been set from some other
@@ -1903,7 +2073,7 @@ int SCH_EDIT_TOOL::Properties( const TOOL_EVENT& aEvent )
             sheet->GetScreen()->ClearAnnotation( &m_frame->GetCurrentSheet(), false );
         }
 
-        if( doRefresh )
+        if( okPressed )
             m_frame->GetCanvas()->Refresh();
 
         if( updateHierarchyNavigator )

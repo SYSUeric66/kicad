@@ -105,20 +105,19 @@ DIALOG_PLOT::DIALOG_PLOT( PCB_EDIT_FRAME* aParent ) :
     std::vector<PCB_LAYER_ID> layersIdChoiceList;
     int                       textWidth = 0;
 
-    for( LSEQ seq = board->GetEnabledLayers().SeqStackupForPlotting(); seq; ++seq )
+    for( PCB_LAYER_ID layer : board->GetEnabledLayers().SeqStackupForPlotting() )
     {
-        PCB_LAYER_ID id = *seq;
-        wxString     layerName = board->GetLayerName( id );
+        wxString     layerName = board->GetLayerName( layer );
 
         // wxCOL_WIDTH_AUTOSIZE doesn't work on all platforms, so we calculate width here
         textWidth = std::max( textWidth, KIUI::GetTextSize( layerName, m_layerCheckListBox ).x );
 
         plotAllLayersChoicesStrings.Add( layerName );
-        layersIdChoiceList.push_back( id );
+        layersIdChoiceList.push_back( layer );
 
         size_t size = plotOnAllLayersSelection.size();
 
-        if( ( static_cast<size_t>( id ) <= size ) && plotOnAllLayersSelection.test( id ) )
+        if( ( static_cast<size_t>( layer ) <= size ) && plotOnAllLayersSelection.test( layer ) )
             plotAllLayersOrder.push_back( order );
         else
             plotAllLayersOrder.push_back( ~order );
@@ -161,7 +160,7 @@ DIALOG_PLOT::DIALOG_PLOT( PCB_EDIT_FRAME* aParent ) :
         m_plotAllLayersList->SetClientObject( list_idx, new PCB_LAYER_ID_CLIENT_DATA( layer_id ) );
     }
 
-	sbSizer->Add( m_plotAllLayersList, 1, wxALL | wxEXPAND, 3 );
+	sbSizer->Add( m_plotAllLayersList, 1, wxALL | wxEXPAND | wxFIXED_MINSIZE, 3 );
 
 	wxBoxSizer* bButtonSizer;
 	bButtonSizer = new wxBoxSizer( wxHORIZONTAL );
@@ -286,10 +285,8 @@ void DIALOG_PLOT::init_Dialog()
     m_layerList = board->GetEnabledLayers().UIOrder();
 
     // Populate the check list box by all enabled layers names.
-    for( LSEQ seq = m_layerList;  seq;  ++seq )
+    for( PCB_LAYER_ID layer : m_layerList )
     {
-        PCB_LAYER_ID layer = *seq;
-
         int checkIndex = m_layerCheckListBox->Append( board->GetLayerName( layer ) );
 
         if( m_plotOpts.GetLayerSelection()[layer] )
@@ -323,6 +320,8 @@ void DIALOG_PLOT::init_Dialog()
 
     // Option to exclude pads from silkscreen layers
     m_sketchPadsOnFabLayers->SetValue( m_plotOpts.GetSketchPadsOnFabLayers() );
+    m_plotPadNumbers->SetValue( m_plotOpts.GetPlotPadNumbers() );
+    m_plotPadNumbers->Enable( m_plotOpts.GetSketchPadsOnFabLayers() );
 
     // Option to tent vias
     m_subtractMaskFromSilk->SetValue( m_plotOpts.GetSubtractMaskFromSilk() );
@@ -359,9 +358,6 @@ void DIALOG_PLOT::init_Dialog()
 
     // Plot mirror option
     m_plotMirrorOpt->SetValue( m_plotOpts.GetMirror() );
-
-    // Plot vias on mask layer (not tented) or not (tented)
-    m_tentVias->SetValue( !m_plotOpts.GetPlotViaOnMaskLayer() );
 
     // Black and white plotting
     m_SVGColorChoice->SetSelection( m_plotOpts.GetBlackAndWhite() ? 1 : 0 );
@@ -444,9 +440,9 @@ void DIALOG_PLOT::arrangeAllLayersList( const LSEQ& aSeq )
 
     int  idx = 0;
 
-    for( LSEQ seq = aSeq; seq; ++seq, ++idx )
+    for( PCB_LAYER_ID layer : aSeq )
     {
-        int currentPos = findLayer( m_plotAllLayersList, *seq );
+        int currentPos = findLayer( m_plotAllLayersList, layer );
 
         while( currentPos > idx )
         {
@@ -470,7 +466,7 @@ void DIALOG_PLOT::arrangeAllLayersList( const LSEQ& aSeq )
 void DIALOG_PLOT::OnRightClickLayers( wxMouseEvent& event )
 {
     // Build a list of layers for usual fabrication: copper layers + tech layers without courtyard
-    LSET fab_layer_set = ( LSET::AllCuMask() | LSET::AllTechMask() ) & ~LSET( 2, B_CrtYd, F_CrtYd );
+    LSET fab_layer_set = ( LSET::AllCuMask() | LSET::AllTechMask() ) & ~LSET( { B_CrtYd, F_CrtYd } );
 
     wxMenu menu;
     menu.Append( new wxMenuItem( &menu, ID_LAYER_FAB, _( "Select Fab Layers" ) ) );
@@ -898,6 +894,7 @@ void DIALOG_PLOT::applyPlotSettings()
     tempOptions.SetSubtractMaskFromSilk( m_subtractMaskFromSilk->GetValue() );
     tempOptions.SetPlotFrameRef( m_plotSheetRef->GetValue() );
     tempOptions.SetSketchPadsOnFabLayers( m_sketchPadsOnFabLayers->GetValue() );
+    tempOptions.SetPlotPadNumbers( m_plotPadNumbers->GetValue() );
     tempOptions.SetUseAuxOrigin( m_useAuxOriginCheckBox->GetValue() );
     tempOptions.SetPlotValue( m_plotFootprintValues->GetValue() );
     tempOptions.SetPlotReference( m_plotFootprintRefs->GetValue() );
@@ -914,8 +911,6 @@ void DIALOG_PLOT::applyPlotSettings()
 
     sel = m_DXF_plotUnits->GetSelection();
     tempOptions.SetDXFPlotUnits( sel == 0 ? DXF_UNITS::INCHES : DXF_UNITS::MILLIMETERS );
-
-    tempOptions.SetPlotViaOnMaskLayer( !m_tentVias->GetValue() );
 
     if( !m_DXF_plotTextStrokeFontOpt->IsEnabled() ) // Currently, only DXF supports this option
         tempOptions.SetTextMode( PLOT_TEXT_MODE::DEFAULT );
@@ -1176,12 +1171,12 @@ void DIALOG_PLOT::Plot( wxCommandEvent& event )
 
     wxBusyCursor dummy;
 
-    for( LSEQ seq = m_plotOpts.GetLayerSelection().UIOrder();  seq;  ++seq )
+    for( PCB_LAYER_ID layer : m_plotOpts.GetLayerSelection().UIOrder() )
     {
         LSEQ plotSequence;
 
         // Base layer always gets plotted first.
-        plotSequence.push_back( *seq );
+        plotSequence.push_back( layer );
 
         // Add selected layers from plot on all layers list in order set by user.
         wxArrayInt plotOnAllLayers;
@@ -1193,17 +1188,21 @@ void DIALOG_PLOT::Plot( wxCommandEvent& event )
             for( size_t i = 0; i < count; i++ )
             {
                 int index = plotOnAllLayers.Item( i );
-                PCB_LAYER_ID layer = getLayerClientData( m_plotAllLayersList, index )->Layer();
+                PCB_LAYER_ID client_layer = getLayerClientData( m_plotAllLayersList, index )->Layer();
 
                 // Don't plot the same layer more than once;
-                if( find( plotSequence.begin(), plotSequence.end(), layer ) != plotSequence.end() )
+                if( find( plotSequence.begin(), plotSequence.end(), client_layer ) != plotSequence.end() )
                     continue;
 
-                plotSequence.push_back( layer );
+                plotSequence.push_back( client_layer );
             }
         }
 
-        PCB_LAYER_ID layer = *seq;
+        wxString     layerName = board->GetLayerName( layer );
+        //@todo allow controlling the sheet name and path that will be displayed in the title block
+        // Leave blank for now
+        wxString     sheetName;
+        wxString     sheetPath;
 
         // All copper layers that are disabled are actually selected
         // This is due to wonkyness in automatically selecting copper layers
@@ -1222,16 +1221,14 @@ void DIALOG_PLOT::Plot( wxCommandEvent& event )
         if( m_plotOpts.GetFormat() == PLOT_FORMAT::GERBER && m_useGerberExtensions->GetValue() )
             file_ext = GetGerberProtelExtension( layer );
 
-        BuildPlotFileName( &fn, outputDir.GetPath(), board->GetLayerName( layer ), file_ext );
+        BuildPlotFileName( &fn, outputDir.GetPath(), layerName, file_ext );
         wxString fullname = fn.GetFullName();
         jobfile_writer.AddGbrFile( layer, fullname );
 
         LOCALE_IO toggle;
 
-        //@todo allow controlling the sheet name and path that will be displayed in the title block
-        // Leave blank for now
-        PLOTTER* plotter = StartPlotBoard( board, &m_plotOpts, layer, fn.GetFullPath(),
-                                           wxEmptyString, wxEmptyString );
+        PLOTTER* plotter = StartPlotBoard( board, &m_plotOpts, layer, layerName, fn.GetFullPath(),
+                                           sheetName, sheetPath );
 
         // Print diags in messages box:
         wxString msg;
@@ -1356,4 +1353,9 @@ void DIALOG_PLOT::onPlotFPText( wxCommandEvent& aEvent )
         m_plotFootprintRefs->SetValue( false );
         m_plotFootprintValues->SetValue( false );
     }
+}
+
+void DIALOG_PLOT::onSketchPads( wxCommandEvent& aEvent )
+{
+    m_plotPadNumbers->Enable( aEvent.IsChecked() );
 }

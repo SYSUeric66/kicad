@@ -28,6 +28,7 @@
 #include <sch_item.h>
 #include <wx/pen.h>     // for wxPenStyle
 #include <list>         // for std::list
+#include <geometry/seg.h>
 
 class NETLIST_OBJECT_LIST;
 
@@ -140,6 +141,14 @@ public:
     VECTOR2I GetEndPoint() const { return m_end; }
     void     SetEndPoint( const VECTOR2I& aPosition ) { m_end = aPosition; }
 
+    /**
+     * Get the geometric aspect of the wire as a SEG
+     */
+    SEG GetSeg() const
+    {
+        return SEG{ m_start, m_end };
+    }
+
     void SetLastResolvedState( const SCH_ITEM* aItem ) override
     {
         const SCH_LINE* aLine = dynamic_cast<const SCH_LINE*>( aItem );
@@ -211,8 +220,6 @@ public:
     void MirrorVertically( int aCenter ) override;
     void MirrorHorizontally( int aCenter ) override;
     void Rotate( const VECTOR2I& aCenter, bool aRotateCCW ) override;
-    void RotateStart( const VECTOR2I& aCenter );
-    void RotateEnd( const VECTOR2I& aCenter );
 
     /**
      * Check line against \a aLine to see if it overlaps and merge if it does.
@@ -268,7 +275,7 @@ public:
 
     bool CanConnect( const SCH_ITEM* aItem ) const override;
 
-    wxString GetItemDescription( UNITS_PROVIDER* aUnitsProvider ) const override;
+    wxString GetItemDescription( UNITS_PROVIDER* aUnitsProvider, bool aFull ) const override;
 
     BITMAPS GetMenuImage() const override;
 

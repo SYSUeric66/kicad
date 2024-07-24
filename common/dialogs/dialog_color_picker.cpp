@@ -1,7 +1,7 @@
 /*
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
- * Copyright (C) 2018-2022 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2018-2024 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software: you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -18,6 +18,7 @@
  */
 
 
+#include <kiplatform/ui.h>
 #include <dialogs/dialog_color_picker.h>
 #include <cmath>
 #include <algorithm>
@@ -28,6 +29,7 @@
 #include <wx/dcmemory.h>
 
 #define ALPHA_MAX 100   // the max value returned by the alpha (opacity) slider
+#define SLOPE_AXIS ( bmsize.y / 5.28 ) // was 50 at 264 size
 
 using KIGFX::COLOR4D;
 
@@ -52,12 +54,18 @@ DIALOG_COLOR_PICKER::DIALOG_COLOR_PICKER( wxWindow* aParent, const COLOR4D& aCur
     m_allowOpacityCtrl = aAllowOpacityControl;
     m_previousColor4D = aCurrentColor;
     m_newColor4D = aCurrentColor;
-    m_cursorsSize = 8;      // Size of square cursors drawn on color bitmaps
     m_newColor4D.ToHSV( m_hue, m_sat, m_val, true );
     m_bitmapRGB = nullptr;
     m_bitmapHSV = nullptr;
     m_selectedCursor = nullptr;
     m_defaultColor = aDefaultColor;
+
+    updateHandleSize();
+
+    m_OldColorRect->SetMinSize( FromDIP( wxSize( 20, 20 ) ) );
+    m_NewColorRect->SetMinSize( FromDIP( wxSize( 20, 20 ) ) );
+
+    m_colorValue->SetMinSize( wxSize( GetTextExtent( wxS( "#DDDDDDDD" ) ).x + FromDIP( 8 ), -1 ) );
 
     if( !m_allowOpacityCtrl )
     {
@@ -118,19 +126,22 @@ DIALOG_COLOR_PICKER::~DIALOG_COLOR_PICKER()
 
 void DIALOG_COLOR_PICKER::updatePreview( wxStaticBitmap* aStaticBitmap, COLOR4D& aColor4D )
 {
-    wxBitmap newBm = COLOR_SWATCH::MakeBitmap( aColor4D, COLOR4D::WHITE, aStaticBitmap->GetSize(),
-                                               ConvertDialogToPixels( CHECKERBOARD_SIZE_DU ),
+    wxSize  swatchSize = aStaticBitmap->GetSize();
+    wxSize  checkerboardSize = ConvertDialogToPixels( CHECKERBOARD_SIZE_DU );
+
+    wxBitmap newBm = COLOR_SWATCH::MakeBitmap( aColor4D, COLOR4D::WHITE,
+                                               ToPhys( swatchSize ),
+                                               ToPhys( checkerboardSize ),
                                                aStaticBitmap->GetParent()->GetBackgroundColour() );
+
+    newBm.SetScaleFactor( GetDPIScaleFactor() );
     aStaticBitmap->SetBitmap( newBm );
 }
 
 
 bool DIALOG_COLOR_PICKER::TransferDataToWindow()
 {
-    // Draw all bitmaps, with colors according to the color 4D
-    updatePreview( m_OldColorRect, m_previousColor4D );
     SetEditVals( ALL_CHANGED, false );
-    drawAll();
 
     // Configure the spin control sizes
     configureSpinCtrl( m_spinCtrlGreen );
@@ -143,6 +154,10 @@ bool DIALOG_COLOR_PICKER::TransferDataToWindow()
     m_notebook->GetPage( 1 )->Layout();
 
     finishDialogSettings();
+
+    // Draw all bitmaps, with colors according to the color 4D
+    updatePreview( m_OldColorRect, m_previousColor4D );
+    drawAll();
 
     return true;
 }
@@ -169,8 +184,12 @@ void DIALOG_COLOR_PICKER::initDefinedColors( CUSTOM_COLORS_LIST* aPredefinedColo
     auto addSwatch =
             [&]( int aId, COLOR4D aColor, const wxString& aColorName )
             {
-                wxBitmap bm = COLOR_SWATCH::MakeBitmap( aColor, COLOR4D::WHITE, swatchSize,
-                                                        checkerboardSize, checkboardBackground );
+                wxBitmap bm = COLOR_SWATCH::MakeBitmap( aColor, COLOR4D::WHITE,
+                                                        ToPhys( swatchSize ),
+                                                        ToPhys( checkerboardSize ),
+                                                        checkboardBackground );
+
+                bm.SetScaleFactor( GetDPIScaleFactor() );
                 wxStaticBitmap* swatch = new wxStaticBitmap( m_panelDefinedColors, aId, bm );
 
                 m_fgridColor->Add( swatch, 0, wxALIGN_CENTER_VERTICAL, 5 );
@@ -227,7 +246,7 @@ void DIALOG_COLOR_PICKER::initDefinedColors( CUSTOM_COLORS_LIST* aPredefinedColo
 
 void DIALOG_COLOR_PICKER::createRGBBitmap()
 {
-    wxSize bmsize = m_RgbBitmap->GetSize();
+    wxSize bmsize = ToPhys( m_RgbBitmap->GetSize() );
     int half_size = std::min( bmsize.x, bmsize.y )/2;
 
     // We use here a Y axis from bottom to top and origin to center, So we need to map
@@ -245,7 +264,6 @@ void DIALOG_COLOR_PICKER::createRGBBitmap()
 
     // Red blue area in X Z 3d axis
     double inc = 255.0 / half_size;
-    #define SLOPE_AXIS 50.0
     double slope = SLOPE_AXIS/half_size;
     color.g = 0.0;
 
@@ -315,13 +333,15 @@ void DIALOG_COLOR_PICKER::createRGBBitmap()
 
     delete m_bitmapRGB;
     m_bitmapRGB = new wxBitmap( img, 24 );
+
+    m_bitmapRGB->SetScaleFactor( GetDPIScaleFactor() );
     m_RgbBitmap->SetBitmap( *m_bitmapRGB );
 }
 
 
 void DIALOG_COLOR_PICKER::createHSVBitmap()
 {
-    wxSize bmsize = m_HsvBitmap->GetSize();
+    wxSize bmsize = ToPhys( m_HsvBitmap->GetSize() );
     int half_size = std::min( bmsize.x, bmsize.y )/2;
 
     // We use here a Y axis from bottom to top and origin to center, So we need to map
@@ -379,19 +399,24 @@ void DIALOG_COLOR_PICKER::createHSVBitmap()
 
     delete m_bitmapHSV;
     m_bitmapHSV = new wxBitmap( img, 24 );
+
+    m_bitmapHSV->SetScaleFactor( GetDPIScaleFactor() );
     m_HsvBitmap->SetBitmap( *m_bitmapHSV );
 }
 
 
 void DIALOG_COLOR_PICKER::drawRGBPalette()
 {
-    if( !m_bitmapRGB || m_bitmapRGB->GetSize() != m_RgbBitmap->GetSize() )
+    if( !m_bitmapRGB || m_bitmapRGB->GetSize() != ToPhys( m_RgbBitmap->GetSize() ) )
         createRGBBitmap();
 
     wxMemoryDC bitmapDC;
-    wxSize bmsize = m_bitmapRGB->GetSize();
-    int half_size = std::min( bmsize.x, bmsize.y )/2;
+    wxSize     bmsize = m_bitmapRGB->GetSize();
+    int        half_size = std::min( bmsize.x, bmsize.y ) / 2;
+
     wxBitmap newBm( *m_bitmapRGB );
+    newBm.SetScaleFactor( 1.0 );
+
     bitmapDC.SelectObject( newBm );
 
     // Use Y axis from bottom to top and origin to center
@@ -413,7 +438,6 @@ void DIALOG_COLOR_PICKER::drawRGBPalette()
     bitmapDC.SetBrush( brush );
     int half_csize = m_cursorsSize / 2;
 
-    #define SLOPE_AXIS 50.0
     double slope = SLOPE_AXIS / half_size;
 
     // Red axis cursor (Z 3Daxis):
@@ -445,6 +469,7 @@ void DIALOG_COLOR_PICKER::drawRGBPalette()
     bitmapDC.DrawLine( 0, 0, half_size, - half_size*slope );    // Blue axis (X 3D axis)
     bitmapDC.DrawLine( 0, 0, -half_size, - half_size*slope );   // green axis (Y 3D axis)
 
+    newBm.SetScaleFactor( GetDPIScaleFactor() );
     m_RgbBitmap->SetBitmap( newBm );
 
     /* Deselect the Tool Bitmap from DC,
@@ -455,13 +480,16 @@ void DIALOG_COLOR_PICKER::drawRGBPalette()
 
 void DIALOG_COLOR_PICKER::drawHSVPalette()
 {
-    if( !m_bitmapHSV || m_bitmapHSV->GetSize() != m_HsvBitmap->GetSize() )
+    if( !m_bitmapHSV || m_bitmapHSV->GetSize() != ToPhys( m_HsvBitmap->GetSize() ) )
         createHSVBitmap();
 
     wxMemoryDC bitmapDC;
-    wxSize bmsize = m_bitmapHSV->GetSize();
-    int half_size = std::min( bmsize.x, bmsize.y ) / 2;
+    wxSize     bmsize = m_bitmapHSV->GetSize();
+    int        half_size = std::min( bmsize.x, bmsize.y ) / 2;
+
     wxBitmap newBm( *m_bitmapHSV );
+    newBm.SetScaleFactor( 1.0 );
+
     bitmapDC.SelectObject( newBm );
 
     // Use Y axis from bottom to top and origin to center
@@ -485,11 +513,11 @@ void DIALOG_COLOR_PICKER::drawHSVPalette()
     bitmapDC.SetPen( pen );
     bitmapDC.SetBrush( brush );
 
-    int half_csize = m_cursorsSize/2;
-    bitmapDC.DrawRectangle( m_cursorBitmapHSV.x- half_csize,
-                            m_cursorBitmapHSV.y-half_csize,
+    bitmapDC.DrawRectangle( m_cursorBitmapHSV.x - ( m_cursorsSize / 2 ),
+                            m_cursorBitmapHSV.y - ( m_cursorsSize / 2 ),
                             m_cursorsSize, m_cursorsSize );
 
+    newBm.SetScaleFactor( GetDPIScaleFactor() );
     m_HsvBitmap->SetBitmap( newBm );
 
     /* Deselect the Tool Bitmap from DC,
@@ -539,8 +567,15 @@ void DIALOG_COLOR_PICKER::SetEditVals( CHANGED_COLOR aChanged, bool aCheckTransp
 }
 
 
+void DIALOG_COLOR_PICKER::updateHandleSize()
+{
+    m_cursorsSize = ToPhys( FromDIP( 8 ) ); // Size of square cursors drawn on color bitmaps
+}
+
+
 void DIALOG_COLOR_PICKER::drawAll()
 {
+    updateHandleSize();
     m_NewColorRect->Freeze();   // Avoid flicker
     m_HsvBitmap->Freeze();
     m_RgbBitmap->Freeze();
@@ -583,11 +618,12 @@ void DIALOG_COLOR_PICKER::buttColorClick( wxMouseEvent& event )
 void DIALOG_COLOR_PICKER::onRGBMouseClick( wxMouseEvent& event )
 {
     m_allowMouseEvents = true;
-    wxPoint mousePos = event.GetPosition();
 
     // The cursor position is relative to the m_bitmapHSV wxBitmap center
-    wxSize bmsize = m_bitmapRGB->GetSize();
-    int half_size = std::min( bmsize.x, bmsize.y ) / 2;
+    wxPoint mousePos = ToPhys( event.GetPosition() );
+    wxSize  bmsize = m_bitmapRGB->GetSize();
+    int     half_size = std::min( bmsize.x, bmsize.y ) / 2;
+
     mousePos.x -= half_size;
     mousePos.y -= half_size;
     mousePos.y = -mousePos.y;       // Use the bottom to top vertical axis
@@ -637,9 +673,10 @@ void DIALOG_COLOR_PICKER::onRGBMouseDrag( wxMouseEvent& event )
 
     // Adjust the HSV cursor position to follow the mouse cursor
     // The cursor position is relative to the m_bitmapHSV wxBitmap center
-    wxPoint mousePos = event.GetPosition();
-    wxSize bmsize = m_bitmapRGB->GetSize();
-    int half_size = std::min( bmsize.x, bmsize.y ) / 2;
+    wxPoint mousePos = ToPhys( event.GetPosition() );
+    wxSize  bmsize = m_bitmapRGB->GetSize();
+    int     half_size = std::min( bmsize.x, bmsize.y ) / 2;
+
     mousePos.x -= half_size;
     mousePos.y -= half_size;
     mousePos.y = -mousePos.y;           // Use the bottom to top vertical axis
@@ -699,6 +736,14 @@ void DIALOG_COLOR_PICKER::onHSVMouseDrag( wxMouseEvent& event )
 }
 
 
+void DIALOG_COLOR_PICKER::onSize( wxSizeEvent& event )
+{
+    drawAll();
+
+    event.Skip();
+}
+
+
 void DIALOG_COLOR_PICKER::OnColorValueText( wxCommandEvent& event )
 {
     if( m_newColor4D.SetFromHexString( m_colorValue->GetValue() ) )
@@ -713,9 +758,9 @@ void DIALOG_COLOR_PICKER::OnColorValueText( wxCommandEvent& event )
 
 bool DIALOG_COLOR_PICKER::setHSvaluesFromCursor( const wxPoint& aMouseCursor )
 {
-    wxPoint mousePos = aMouseCursor;
-    wxSize bmsize = m_bitmapHSV->GetSize();
-    int half_size = std::min( bmsize.x, bmsize.y )/2;
+    wxPoint mousePos = ToPhys( aMouseCursor );
+    wxSize  bmsize = m_bitmapHSV->GetSize();
+    int     half_size = std::min( bmsize.x, bmsize.y ) / 2;
 
     // Make the cursor position relative to the m_bitmapHSV wxBitmap center
     mousePos.x -= half_size;

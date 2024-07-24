@@ -191,7 +191,7 @@ wxString BOARD_INSPECTION_TOOL::getItemDescription( BOARD_ITEM* aItem )
     if( !aItem )
         return wxString();
 
-    wxString msg = aItem->GetItemDescription( m_frame );
+    wxString msg = aItem->GetItemDescription( m_frame, true );
 
     if( aItem->IsConnected() && !isNPTHPad( aItem ) )
     {
@@ -1006,7 +1006,7 @@ int BOARD_INSPECTION_TOOL::InspectClearance( const TOOL_EVENT& aEvent )
                 if( aItem->IsOnLayer( correspondingMask ) )
                     return true;
 
-                if( aItem->IsTented() && aItem->IsOnLayer( correspondingCopper ) )
+                if( aItem->IsTented( correspondingMask ) && aItem->IsOnLayer( correspondingCopper ) )
                 {
                     *aWarning = wxString::Format( _( "Note: %s is tented; clearance will only be "
                                                      "applied to holes." ),
@@ -1112,7 +1112,7 @@ int BOARD_INSPECTION_TOOL::InspectClearance( const TOOL_EVENT& aEvent )
             r->Flush();
         }
 
-        if( a->HasHole() && b->HasHole() )
+        if( a->HasDrilledHole() || b->HasDrilledHole() )
         {
             if( !pageAdded )
             {
@@ -1765,7 +1765,7 @@ int BOARD_INSPECTION_TOOL::HighlightItem( const TOOL_EVENT& aEvent )
     const std::set<int>& netcodes = settings->GetHighlightNetCodes();
 
     // Toggle highlight when the same net was picked
-    if( netcodes.count( net ) )
+    if( !aUseSelection && netcodes.size() == 1 && netcodes.contains( net ) )
         enableHighlight = !settings->IsHighlightEnabled();
 
     if( enableHighlight != settings->IsHighlightEnabled() || !netcodes.count( net ) )

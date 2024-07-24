@@ -462,8 +462,6 @@ PCB_IO_EASYEDAPRO_PARSER::ParseContour( nlohmann::json polyData, bool aInFill,
     SHAPE_LINE_CHAIN result;
     VECTOR2D         prevPt;
 
-    double bezierMinSegLen = polyData.size() < 300 ? aArcAccuracy : aArcAccuracy * 10;
-
     for( int i = 0; i < polyData.size(); i++ )
     {
         nlohmann::json val = polyData.at( i );
@@ -554,7 +552,7 @@ PCB_IO_EASYEDAPRO_PARSER::ParseContour( nlohmann::json polyData, bool aInFill,
                 BEZIER_POLY           converter( ctrlPoints );
 
                 std::vector<VECTOR2I> bezierPoints;
-                converter.GetPoly( bezierPoints, bezierMinSegLen, 16 );
+                converter.GetPoly( bezierPoints, aArcAccuracy );
 
                 result.Append( bezierPoints );
 
@@ -640,7 +638,7 @@ std::unique_ptr<PAD> PCB_IO_EASYEDAPRO_PARSER::createPAD( FOOTPRINT*            
 
             if( holeShape == wxS( "SLOT" ) )
             {
-                pad->SetDrillShape( PAD_DRILL_SHAPE_OBLONG );
+                pad->SetDrillShape( PAD_DRILL_SHAPE::OBLONG );
             }
 
             pad->SetDrillSize( ScaleSize( drill ) );
@@ -656,7 +654,7 @@ std::unique_ptr<PAD> PCB_IO_EASYEDAPRO_PARSER::createPAD( FOOTPRINT*            
         }
         else if( klayer == B_Cu )
         {
-            pad->SetLayerSet( FlipLayerMask( PAD::SMDMask() ) );
+            pad->SetLayerSet( PAD::SMDMask().Flip() );
         }
 
         pad->SetAttribute( PAD_ATTRIB::SMD );
@@ -899,7 +897,7 @@ FOOTPRINT* PCB_IO_EASYEDAPRO_PARSER::ParseFootprint( const nlohmann::json&      
         }
     }
 
-    if( aProject.is_object() )
+    if( aProject.is_object() && aProject.contains( "devices" ) )
     {
         std::map<wxString, EASYEDAPRO::PRJ_DEVICE> devicesMap = aProject.at( "devices" );
         std::map<wxString, wxString>               compAttrs;
@@ -1591,7 +1589,7 @@ void PCB_IO_EASYEDAPRO_PARSER::ParseBoard(
             if( font != wxS( "default" ) )
             {
                 text->SetFont( KIFONT::FONT::GetFont( font ) );
-                //text->SetupRenderCache( text->GetShownText(), EDA_ANGLE( angle, DEGREES_T ) );
+                //text->SetupRenderCache( text->GetShownText(), text->GetFont(), EDA_ANGLE( angle, DEGREES_T ) );
 
                 //text->AddRenderCacheGlyph();
                 // TODO: import geometry cache

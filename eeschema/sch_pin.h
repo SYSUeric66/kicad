@@ -198,9 +198,19 @@ public:
 
     VECTOR2I GetPinRoot() const;
 
+    /**
+     * these transforms have effect only if the pin has a LIB_SYMBOL as parent
+     */
     void MirrorHorizontally( int aCenter ) override;
     void MirrorVertically( int aCenter ) override;
     void Rotate( const VECTOR2I& aCenter, bool aRotateCCW = true ) override;
+
+    /**
+     * these transforms have always effects
+     */
+    void MirrorHorizontallyPin( int aCenter );
+    void MirrorVerticallyPin( int aCenter );
+    void RotatePin( const VECTOR2I& aCenter, bool aRotateCCW = true );
 
     /**
      * Plot the pin name and number.
@@ -218,7 +228,7 @@ public:
 
     BITMAPS GetMenuImage() const override;
 
-    wxString GetItemDescription( UNITS_PROVIDER* aUnitsProvider ) const override;
+    wxString GetItemDescription( UNITS_PROVIDER* aUnitsProvider, bool aFull ) const override;
     wxString GetItemDescription( UNITS_PROVIDER* aUnitsProvider, ALT* aAlt ) const;
 
     EDA_ITEM* Clone() const override;
@@ -275,10 +285,7 @@ public:
 
     double Similarity( const SCH_ITEM& aOther ) const override;
 
-    bool operator==( const SCH_ITEM& aOther ) const override;
-    bool operator!=( const SCH_ITEM& aOther ) const { return !operator==( aOther ); }
-    bool operator<( const SCH_PIN& aRhs ) const { return compare( aRhs, EQUALITY ) < 0; }
-    bool operator>( const SCH_PIN& aRhs ) const { return compare( aRhs, EQUALITY ) > 0; }
+    bool operator>( const SCH_ITEM& aRhs ) const { return compare( aRhs, EQUALITY ) > 0; }
 
 protected:
     wxString getItemDescription( ALT* aAlt ) const;
@@ -321,13 +328,20 @@ protected:
 
 private:
     /**
-     * @copydoc SCH_ITEM::compare()
-     *
      * The pin specific sort order is as follows:
-     *      - Pin number.
-     *      - Pin name, case insensitive compare.
-     *      - Pin horizontal (X) position.
-     *      - Pin vertical (Y) position.
+     *      - The result of #SCH_ITEM::compare()
+     *      - Number
+     *      - Name, case sensitive compare
+     *      - Horizontal (X) position
+     *      - Vertical (Y) position
+     *      - Length
+     *      - Orientation
+     *      - Shape
+     *      - Electrical type
+     *      - Visibility (true > false)
+     *      - Number text size
+     *      - Name text size
+     *      - Alternates, name, type shape
      */
     int compare( const SCH_ITEM& aOther, int aCompareFlags = 0 ) const override;
 

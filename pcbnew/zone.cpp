@@ -30,6 +30,7 @@
 #include <pcb_screen.h>
 #include <board.h>
 #include <board_design_settings.h>
+#include <lset.h>
 #include <pad.h>
 #include <zone.h>
 #include <footprint.h>
@@ -150,18 +151,19 @@ void ZONE::InitDataFromSrcInCopyCtor( const ZONE& aZone )
     delete m_CornerSelection;
     m_CornerSelection         = nullptr;
 
-    for( PCB_LAYER_ID layer : aZone.GetLayerSet().Seq() )
-    {
-        std::shared_ptr<SHAPE_POLY_SET> fill = aZone.m_FilledPolysList.at( layer );
+    aZone.GetLayerSet().RunOnLayers(
+            [&]( PCB_LAYER_ID layer )
+            {
+                std::shared_ptr<SHAPE_POLY_SET> fill = aZone.m_FilledPolysList.at( layer );
 
-        if( fill )
-            m_FilledPolysList[layer] = std::make_shared<SHAPE_POLY_SET>( *fill );
-        else
-            m_FilledPolysList[layer] = std::make_shared<SHAPE_POLY_SET>();
+                if( fill )
+                    m_FilledPolysList[layer] = std::make_shared<SHAPE_POLY_SET>( *fill );
+                else
+                    m_FilledPolysList[layer] = std::make_shared<SHAPE_POLY_SET>();
 
-        m_filledPolysHash[layer]  = aZone.m_filledPolysHash.at( layer );
-        m_insulatedIslands[layer] = aZone.m_insulatedIslands.at( layer );
-    }
+                m_filledPolysHash[layer]  = aZone.m_filledPolysHash.at( layer );
+                m_insulatedIslands[layer] = aZone.m_insulatedIslands.at( layer );
+            } );
 
     m_borderStyle             = aZone.m_borderStyle;
     m_borderHatchPitch        = aZone.m_borderHatchPitch;
@@ -279,12 +281,13 @@ void ZONE::SetLayerSet( LSET aLayerSet )
         m_filledPolysHash.clear();
         m_insulatedIslands.clear();
 
-        for( PCB_LAYER_ID layer : aLayerSet.Seq() )
-        {
-            m_FilledPolysList[layer]  = std::make_shared<SHAPE_POLY_SET>();
-            m_filledPolysHash[layer]  = {};
-            m_insulatedIslands[layer] = {};
-        }
+        aLayerSet.RunOnLayers(
+                [&]( PCB_LAYER_ID layer )
+                {
+                    m_FilledPolysList[layer]  = std::make_shared<SHAPE_POLY_SET>();
+                    m_filledPolysHash[layer]  = {};
+                    m_insulatedIslands[layer] = {};
+                } );
     }
 
     m_layerSet = aLayerSet;
@@ -294,13 +297,13 @@ void ZONE::SetLayerSet( LSET aLayerSet )
 void ZONE::ViewGetLayers( int aLayers[], int& aCount ) const
 {
     aCount = 0;
-    LSEQ layers = m_layerSet.Seq();
 
-    for( PCB_LAYER_ID layer : m_layerSet.Seq() )
-    {
-        aLayers[ aCount++ ] = layer;                     // For outline (always full opacity)
-        aLayers[ aCount++ ] = layer + static_cast<int>( LAYER_ZONE_START );  // For fill (obeys global zone opacity)
-    }
+    m_layerSet.RunOnLayers(
+            [&]( PCB_LAYER_ID layer )
+            {
+                aLayers[ aCount++ ] = layer;
+                aLayers[ aCount++ ] = layer + static_cast<int>( LAYER_ZONE_START );
+            } );
 
     if( IsConflicting() )
         aLayers[ aCount++ ] = LAYER_CONFLICTS_SHADOW;
@@ -404,7 +407,7 @@ void ZONE::SetCornerRadius( unsigned int aRadius )
 static SHAPE_POLY_SET g_nullPoly;
 
 
-MD5_HASH ZONE::GetHashValue( PCB_LAYER_ID aLayer )
+HASH_128 ZONE::GetHashValue( PCB_LAYER_ID aLayer )
 {
     if( !m_filledPolysHash.count( aLayer ) )
         return g_nullPoly.GetHash();
@@ -731,11 +734,11 @@ void ZONE::Flip( const VECTOR2I& aCentre, bool aFlipLeftRight )
         fillsCopy[oldLayer] = *shapePtr;
     }
 
-    SetLayerSet( FlipLayerMask( GetLayerSet(), GetBoard()->GetCopperLayerCount() ) );
+    SetLayerSet( GetLayerSet().Flip( GetBoard()->GetCopperLayerCount() ) );
 
     for( auto& [oldLayer, shape] : fillsCopy )
     {
-        PCB_LAYER_ID newLayer = FlipLayer( oldLayer, GetBoard()->GetCopperLayerCount() );
+        PCB_LAYER_ID newLayer = GetBoard()->FlipLayer( oldLayer );
         SetFilledPolysList( newLayer, shape );
     }
 }
@@ -818,7 +821,7 @@ bool ZONE::AppendCorner( VECTOR2I aPosition, int aHoleIdx, bool aAllowDuplicatio
 }
 
 
-wxString ZONE::GetItemDescription( UNITS_PROVIDER* aUnitsProvider ) const
+wxString ZONE::GetItemDescription( UNITS_PROVIDER* aUnitsProvider, bool aFull ) const
 {
     LSEQ     layers = m_layerSet.Seq();
     wxString layerDesc;
@@ -968,13 +971,13 @@ void ZONE::HatchBorder()
 
         if( slope_flag == 1 )
         {
-            max_a = KiROUND( max_y - slope * min_x );
-            min_a = KiROUND( min_y - slope * max_x );
+            max_a = KiROUND<double, int64_t>( max_y - slope * min_x );
+            min_a = KiROUND<double, int64_t>( min_y - slope * max_x );
         }
         else
         {
-            max_a = KiROUND( max_y - slope * max_x );
-            min_a = KiROUND( min_y - slope * min_x );
+            max_a = KiROUND<double, int64_t>( max_y - slope * max_x );
+            min_a = KiROUND<double, int64_t>( min_y - slope * min_x );
         }
 
         min_a = (min_a / spacing) * spacing;
@@ -1536,8 +1539,8 @@ static struct ZONE_DESC
         {
             layerEnum.Undefined( UNDEFINED_LAYER );
 
-            for( LSEQ seq = LSET::AllLayersMask().Seq(); seq; ++seq )
-                layerEnum.Map( *seq, LSET::Name( *seq ) );
+            for( PCB_LAYER_ID layer : LSET::AllLayersMask().Seq() )
+                layerEnum.Map( layer, LSET::Name( layer ) );
         }
 
         ENUM_MAP<ZONE_CONNECTION>& zcMap = ENUM_MAP<ZONE_CONNECTION>::Instance();

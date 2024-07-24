@@ -37,6 +37,8 @@
 #include <pcbnew_settings.h>
 #include <widgets/wx_html_report_panel.h>
 #include <widgets/std_bitmap_button.h>
+#include <tool/tool_manager.h>
+#include <tools/pcb_selection_tool.h>
 
 
 #define ID_MATCH_FP_ALL      4200
@@ -55,6 +57,7 @@ int g_matchModeForExchangeSelected = ID_MATCH_FP_SELECTED;
 bool g_removeExtraTextItems[2]  = { false,  false  };
 bool g_resetTextItemLayers[2]   = { false,  true   };
 bool g_resetTextItemEffects[2]  = { false,  true   };
+bool g_resetTextItemContent[2]  = { false,  true   };
 bool g_resetFabricationAttrs[2] = { false,  true   };
 bool g_reset3DModels[2]         = { true,   true   };
 
@@ -78,6 +81,7 @@ DIALOG_EXCHANGE_FOOTPRINTS::DIALOG_EXCHANGE_FOOTPRINTS( PCB_EDIT_FRAME* aParent,
         m_matchSpecifiedID->SetLabel( _( "Change footprints with library id:" ) );
         m_resetTextItemLayers->SetLabel( _( "Update text layers and visibilities" ) );
         m_resetTextItemEffects->SetLabel( _( "Update text sizes, styles and positions" ) );
+        m_resetTextItemContent->SetLabel( _( "Update text content" ) );
         m_resetFabricationAttrs->SetLabel( _( "Update fabrication attributes" ) );
         m_reset3DModels->SetLabel( _( "Update 3D models" ) );
     }
@@ -142,6 +146,7 @@ DIALOG_EXCHANGE_FOOTPRINTS::DIALOG_EXCHANGE_FOOTPRINTS( PCB_EDIT_FRAME* aParent,
     m_removeExtraBox->SetValue( g_removeExtraTextItems[ m_updateMode ? 0 : 1 ] );
     m_resetTextItemLayers->SetValue( g_resetTextItemLayers[ m_updateMode ? 0 : 1 ] );
     m_resetTextItemEffects->SetValue( g_resetTextItemEffects[ m_updateMode ? 0 : 1 ] );
+    m_resetTextItemContent->SetValue( g_resetTextItemContent[ m_updateMode ? 0 : 1 ] );
     m_resetFabricationAttrs->SetValue( g_resetFabricationAttrs[ m_updateMode ? 0 : 1 ] );
     m_reset3DModels->SetValue( g_reset3DModels[ m_updateMode ? 0 : 1 ] );
 
@@ -167,6 +172,7 @@ DIALOG_EXCHANGE_FOOTPRINTS::~DIALOG_EXCHANGE_FOOTPRINTS()
     g_removeExtraTextItems[ m_updateMode ? 0 : 1 ]  = m_removeExtraBox->GetValue();
     g_resetTextItemLayers[ m_updateMode ? 0 : 1 ]   = m_resetTextItemLayers->GetValue();
     g_resetTextItemEffects[ m_updateMode ? 0 : 1 ]  = m_resetTextItemEffects->GetValue();
+    g_resetTextItemContent[ m_updateMode ? 0 : 1 ]  = m_resetTextItemContent->GetValue();
     g_resetFabricationAttrs[ m_updateMode ? 0 : 1 ] = m_resetFabricationAttrs->GetValue();
     g_reset3DModels[ m_updateMode ? 0 : 1 ]         = m_reset3DModels->GetValue();
 }
@@ -293,19 +299,21 @@ void DIALOG_EXCHANGE_FOOTPRINTS::OnMatchIDClicked( wxCommandEvent& event )
 
 void DIALOG_EXCHANGE_FOOTPRINTS::OnOKClicked( wxCommandEvent& event )
 {
-    wxBusyCursor dummy;
+    PCB_SELECTION_TOOL* selTool = m_parent->GetToolManager()->GetTool<PCB_SELECTION_TOOL>();
+    wxBusyCursor        dummy;
 
     m_MessageWindow->Clear();
     m_MessageWindow->Flush( false );
 
+    m_newFootprints.clear();
     processMatchingFootprints();
-
-    m_parent->Compile_Ratsnest( true );
-    m_parent->GetCanvas()->Refresh();
+    m_commit.Push( m_updateMode ? _( "Update Footprint" ) : _( "Change Footprint" ) );
+    selTool->AddItemsToSel( &m_newFootprints );
 
     m_MessageWindow->Flush( false );
 
-    m_commit.Push( wxT( "Changed footprint" ) );
+    WINDOW_THAWER thawer( m_parent );
+    m_parent->GetCanvas()->Refresh();
 }
 
 
@@ -379,6 +387,7 @@ void DIALOG_EXCHANGE_FOOTPRINTS::processFootprint( FOOTPRINT* aFootprint, const 
                                  m_removeExtraBox->GetValue(),
                                  m_resetTextItemLayers->GetValue(),
                                  m_resetTextItemEffects->GetValue(),
+                                 m_resetTextItemContent->GetValue(),
                                  m_resetFabricationAttrs->GetValue(),
                                  m_reset3DModels->GetValue(),
                                  &updated );
@@ -388,6 +397,9 @@ void DIALOG_EXCHANGE_FOOTPRINTS::processFootprint( FOOTPRINT* aFootprint, const 
 
     if( aFootprint == m_currentFootprint )
         m_currentFootprint = newFootprint;
+
+    if( newFootprint )
+        m_newFootprints.push_back( newFootprint );
 
     if( m_updateMode && !updated )
     {
@@ -406,43 +418,44 @@ void DIALOG_EXCHANGE_FOOTPRINTS::ViewAndSelectFootprint( wxCommandEvent& event )
 {
     wxString newname = m_newID->GetValue();
 
-    KIWAY_PLAYER* frame = Kiway().Player( FRAME_FOOTPRINT_CHOOSER, true, this );
-
-    if( m_currentFootprint )
+    if( KIWAY_PLAYER* frame = Kiway().Player( FRAME_FOOTPRINT_CHOOSER, true, this ) )
     {
-        /*
-         * Symbol netlist format:
-         *   pinNumber pinName <tab> pinNumber pinName...
-         *   fpFilter fpFilter...
-         */
-        wxString netlist;
+        if( m_currentFootprint )
+        {
+            /*
+             * Symbol netlist format:
+             *   pinNumber pinName <tab> pinNumber pinName...
+             *   fpFilter fpFilter...
+             */
+            wxString netlist;
 
-        wxArrayString pins;
+            wxArrayString pins;
 
-        for( const wxString& pad : m_currentFootprint->GetUniquePadNumbers() )
-            pins.push_back( pad + ' ' + wxEmptyString /* leave pinName empty */ );
+            for( const wxString& pad : m_currentFootprint->GetUniquePadNumbers() )
+                pins.push_back( pad + ' ' + wxEmptyString /* leave pinName empty */ );
 
-        if( !pins.IsEmpty() )
-            netlist << EscapeString( wxJoin( pins, '\t' ), CTX_LINE );
+            if( !pins.IsEmpty() )
+                netlist << EscapeString( wxJoin( pins, '\t' ), CTX_LINE );
 
-        netlist << wxS( "\r" );
+            netlist << wxS( "\r" );
 
-        netlist << EscapeString( m_currentFootprint->GetFilters(), CTX_LINE ) << wxS( "\r" );
+            netlist << EscapeString( m_currentFootprint->GetFilters(), CTX_LINE ) << wxS( "\r" );
 
-        std::string payload( netlist.ToStdString() );
-        KIWAY_EXPRESS mail( FRAME_FOOTPRINT_CHOOSER, MAIL_SYMBOL_NETLIST, payload );
-        frame->KiwayMailIn( mail );
+            std::string payload( netlist.ToStdString() );
+            KIWAY_EXPRESS mail( FRAME_FOOTPRINT_CHOOSER, MAIL_SYMBOL_NETLIST, payload );
+            frame->KiwayMailIn( mail );
+        }
+
+        if( frame->ShowModal( &newname, this ) )
+        {
+            if( event.GetEventObject() == m_newIDBrowseButton )
+                m_newID->SetValue( newname );
+            else
+                m_specifiedID->SetValue( newname );
+        }
+
+        frame->Destroy();
     }
-
-    if( frame->ShowModal( &newname, this ) )
-    {
-        if( event.GetEventObject() == m_newIDBrowseButton )
-            m_newID->SetValue( newname );
-        else
-            m_specifiedID->SetValue( newname );
-    }
-
-    frame->Destroy();
 }
 
 

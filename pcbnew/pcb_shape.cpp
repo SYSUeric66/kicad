@@ -34,6 +34,7 @@
 #include <board_design_settings.h>
 #include <board.h>
 #include <footprint.h>
+#include <lset.h>
 #include <pad.h>
 #include <base_units.h>
 #include <geometry/shape_compound.h>
@@ -267,6 +268,7 @@ bool PCB_SHAPE::Deserialize( const google::protobuf::Any &aContainer )
         SetBezierC1( kiapi::common::UnpackVector2( msg.bezier().control1() ) );
         SetBezierC2( kiapi::common::UnpackVector2( msg.bezier().control2() ) );
         SetEnd( kiapi::common::UnpackVector2( msg.bezier().end() ) );
+        RebuildBezierToSegmentsPointsList( ARC_HIGH_DEF );
     }
 
     return true;
@@ -531,7 +533,7 @@ void PCB_SHAPE::Flip( const VECTOR2I& aCentre, bool aFlipLeftRight )
 {
     flip( aCentre, aFlipLeftRight );
 
-    SetLayer( FlipLayer( GetLayer(), GetBoard()->GetCopperLayerCount() ) );
+    SetLayer( GetBoard()->FlipLayer( GetLayer() ) );
 }
 
 
@@ -568,7 +570,7 @@ void PCB_SHAPE::Mirror( const VECTOR2I& aCentre, bool aMirrorAroundXAxis )
             std::swap( m_start, m_end );
 
         if( GetShape() == SHAPE_T::BEZIER )
-            RebuildBezierToSegmentsPointsList( GetWidth() );
+            RebuildBezierToSegmentsPointsList( ARC_HIGH_DEF );
 
         break;
 
@@ -697,16 +699,49 @@ void PCB_SHAPE::GetMsgPanelInfo( EDA_DRAW_FRAME* aFrame, std::vector<MSG_PANEL_I
 }
 
 
-wxString PCB_SHAPE::GetItemDescription( UNITS_PROVIDER* aUnitsProvider ) const
+wxString PCB_SHAPE::GetItemDescription( UNITS_PROVIDER* aUnitsProvider, bool aFull ) const
 {
-    if( GetNetCode() > 0 )
+    FOOTPRINT* parentFP = nullptr;
+
+    if( EDA_DRAW_FRAME* frame = dynamic_cast<EDA_DRAW_FRAME*>( aUnitsProvider ) )
     {
-        return wxString::Format( _( "%s %s on %s" ), GetFriendlyName(), GetNetnameMsg(),
-                                 GetLayerName() );
+        if( frame->GetName() == PCB_EDIT_FRAME_NAME )
+            parentFP = GetParentFootprint();
+    }
+
+    if( IsOnCopperLayer() )
+    {
+        if( parentFP )
+        {
+            return wxString::Format( _( "%s %s of %s on %s" ),
+                                     GetFriendlyName(),
+                                     GetNetnameMsg(),
+                                     parentFP->GetReference(),
+                                     GetLayerName() );
+        }
+        else
+        {
+            return wxString::Format( _( "%s %s on %s" ),
+                                     GetFriendlyName(),
+                                     GetNetnameMsg(),
+                                     GetLayerName() );
+        }
     }
     else
     {
-        return wxString::Format( _( "%s on %s" ), GetFriendlyName(), GetLayerName() );
+        if( parentFP )
+        {
+            return wxString::Format( _( "%s of %s on %s" ),
+                                     GetFriendlyName(),
+                                     parentFP->GetReference(),
+                                     GetLayerName() );
+        }
+        else
+        {
+            return wxString::Format( _( "%s on %s" ),
+                                     GetFriendlyName(),
+                                     GetLayerName() );
+        }
     }
 }
 
@@ -798,6 +833,17 @@ bool PCB_SHAPE::operator==( const BOARD_ITEM& aOther ) const
 
     const PCB_SHAPE& other = static_cast<const PCB_SHAPE&>( aOther );
 
+    return *this == other;
+}
+
+
+bool PCB_SHAPE::operator==( const PCB_SHAPE& aOther ) const
+{
+    if( aOther.Type() != Type() )
+        return false;
+
+    const PCB_SHAPE& other = static_cast<const PCB_SHAPE&>( aOther );
+
     if( m_layer != other.m_layer )
         return false;
 
@@ -871,8 +917,8 @@ static struct PCB_SHAPE_DESC
         {
             layerEnum.Undefined( UNDEFINED_LAYER );
 
-            for( LSEQ seq = LSET::AllLayersMask().Seq(); seq; ++seq )
-                layerEnum.Map( *seq, LSET::Name( *seq ) );
+            for( PCB_LAYER_ID layer : LSET::AllLayersMask().Seq() )
+                layerEnum.Map( layer, LSET::Name( layer ) );
         }
 
         void ( PCB_SHAPE::*shapeLayerSetter )( PCB_LAYER_ID ) = &PCB_SHAPE::SetLayer;

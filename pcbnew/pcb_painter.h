@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2013 CERN
- * Copyright (C) 2016-2023 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2016-2024 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * @author Tomasz Wlostowski <tomasz.wlostowski@cern.ch>
  * @author Maciej Suminski <maciej.suminski@cern.ch>
@@ -30,6 +30,7 @@
 
 #include <frame_type.h>
 #include <gal/painter.h>
+#include <padstack.h>   // PAD_DRILL_SHAPE
 #include <pcb_display_options.h>
 #include <math/vector2d.h>
 #include <memory>
@@ -93,6 +94,15 @@ public:
     /// @copydoc RENDER_SETTINGS::GetColor()
     COLOR4D GetColor( const VIEW_ITEM* aItem, int aLayer ) const override;
 
+    ///< Board-specific version
+    COLOR4D GetColor( const BOARD_ITEM* aItem, int aLayer ) const;
+
+    ///< nullptr version
+    COLOR4D GetColor( std::nullptr_t, int aLayer ) const
+    {
+        return GetColor( static_cast<const BOARD_ITEM*>( nullptr ), aLayer );
+    }
+
     bool GetShowPageLimits() const override;
 
     inline bool IsBackgroundDark() const override
@@ -154,6 +164,7 @@ protected:
     double m_padOpacity;       ///< Opacity override for SMD pads and PTHs
     double m_zoneOpacity;      ///< Opacity override for filled zones
     double m_imageOpacity;     ///< Opacity override for user images
+    double m_filledShapeOpacity;     ///< Opacity override for graphic shapes
 };
 
 
@@ -205,7 +216,7 @@ protected:
     /**
      * Return drill shape of a pad.
      */
-    virtual int getDrillShape( const PAD* aPad ) const;
+    virtual PAD_DRILL_SHAPE getDrillShape( const PAD* aPad ) const;
 
     /**
      * Return hole shape for a pad (internal units).

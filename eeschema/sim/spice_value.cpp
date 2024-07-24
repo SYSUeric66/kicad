@@ -35,14 +35,23 @@
 #include <confirm.h>
 #include <common.h>
 #include <locale_io.h>
+#include <geometry/eda_angle.h>
 
 
 void SPICE_VALUE_FORMAT::FromString( const wxString& aString )
 {
-    long val;
-    aString.Left( 1 ).ToLong( &val );
-    Precision = (int) val;
-    Range = aString.Right( aString.Length() - 1 );
+    if( aString.IsEmpty() )
+    {
+        Precision = 3;
+        Range = wxS( "~V" );
+    }
+    else
+    {
+        long val;
+        aString.Left( 1 ).ToLong( &val );
+        Precision = (int) val;
+        Range = aString.Right( aString.Length() - 1 );
+    }
 }
 
 
@@ -223,6 +232,13 @@ wxString SPICE_VALUE::ToString( const SPICE_VALUE_FORMAT& aFormat )
 {
     wxString range( aFormat.Range );
 
+    if( range.EndsWith( wxS( "°" ) ) )
+    {
+        EDA_ANGLE angle( m_base * std::pow( 10, (int) m_prefix ), DEGREES_T );
+        angle.Normalize180();
+        return wxString::FromCDouble( angle.AsDegrees(), aFormat.Precision ) + wxS( "°" );
+    }
+
     if( range.StartsWith( wxS( "~" ) ) )
     {
         Normalize();
@@ -398,7 +414,7 @@ bool SPICE_VALIDATOR::Validate( wxWindow* aParent )
     }
     catch( ... )
     {
-        DisplayError( aParent, wxString::Format( _( "'%s' is not a valid Spice value." ),
+        DisplayError( aParent, wxString::Format( _( "'%s' is not a valid SPICE value." ),
                                                  text->GetValue() ) );
 
         return false;

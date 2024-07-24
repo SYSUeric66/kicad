@@ -26,6 +26,8 @@
 #include <dialogs/dialog_page_settings.h>
 #include <eda_draw_frame.h>
 #include <eda_item.h>
+#include <embedded_files.h>
+#include <filename_resolver.h>
 #include <gr_basic.h>
 #include <kiface_base.h>
 #include <macros.h>
@@ -38,11 +40,13 @@
 #include <drawing_sheet/ds_painter.h>
 #include <string_utils.h>
 #include <widgets/std_bitmap_button.h>
+#include <widgets/filedlg_open_embed_file.h>
 #include <wx/valgen.h>
 #include <wx/tokenzr.h>
 #include <wx/filedlg.h>
 #include <wx/dcmemory.h>
 #include <wx/msgdlg.h>
+#include <confirm.h>
 
 #define MAX_PAGE_EXAMPLE_SIZE 200
 
@@ -74,7 +78,7 @@ static const wxString pageFmts[] =
                                     // to be recognized in code
 };
 
-DIALOG_PAGES_SETTINGS::DIALOG_PAGES_SETTINGS( EDA_DRAW_FRAME* aParent, double aIuPerMils,
+DIALOG_PAGES_SETTINGS::DIALOG_PAGES_SETTINGS( EDA_DRAW_FRAME* aParent, EMBEDDED_FILES* aEmbeddedFiles, double aIuPerMils,
                                               const VECTOR2D& aMaxUserSizeMils ) :
         DIALOG_PAGES_SETTINGS_BASE( aParent ),
         m_parent( aParent ),
@@ -82,6 +86,7 @@ DIALOG_PAGES_SETTINGS::DIALOG_PAGES_SETTINGS( EDA_DRAW_FRAME* aParent, double aI
         m_initialized( false ),
         m_pageBitmap( nullptr ),
         m_iuPerMils( aIuPerMils ),
+        m_embeddedFiles( aEmbeddedFiles ),
         m_customSizeX( aParent, m_userSizeXLabel, m_userSizeXCtrl, m_userSizeXUnits ),
         m_customSizeY( aParent, m_userSizeYLabel, m_userSizeYCtrl, m_userSizeYUnits )
 {
@@ -112,6 +117,10 @@ DIALOG_PAGES_SETTINGS::DIALOG_PAGES_SETTINGS( EDA_DRAW_FRAME* aParent, double aI
         m_staticTextPaper->SetLabel( _( "Paper" ) );
         m_staticTextTitleBlock->SetLabel( _( "Title Block" ) );
     }
+
+    m_filenameResolver = new FILENAME_RESOLVER;
+    m_filenameResolver->SetProject( &Prj() );
+    m_filenameResolver->SetProgramBase( &Pgm() );
 
     SetupStandardButtons();
 
@@ -460,24 +469,25 @@ void DIALOG_PAGES_SETTINGS::OnDateApplyClick( wxCommandEvent& event )
 
 bool DIALOG_PAGES_SETTINGS::SavePageSettings()
 {
-    bool success = false;
-
+    bool     success = false;
+    wxString msg;
     wxString fileName = GetWksFileName();
 
     if( fileName != BASE_SCREEN::m_DrawingSheetFileName )
     {
-        wxString fullFileName = DS_DATA_MODEL::ResolvePath( fileName, m_projectPath );
 
-        if( !fullFileName.IsEmpty() && !wxFileExists( fullFileName ) )
-        {
-            wxString msg;
-            msg.Printf( _( "Drawing sheet file '%s' not found." ), fullFileName );
-            wxMessageBox( msg );
-            return false;
-        }
+        wxString fullFileName = m_filenameResolver->ResolvePath( fileName, m_projectPath, m_embeddedFiles );
 
         BASE_SCREEN::m_DrawingSheetFileName = fileName;
-        DS_DATA_MODEL::GetTheInstance().LoadDrawingSheet( fullFileName );
+
+        if( !DS_DATA_MODEL::GetTheInstance().LoadDrawingSheet( fullFileName, &msg ) )
+        {
+            DisplayErrorMessage( this,
+                                 wxString::Format( _( "Error loading drawing sheet '%s'." ),
+                                                   fullFileName ),
+                                 msg );
+        }
+
         m_localPrjConfigChanged = true;
     }
 
@@ -774,8 +784,9 @@ void DIALOG_PAGES_SETTINGS::GetCustomSizeMilsFromDialog()
 void DIALOG_PAGES_SETTINGS::OnWksFileSelection( wxCommandEvent& event )
 {
     wxFileName fn = GetWksFileName();
-    wxString name = fn.GetFullName();
-    wxString path;
+    wxString   name = fn.GetFullName();
+    wxString   path;
+    wxString   msg;
 
     if( fn.IsAbsolute() )
     {
@@ -785,16 +796,20 @@ void DIALOG_PAGES_SETTINGS::OnWksFileSelection( wxCommandEvent& event )
     {
         wxFileName expanded( ExpandEnvVarSubstitutions( GetWksFileName(), &m_parentFrame->Prj() ) );
 
-         if( expanded.IsAbsolute() )
+        if( expanded.IsAbsolute() )
             path = expanded.GetPath();
         else
             path = m_projectPath;
     }
 
     // Display a file picker dialog
+    FILEDLG_OPEN_EMBED_FILE customize;
     wxFileDialog fileDialog( this, _( "Drawing Sheet File" ), path, name,
                              FILEEXT::DrawingSheetFileWildcard(),
                              wxFD_DEFAULT_STYLE | wxFD_FILE_MUST_EXIST );
+
+    if( m_embeddedFiles )
+        fileDialog.SetCustomizeHook( customize );
 
     if( fileDialog.ShowModal() != wxID_OK )
         return;
@@ -802,9 +817,16 @@ void DIALOG_PAGES_SETTINGS::OnWksFileSelection( wxCommandEvent& event )
     wxString fileName = fileDialog.GetPath();
     wxString shortFileName;
 
-    // Try to use a project-relative path first:
-    if( !m_projectPath.IsEmpty() && fileName.StartsWith( m_projectPath ) )
+    if( m_embeddedFiles && customize.GetEmbed() )
     {
+        fn.Assign( fileName );
+        EMBEDDED_FILES::EMBEDDED_FILE* result = m_embeddedFiles->AddFile( fn, false );
+        shortFileName = result->GetLink();
+        fileName = m_embeddedFiles->GetTemporaryFileName( result->name ).GetFullPath();
+    }
+    else if( !m_projectPath.IsEmpty() && fileName.StartsWith( m_projectPath ) )
+    {
+        // Try to use a project-relative path
         fn = wxFileName( fileName );
         fn.MakeRelativeTo( m_projectPath );
         shortFileName = fn.GetFullPath();
@@ -817,15 +839,21 @@ void DIALOG_PAGES_SETTINGS::OnWksFileSelection( wxCommandEvent& event )
 
     std::unique_ptr<DS_DATA_MODEL> ws = std::make_unique<DS_DATA_MODEL>();
 
-    if( ws->LoadDrawingSheet( fileName ) )
+    if( !ws->LoadDrawingSheet( fileName, &msg ) )
     {
-        delete m_drawingSheet;
-
-        m_drawingSheet = ws.release();
-
-        SetWksFileName( shortFileName );
-
-        GetPageLayoutInfoFromDialog();
-        UpdateDrawingSheetExample();
+        DisplayErrorMessage( this,
+                             wxString::Format( _( "Error loading drawing sheet '%s'.\n%s" ),
+                                               fileName ),
+                             msg );
+        return;
     }
+
+    delete m_drawingSheet;
+
+    m_drawingSheet = ws.release();
+
+    SetWksFileName( shortFileName );
+
+    GetPageLayoutInfoFromDialog();
+    UpdateDrawingSheetExample();
 }

@@ -27,18 +27,20 @@
 #define ERC_H
 
 #include <erc/erc_settings.h>
+#include <sch_sheet_path.h>
+#include <sch_screen.h>
+#include <sch_reference_list.h>
+#include <connection_graph.h>
 #include <vector>
 #include <map>
 
 
-class SCH_SHEET_LIST;
 class SCHEMATIC;
 class DS_PROXY_VIEW_ITEM;
 class SCH_EDIT_FRAME;
 class PROGRESS_REPORTER;
 struct KIFACE;
 class PROJECT;
-class SCREEN;
 class SCH_RULE_AREA;
 
 
@@ -51,8 +53,13 @@ class ERC_TESTER
 public:
 
     ERC_TESTER( SCHEMATIC* aSchematic ) :
-            m_schematic( aSchematic )
+            m_schematic( aSchematic ),
+            m_settings( aSchematic->ErcSettings() ),
+            m_sheetList( aSchematic->BuildSheetListSortedByPageNumbers() ),
+            m_screens( aSchematic->Root() ),
+            m_nets( aSchematic->ConnectionGraph()->GetNetMap() )
     {
+        m_sheetList.GetMultiUnitSymbols( m_refMap, true );
     }
 
     /**
@@ -106,6 +113,12 @@ public:
     int TestMultUnitPinConflicts();
 
     /**
+     * Checks for global and local labels with the same name
+     * @return the error count
+     */
+    int TestSameLocalGlobalLabel();
+
+    /**
      * Checks for labels that differ only in capitalization
      * @return the error count
      */
@@ -115,6 +128,11 @@ public:
      * Test to see if there are potentially confusing 4-way junctions in the schematic.
     */
     int TestFourWayJunction();
+
+    /**
+     * Test to see if there are labels that are connected to more than one wire.
+     */
+    int TestLabelMultipleWires();
 
     /**
      * Test symbols for changed library symbols and broken symbol library links.
@@ -158,15 +176,19 @@ public:
     /**
      * Runs ERC to check for overlapping rule areas
      */
-    int TestRuleAreaOverlappingRuleAreasERC(
-            std::map<SCH_SCREEN*, std::vector<SCH_RULE_AREA*>>& allScreenRuleAreas );
+    int TestRuleAreaOverlappingRuleAreasERC( std::map<SCH_SCREEN*,
+                                             std::vector<SCH_RULE_AREA*>>& allScreenRuleAreas );
 
     void RunTests( DS_PROXY_VIEW_ITEM* aDrawingSheet, SCH_EDIT_FRAME* aEditFrame,
                    KIFACE* aCvPcb, PROJECT* aProject, PROGRESS_REPORTER* aProgressReporter );
 
 private:
-
-    SCHEMATIC* m_schematic;
+    SCHEMATIC*                   m_schematic;
+    ERC_SETTINGS&                m_settings;
+    SCH_SHEET_LIST               m_sheetList;
+    SCH_SCREENS                  m_screens;
+    SCH_MULTI_UNIT_REFERENCE_MAP m_refMap;
+    const NET_MAP&               m_nets;
 };
 
 

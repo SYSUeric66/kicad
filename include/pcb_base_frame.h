@@ -52,6 +52,7 @@ class EDA_3D_VIEWER_FRAME;
 class GENERAL_COLLECTOR;
 class GENERAL_COLLECTORS_GUIDE;
 class BOARD_DESIGN_SETTINGS;
+class LSET;
 class ZONE_SETTINGS;
 class PCB_PLOT_PARAMS;
 class FP_LIB_TABLE;
@@ -267,10 +268,8 @@ public:
      *
      * @param aFootprintName is the name of the new footprint in library.
      * @param aLibName optional, if specified is the library for the new footprint
-     * @param aQuiet prevents user dialogs from being shown
      */
-    FOOTPRINT* CreateNewFootprint( const wxString& aFootprintName, const wxString& aLibName,
-                                   bool aQuiet );
+    FOOTPRINT* CreateNewFootprint( wxString aFootprintName, const wxString& aLibName );
 
     /**
      * Places \a aFootprint at the current cursor position and updates footprint coordinates

@@ -31,22 +31,25 @@
 
 class SCH_BASE_FRAME;
 class DIALOG_SHIM;
+class EMBEDDED_FILES;
 class SCH_LABEL_BASE;
 
 
 class FIELDS_GRID_TRICKS : public GRID_TRICKS
 {
 public:
-    FIELDS_GRID_TRICKS( WX_GRID* aGrid, DIALOG_SHIM* aDialog,
+    FIELDS_GRID_TRICKS( WX_GRID* aGrid, DIALOG_SHIM* aDialog, EMBEDDED_FILES* aFiles,
                         std::function<void( wxCommandEvent& )> aAddHandler ) :
         GRID_TRICKS( aGrid, std::move( aAddHandler ) ),
-        m_dlg( aDialog )
+        m_dlg( aDialog ),
+        m_files( aFiles )
     {}
 
 protected:
     void showPopupMenu( wxMenu& menu, wxGridEvent& aEvent ) override;
     void doPopupSelection( wxCommandEvent& event ) override;
     DIALOG_SHIM* m_dlg;
+    EMBEDDED_FILES* m_files;
 };
 
 
@@ -72,7 +75,7 @@ enum FIELDS_DATA_COL_ORDER
 };
 
 
-class FIELDS_GRID_TABLE : public wxGridTableBase, public std::vector<SCH_FIELD>
+class FIELDS_GRID_TABLE : public WX_GRID_TABLE_BASE, public std::vector<SCH_FIELD>
 {
 public:
     FIELDS_GRID_TABLE( DIALOG_SHIM* aDialog, SCH_BASE_FRAME* aFrame, WX_GRID* aGrid,
@@ -97,7 +100,7 @@ public:
 
     bool CanGetValueAs( int aRow, int aCol, const wxString& aTypeName ) override;
     bool CanSetValueAs( int aRow, int aCol, const wxString& aTypeName ) override;
-    wxGridCellAttr* GetAttr( int row, int col, wxGridCellAttr::wxAttrKind kind ) override;
+    wxGridCellAttr* GetAttr( int aRow, int aCol, wxGridCellAttr::wxAttrKind aKind ) override;
 
     wxString GetValue( int aRow, int aCol ) override;
     bool GetValueAsBool( int aRow, int aCol ) override;

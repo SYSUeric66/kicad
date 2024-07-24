@@ -22,6 +22,7 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA
  */
 
+#include <algorithm>
 #include <bitset>                             // for bitset, __bitset<>::ref...
 #include <cassert>
 #include <cstdarg>
@@ -30,51 +31,25 @@
 
 #include <core/arraydim.h>
 #include <math/util.h>                        // for Clamp
-#include <layer_ids.h>                        // for LSET, PCB_LAYER_ID, LSEQ
+#include <layer_ids.h>                        // for PCB_LAYER_ID
+#include <lseq.h>
 #include <macros.h>                           // for arrayDim
 #include <wx/debug.h>                         // for wxASSERT, wxASSERT_MSG
 #include <wx/string.h>
 
+#include <lset.h>
 
-LSET::LSET( const PCB_LAYER_ID* aArray, unsigned aCount ) :
-    BASE_SET()
+
+LSET::LSET( std::initializer_list<PCB_LAYER_ID> aList ) :
+    LSET()
 {
-    for( unsigned i=0; i<aCount; ++i )
-        set( aArray[i] );
+    for( PCB_LAYER_ID layer : aList )
+        set( layer );
 }
 
 
-LSET::LSET( unsigned aIdCount, int aFirst, ... ) :
-    BASE_SET()
-{
-    // The constructor, without the mandatory aFirst argument, could have been confused
-    // by the compiler with the LSET( PCB_LAYER_ID ).  With aFirst, that ambiguity is not
-    // present.  Therefore aIdCount must always be >=1.
-    wxASSERT_MSG( aIdCount > 0, wxT( "aIdCount must be >= 1" ) );
-
-    set( aFirst );
-
-    if( --aIdCount )
-    {
-        va_list ap;
-
-        va_start( ap, aFirst );
-
-        for( unsigned i=0;  i<aIdCount;  ++i )
-        {
-            PCB_LAYER_ID id = (PCB_LAYER_ID) va_arg( ap, int );
-
-            assert( unsigned( id ) < PCB_LAYER_ID_COUNT );
-
-            set( id );
-        }
-
-        va_end( ap );
-    }
-}
-
-
-LSET::LSET( const LSEQ& aSeq )
+LSET::LSET( const LSEQ& aSeq ) :
+    LSET()
 {
     for( PCB_LAYER_ID layer : aSeq )
         set( layer );
@@ -453,10 +428,10 @@ LSEQ LSET::Seq( const LSEQ& aSequence ) const
 {
     LSEQ ret;
 
-    for( LSEQ seq = aSequence; seq; ++seq )
+    for( PCB_LAYER_ID layer : aSequence )
     {
-        if( test( *seq ) )
-            ret.push_back( *seq );
+        if( test( layer ) )
+            ret.push_back( layer );
     }
 
     return ret;
@@ -631,143 +606,81 @@ LSEQ LSET::SeqStackupForPlotting() const
 }
 
 
-PCB_LAYER_ID FlipLayer( PCB_LAYER_ID aLayerId, int aCopperLayersCount )
+LSET& LSET::Flip( int aCopperLayersCount )
 {
-    switch( aLayerId )
-    {
-    case B_Cu:              return F_Cu;
-    case F_Cu:              return B_Cu;
+    LSET oldMask = *this;
 
-    case B_SilkS:           return F_SilkS;
-    case F_SilkS:           return B_SilkS;
+    reset();
 
-    case B_Adhes:           return F_Adhes;
-    case F_Adhes:           return B_Adhes;
+    if( oldMask.test( B_Cu ) )
+        set( F_Cu );
 
-    case B_Mask:            return F_Mask;
-    case F_Mask:            return B_Mask;
+    if( oldMask.test( F_Cu ) )
+        set( B_Cu );
 
-    case B_Paste:           return F_Paste;
-    case F_Paste:           return B_Paste;
+    if( oldMask.test( B_SilkS ) )
+        set( F_SilkS );
 
-    case B_CrtYd:           return F_CrtYd;
-    case F_CrtYd:           return B_CrtYd;
+    if( oldMask.test( F_SilkS ) )
+        set( B_SilkS );
 
-    case B_Fab:             return F_Fab;
-    case F_Fab:             return B_Fab;
+    if( oldMask.test( B_Adhes ) )
+        set( F_Adhes );
 
-    default:    // change internal layer if aCopperLayersCount is >= 4
-        if( IsCopperLayer( aLayerId ) && aCopperLayersCount >= 4 )
-        {
-            // internal copper layers count is aCopperLayersCount-2
-            PCB_LAYER_ID fliplayer = PCB_LAYER_ID(aCopperLayersCount - 2 - ( aLayerId - In1_Cu ) );
-            // Ensure fliplayer has a value which does not crash Pcbnew:
-            if( fliplayer < F_Cu )
-                fliplayer = F_Cu;
+    if( oldMask.test( F_Adhes ) )
+        set( B_Adhes );
 
-            if( fliplayer > B_Cu )
-                fliplayer = B_Cu;
+    if( oldMask.test( B_Mask ) )
+        set( F_Mask );
 
-            return fliplayer;
-        }
+    if( oldMask.test( F_Mask ) )
+        set( B_Mask );
 
-        // No change for the other layers
-        return aLayerId;
-    }
-}
+    if( oldMask.test( B_Paste ) )
+        set( F_Paste );
 
+    if( oldMask.test( F_Paste ) )
+        set( B_Paste );
 
-LSET FlipLayerMask( LSET aMask, int aCopperLayersCount )
-{
-    // layers on physical outside of a board:
-    const static LSET and_mask( 16,     // !! update count
-                B_Cu,       F_Cu,
-                B_SilkS,    F_SilkS,
-                B_Adhes,    F_Adhes,
-                B_Mask,     F_Mask,
-                B_Paste,    F_Paste,
-                B_Adhes,    F_Adhes,
-                B_CrtYd,    F_CrtYd,
-                B_Fab,      F_Fab
-                );
+    if( oldMask.test( B_Adhes ) )
+        set( F_Adhes );
 
-    LSET newMask = aMask & ~and_mask;
+    if( oldMask.test( F_Adhes ) )
+        set( B_Adhes );
 
-    if( aMask[B_Cu] )
-        newMask.set( F_Cu );
+    if( oldMask.test( B_CrtYd ) )
+        set( F_CrtYd );
 
-    if( aMask[F_Cu] )
-        newMask.set( B_Cu );
+    if( oldMask.test( F_CrtYd ) )
+        set( B_CrtYd );
 
-    if( aMask[B_SilkS] )
-        newMask.set( F_SilkS );
+    if( oldMask.test( B_Fab ) )
+        set( F_Fab );
 
-    if( aMask[F_SilkS] )
-        newMask.set( B_SilkS );
-
-    if( aMask[B_Adhes] )
-        newMask.set( F_Adhes );
-
-    if( aMask[F_Adhes] )
-        newMask.set( B_Adhes );
-
-    if( aMask[B_Mask] )
-        newMask.set( F_Mask );
-
-    if( aMask[F_Mask] )
-        newMask.set( B_Mask );
-
-    if( aMask[B_Paste] )
-        newMask.set( F_Paste );
-
-    if( aMask[F_Paste] )
-        newMask.set( B_Paste );
-
-    if( aMask[B_Adhes] )
-        newMask.set( F_Adhes );
-
-    if( aMask[F_Adhes] )
-        newMask.set( B_Adhes );
-
-    if( aMask[B_CrtYd] )
-        newMask.set( F_CrtYd );
-
-    if( aMask[F_CrtYd] )
-        newMask.set( B_CrtYd );
-
-    if( aMask[B_Fab] )
-        newMask.set( F_Fab );
-
-    if( aMask[F_Fab] )
-        newMask.set( B_Fab );
+    if( oldMask.test( F_Fab ) )
+        set( B_Fab );
 
     if( aCopperLayersCount >= 4 )   // Internal layers exist
     {
-        LSET internalMask = aMask & LSET::InternalCuMask();
+        LSET internalMask = oldMask & InternalCuMask();
+        int  innerLayerCnt = aCopperLayersCount - 2;
 
-        if( internalMask != LSET::InternalCuMask() )
+        // the flipped mask is the innerLayerCnt bits rewritten in reverse order
+        // ( bits innerLayerCnt to 1 rewritten in bits 1 to innerLayerCnt )
+        for( int ii = 0; ii < innerLayerCnt; ii++ )
         {
-            // the mask does not include all internal layers. Therefore
-            // the flipped mask for internal copper layers must be built
-            int innerLayerCnt = aCopperLayersCount -2;
-
-            // the flipped mask is the innerLayerCnt bits rewritten in reverse order
-            // ( bits innerLayerCnt to 1 rewritten in bits 1 to innerLayerCnt )
-            for( int ii = 0; ii < innerLayerCnt; ii++ )
+            if( internalMask[innerLayerCnt - ii] )
             {
-                if( internalMask[innerLayerCnt - ii] )
-                {
-                    newMask.set( ii + In1_Cu );
-                }
-                else
-                {
-                    newMask.reset( ii + In1_Cu );
-                }
+                set( ii + In1_Cu );
+            }
+            else
+            {
+                reset( ii + In1_Cu );
             }
         }
     }
 
-    return newMask;
+    return *this;
 }
 
 
@@ -794,68 +707,25 @@ PCB_LAYER_ID LSET::ExtractLayer() const
 
 LSET LSET::FrontAssembly()
 {
-    static const PCB_LAYER_ID front_assembly[] = {
-        F_SilkS,
-        F_Mask,
-        F_Fab,
-        F_CrtYd
-    };
-
-    static const LSET saved( front_assembly, arrayDim( front_assembly ) );
+    static const LSET saved( { F_SilkS, F_Mask, F_Fab, F_CrtYd } );
     return saved;
 }
 
 
 LSET LSET::BackAssembly()
 {
-    static const PCB_LAYER_ID back_assembly[] = {
-        B_SilkS,
-        B_Mask,
-        B_Fab,
-        B_CrtYd
-    };
-
-    static const LSET saved( back_assembly, arrayDim( back_assembly ) );
+    static const LSET saved( { B_SilkS, B_Mask, B_Fab, B_CrtYd } );
     return saved;
 }
 
 
 LSET LSET::InternalCuMask()
 {
-    static const PCB_LAYER_ID cu_internals[] = {
-        In1_Cu,
-        In2_Cu,
-        In3_Cu,
-        In4_Cu,
-        In5_Cu,
-        In6_Cu,
-        In7_Cu,
-        In8_Cu,
-        In9_Cu,
-        In10_Cu,
-        In11_Cu,
-        In12_Cu,
-        In13_Cu,
-        In14_Cu,
-        In15_Cu,
-        In16_Cu,
-        In17_Cu,
-        In18_Cu,
-        In19_Cu,
-        In20_Cu,
-        In21_Cu,
-        In22_Cu,
-        In23_Cu,
-        In24_Cu,
-        In25_Cu,
-        In26_Cu,
-        In27_Cu,
-        In28_Cu,
-        In29_Cu,
-        In30_Cu,
-    };
-
-    static const LSET saved( cu_internals, arrayDim( cu_internals ) );
+    static const LSET saved( { In1_Cu,  In2_Cu,  In3_Cu,  In4_Cu,  In5_Cu,  In6_Cu,
+                               In7_Cu,  In8_Cu,  In9_Cu,  In10_Cu, In11_Cu, In12_Cu,
+                               In13_Cu, In14_Cu, In15_Cu, In16_Cu, In17_Cu, In18_Cu,
+                               In19_Cu, In20_Cu, In21_Cu, In22_Cu, In23_Cu, In24_Cu,
+                               In25_Cu, In26_Cu, In27_Cu, In28_Cu, In29_Cu, In30_Cu } );
     return saved;
 }
 
@@ -890,7 +760,7 @@ LSET LSET::AllNonCuMask()
 
 LSET LSET::ExternalCuMask()
 {
-    static const LSET saved( 2, F_Cu, B_Cu );
+    static const LSET saved( { F_Cu, B_Cu } );
     return saved;
 }
 
@@ -904,26 +774,26 @@ LSET LSET::AllLayersMask()
 
 LSET LSET::BackTechMask()
 {
-    static const LSET saved( 6, B_SilkS, B_Mask, B_Adhes, B_Paste, B_CrtYd, B_Fab );
+    static const LSET saved( { B_SilkS, B_Mask, B_Adhes, B_Paste, B_CrtYd, B_Fab } );
     return saved;
 }
 
 LSET LSET::BackBoardTechMask()
 {
-    static const LSET saved( 4, B_SilkS, B_Mask, B_Adhes, B_Paste );
+    static const LSET saved( { B_SilkS, B_Mask, B_Adhes, B_Paste } );
     return saved;
 }
 
 LSET LSET::FrontTechMask()
 {
-    static const LSET saved( 6, F_SilkS, F_Mask, F_Adhes, F_Paste, F_CrtYd, F_Fab );
+    static const LSET saved( { F_SilkS, F_Mask, F_Adhes, F_Paste, F_CrtYd, F_Fab } );
     return saved;
 }
 
 
 LSET LSET::FrontBoardTechMask()
 {
-    static const LSET saved( 4, F_SilkS, F_Mask, F_Adhes, F_Paste );
+    static const LSET saved( { F_SilkS, F_Mask, F_Adhes, F_Paste } );
     return saved;
 }
 
@@ -944,14 +814,7 @@ LSET LSET::AllBoardTechMask()
 
 LSET LSET::UserMask()
 {
-    static const LSET saved( 6,
-        Dwgs_User,
-        Cmts_User,
-        Eco1_User,
-        Eco2_User,
-        Edge_Cuts,
-        Margin
-        );
+    static const LSET saved( { Dwgs_User, Cmts_User, Eco1_User, Eco2_User, Edge_Cuts, Margin } );
 
     return saved;
 }
@@ -966,17 +829,8 @@ LSET LSET::PhysicalLayersMask()
 
 LSET LSET::UserDefinedLayers()
 {
-    static const LSET saved( 9,
-        User_1,
-        User_2,
-        User_3,
-        User_4,
-        User_5,
-        User_6,
-        User_7,
-        User_8,
-        User_9
-        );
+    static const LSET saved(
+            { User_1, User_2, User_3, User_4, User_5, User_6, User_7, User_8, User_9 } );
 
     return saved;
 }
@@ -1085,6 +939,7 @@ GAL_SET GAL_SET::DefaultVisible()
         LAYER_DRAW_BITMAPS,
         LAYER_PADS,
         LAYER_ZONES,
+        LAYER_SHAPES,
         LAYER_LOCKED_ITEM_SHADOW,
         LAYER_CONFLICTS_SHADOW
     };

@@ -153,6 +153,7 @@ public:
 
     struct DIALOG_CLEANUP
     {
+        bool cleanup_refill_zones;
         bool cleanup_vias;
         bool delete_dangling_vias;
         bool cleanup_tracks_in_pad;
@@ -176,6 +177,8 @@ public:
         double ref_x;
         double ref_y;
         bool   units_mils;
+        bool   no_unspecified;
+        bool   no_dnp;
     };
 
     struct DIALOG_EXPORT_STEP

@@ -26,6 +26,7 @@
 #include <macros.h>
 #include <board.h>
 #include <footprint.h>
+#include <lset.h>
 #include <pcb_group.h>
 #include <pcb_track.h>
 #include <tool/tool_manager.h>
@@ -85,8 +86,6 @@ BOARD* BOARD_COMMIT::GetBoard() const
 
 COMMIT& BOARD_COMMIT::Stage( EDA_ITEM* aItem, CHANGE_TYPE aChangeType, BASE_SCREEN* aScreen )
 {
-    wxCHECK( aItem, *this );
-
     // Many operations (move, rotate, etc.) are applied directly to a group's children, so they
     // must be staged as well.
     if( aChangeType == CHT_MODIFY )
@@ -291,7 +290,7 @@ void BOARD_COMMIT::Push( const wxString& aMessage, int aCommitFlags )
                 }
             }
 
-            if( boardItem->Type() == PCB_GROUP_T )
+            if( boardItem->Type() == PCB_GROUP_T || boardItem->Type() == PCB_GENERATOR_T )
                 addedGroup = static_cast<PCB_GROUP*>( boardItem );
 
             if( m_isBoardEditor && autofillZones && boardItem->Type() != PCB_MARKER_T )
@@ -352,24 +351,6 @@ void BOARD_COMMIT::Push( const wxString& aMessage, int aCommitFlags )
             case PCB_MARKER_T:           // a marker used to show something
             case PCB_ZONE_T:
             case PCB_FOOTPRINT_T:
-                if( view )
-                    view->Remove( boardItem );
-
-                if( !( changeFlags & CHT_DONE ) )
-                {
-                    if( parentFP )
-                    {
-                        parentFP->Remove( boardItem );
-                    }
-                    else
-                    {
-                        board->Remove( boardItem, REMOVE_MODE::BULK );
-                        bulkRemovedItems.push_back( boardItem );
-                    }
-                }
-
-                break;
-
             case PCB_GROUP_T:
                 if( view )
                     view->Remove( boardItem );
@@ -483,9 +464,6 @@ void BOARD_COMMIT::Push( const wxString& aMessage, int aCommitFlags )
                 } );
     }
 
-    if( bulkAddedItems.size() > 0 || bulkRemovedItems.size() > 0 || itemsChanged.size() > 0 )
-        board->OnItemsCompositeUpdate( bulkAddedItems, bulkRemovedItems, itemsChanged );
-
     if( m_isBoardEditor )
     {
         size_t num_changes = m_changes.size();
@@ -547,6 +525,9 @@ void BOARD_COMMIT::Push( const wxString& aMessage, int aCommitFlags )
             }
         }
     }
+
+    if( bulkAddedItems.size() > 0 || bulkRemovedItems.size() > 0 || itemsChanged.size() > 0 )
+        board->OnItemsCompositeUpdate( bulkAddedItems, bulkRemovedItems, itemsChanged );
 
     if( frame )
     {

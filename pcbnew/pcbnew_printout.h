@@ -22,6 +22,7 @@
 #define PCBNEW_PRINTOUT_H
 
 #include <board_printout.h>
+#include <lset.h>
 #include <pcb_painter.h>
 #include <plotprint_opts.h>
 
@@ -97,7 +98,7 @@ public:
     }
 
 protected:
-    int getDrillShape( const PAD* aPad ) const override;
+    PAD_DRILL_SHAPE getDrillShape( const PAD* aPad ) const override;
 
     SHAPE_SEGMENT getPadHoleShape( const PAD* aPad ) const override;
 

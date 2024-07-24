@@ -28,6 +28,8 @@
 
 #include <eda_item.h>
 #include <layer_ids.h>
+#include <lseq.h>
+#include <lset.h>
 #include <geometry/geometry_utils.h>
 #include <stroke_params.h>
 #include <geometry/eda_angle.h>
@@ -158,7 +160,19 @@ public:
         return false;
     }
 
-    virtual bool IsTented() const
+    virtual bool HasDrilledHole() const
+    {
+        return false;
+    }
+
+    /**
+     * Checks if the given object is tented (its copper shape is covered by solder mask) on a given
+     * side of the board.
+     * @param aLayer is the layer to check tenting mode for: F_Cu and F_Mask are treated identically
+     *               as are B_Cu and B_Mask
+     * @return true if the object is tented on the given side
+     */
+    virtual bool IsTented( PCB_LAYER_ID aLayer ) const
     {
         return false;
     }
@@ -248,6 +262,8 @@ public:
 
         // Derived classes which support multiple layers must implement this
     }
+
+    bool IsSideSpecific() const;
 
     /**
      * Set the layer this item is on.
@@ -415,7 +431,7 @@ public:
         BOARD_ITEM( nullptr, NOT_USED )
     {}
 
-    wxString GetItemDescription( UNITS_PROVIDER* aUnitsProvider ) const override
+    wxString GetItemDescription( UNITS_PROVIDER* aUnitsProvider, bool aFull ) const override
     {
         return _( "(Deleted Item)" );
     }
@@ -444,9 +460,14 @@ public:
         return ( this == &aItem ) ? 1.0 : 0.0;
     }
 
-    bool operator==( const BOARD_ITEM& aItem ) const override
+    bool operator==( const BOARD_ITEM& aBoardItem ) const override
     {
-        return ( this == &aItem );
+        return ( this == &aBoardItem );
+    }
+
+    bool operator==( const DELETED_BOARD_ITEM& aOther ) const
+    {
+        return ( this == &aOther );
     }
 
 #if defined(DEBUG)

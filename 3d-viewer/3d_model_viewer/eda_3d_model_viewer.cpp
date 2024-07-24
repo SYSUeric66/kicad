@@ -103,11 +103,6 @@ EDA_3D_MODEL_VIEWER::EDA_3D_MODEL_VIEWER( wxWindow* aParent, const wxGLAttribute
     m_BiuTo3dUnits = 1.0;
 
     m_glRC = nullptr;
-
-    COMMON_SETTINGS* settings = Pgm().GetCommonSettings();
-
-    const DPI_SCALING_COMMON dpi{ settings, this };
-    SetScaleFactor( dpi.GetScaleFactor() );
 }
 
 
@@ -161,7 +156,7 @@ void EDA_3D_MODEL_VIEWER::Set3DModel( const wxString& aModelPathName)
 
     if( m_cacheManager )
     {
-        const S3DMODEL* model = m_cacheManager->GetModel( aModelPathName, wxEmptyString );
+        const S3DMODEL* model = m_cacheManager->GetModel( aModelPathName, wxEmptyString, nullptr );
 
         if( model )
             Set3DModel( (const S3DMODEL &)*model );

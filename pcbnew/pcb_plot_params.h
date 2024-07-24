@@ -71,6 +71,9 @@ public:
     void        SetPlotMode( OUTLINE_MODE aPlotMode ) { m_plotMode = aPlotMode; }
     OUTLINE_MODE GetPlotMode() const { return m_plotMode; }
 
+    void        SetPlotPadNumbers( bool aFlag ) { m_plotPadNumbers = aFlag; }
+    bool        GetPlotPadNumbers() const { return m_plotPadNumbers; }
+
     void        SetDXFPlotPolygonMode( bool aFlag ) { m_DXFPolygonMode = aFlag; }
     bool        GetDXFPlotPolygonMode() const { return m_DXFPolygonMode; }
 
@@ -113,8 +116,7 @@ public:
     void        SetNegative( bool aFlag ) { m_negative = aFlag; }
     bool        GetNegative() const { return m_negative; }
 
-    void        SetPlotViaOnMaskLayer( bool aFlag ) { m_plotViaOnMaskLayer = aFlag; }
-    bool        GetPlotViaOnMaskLayer() const { return m_plotViaOnMaskLayer; }
+    std::optional<bool> GetLegacyPlotViaOnMaskLayer() const { return m_plotViaOnMaskLayer; }
 
     void        SetPlotFrameRef( bool aFlag ) { m_plotDrawingSheet = aFlag; }
     bool        GetPlotFrameRef() const { return m_plotDrawingSheet; }
@@ -203,6 +205,7 @@ private:
 
     bool            m_skipNPTH_Pads;    /// Used to disable NPTH pads plotting on copper layers
     OUTLINE_MODE    m_plotMode;         /// FILLED or SKETCH for filled objects.
+    bool            m_plotPadNumbers;   /// Plot pad numbers when sketching pads on fab layers
     DRILL_MARKS     m_drillMarks;       /// Holes can be not plotted, have a small mark, or be
                                         ///   plotted in actual size
     PLOT_TEXT_MODE  m_textMode;
@@ -220,9 +223,8 @@ private:
     bool       m_blackAndWhite;         /// Plot in black and white only
     bool       m_plotDrawingSheet;
 
+    std::optional<bool> m_plotViaOnMaskLayer;    /// Deprecated; only used for reading legacy files
 
-    bool       m_plotViaOnMaskLayer;    /// True if vias are drawn on Mask layer (ie untented,
-                                        ///   *exposed* by mask)
     bool       m_subtractMaskFromSilk;  /// On gerbers 'scrape' away the solder mask from
                                         ///   silkscreen (trim silks)
 

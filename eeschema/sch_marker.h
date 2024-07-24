@@ -54,7 +54,7 @@ public:
     void SwapData( SCH_ITEM* aItem ) override;
 
     wxString SerializeToString() const;
-    static SCH_MARKER* DeserializeFromString( SCHEMATIC* schematic, const wxString& data );
+    static SCH_MARKER* DeserializeFromString( const SCH_SHEET_LIST& aSheetList, const wxString& data );
 
     void ViewGetLayers( int aLayers[], int& aCount ) const override;
 
@@ -96,7 +96,7 @@ public:
 
     void GetMsgPanelInfo( EDA_DRAW_FRAME* aFrame, std::vector<MSG_PANEL_ITEM>& aList ) override;
 
-    wxString GetItemDescription( UNITS_PROVIDER* aUnitsProvider ) const override
+    wxString GetItemDescription( UNITS_PROVIDER* aUnitsProvider, bool aFull ) const override
     {
         return wxString( _( "ERC Marker" ) );
     }

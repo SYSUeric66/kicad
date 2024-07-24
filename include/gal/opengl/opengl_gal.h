@@ -2,7 +2,7 @@
  * This program source code file is part of KICAD, a free EDA CAD application.
  *
  * Copyright (C) 2012 Torsten Hueter, torstenhtr <at> gmx.de
- * Copyright (C) 2020-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2020-2024 KiCad Developers, see AUTHORS.txt for contributors.
  * Copyright (C) 2013-2017 CERN
  * @author Maciej Suminski <maciej.suminski@cern.ch>
  *
@@ -276,7 +276,7 @@ public:
     // -------
 
     /// @copydoc GAL::SetNativeCursorStyle()
-    bool SetNativeCursorStyle( KICURSOR aCursor ) override;
+    bool SetNativeCursorStyle( KICURSOR aCursor, bool aHiDPI ) override;
 
     /// @copydoc GAL::DrawCursor()
     void DrawCursor( const VECTOR2D& aCursorPosition ) override;
@@ -543,6 +543,13 @@ private:
      * @param aEvent is the mouse event.
      */
     void skipMouseEvent( wxMouseEvent& aEvent );
+
+    /**
+     * Skip the gesture event to the parent.
+     *
+     * @param aEvent is the gesture event.
+     */
+    void skipGestureEvent( wxGestureEvent& aEvent );
 
     /**
      * Give the correct cursor image when the native widget asks for it.

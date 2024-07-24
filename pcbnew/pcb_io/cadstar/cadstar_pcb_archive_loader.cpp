@@ -898,7 +898,6 @@ void CADSTAR_PCB_ARCHIVE_LOADER::loadLibraryCoppers( const SYMDEF_PCB& aComponen
                 anchorPad = aComponent.ComponentPads.at( compCopper.AssociatedPadIDs.front() );
 
             std::unique_ptr<PAD> pad = std::make_unique<PAD>( aFootprint );
-            pad->SetKeepTopBottom( false ); // TODO: correct? This seems to be KiCad default on import
             pad->SetAttribute( PAD_ATTRIB::SMD );
             pad->SetLayerSet( copperLayers );
             pad->SetNumber( anchorPad.Identifier.IsEmpty()
@@ -1025,15 +1024,15 @@ PAD* CADSTAR_PCB_ARCHIVE_LOADER::getKiCadPad( const COMPONENT_PAD& aCadstarPad, 
     switch( aCadstarPad.Side )
     {
     case PAD_SIDE::MAXIMUM: //Bottom side
-        padLayerSet |= LSET( 3, B_Cu, B_Paste, B_Mask );
+        padLayerSet |= LSET( { B_Cu, B_Paste, B_Mask } );
         break;
 
     case PAD_SIDE::MINIMUM: //TOP side
-        padLayerSet |= LSET( 3, F_Cu, F_Paste, F_Mask );
+        padLayerSet |= LSET( { F_Cu, F_Paste, F_Mask } );
         break;
 
     case PAD_SIDE::THROUGH_HOLE:
-        padLayerSet = LSET::AllCuMask() | LSET( 4, F_Mask, B_Mask, F_Paste, B_Paste );
+        padLayerSet = LSET::AllCuMask() | LSET( { F_Mask, B_Mask, F_Paste, B_Paste } );
         break;
 
     default:
@@ -1121,7 +1120,7 @@ PAD* CADSTAR_PCB_ARCHIVE_LOADER::getKiCadPad( const COMPONENT_PAD& aCadstarPad, 
             // prevent DRC errors.
             // TODO: This could be a custom padstack, update when KiCad supports padstacks
             pad->SetAttribute( PAD_ATTRIB::SMD );
-            pad->SetLayerSet( LSET( 1, F_Mask ) );
+            pad->SetLayerSet( LSET( F_Mask ) );
         }
 
         // zero sized pads seems to break KiCad so lets make it very small instead
@@ -1238,14 +1237,14 @@ PAD* CADSTAR_PCB_ARCHIVE_LOADER::getKiCadPad( const COMPONENT_PAD& aCadstarPad, 
     {
         if( csPadcode.SlotLength != UNDEFINED_VALUE )
         {
-            pad->SetDrillShape( PAD_DRILL_SHAPE_T::PAD_DRILL_SHAPE_OBLONG );
+            pad->SetDrillShape( PAD_DRILL_SHAPE::OBLONG );
             pad->SetDrillSize( { getKiCadLength( (long long) csPadcode.SlotLength +
                                                  (long long) csPadcode.DrillDiameter ),
                                  getKiCadLength( csPadcode.DrillDiameter ) } );
         }
         else
         {
-            pad->SetDrillShape( PAD_DRILL_SHAPE_T::PAD_DRILL_SHAPE_CIRCLE );
+            pad->SetDrillShape( PAD_DRILL_SHAPE::CIRCLE );
             pad->SetDrillSize( { getKiCadLength( csPadcode.DrillDiameter ),
                     getKiCadLength( csPadcode.DrillDiameter ) } );
         }
@@ -1341,8 +1340,6 @@ PAD* CADSTAR_PCB_ARCHIVE_LOADER::getKiCadPad( const COMPONENT_PAD& aCadstarPad, 
 
         m_padcodesTested.insert( csPadcode.ID );
     }
-
-    pad->SetKeepTopBottom( false ); // TODO: correct? This seems to be KiCad default on import
 
     return pad.release();
 }
@@ -4165,10 +4162,10 @@ LSET CADSTAR_PCB_ARCHIVE_LOADER::getKiCadLayerSet( const LAYER_ID& aCadstarLayer
     switch( layerType )
     {
     case LAYER_TYPE::ALLDOC:
-        return LSET( 4, PCB_LAYER_ID::Dwgs_User,
-                        PCB_LAYER_ID::Cmts_User,
-                        PCB_LAYER_ID::Eco1_User,
-                        PCB_LAYER_ID::Eco2_User )
+        return LSET( { PCB_LAYER_ID::Dwgs_User,
+                       PCB_LAYER_ID::Cmts_User,
+                       PCB_LAYER_ID::Eco1_User,
+                       PCB_LAYER_ID::Eco2_User } )
                 | LSET::UserDefinedLayers();
 
     case LAYER_TYPE::ALLELEC:
@@ -4176,10 +4173,10 @@ LSET CADSTAR_PCB_ARCHIVE_LOADER::getKiCadLayerSet( const LAYER_ID& aCadstarLayer
 
     case LAYER_TYPE::ALLLAYER:
         return LSET::AllCuMask( m_numCopperLayers )
-                | LSET( 4, PCB_LAYER_ID::Dwgs_User,
-                           PCB_LAYER_ID::Cmts_User,
-                           PCB_LAYER_ID::Eco1_User,
-                           PCB_LAYER_ID::Eco2_User )
+                | LSET( { PCB_LAYER_ID::Dwgs_User,
+                          PCB_LAYER_ID::Cmts_User,
+                          PCB_LAYER_ID::Eco1_User,
+                          PCB_LAYER_ID::Eco2_User } )
                 | LSET::UserDefinedLayers()
                 | LSET::AllBoardTechMask();
 

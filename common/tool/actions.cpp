@@ -69,6 +69,20 @@ TOOL_ACTION ACTIONS::open( TOOL_ACTION_ARGS()
         .Tooltip( _( "Open existing document" ) )
         .Icon( BITMAPS::directory_open ) );
 
+TOOL_ACTION ACTIONS::openWithTextEditor( TOOL_ACTION_ARGS()
+        .Name( "common.Control.openWithTextEditor" )
+        .Scope( AS_GLOBAL )
+        .FriendlyName( _( "Edit in a Text Editor..." ) )
+        .Tooltip( _( "Open a library file with a text editor" ) )
+        .Icon( BITMAPS::editor ) );
+
+TOOL_ACTION ACTIONS::openDirectory( TOOL_ACTION_ARGS()
+        .Name( "common.Control.openDirectory" )
+        .Scope( AS_GLOBAL )
+        .FriendlyName( _( "Open in file explorer..." ) )
+        .Tooltip( _( "Open a library file with system file explorer" ) )
+        .Icon( BITMAPS::directory_browser ) );
+
 TOOL_ACTION ACTIONS::save( TOOL_ACTION_ARGS()
         .Name( "common.Control.save" )
         .Scope( AS_GLOBAL )
@@ -572,28 +586,28 @@ TOOL_ACTION ACTIONS::zoomInHorizontally( TOOL_ACTION_ARGS()
         .Name( "common.Control.zoomInHorizontally" )
         .Scope( AS_GLOBAL )
         .FriendlyName( _( "Zoom In Horizontally" ) )
-        .Tooltip( _( "Zoom In Horizontally" ) )
+        .Tooltip( _( "Zoom in horizontally the plot area" ) )
         .Icon( BITMAPS::zoom_in_horizontally ) );
 
 TOOL_ACTION ACTIONS::zoomOutHorizontally( TOOL_ACTION_ARGS()
         .Name( "common.Control.zoomOutHorizontally" )
         .Scope( AS_GLOBAL )
         .FriendlyName( _( "Zoom Out Horizontally" ) )
-        .Tooltip( _( "Zoom Out Horizontally" ) )
+        .Tooltip( _( "Zoom out horizontally the plot area" ) )
         .Icon( BITMAPS::zoom_out_horizontally ) );
 
 TOOL_ACTION ACTIONS::zoomInVertically( TOOL_ACTION_ARGS()
         .Name( "common.Control.zoomInVertically" )
         .Scope( AS_GLOBAL )
         .FriendlyName( _( "Zoom In Vertically" ) )
-        .Tooltip( _( "Zoom In Vertically" ) )
+        .Tooltip( _( "Zoom in vertically the plot area" ) )
         .Icon( BITMAPS::zoom_in_vertically ) );
 
 TOOL_ACTION ACTIONS::zoomOutVertically( TOOL_ACTION_ARGS()
         .Name( "common.Control.zoomOutVertically" )
         .Scope( AS_GLOBAL )
         .FriendlyName( _( "Zoom Out Vertically" ) )
-        .Tooltip( _( "Zoom Out Vertically" ) )
+        .Tooltip( _( "Zoom out vertically the plot area" ) )
         .Icon( BITMAPS::zoom_out_vertically ) );
 
 TOOL_ACTION ACTIONS::zoomCenter( TOOL_ACTION_ARGS()
@@ -737,6 +751,24 @@ TOOL_ACTION ACTIONS::unpinLibrary( TOOL_ACTION_ARGS()
         .Scope( AS_GLOBAL )
         .FriendlyName( _( "Unpin Library" ) )
         .Tooltip( _( "No longer keep the library at the top of the list" ) ) );
+
+TOOL_ACTION ACTIONS::showLibraryTree( TOOL_ACTION_ARGS()
+        .Name( "common.Control.showLibraryTree" )
+        .Scope( AS_GLOBAL )
+        .FriendlyName( _( "Show Library Tree" ) )
+        .Icon( BITMAPS::search_tree ) );
+
+TOOL_ACTION ACTIONS::hideLibraryTree( TOOL_ACTION_ARGS()
+        .Name( "common.Control.hideLibraryTree" )
+        .Scope( AS_GLOBAL )
+        .FriendlyName( _( "Hide Library Tree" ) )
+        .Icon( BITMAPS::search_tree ) );
+
+TOOL_ACTION ACTIONS::libraryTreeSearch( TOOL_ACTION_ARGS()
+        .Name( "common.Control.libraryTreeSearch" )
+        .Scope( AS_GLOBAL )
+        .FriendlyName( _( "Focus Library Tree Search Field" ) )
+        .DefaultHotkey( MD_CTRL + 'L' ) );
 
 TOOL_ACTION ACTIONS::panUp( TOOL_ACTION_ARGS()
         .Name( "common.Control.panUp" )
@@ -923,8 +955,8 @@ TOOL_ACTION ACTIONS::toggleCursor( TOOL_ACTION_ARGS()
         .DefaultHotkey( MD_CTRL + MD_SHIFT + 'X' )
         // Don't be tempted to remove "Modern Toolset only".  It's in the legacy property name.
         .LegacyHotkeyName( "Toggle Cursor Display (Modern Toolset only)" )
-        .FriendlyName( _( "Always Show Cursor" ) )
-        .Tooltip( _( "Display crosshairs even in selection tool" ) )
+        .FriendlyName( _( "Always Show Crosshairs" ) )
+        .Tooltip( _( "Display crosshairs even when not drawing objects" ) )
         .Icon( BITMAPS::cursor ) );
 
 TOOL_ACTION ACTIONS::toggleCursorStyle( TOOL_ACTION_ARGS()
@@ -1151,6 +1183,26 @@ TOOL_ACTION ACTIONS::pluginsReload( TOOL_ACTION_ARGS()
         .FriendlyName( _( "Refresh Plugins" ) )
         .Tooltip( _( "Reload all python plugins and refresh plugin menus" ) )
         .Icon( BITMAPS::reload ) );
+
+// Embedding Files
+
+TOOL_ACTION ACTIONS::embeddedFiles( TOOL_ACTION_ARGS()
+        .Name( "common.Embed.embededFile" )
+        .Scope( AS_GLOBAL )
+        .FriendlyName( _( "Embedded Files" ) )
+        .Tooltip( _( "Manage embedded files" ) ) );
+
+TOOL_ACTION ACTIONS::removeFile( TOOL_ACTION_ARGS()
+        .Name( "common.Embed.removeFile" )
+        .Scope( AS_GLOBAL )
+        .FriendlyName( _( "Remove File" ) )
+        .Tooltip( _( "Remove an embedded file" ) ) );
+
+TOOL_ACTION ACTIONS::extractFile( TOOL_ACTION_ARGS()
+        .Name( "common.Embed.extractFile" )
+        .Scope( AS_GLOBAL )
+        .FriendlyName( _( "Extract File" ) )
+        .Tooltip( _( "Extract an embedded file" ) ) );
 
 // System-wide selection Events
 

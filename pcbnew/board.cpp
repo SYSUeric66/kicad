@@ -38,6 +38,8 @@
 #include <connectivity/connectivity_data.h>
 #include <convert_shape_list_to_polygon.h>
 #include <footprint.h>
+#include <font/outline_font.h>
+#include <lset.h>
 #include <pcb_base_frame.h>
 #include <pcb_track.h>
 #include <pcb_marker.h>
@@ -81,13 +83,15 @@ BOARD::BOARD() :
         m_project( nullptr ),
         m_userUnits( EDA_UNITS::MILLIMETRES ),
         m_designSettings( new BOARD_DESIGN_SETTINGS( nullptr, "board.design_settings" ) ),
-        m_skipMaxClearanceCacheUpdate( false ),
-        m_maxClearanceValue( 0 ),
-        m_NetInfo( this )
+        m_NetInfo( this ),
+        m_embedFonts( false )
 {
     // A too small value do not allow connecting 2 shapes (i.e. segments) not exactly connected
     // A too large value do not allow safely connecting 2 shapes like very short segments.
     m_outlinesChainingEpsilon = pcbIUScale.mmToIU( DEFAULT_CHAINING_EPSILON_MM );
+
+    m_DRCMaxClearance = 0;
+    m_DRCMaxPhysicalClearance = 0;
 
     // we have not loaded a board yet, assume latest until then.
     m_fileFormatVersionAtLoad = LEGACY_BOARD_FILE_VERSION;
@@ -98,9 +102,13 @@ BOARD::BOARD() :
 
         if( IsCopperLayer( layer ) )
             m_layers[layer].m_type = LT_SIGNAL;
+        else if( layer >= User_1 && layer <= User_9 )
+            m_layers[layer].m_type = LT_AUX;
         else
             m_layers[layer].m_type = LT_UNDEFINED;
     }
+
+    recalcOpposites();
 
     // Creates a zone to show sloder mask bridges created by a min web value
     // it it just to show them
@@ -134,8 +142,6 @@ BOARD::BOARD() :
 
 BOARD::~BOARD()
 {
-    m_skipMaxClearanceCacheUpdate = true;
-
     // Untangle group parents before doing any deleting
     for( PCB_GROUP* group : m_groups )
     {
@@ -250,8 +256,6 @@ void BOARD::IncrementTimeStamp()
 {
     m_timeStamp++;
 
-    UpdateMaxClearanceCache();
-
     if( !m_IntersectsAreaCache.empty()
         || !m_EnclosedByAreaCache.empty()
         || !m_IntersectsCourtyardCache.empty()
@@ -259,7 +263,8 @@ void BOARD::IncrementTimeStamp()
         || !m_IntersectsBCourtyardCache.empty()
         || !m_LayerExpressionCache.empty()
         || !m_ZoneBBoxCache.empty()
-        || m_CopperItemRTreeCache )
+        || m_CopperItemRTreeCache
+        || m_maxClearanceValue.has_value() )
     {
         std::unique_lock<std::shared_mutex> writeLock( m_CachesMutex );
 
@@ -282,6 +287,8 @@ void BOARD::IncrementTimeStamp()
         m_DRCCopperZones.clear();
         m_ZoneIsolatedIslandsMap.clear();
         m_CopperZoneRTreeCache.clear();
+
+        m_maxClearanceValue.reset();
     }
 }
 
@@ -461,13 +468,13 @@ bool BOARD::ResolveTextVar( wxString* token, int aDepth ) const
 
     wxString var = *token;
 
-    if( GetTitleBlock().TextVarResolver( token, m_project ) )
-    {
-        return true;
-    }
-    else if( m_properties.count( var ) )
+    if( m_properties.count( var ) )
     {
         *token = m_properties.at( var );
+        return true;
+    }
+    else if( GetTitleBlock().TextVarResolver( token, m_project ) )
+    {
         return true;
     }
 
@@ -537,6 +544,7 @@ bool BOARD::SetLayerDescr( PCB_LAYER_ID aIndex, const LAYER& aLayer )
     if( unsigned( aIndex ) < arrayDim( m_layers ) )
     {
         m_layers[ aIndex ] = aLayer;
+        recalcOpposites();
         return true;
     }
 
@@ -582,16 +590,18 @@ const wxString BOARD::GetLayerName( PCB_LAYER_ID aLayer ) const
 
 bool BOARD::SetLayerName( PCB_LAYER_ID aLayer, const wxString& aLayerName )
 {
-    wxCHECK( !aLayerName.IsEmpty(), false );
-
-    // no quote chars in the name allowed
-    if( aLayerName.Find( wxChar( '"' ) ) != wxNOT_FOUND )
-        return false;
-
-    if( IsLayerEnabled( aLayer ) )
+    if( !aLayerName.IsEmpty() )
     {
-        m_layers[aLayer].m_userName = aLayerName;
-        return true;
+        // no quote chars in the name allowed
+        if( aLayerName.Find( wxChar( '"' ) ) != wxNOT_FOUND )
+            return false;
+
+        if( IsLayerEnabled( aLayer ) )
+        {
+            m_layers[aLayer].m_userName = aLayerName;
+            recalcOpposites();
+            return true;
+        }
     }
 
     return false;
@@ -600,24 +610,24 @@ bool BOARD::SetLayerName( PCB_LAYER_ID aLayer, const wxString& aLayerName )
 
 LAYER_T BOARD::GetLayerType( PCB_LAYER_ID aLayer ) const
 {
-    if( !IsCopperLayer( aLayer ) )
-        return LT_SIGNAL;
-
     if( IsLayerEnabled( aLayer ) )
         return m_layers[aLayer].m_type;
 
-    return LT_SIGNAL;
+    if( aLayer >= User_1 && aLayer <= User_9 )
+        return LT_AUX;
+    else if( IsCopperLayer( aLayer ) )
+        return LT_SIGNAL;
+    else
+        return LT_UNDEFINED;
 }
 
 
 bool BOARD::SetLayerType( PCB_LAYER_ID aLayer, LAYER_T aLayerType )
 {
-    if( !IsCopperLayer( aLayer ) )
-        return false;
-
     if( IsLayerEnabled( aLayer ) )
     {
         m_layers[aLayer].m_type = aLayerType;
+        recalcOpposites();
         return true;
     }
 
@@ -634,22 +644,90 @@ const char* LAYER::ShowType( LAYER_T aType )
     case LT_POWER:  return "power";
     case LT_MIXED:  return "mixed";
     case LT_JUMPER: return "jumper";
+    case LT_AUX:    return "auxiliary";
+    case LT_FRONT:  return "front";
+    case LT_BACK:   return "back";
     }
 }
 
 
 LAYER_T LAYER::ParseType( const char* aType )
 {
-    if( strcmp( aType, "signal" ) == 0 )
-        return LT_SIGNAL;
-    else if( strcmp( aType, "power" ) == 0 )
-        return LT_POWER;
-    else if( strcmp( aType, "mixed" ) == 0 )
-        return LT_MIXED;
-    else if( strcmp( aType, "jumper" ) == 0 )
-        return LT_JUMPER;
-    else
-        return LT_UNDEFINED;
+    if(      strcmp( aType, "signal" ) == 0 )    return LT_SIGNAL;
+    else if( strcmp( aType, "power" ) == 0 )     return LT_POWER;
+    else if( strcmp( aType, "mixed" ) == 0 )     return LT_MIXED;
+    else if( strcmp( aType, "jumper" ) == 0 )    return LT_JUMPER;
+    else if( strcmp( aType, "auxiliary" ) == 0 ) return LT_AUX;
+    else if( strcmp( aType, "front" ) == 0 )     return LT_FRONT;
+    else if( strcmp( aType, "back" ) == 0 )      return LT_BACK;
+    else                                         return LT_UNDEFINED;
+}
+
+
+void BOARD::recalcOpposites()
+{
+    for( int layer = F_Cu; layer < User_9; ++layer )
+        m_layers[layer].m_opposite = ::FlipLayer( ToLAYER_ID( layer ), GetCopperLayerCount() );
+
+    // Match up similary-named front/back user layers
+    for( int layer = User_1; layer <= User_9; ++layer )
+    {
+        if( m_layers[layer].m_opposite != layer )   // already paired
+            continue;
+
+        if( m_layers[layer].m_type != LT_FRONT )
+            continue;
+
+        wxString principalName = m_layers[layer].m_userName.AfterFirst( '.' );
+
+        for( int ii = User_1; ii <= User_9; ++ii )
+        {
+            if( ii == layer )                      // can't pair with self
+                continue;
+
+            if( m_layers[ii].m_opposite != ii )    // already paired
+                continue;
+
+            if( m_layers[ii].m_type != LT_BACK )
+                continue;
+
+            wxString candidate = m_layers[ii].m_userName.AfterFirst( '.' );
+
+            if( !candidate.IsEmpty() && candidate == principalName )
+            {
+                m_layers[layer].m_opposite = ii;
+                m_layers[ii].m_opposite = layer;
+                break;
+            }
+        }
+    }
+
+    // Match up non-custom-named consecutive front/back user layer pairs
+    for( int layer = User_1; layer < User_9; ++layer )
+    {
+        int next = layer + 1;
+
+        // ignore already-matched layers
+        if( m_layers[layer].m_opposite != layer || m_layers[next].m_opposite != next )
+            continue;
+
+        // ignore layer pairs that aren't consecutive front/back
+        if( m_layers[layer].m_type != LT_FRONT || m_layers[next].m_type != LT_BACK )
+            continue;
+
+        if( m_layers[layer].m_userName != m_layers[layer].m_name
+                && m_layers[next].m_userName != m_layers[next].m_name )
+        {
+            m_layers[layer].m_opposite = next;
+            m_layers[next].m_opposite = layer;
+        }
+    }
+}
+
+
+PCB_LAYER_ID BOARD::FlipLayer( PCB_LAYER_ID aLayer ) const
+{
+    return ToLAYER_ID( m_layers[aLayer].m_opposite );
 }
 
 
@@ -800,33 +878,36 @@ BOARD_DESIGN_SETTINGS& BOARD::GetDesignSettings() const
 }
 
 
-void BOARD::UpdateMaxClearanceCache()
+int BOARD::GetMaxClearanceValue() const
 {
-    // in destructor or otherwise reasonable to skip
-    if( m_skipMaxClearanceCacheUpdate )
-        return;
-
-    int worstClearance = m_designSettings->GetBiggestClearanceValue();
-
-    for( ZONE* zone : m_zones )
-        worstClearance = std::max( worstClearance, zone->GetLocalClearance().value() );
-
-    for( FOOTPRINT* footprint : m_footprints )
+    if( !m_maxClearanceValue.has_value() )
     {
-        for( PAD* pad : footprint->Pads() )
-        {
-            std::optional<int> override = pad->GetClearanceOverrides( nullptr );
+        std::unique_lock<std::shared_mutex> writeLock( m_CachesMutex );
 
-            if( override.has_value() )
-                worstClearance = std::max( worstClearance, override.value() );
+        int worstClearance = m_designSettings->GetBiggestClearanceValue();
+
+        for( ZONE* zone : m_zones )
+            worstClearance = std::max( worstClearance, zone->GetLocalClearance().value() );
+
+        for( FOOTPRINT* footprint : m_footprints )
+        {
+            for( PAD* pad : footprint->Pads() )
+            {
+                std::optional<int> override = pad->GetClearanceOverrides( nullptr );
+
+                if( override.has_value() )
+                    worstClearance = std::max( worstClearance, override.value() );
+            }
+
+            for( ZONE* zone : footprint->Zones() )
+                worstClearance = std::max( worstClearance, zone->GetLocalClearance().value() );
         }
 
-        for( ZONE* zone : footprint->Zones() )
-            worstClearance = std::max( worstClearance, zone->GetLocalClearance().value() );
+        m_maxClearanceValue = worstClearance;
     }
 
-    m_maxClearanceValue = worstClearance;
-}
+    return m_maxClearanceValue.value_or( 0 );
+};
 
 
 void BOARD::CacheTriangulation( PROGRESS_REPORTER* aReporter, const std::vector<ZONE*>& aZones )
@@ -874,6 +955,26 @@ void BOARD::CacheTriangulation( PROGRESS_REPORTER* aReporter, const std::vector<
                 aReporter->KeepRefreshing();
 
             status = ret.wait_for( std::chrono::milliseconds( 250 ) );
+        }
+    }
+}
+
+
+void BOARD::FixupEmbeddedData()
+{
+    for( FOOTPRINT* footprint : m_footprints )
+    {
+        for( auto& [filename, embeddedFile] : footprint->EmbeddedFileMap() )
+        {
+            EMBEDDED_FILES::EMBEDDED_FILE* file = GetEmbeddedFile( filename );
+
+            if( file )
+            {
+                embeddedFile->compressedEncodedData = file->compressedEncodedData;
+                embeddedFile->decompressedData = file->decompressedData;
+                embeddedFile->data_sha = file->data_sha;
+                embeddedFile->is_valid = file->is_valid;
+            }
         }
     }
 }
@@ -1204,7 +1305,7 @@ void BOARD::RemoveAll( std::initializer_list<KICAD_T> aTypes )
 }
 
 
-wxString BOARD::GetItemDescription( UNITS_PROVIDER* aUnitsProvider ) const
+wxString BOARD::GetItemDescription( UNITS_PROVIDER* aUnitsProvider, bool aFull ) const
 {
     return wxString::Format( _( "PCB" ) );
 }
@@ -1276,8 +1377,6 @@ void BOARD::DeleteMARKERs( bool aWarningsAndErrors, bool aExclusions )
 
 void BOARD::DeleteAllFootprints()
 {
-    m_skipMaxClearanceCacheUpdate = true;
-
     for( FOOTPRINT* footprint : m_footprints )
     {
         m_itemByIdCache.erase( footprint->m_Uuid );
@@ -1285,8 +1384,7 @@ void BOARD::DeleteAllFootprints()
     }
 
     m_footprints.clear();
-    m_skipMaxClearanceCacheUpdate = false;
-    UpdateMaxClearanceCache();
+    IncrementTimeStamp();
 }
 
 
@@ -1578,9 +1676,6 @@ BOX2I BOARD::ComputeBoundingBox( bool aBoardEdgesOnly, bool aIncludeHiddenText )
     // Check footprints
     for( FOOTPRINT* footprint : m_footprints )
     {
-        if( !( footprint->GetLayerSet() & visible ).any() )
-            continue;
-
         if( aBoardEdgesOnly )
         {
             for( const BOARD_ITEM* edge : footprint->GraphicalItems() )
@@ -1589,7 +1684,7 @@ BOX2I BOARD::ComputeBoundingBox( bool aBoardEdgesOnly, bool aIncludeHiddenText )
                     bbox.Merge( edge->GetBoundingBox() );
             }
         }
-        else
+        else if( ( footprint->GetLayerSet() & visible ).any() )
         {
             bbox.Merge( footprint->GetBoundingBox( true, aIncludeHiddenText ) );
         }
@@ -2191,9 +2286,12 @@ std::tuple<int, double, double> BOARD::GetTrackLength( const PCB_TRACK& aTrack )
     BOARD_STACKUP&    stackup      = GetDesignSettings().GetStackupDescriptor();
     bool              useHeight    = GetDesignSettings().m_UseHeightForLengthCalcs;
 
-    for( BOARD_CONNECTED_ITEM* item : connectivity->GetConnectedItems(
-            static_cast<const BOARD_CONNECTED_ITEM*>( &aTrack ),
-            { PCB_TRACE_T, PCB_ARC_T, PCB_VIA_T, PCB_PAD_T } ) )
+    static const std::vector<KICAD_T> baseConnectedTypes = { PCB_TRACE_T,
+                                                             PCB_ARC_T,
+                                                             PCB_VIA_T,
+                                                             PCB_PAD_T };
+
+    for( BOARD_CONNECTED_ITEM* item : connectivity->GetConnectedItems( &aTrack, baseConnectedTypes ) )
     {
         count++;
 
@@ -2420,6 +2518,56 @@ bool BOARD::GetBoardPolygonOutlines( SHAPE_POLY_SET& aOutlines,
     aOutlines.Simplify( SHAPE_POLY_SET::PM_STRICTLY_SIMPLE );
 
     return success;
+}
+
+
+EMBEDDED_FILES* BOARD::GetEmbeddedFiles()
+{
+    if( IsFootprintHolder() )
+        return static_cast<EMBEDDED_FILES*>( GetFirstFootprint() );
+
+    return static_cast<EMBEDDED_FILES*>( this );
+}
+
+
+const EMBEDDED_FILES* BOARD::GetEmbeddedFiles() const
+{
+    if( IsFootprintHolder() )
+        return static_cast<const EMBEDDED_FILES*>( GetFirstFootprint() );
+
+    return static_cast<const EMBEDDED_FILES*>( this );
+}
+
+
+void BOARD::EmbedFonts()
+{
+    std::set<KIFONT::OUTLINE_FONT*> fonts;
+
+    for( BOARD_ITEM* item : Drawings() )
+    {
+        if( EDA_TEXT* text = dynamic_cast<EDA_TEXT*>( item ) )
+        {
+            KIFONT::FONT* font = text->GetFont();
+
+            if( !font || font->IsStroke() )
+                continue;
+
+            using EMBEDDING_PERMISSION = KIFONT::OUTLINE_FONT::EMBEDDING_PERMISSION;
+            auto* outline = static_cast<KIFONT::OUTLINE_FONT*>( font );
+
+            if( outline->GetEmbeddingPermission() == EMBEDDING_PERMISSION::EDITABLE
+                || outline->GetEmbeddingPermission() == EMBEDDING_PERMISSION::INSTALLABLE )
+            {
+                fonts.insert( outline );
+            }
+        }
+    }
+
+    for( KIFONT::OUTLINE_FONT* font : fonts )
+    {
+        auto file = GetEmbeddedFiles()->AddFile( font->GetFileName(), false );
+        file->type = EMBEDDED_FILES::EMBEDDED_FILE::FILE_TYPE::FONT;
+    }
 }
 
 

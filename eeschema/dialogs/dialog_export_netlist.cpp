@@ -24,11 +24,14 @@
  */
 
 /* Functions relative to the dialog creating the netlist for Pcbnew.  The dialog is a notebook
- * with 4 fixed netlist formats:
+ * with 7 fixed netlist formats:
  *   Pcbnew
  *   ORCADPCB2
+ *   Allegro
  *   CADSTAR
+ *   Pads
  *   SPICE
+ *   SPICE model
  * and up to CUSTOMPANEL_COUNTMAX user programmable formats.  These external converters are
  * referred to as plugins, but they are really just external binaries.
  */
@@ -59,27 +62,25 @@
 
 #define CUSTOMPANEL_COUNTMAX 8  // Max number of netlist plugins
 
-
-/* panel (notebook page) identifiers
- * if modified, fix also the DEFINED_NETLISTS_COUNT value
+/*
  * PANEL_NETLIST_INDEX values are used as index in m_PanelNetType[]
  */
 enum PANEL_NETLIST_INDEX
 {
-    PANELPCBNEW = 0, /* Handle Netlist format Pcbnew */
-    PANELORCADPCB2,  /* Handle Netlist format OracdPcb2 */
-    PANELALLEGRO,    /* Handle Netlist format Allegro */
-    PANELCADSTAR,    /* Handle Netlist format CadStar */
-    PANELPADS,       /* Handle Netlist format PADS */
-    PANELSPICE,      /* Handle Netlist format Spice */
-    PANELSPICEMODEL, /* Handle Netlist format Spice Model (subcircuit) */
-    PANELCUSTOMBASE  /* First auxiliary panel (custom netlists).
-                      * others use PANELCUSTOMBASE+1, PANELCUSTOMBASE+2.. */
+    PANELPCBNEW = 0,         /* Handle Netlist format Pcbnew */
+    PANELORCADPCB2,          /* Handle Netlist format OracdPcb2 */
+    PANELALLEGRO,            /* Handle Netlist format Allegro */
+    PANELCADSTAR,            /* Handle Netlist format CadStar */
+    PANELPADS,               /* Handle Netlist format PADS */
+    PANELSPICE,              /* Handle Netlist format Spice */
+    PANELSPICEMODEL,         /* Handle Netlist format Spice Model (subcircuit) */
+    DEFINED_NETLISTS_COUNT,
+
+    /* First auxiliary panel (custom netlists).  Subsequent ones use PANELCUSTOMBASE+1,
+     * PANELCUSTOMBASE+2, etc., up to PANELCUSTOMBASE+CUSTOMPANEL_COUNTMAX-1 */
+    PANELCUSTOMBASE = DEFINED_NETLISTS_COUNT
 };
 
-// The count of panels for internally defined netlist formats
-// (the max count of panel is DEFINED_NETLISTS_COUNT+CUSTOMPANEL_COUNTMAX)
-#define DEFINED_NETLISTS_COUNT 6
 
 /* wxPanels for creating the NoteBook pages for each netlist format: */
 class EXPORT_NETLIST_PAGE : public wxPanel
@@ -110,6 +111,7 @@ public:
     wxCheckBox*       m_SaveAllVoltages;
     wxCheckBox*       m_SaveAllCurrents;
     wxCheckBox*       m_SaveAllDissipations;
+    wxCheckBox*       m_SaveAllEvents;
     wxCheckBox*       m_RunExternalSpiceCommand;
     wxTextCtrl*       m_CommandStringCtrl;
     wxTextCtrl*       m_TitleStringCtrl;
@@ -208,6 +210,7 @@ enum id_netlist {
     ID_SAVE_ALL_VOLTAGES,
     ID_SAVE_ALL_CURRENTS,
     ID_SAVE_ALL_DISSIPATIONS,
+    ID_SAVE_ALL_EVENTS,
     ID_RUN_SIMULATOR
 };
 
@@ -224,6 +227,7 @@ EXPORT_NETLIST_PAGE::EXPORT_NETLIST_PAGE( wxNotebook* aParent, const wxString& a
     m_SaveAllVoltages     = nullptr;
     m_SaveAllCurrents     = nullptr;
     m_SaveAllDissipations = nullptr;
+    m_SaveAllEvents       = nullptr;
     m_RunExternalSpiceCommand = nullptr;
     m_custom              = aCustom;
 
@@ -291,12 +295,15 @@ DIALOG_EXPORT_NETLIST::DIALOG_EXPORT_NETLIST( SCH_EDIT_FRAME* parent ) :
     SetupStandardButtons( { { wxID_OK,     _( "Export Netlist" ) },
                             { wxID_CANCEL, _( "Close" )          } } );
 
-    for( int ii = 0; (ii < 4 + CUSTOMPANEL_COUNTMAX) && m_PanelNetType[ii]; ++ii )
+    for( int ii = 0; ii < DEFINED_NETLISTS_COUNT + CUSTOMPANEL_COUNTMAX; ++ii )
     {
-        if( m_PanelNetType[ii]->GetPageNetFmtName() == settings.m_NetFormatName )
+        if( EXPORT_NETLIST_PAGE* candidate = m_PanelNetType[ii] )
         {
-            m_NoteBook->ChangeSelection( ii );
-            break;
+            if( candidate->GetPageNetFmtName() == settings.m_NetFormatName )
+            {
+                m_NoteBook->ChangeSelection( ii );
+                break;
+            }
         }
     }
 
@@ -310,7 +317,7 @@ DIALOG_EXPORT_NETLIST::DIALOG_EXPORT_NETLIST( SCH_EDIT_FRAME* parent ) :
 void DIALOG_EXPORT_NETLIST::InstallPageSpice()
 {
     EXPORT_NETLIST_PAGE* page = m_PanelNetType[PANELSPICE] =
-            new EXPORT_NETLIST_PAGE( m_NoteBook, wxT( "Spice" ), NET_TYPE_SPICE, false );
+            new EXPORT_NETLIST_PAGE( m_NoteBook, wxT( "SPICE" ), NET_TYPE_SPICE, false );
 
     SCHEMATIC_SETTINGS& settings = m_Parent->Schematic().Settings();
 
@@ -341,6 +348,12 @@ void DIALOG_EXPORT_NETLIST::InstallPageSpice()
     page->m_SaveAllDissipations->SetValue( settings.m_SpiceSaveAllDissipations );
     page->m_LeftBoxSizer->Add( page->m_SaveAllDissipations, 0, wxBOTTOM | wxRIGHT, 5 );
 
+    page->m_SaveAllEvents = new wxCheckBox( page, ID_SAVE_ALL_EVENTS,
+                                            _( "Save all digital event data" ) );
+    page->m_SaveAllEvents->SetToolTip( _( "If not set, write a directive to prevent the saving of digital event data (esave none)" ) );
+    page->m_SaveAllEvents->SetValue( settings.m_SpiceSaveAllEvents );
+    page->m_LeftBoxSizer->Add( page->m_SaveAllEvents, 0, wxBOTTOM | wxRIGHT, 5 );
+
 
     page->m_RunExternalSpiceCommand = new wxCheckBox( page, ID_RUN_SIMULATOR,
                                                       _( "Run external simulator command:" ) );
@@ -363,7 +376,7 @@ void DIALOG_EXPORT_NETLIST::InstallPageSpice()
 void DIALOG_EXPORT_NETLIST::InstallPageSpiceModel()
 {
     EXPORT_NETLIST_PAGE* page = m_PanelNetType[PANELSPICEMODEL] =
-            new EXPORT_NETLIST_PAGE( m_NoteBook, wxT( "Spice Model" ), NET_TYPE_SPICE_MODEL, false );
+            new EXPORT_NETLIST_PAGE( m_NoteBook, wxT( "SPICE Model" ), NET_TYPE_SPICE_MODEL, false );
 
     SCHEMATIC_SETTINGS& settings = m_Parent->Schematic().Settings();
 
@@ -382,25 +395,16 @@ void DIALOG_EXPORT_NETLIST::InstallCustomPages()
 {
     EXPORT_NETLIST_PAGE* currPage;
     EESCHEMA_SETTINGS*   cfg = dynamic_cast<EESCHEMA_SETTINGS*>( Kiface().KifaceSettings() );
-    wxASSERT( cfg );
+    wxCHECK( cfg, /* void */ );
 
-    if( cfg )
+    for( size_t i = 0; i < CUSTOMPANEL_COUNTMAX && i < cfg->m_NetlistPanel.plugins.size(); i++ )
     {
-        for( size_t i = 0; i < CUSTOMPANEL_COUNTMAX && i < cfg->m_NetlistPanel.plugins.size(); i++ )
-        {
-            // pairs of (title, command) are stored
-            wxString title = cfg->m_NetlistPanel.plugins[i].name;
+        // pairs of (title, command) are stored
+        currPage = AddOneCustomPage( cfg->m_NetlistPanel.plugins[i].name,
+                                     cfg->m_NetlistPanel.plugins[i].command,
+                                     static_cast<NETLIST_TYPE_ID>( NET_TYPE_CUSTOM1 + i ) );
 
-            if( i >= cfg->m_NetlistPanel.plugins.size() )
-                break; // No more panel to install
-
-            wxString command = cfg->m_NetlistPanel.plugins[i].command;
-
-            currPage = AddOneCustomPage( title, command,
-                    static_cast<NETLIST_TYPE_ID>( NET_TYPE_CUSTOM1 + i ) );
-
-            m_PanelNetType[PANELCUSTOMBASE + i] = currPage;
-        }
+        m_PanelNetType[PANELCUSTOMBASE + i] = currPage;
     }
 }
 
@@ -448,6 +452,7 @@ bool DIALOG_EXPORT_NETLIST::NetlistUpdateOpt()
     bool saveAllVoltages = m_PanelNetType[ PANELSPICE ]->m_SaveAllVoltages->IsChecked();
     bool saveAllCurrents = m_PanelNetType[ PANELSPICE ]->m_SaveAllCurrents->IsChecked();
     bool saveAllDissipations = m_PanelNetType[ PANELSPICE ]->m_SaveAllDissipations->IsChecked();
+    bool saveAllEvents = m_PanelNetType[ PANELSPICE ]->m_SaveAllEvents->IsChecked();
     wxString spiceCmdString = m_PanelNetType[ PANELSPICE ]->m_CommandStringCtrl->GetValue();
     bool curSheetAsRoot = m_PanelNetType[ PANELSPICE ]->m_CurSheetAsRoot->GetValue();
     bool spiceModelCurSheetAsRoot = m_PanelNetType[ PANELSPICEMODEL ]->m_CurSheetAsRoot->GetValue();
@@ -458,6 +463,7 @@ bool DIALOG_EXPORT_NETLIST::NetlistUpdateOpt()
     changed |= ( settings.m_SpiceSaveAllVoltages != saveAllVoltages );
     changed |= ( settings.m_SpiceSaveAllCurrents != saveAllCurrents );
     changed |= ( settings.m_SpiceSaveAllDissipations != saveAllDissipations );
+    changed |= ( settings.m_SpiceSaveAllEvents != saveAllEvents );
     changed |= ( settings.m_SpiceCommandString != spiceCmdString );
     changed |= ( settings.m_SpiceCurSheetAsRoot != curSheetAsRoot );
     changed |= ( settings.m_SpiceModelCurSheetAsRoot != spiceModelCurSheetAsRoot );
@@ -466,6 +472,7 @@ bool DIALOG_EXPORT_NETLIST::NetlistUpdateOpt()
     settings.m_SpiceSaveAllVoltages     = saveAllVoltages;
     settings.m_SpiceSaveAllCurrents     = saveAllCurrents;
     settings.m_SpiceSaveAllDissipations = saveAllDissipations;
+    settings.m_SpiceSaveAllEvents       = saveAllEvents;
     settings.m_SpiceCommandString       = spiceCmdString;
     settings.m_SpiceCurSheetAsRoot      = curSheetAsRoot;
     settings.m_SpiceModelCurSheetAsRoot = spiceModelCurSheetAsRoot;
@@ -510,6 +517,9 @@ bool DIALOG_EXPORT_NETLIST::TransferDataFromWindow()
 
         if( currPage->m_SaveAllDissipations->GetValue() )
             netlist_opt |= NETLIST_EXPORTER_SPICE::OPTION_SAVE_ALL_DISSIPATIONS;
+
+        if( currPage->m_SaveAllEvents->GetValue() )
+            netlist_opt |= NETLIST_EXPORTER_SPICE::OPTION_SAVE_ALL_EVENTS;
 
         if( currPage->m_CurSheetAsRoot->GetValue() )
             netlist_opt |= NETLIST_EXPORTER_SPICE::OPTION_CUR_SHEET_AS_ROOT;
@@ -724,29 +734,24 @@ void DIALOG_EXPORT_NETLIST::WriteCurrentNetlistSetup()
         m_Parent->OnModify();
 
     EESCHEMA_SETTINGS* cfg = dynamic_cast<EESCHEMA_SETTINGS*>( Kiface().KifaceSettings() );
-    wxASSERT( cfg );
-
-    if( !cfg )
-        return;
+    wxCHECK( cfg, /* void */ );
 
     cfg->m_NetlistPanel.plugins.clear();
 
     // Update existing custom pages
-    for( int ii = 0; ii < CUSTOMPANEL_COUNTMAX; ii++ )
+    for( int ii = PANELCUSTOMBASE; ii < PANELCUSTOMBASE + CUSTOMPANEL_COUNTMAX; ++ii )
     {
-        EXPORT_NETLIST_PAGE* currPage = m_PanelNetType[ii + PANELCUSTOMBASE];
+        if( EXPORT_NETLIST_PAGE* currPage = m_PanelNetType[ii] )
+        {
+            wxString title = currPage->m_TitleStringCtrl->GetValue();
+            wxString command = currPage->m_CommandStringCtrl->GetValue();
 
-        if( currPage == nullptr )
-            break;
+            if( title.IsEmpty() || command.IsEmpty() )
+                continue;
 
-        wxString title = currPage->m_TitleStringCtrl->GetValue();
-        wxString command = currPage->m_CommandStringCtrl->GetValue();
-
-        if( title.IsEmpty() || command.IsEmpty() )
-            continue;
-
-        cfg->m_NetlistPanel.plugins.emplace_back( title, wxEmptyString );
-        cfg->m_NetlistPanel.plugins.back().command = command;
+            cfg->m_NetlistPanel.plugins.emplace_back( title, wxEmptyString );
+            cfg->m_NetlistPanel.plugins.back().command = command;
+        }
     }
 }
 
@@ -777,31 +782,34 @@ void DIALOG_EXPORT_NETLIST::OnAddGenerator( wxCommandEvent& event )
     if( dlg.ShowModal() != wxID_OK )
         return;
 
-    // Creates a new custom plugin page
     wxString title = dlg.GetGeneratorTitle();
+    wxString cmd = dlg.GetGeneratorTCommandLine();
 
     // Verify it does not exists
-    int netTypeId = PANELCUSTOMBASE;    // the first not used type id
-    EXPORT_NETLIST_PAGE* currPage;
-
-    for( int ii = 0; ii < CUSTOMPANEL_COUNTMAX; ii++ )
+    for( int ii = PANELCUSTOMBASE; ii < PANELCUSTOMBASE + CUSTOMPANEL_COUNTMAX; ++ii )
     {
-        netTypeId = PANELCUSTOMBASE + ii;
-        currPage = m_PanelNetType[ii + PANELCUSTOMBASE];
-
-        if( currPage == nullptr )
-            break;
-
-        if( currPage->GetPageNetFmtName() == title )
+        if( m_PanelNetType[ii] && m_PanelNetType[ii]->GetPageNetFmtName() == title )
         {
-            wxMessageBox( _("This plugin already exists.") );
+            wxMessageBox( _( "This plugin already exists." ) );
             return;
         }
     }
 
-    wxString cmd = dlg.GetGeneratorTCommandLine();
-    currPage = AddOneCustomPage( title,cmd, (NETLIST_TYPE_ID)netTypeId );
-    m_PanelNetType[netTypeId] = currPage;
+    // Find the first empty slot
+    int netTypeId = PANELCUSTOMBASE;
+
+    while( m_PanelNetType[netTypeId] )
+    {
+        netTypeId++;
+
+        if( netTypeId == PANELCUSTOMBASE + CUSTOMPANEL_COUNTMAX )
+        {
+            wxMessageBox( _( "Maximum number of plugins already added to dialog." ) );
+            return;
+        }
+    }
+
+    m_PanelNetType[netTypeId] = AddOneCustomPage( title, cmd, (NETLIST_TYPE_ID)netTypeId );
     WriteCurrentNetlistSetup();
 
     if( IsQuasiModal() )

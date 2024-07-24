@@ -65,7 +65,7 @@ enum PIN_TABLE_COL_ORDER
 };
 
 
-class SCH_PIN_TABLE_DATA_MODEL : public wxGridTableBase, public std::vector<SCH_PIN>
+class SCH_PIN_TABLE_DATA_MODEL : public WX_GRID_TABLE_BASE, public std::vector<SCH_PIN>
 {
 public:
     SCH_PIN_TABLE_DATA_MODEL() :
@@ -197,53 +197,24 @@ public:
 
     wxGridCellAttr* GetAttr( int aRow, int aCol, wxGridCellAttr::wxAttrKind aKind ) override
     {
-        // This is needed to support alternating row colors
-        auto enhanceAttr = [this, &aRow, &aCol,
-                            &aKind]( wxGridCellAttr* aInputAttr ) -> wxGridCellAttr*
-        {
-            if( aInputAttr == nullptr )
-                return nullptr;
-
-            wxGridCellAttr* attr = aInputAttr;
-
-            if( wxGridCellAttrProvider* provider = GetAttrProvider() )
-            {
-                wxGridCellAttr* providerAttr = provider->GetAttr( aRow, aCol, aKind );
-
-                if( providerAttr )
-                {
-                    attr = new wxGridCellAttr;
-                    attr->SetKind( wxGridCellAttr::Merged );
-
-                    attr->MergeWith( aInputAttr );
-                    aInputAttr->DecRef();
-
-                    attr->MergeWith( providerAttr );
-                    providerAttr->DecRef();
-                }
-            }
-
-            return attr;
-        };
-
         switch( aCol )
         {
         case COL_NUMBER:
         case COL_BASE_NAME:
             m_readOnlyAttr->IncRef();
-            return enhanceAttr( m_readOnlyAttr );
+            return enhanceAttr( m_readOnlyAttr, aRow, aCol, aKind );
 
         case COL_ALT_NAME:
             m_nameAttrs[ aRow ]->IncRef();
-            return enhanceAttr( m_nameAttrs[ aRow ] );
+            return enhanceAttr( m_nameAttrs[ aRow ], aRow, aCol, aKind );
 
         case COL_TYPE:
             m_typeAttr->IncRef();
-            return enhanceAttr( m_typeAttr );
+            return enhanceAttr( m_typeAttr, aRow, aCol, aKind );
 
         case COL_SHAPE:
             m_shapeAttr->IncRef();
-            return enhanceAttr( m_shapeAttr );
+            return enhanceAttr( m_shapeAttr, aRow, aCol, aKind );
 
         default:
             wxFAIL;
@@ -363,7 +334,7 @@ DIALOG_SYMBOL_PROPERTIES::DIALOG_SYMBOL_PROPERTIES( SCH_EDIT_FRAME* aParent,
     m_pinGrid->SetDefaultRowSize( m_pinGrid->GetDefaultRowSize() + 4 );
 
     m_fieldsGrid->SetTable( m_fields );
-    m_fieldsGrid->PushEventHandler( new FIELDS_GRID_TRICKS( m_fieldsGrid, this,
+    m_fieldsGrid->PushEventHandler( new FIELDS_GRID_TRICKS( m_fieldsGrid, this, &aParent->Schematic(),
                                                             [&]( wxCommandEvent& aEvent )
                                                             {
                                                                 OnAddField( aEvent );
@@ -808,72 +779,7 @@ bool DIALOG_SYMBOL_PROPERTIES::TransferDataFromWindow()
 
     // Keep fields other than the reference, include/exclude flags, and alternate pin assignements
     // in sync in multi-unit parts.
-    if( m_symbol->GetUnitCount() > 1 && m_symbol->IsAnnotated( &GetParent()->GetCurrentSheet() ) )
-    {
-        wxString ref = m_symbol->GetRef( &GetParent()->GetCurrentSheet() );
-        int      unit = m_symbol->GetUnit();
-        LIB_ID   libId = m_symbol->GetLibId();
-
-        for( SCH_SHEET_PATH& sheet : GetParent()->Schematic().GetSheets() )
-        {
-            SCH_SCREEN*              screen = sheet.LastScreen();
-            std::vector<SCH_SYMBOL*> otherUnits;
-
-            CollectOtherUnits( ref, unit, libId, sheet, &otherUnits );
-
-            for( SCH_SYMBOL* otherUnit : otherUnits )
-            {
-                commit.Modify( otherUnit, screen );
-                otherUnit->SetValueFieldText( m_fields->at( VALUE_FIELD ).GetText() );
-                otherUnit->SetFootprintFieldText( m_fields->at( FOOTPRINT_FIELD ).GetText() );
-
-                for( size_t ii = DATASHEET_FIELD; ii < m_fields->size(); ++ii )
-                {
-                    SCH_FIELD* otherField = otherUnit->FindField( m_fields->at( ii ).GetName() );
-
-                    if( otherField )
-                    {
-                        otherField->SetText( m_fields->at( ii ).GetText() );
-                    }
-                    else
-                    {
-                        SCH_FIELD newField( m_fields->at( ii ) );
-                        const_cast<KIID&>( newField.m_Uuid ) = KIID();
-
-                        newField.Offset( -m_symbol->GetPosition() );
-                        newField.Offset( otherUnit->GetPosition() );
-
-                        newField.SetParent( otherUnit );
-                        otherUnit->AddField( newField );
-                    }
-                }
-
-                for( size_t ii = otherUnit->GetFields().size() - 1; ii > DATASHEET_FIELD; ii-- )
-                {
-                    SCH_FIELD& otherField = otherUnit->GetFields().at( ii );
-
-                    if( !m_symbol->FindField( otherField.GetName() ) )
-                        otherUnit->GetFields().erase( otherUnit->GetFields().begin() + ii );
-                }
-
-                otherUnit->SetExcludedFromSim( m_cbExcludeFromSim->IsChecked() );
-                otherUnit->SetExcludedFromBOM( m_cbExcludeFromBom->IsChecked() );
-                otherUnit->SetExcludedFromBoard( m_cbExcludeFromBoard->IsChecked() );
-                otherUnit->SetDNP( m_cbDNP->IsChecked() );
-
-                if( m_dataModel )
-                {
-                    for( const SCH_PIN& model_pin : *m_dataModel )
-                    {
-                        SCH_PIN* src_pin = otherUnit->GetPin( model_pin.GetNumber() );
-
-                        if( src_pin )
-                            src_pin->SetAlt( model_pin.GetAlt() );
-                    }
-                }
-            }
-        }
-    }
+    m_symbol->SyncOtherUnits( GetParent()->GetCurrentSheet(), commit, nullptr );
 
     if( replaceOnCurrentScreen )
         currentScreen->Append( m_symbol );

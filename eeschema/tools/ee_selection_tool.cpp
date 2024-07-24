@@ -64,6 +64,8 @@
 #include <view/view_controls.h>
 #include <wx/log.h>
 
+#include "symb_transforms_utils.h"
+
 
 SELECTION_CONDITION EE_CONDITIONS::SingleSymbol = []( const SELECTION& aSel )
 {
@@ -196,6 +198,22 @@ static std::vector<KICAD_T> connectedTypes =
     SCH_JUNCTION_T
 };
 
+static std::vector<KICAD_T> connectedLineTypes =
+{
+    SCH_ITEM_LOCATE_WIRE_T,
+    SCH_ITEM_LOCATE_BUS_T
+};
+
+static std::vector<KICAD_T> crossProbingTypes =
+{
+    SCH_SYMBOL_T,
+    SCH_PIN_T,
+    SCH_SHEET_T
+};
+
+static std::vector<KICAD_T> lineTypes = { SCH_LINE_T };
+static std::vector<KICAD_T> sheetTypes = { SCH_SHEET_T };
+static std::vector<KICAD_T> tableCellTypes = { SCH_TABLECELL_T };
 
 bool EE_SELECTION_TOOL::Init()
 {
@@ -215,16 +233,12 @@ bool EE_SELECTION_TOOL::Init()
         m_isSymbolViewer = symbolViewerFrame != nullptr;
     }
 
-    auto linesSelection =        E_C::MoreThan( 0 ) &&
-                                 E_C::OnlyTypes( { SCH_ITEM_LOCATE_WIRE_T, SCH_ITEM_LOCATE_BUS_T,
-                                                   SCH_ITEM_LOCATE_GRAPHIC_LINE_T } );
-    auto wireOrBusSelection =    E_C::Count( 1 ) &&
-                                 E_C::OnlyTypes( { SCH_ITEM_LOCATE_WIRE_T,
-                                                   SCH_ITEM_LOCATE_BUS_T } );
+    auto linesSelection =        E_C::MoreThan( 0 ) && E_C::OnlyTypes( lineTypes );
+    auto wireOrBusSelection =    E_C::Count( 1 )    && E_C::OnlyTypes( connectedLineTypes );
     auto connectedSelection =    E_C::Count( 1 )    && E_C::OnlyTypes( connectedTypes );
-    auto sheetSelection =        E_C::Count( 1 )    && E_C::OnlyTypes( { SCH_SHEET_T } );
-    auto crossProbingSelection = E_C::MoreThan( 0 ) && E_C::HasTypes( { SCH_SYMBOL_T, SCH_PIN_T, SCH_SHEET_T } );
-    auto tableCellSelection =    E_C::MoreThan( 0 ) && E_C::OnlyTypes( { SCH_TABLECELL_T } );
+    auto sheetSelection =        E_C::Count( 1 )    && E_C::OnlyTypes( sheetTypes );
+    auto crossProbingSelection = E_C::MoreThan( 0 ) && E_C::HasTypes( crossProbingTypes );
+    auto tableCellSelection =    E_C::MoreThan( 0 ) && E_C::OnlyTypes( tableCellTypes );
 
     auto schEditSheetPageNumberCondition =
             [&] ( const SELECTION& aSel )
@@ -232,7 +246,7 @@ bool EE_SELECTION_TOOL::Init()
                 if( m_isSymbolEditor || m_isSymbolViewer )
                     return false;
 
-                return E_C::LessThan( 2 )( aSel ) && E_C::OnlyTypes( { SCH_SHEET_T } )( aSel );
+                return E_C::LessThan( 2 )( aSel ) && E_C::OnlyTypes( sheetTypes )( aSel );
             };
 
     auto schEditCondition =
@@ -343,6 +357,9 @@ void EE_SELECTION_TOOL::Reset( RESET_REASON aReason )
         m_selection.Clear();
     }
 
+    if( aReason == RESET_REASON::SHUTDOWN )
+        return;
+
     if( aReason == TOOL_BASE::MODEL_RELOAD || aReason == TOOL_BASE::SUPERMODEL_RELOAD )
     {
         getView()->GetPainter()->GetSettings()->SetHighlight( false );
@@ -381,7 +398,18 @@ int EE_SELECTION_TOOL::Main( const TOOL_EVENT& aEvent )
             SCH_PIN* pin = dynamic_cast<SCH_PIN*>( aItem );
 
             if( pin )
-                return pin->GetOrientation();
+            {
+                const SCH_SYMBOL* parent = dynamic_cast<const SCH_SYMBOL*>( pin->GetParentSymbol() );
+
+                if( !parent )
+                    return pin->GetOrientation();
+                else
+                {
+                    SCH_PIN dummy( *pin );
+                    RotateAndMirrorPin( dummy, parent->GetOrientation() );
+                    return dummy.GetOrientation();
+                }
+            }
 
             SCH_SHEET_PIN* sheetPin = dynamic_cast<SCH_SHEET_PIN*>( aItem );
 
@@ -618,9 +646,9 @@ int EE_SELECTION_TOOL::Main( const TOOL_EVENT& aEvent )
                     // drag_is_move option exists only in schematic editor, not in symbol editor
                     // (m_frame->eeconfig() returns nullptr in Symbol Editor)
                     if( m_isSymbolEditor || m_frame->eeconfig()->m_Input.drag_is_move )
-                        m_toolMgr->RunSynchronousAction( EE_ACTIONS::move, nullptr );
+                        m_toolMgr->RunAction( EE_ACTIONS::move );
                     else
-                        m_toolMgr->RunSynchronousAction( EE_ACTIONS::drag, nullptr );
+                        m_toolMgr->RunAction( EE_ACTIONS::drag );
                 }
                 else
                 {
@@ -650,6 +678,15 @@ int EE_SELECTION_TOOL::Main( const TOOL_EVENT& aEvent )
 
                 if( symbol )
                     static_cast<SCH_EDIT_FRAME*>( m_frame )->SelectUnit( symbol, unit );
+            }
+            else if( *evt->GetCommandId() >= ID_POPUP_SCH_SELECT_BASE
+                     && *evt->GetCommandId() <= ID_POPUP_SCH_SELECT_ALT )
+            {
+                SCH_SYMBOL* symbol = dynamic_cast<SCH_SYMBOL*>( m_selection.Front() );
+                int bodyStyle = ( *evt->GetCommandId() - ID_POPUP_SCH_SELECT_BASE ) + 1;
+
+                if( symbol && symbol->GetBodyStyle() != bodyStyle )
+                    static_cast<SCH_EDIT_FRAME*>( m_frame )->FlipBodyStyle( symbol );
             }
             else if( *evt->GetCommandId() >= ID_POPUP_SCH_ALT_PIN_FUNCTION
                      && *evt->GetCommandId() <= ID_POPUP_SCH_ALT_PIN_FUNCTION_END )
@@ -1020,7 +1057,7 @@ OPT_TOOL_EVENT EE_SELECTION_TOOL::autostartEvent( TOOL_EVENT* aEvent, EE_GRID_HE
         {
             SCH_LABEL_BASE* label = static_cast<SCH_LABEL_BASE*>( aItem );
             SCH_CONNECTION  possibleConnection( label->Schematic()->ConnectionGraph() );
-            possibleConnection.ConfigureFromLabel( label->GetText() );
+            possibleConnection.ConfigureFromLabel( label->GetShownText( false ) );
 
             if( possibleConnection.IsBus() )
                 newEvt = EE_ACTIONS::drawBus.MakeEvent();
@@ -1028,12 +1065,10 @@ OPT_TOOL_EVENT EE_SELECTION_TOOL::autostartEvent( TOOL_EVENT* aEvent, EE_GRID_HE
         else if( aItem->Type() == SCH_SYMBOL_T )
         {
             const SCH_SYMBOL* symbol = static_cast<const SCH_SYMBOL*>( aItem );
+            const SCH_PIN*    pin = symbol->GetPin( pos );
 
-            wxCHECK( symbol, OPT_TOOL_EVENT() );
-
-            const SCH_PIN* pin = symbol->GetPin( pos );
-
-            wxCHECK( pin, OPT_TOOL_EVENT() );
+            if( !pin )
+                return OPT_TOOL_EVENT();
 
             if( !pin->IsVisible()
                 && !( m_frame->eeconfig()->m_Appearance.show_hidden_pins
@@ -1251,9 +1286,9 @@ bool EE_SELECTION_TOOL::selectPoint( EE_COLLECTOR& aCollector, const VECTOR2I& a
             {
                 SCH_LINE* line = (SCH_LINE*) aCollector[i];
 
-                if( HitTestPoints( line->GetStartPoint(), aWhere, aCollector.m_Threshold ) )
+                if( line->GetStartPoint().Distance( aWhere ) <= aCollector.m_Threshold )
                     flags = STARTPOINT;
-                else if( HitTestPoints( line->GetEndPoint(), aWhere, aCollector.m_Threshold ) )
+                else if( line->GetEndPoint().Distance( aWhere ) <= aCollector.m_Threshold )
                     flags = ENDPOINT;
                 else
                     flags = STARTPOINT | ENDPOINT;
@@ -1482,6 +1517,11 @@ void EE_SELECTION_TOOL::GuessSelectionCandidates( EE_COLLECTOR& collector, const
         BOX2I bbox = item->GetBoundingBox();
         int   dist = INT_MAX / 4;
 
+        // A dominating item is one that would unfairly win distance tests
+        // and mask out other items. For example, a filled rectangle "wins"
+        // with a zero distance over anything inside it.
+        bool dominating = false;
+
         if( exactHits.contains( item ) )
         {
             if( item->Type() == SCH_PIN_T || item->Type() == SCH_JUNCTION_T )
@@ -1498,8 +1538,7 @@ void EE_SELECTION_TOOL::GuessSelectionCandidates( EE_COLLECTOR& collector, const
 
             if( line )
             {
-                dist = KiROUND( DistanceLinePoint( line->GetStartPoint(),
-                                                   line->GetEndPoint(), aPos ) );
+                dist = line->GetSeg().Distance( aPos );
             }
             else if( field )
             {
@@ -1538,6 +1577,9 @@ void EE_SELECTION_TOOL::GuessSelectionCandidates( EE_COLLECTOR& collector, const
 
                     delete s;
                 }
+
+                // Filled shapes win hit tests anywhere inside them
+                dominating = shape->IsFilled();
             }
             else if( symbol )
             {
@@ -1546,13 +1588,13 @@ void EE_SELECTION_TOOL::GuessSelectionCandidates( EE_COLLECTOR& collector, const
                 SHAPE_RECT rect( bbox.GetPosition(), bbox.GetWidth(), bbox.GetHeight() );
 
                 if( bbox.Contains( aPos ) )
-                    dist = KiROUND( EuclideanNorm( bbox.GetCenter() - aPos ) );
+                    dist = bbox.GetCenter().Distance( aPos );
                 else
                     rect.Collide( poss, closestDist, &dist );
             }
             else
             {
-                dist = KiROUND( EuclideanNorm( bbox.GetCenter() - aPos ) );
+                dist = bbox.GetCenter().Distance( aPos );
             }
         }
         else
@@ -1561,15 +1603,21 @@ void EE_SELECTION_TOOL::GuessSelectionCandidates( EE_COLLECTOR& collector, const
             rect.Collide( poss, collector.m_Threshold, &dist );
         }
 
-        if( dist == closestDist )
+        // Don't promote dominating items to be the closest item
+        // (they'll always win) - they'll still be available for selection, but they
+        // won't boot out worthy competitors.
+        if ( !dominating )
         {
-            if( item->GetParent() == closest )
+            if( dist == closestDist )
+            {
+                if( item->GetParent() == closest )
+                    closest = item;
+            }
+            else if( dist < closestDist )
+            {
+                closestDist = dist;
                 closest = item;
-        }
-        else if( dist < closestDist )
-        {
-            closestDist = dist;
-            closest = item;
+            }
         }
     }
 

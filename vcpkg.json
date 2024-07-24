@@ -43,7 +43,8 @@
     "wxpython",
     "libgit2",
     "nng",
-    "protobuf"
+    "protobuf",
+    "zstd"
   ],
   "overrides": [
     {
@@ -57,11 +58,11 @@
     },
     {
       "name": "wxwidgets",
-      "version": "3.2.4#1"
+      "version": "3.2.5#2"
     },
     {
       "name": "wxpython",
-      "version": "4.2.0#15"
+      "version": "4.2.0#16"
     },
     {
       "name": "ngspice",
@@ -71,6 +72,10 @@
       "name": "liblzma",
       "version": "5.4.4",
       "$comment": "liblzma & xz were compromised upstream: CVE-2024-3094."
+    },
+    {
+      "name": "protobuf",
+      "version": "3.21.12#4"
     }
   ]
 }

@@ -52,7 +52,7 @@ private:
     void OnClearAnnotationClick( wxCommandEvent& event ) override;
     void OnCloseClick( wxCommandEvent& event ) override;
     void OnClose( wxCloseEvent& event ) override;
-    void OnApplyClick( wxCommandEvent& event ) override;
+    void OnAnnotateClick( wxCommandEvent& event ) override;
 
     // User functions:
     bool GetResetItems();
@@ -212,7 +212,7 @@ void DIALOG_ANNOTATE::OnClose( wxCloseEvent& event )
 }
 
 
-void DIALOG_ANNOTATE::OnApplyClick( wxCommandEvent& event )
+void DIALOG_ANNOTATE::OnAnnotateClick( wxCommandEvent& event )
 {
     SCH_COMMIT commit( m_Parent );
 
@@ -225,26 +225,16 @@ void DIALOG_ANNOTATE::OnApplyClick( wxCommandEvent& event )
 
     commit.Push( _( "Annotate" ) );
 
-    m_MessageWindow->Flush( true );             // Now update to show all messages
-
-    m_sdbSizer1Cancel->SetDefault();
-
-    // Don't close dialog if there are things the user needs to address
-    if( reporter.HasMessage() )
-        return;
-
-    if( m_infoBar->IsShown() )
-    {
-        // Close the dialog by calling the default handler for a wxID_OK event
-        event.SetId( wxID_OK );
-        event.Skip();
-    }
+    m_MessageWindow->Flush( true ); // Now update to show all messages
 }
 
 
 void DIALOG_ANNOTATE::OnClearAnnotationClick( wxCommandEvent& event )
 {
-    m_Parent->DeleteAnnotation( GetScope(), GetRecursive() );
+    m_MessageWindow->Clear();
+    m_Parent->DeleteAnnotation( GetScope(), GetRecursive(), m_MessageWindow->Reporter() );
+
+    m_MessageWindow->Flush( true ); // Now update to show all messages
 }
 
 

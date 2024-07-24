@@ -93,6 +93,11 @@ public:
         return GetFillMode() != FILL_T::NO_FILL;
     }
 
+    virtual bool IsFilledForHitTesting() const
+    {
+        return IsFilled();
+    }
+
     void SetFilled( bool aFlag )
     {
         setFilled( aFlag );
@@ -301,11 +306,9 @@ public:
      *
      * Has meaning only for BEZIER shape.
      *
-     * @param aMinSegLen is the min length of segments approximating the bezier. The shape's last
-     *                   segment can be shorter.  This parameter avoids having too many very short
-     *                   segment in list. Good values are between m_width/2 and m_width.
+     * @param aMinSegLen is the max deviation between the polyline and the curve
      */
-    void RebuildBezierToSegmentsPointsList( int aMinSegLen );
+    void RebuildBezierToSegmentsPointsList( int aMaxError );
 
     /**
      * Make a set of SHAPE objects representing the EDA_SHAPE.  Caller owns the objects.
@@ -321,6 +324,10 @@ public:
     void ShapeGetMsgPanelInfo( EDA_DRAW_FRAME* aFrame, std::vector<MSG_PANEL_ITEM>& aList );
 
     void SetLength( const double& aLength );
+
+    void SetRectangleHeight( const int& aHeight );
+
+    void SetRectangleWidth( const int& aWidth );
 
     void SetRectangle( const long long int& aHeight, const long long int& aWidth );
 
@@ -378,7 +385,7 @@ protected:
     bool hitTest( const VECTOR2I& aPosition, int aAccuracy = 0 ) const;
     bool hitTest( const BOX2I& aRect, bool aContained, int aAccuracy = 0 ) const;
 
-    const std::vector<VECTOR2I> buildBezierToSegmentsPointsList( int aMinSegLen ) const;
+    const std::vector<VECTOR2I> buildBezierToSegmentsPointsList( int aMaxError ) const;
 
     void beginEdit( const VECTOR2I& aStartPoint );
     bool continueEdit( const VECTOR2I& aPosition );

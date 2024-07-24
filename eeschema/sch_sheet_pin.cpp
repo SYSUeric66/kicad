@@ -258,7 +258,7 @@ void SCH_SHEET_PIN::Rotate( const VECTOR2I& aCenter, bool aRotateCCW )
     VECTOR2I pt = GetTextPos();
     VECTOR2I delta = pt - aCenter;
 
-    RotatePoint( pt, aCenter, aRotateCCW ? ANGLE_270 : ANGLE_90 );
+    RotatePoint( pt, aCenter, aRotateCCW ? ANGLE_90 : ANGLE_270 );
 
     SHEET_SIDE oldSide = GetSide();
     ConstrainOnEdge( pt, true );
@@ -334,10 +334,10 @@ void SCH_SHEET_PIN::GetEndPoints( std::vector<DANGLING_END_ITEM>& aItemList )
 }
 
 
-wxString SCH_SHEET_PIN::GetItemDescription( UNITS_PROVIDER* aUnitsProvider ) const
+wxString SCH_SHEET_PIN::GetItemDescription( UNITS_PROVIDER* aUnitsProvider, bool aFull ) const
 {
     return wxString::Format( _( "Hierarchical Sheet Pin %s" ),
-                             KIUI::EllipsizeMenuText( GetText() ) );
+                             aFull ? GetShownText( false ) : KIUI::EllipsizeMenuText( GetText() ) );
 }
 
 

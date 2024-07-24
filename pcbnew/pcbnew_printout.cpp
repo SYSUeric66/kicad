@@ -29,6 +29,7 @@
 #include <board.h>
 #include <math/util.h>      // for KiROUND
 #include <gal/graphics_abstraction_layer.h>
+#include <lset.h>
 #include <pcb_painter.h>
 #include <pcbnew_settings.h>
 #include <view/view.h>
@@ -181,6 +182,7 @@ void PCBNEW_PRINTOUT::setupViewLayers( KIGFX::VIEW& aView, const LSET& aLayerSet
         setVisibility( LAYER_VIA_BBLIND );
         setVisibility( LAYER_VIA_THROUGH );
         setVisibility( LAYER_ZONES );
+        setVisibility( LAYER_SHAPES );
 
         setVisibility( LAYER_DRC_WARNING );
         setVisibility( LAYER_DRC_ERROR );
@@ -218,7 +220,7 @@ void PCBNEW_PRINTOUT::setupViewLayers( KIGFX::VIEW& aView, const LSET& aLayerSet
                     LAYER_FP_TEXT, LAYER_FP_VALUES, LAYER_FP_REFERENCES,
                     LAYER_FOOTPRINTS_FR, LAYER_FOOTPRINTS_BK,
                     LAYER_TRACKS, LAYER_VIAS,
-                    LAYER_ZONES,
+                    LAYER_ZONES, LAYER_SHAPES,
                     LAYER_PADS, LAYER_PADS_SMD_FR, LAYER_PADS_SMD_BK, LAYER_PADS_TH
                 };
 
@@ -308,9 +310,9 @@ KIGFX::PCB_PRINT_PAINTER::PCB_PRINT_PAINTER( GAL* aGal ) :
 { }
 
 
-int KIGFX::PCB_PRINT_PAINTER::getDrillShape( const PAD* aPad ) const
+PAD_DRILL_SHAPE KIGFX::PCB_PRINT_PAINTER::getDrillShape( const PAD* aPad ) const
 {
-    return m_drillMarkReal ? KIGFX::PCB_PAINTER::getDrillShape( aPad ) : PAD_DRILL_SHAPE_CIRCLE;
+    return m_drillMarkReal ? KIGFX::PCB_PAINTER::getDrillShape( aPad ) : PAD_DRILL_SHAPE::CIRCLE;
 }
 
 

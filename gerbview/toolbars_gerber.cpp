@@ -256,7 +256,7 @@ void GERBVIEW_FRAME::ReCreateOptToolbar()
     m_optionsToolBar->Add( GERBVIEW_ACTIONS::negativeObjectDisplay,   ACTION_TOOLBAR::TOGGLE );
     m_optionsToolBar->Add( GERBVIEW_ACTIONS::dcodeDisplay,            ACTION_TOOLBAR::TOGGLE );
     m_optionsToolBar->AddScaledSeparator( this );
-    m_optionsToolBar->Add( GERBVIEW_ACTIONS::toggleDiffMode,          ACTION_TOOLBAR::TOGGLE );
+    m_optionsToolBar->Add( GERBVIEW_ACTIONS::toggleForceOpacityMode,  ACTION_TOOLBAR::TOGGLE );
     m_optionsToolBar->Add( GERBVIEW_ACTIONS::toggleXORMode,           ACTION_TOOLBAR::TOGGLE );
     m_optionsToolBar->Add( ACTIONS::highContrastMode,                 ACTION_TOOLBAR::TOGGLE );
     m_optionsToolBar->Add( GERBVIEW_ACTIONS::flipGerberView,          ACTION_TOOLBAR::TOGGLE );
@@ -468,18 +468,6 @@ void GERBVIEW_FRAME::updateAperAttributesSelectBox()
         m_SelAperAttributesBox->Append( entry.first );
 
     m_SelAperAttributesBox->SetSelection( 0 );
-}
-
-
-void GERBVIEW_FRAME::OnUpdateDrawMode( wxUpdateUIEvent& aEvent )
-{
-    switch( aEvent.GetId() )
-    {
-    case ID_TB_OPTIONS_SHOW_GBR_MODE_0: aEvent.Check( GetDisplayMode() == 0 ); break;
-    case ID_TB_OPTIONS_SHOW_GBR_MODE_1: aEvent.Check( GetDisplayMode() == 1 ); break;
-    case ID_TB_OPTIONS_SHOW_GBR_MODE_2: aEvent.Check( GetDisplayMode() == 2 ); break;
-    default:                                                                   break;
-    }
 }
 
 

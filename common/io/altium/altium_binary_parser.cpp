@@ -26,6 +26,7 @@
 #include "altium_parser_utils.h"
 
 #include <compoundfilereader.h>
+#include <charconv>
 #include <ki_exception.h>
 #include <math/util.h>
 #include <numeric>
@@ -148,30 +149,6 @@ ALTIUM_COMPOUND_FILE::DecodeIntLibStream( const CFB::COMPOUND_FILE_ENTRY& cfe )
 }
 
 
-std::map<wxString, wxString> ALTIUM_COMPOUND_FILE::ListLibFootprints()
-{
-    if( m_libFootprintDirNameCache.empty() )
-        cacheLibFootprintNames();
-
-    return m_libFootprintDirNameCache;
-}
-
-
-std::tuple<wxString, const CFB::COMPOUND_FILE_ENTRY*>
-ALTIUM_COMPOUND_FILE::FindLibFootprintDirName( const wxString& aFpUnicodeName )
-{
-    if( m_libFootprintNameCache.empty() )
-        cacheLibFootprintNames();
-
-    auto it = m_libFootprintNameCache.find( aFpUnicodeName );
-
-    if( it == m_libFootprintNameCache.end() )
-        return { wxEmptyString, nullptr };
-
-    return { it->first, it->second };
-}
-
-
 const CFB::COMPOUND_FILE_ENTRY*
 ALTIUM_COMPOUND_FILE::FindStreamSingleLevel( const CFB::COMPOUND_FILE_ENTRY* aEntry,
                                              const std::string aName, const bool aIsStream ) const
@@ -204,7 +181,7 @@ ALTIUM_COMPOUND_FILE::FindStreamSingleLevel( const CFB::COMPOUND_FILE_ENTRY* aEn
 }
 
 
-std::map<wxString, const CFB::COMPOUND_FILE_ENTRY*>
+std::map<wxString, ALTIUM_SYMBOL_DATA>
 ALTIUM_COMPOUND_FILE::GetLibSymbols( const CFB::COMPOUND_FILE_ENTRY* aStart ) const
 {
     const CFB::COMPOUND_FILE_ENTRY* root = aStart ? aStart : m_reader->GetRootEntry();
@@ -212,7 +189,7 @@ ALTIUM_COMPOUND_FILE::GetLibSymbols( const CFB::COMPOUND_FILE_ENTRY* aStart ) co
     if( !root )
         return {};
 
-    std::map<wxString, const CFB::COMPOUND_FILE_ENTRY*> folders;
+    std::map<wxString, ALTIUM_SYMBOL_DATA> folders;
 
     m_reader->EnumFiles( root, 1, [&]( const CFB::COMPOUND_FILE_ENTRY* tentry, const CFB::utf16string&, int ) -> int
     {
@@ -227,7 +204,16 @@ ALTIUM_COMPOUND_FILE::GetLibSymbols( const CFB::COMPOUND_FILE_ENTRY* aStart ) co
                         std::wstring fileName = UTF16ToWstring( entry->name, entry->nameLen );
 
                         if( m_reader->IsStream( entry ) && fileName == L"Data" )
-                            folders[dirName] = entry;
+                            folders[dirName].m_symbol = entry;
+
+                        if( m_reader->IsStream( entry ) && fileName == L"PinFrac" )
+                            folders[dirName].m_pinsFrac = entry;
+
+                        if( m_reader->IsStream( entry ) && fileName == L"PinWideText" )
+                            folders[dirName].m_pinsWideText = entry;
+
+                        if( m_reader->IsStream( entry ) && fileName == L"PinTextData" )
+                            folders[dirName].m_pinsTextData = entry;
 
                         return 0;
                     } );
@@ -323,53 +309,6 @@ ALTIUM_COMPOUND_FILE::FindStream( const std::vector<std::string>& aStreamPath ) 
 }
 
 
-void ALTIUM_COMPOUND_FILE::cacheLibFootprintNames()
-{
-    m_libFootprintDirNameCache.clear();
-    m_libFootprintNameCache.clear();
-
-    if( !m_reader )
-        return;
-
-    const CFB::COMPOUND_FILE_ENTRY* root = m_reader->GetRootEntry();
-
-    if( !root )
-        return;
-
-    m_reader->EnumFiles( root, 1,
-                        [this]( const CFB::COMPOUND_FILE_ENTRY* tentry, const CFB::utf16string& dir,
-                            int level ) -> int
-                        {
-                            if( m_reader->IsStream( tentry ) )
-                                return 0;
-
-                            m_reader->EnumFiles( tentry, 1,
-                                        [&]( const CFB::COMPOUND_FILE_ENTRY* entry, const CFB::utf16string&, int ) -> int
-                                        {
-                                            std::wstring fileName = UTF16ToWstring( entry->name, entry->nameLen );
-
-                                            if( m_reader->IsStream( entry ) && fileName == L"Parameters" )
-                                            {
-                                                ALTIUM_BINARY_PARSER                parametersReader( *this, entry );
-                                                std::map<wxString, wxString> parameterProperties =
-                                                        parametersReader.ReadProperties();
-
-                                                wxString key = ALTIUM_PROPS_UTILS::ReadString(
-                                                        parameterProperties, wxT( "PATTERN" ), wxT( "" ) );
-                                                wxString fpName = ALTIUM_PROPS_UTILS::ReadUnicodeString(
-                                                        parameterProperties, wxT( "PATTERN" ), wxT( "" ) );
-
-                                                m_libFootprintDirNameCache[key] = fpName;
-                                                m_libFootprintNameCache[fpName] = tentry;
-                                            }
-
-                                            return 0;
-                                        } );
-                            return 0;
-                         } );
-}
-
-
 ALTIUM_BINARY_PARSER::ALTIUM_BINARY_PARSER( const ALTIUM_COMPOUND_FILE&     aFile,
                               const CFB::COMPOUND_FILE_ENTRY* aEntry )
 {
@@ -420,9 +359,9 @@ std::map<wxString, wxString> ALTIUM_BINARY_PARSER::ReadProperties(
     // Both the 'l' and the null-byte are missing, which looks like Altium swallowed two bytes.
     bool hasNullByte = m_pos[length - 1] == '\0';
 
-    if( !hasNullByte )
+    if( !hasNullByte && !isBinary )
     {
-        wxLogError( _( "Missing null byte at end of property list. Imported data might be "
+        wxLogTrace( "ALTIUM", wxT( "Missing null byte at end of property list. Imported data might be "
                        "malformed or missing." ) );
     }
 
@@ -501,4 +440,3 @@ std::map<wxString, wxString> ALTIUM_BINARY_PARSER::ReadProperties(
 
     return kv;
 }
-

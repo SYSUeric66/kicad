@@ -42,20 +42,16 @@ class NETINFO_ITEM;
 class PAD;
 class PCB_SHAPE;
 class PCB_VIA;
+class PCB_TEXT;
 class PROGRESS_REPORTER;
 class SHAPE_POLY_SET;
 class SHAPE_SEGMENT;
 
-class PCB_IO_IPC2581 : public PCB_IO, public LAYER_REMAPPABLE_PLUGIN
+class PCB_IO_IPC2581 : public PCB_IO
 {
 public:
-    /**
-     * @brief PCB_IO_IPC2581
-     *
-    */
     PCB_IO_IPC2581() : PCB_IO( wxS( "IPC-2581" ) )
     {
-        m_show_layer_mapping_warnings = false;
         m_total_bytes = 0;
         m_scale = 1.0;
         m_sigfig = 3;
@@ -74,14 +70,12 @@ public:
 
     ~PCB_IO_IPC2581() override;
 
-    /**
-     *
-    */
     // BOARD* LoadBoard( const wxString& aFileName, BOARD* aAppendToMe,
-    //              const STRING_UTF8_MAP* aProperties = nullptr, PROJECT* aProject = nullptr ) override;
+    //                   const STRING_UTF8_MAP* aProperties = nullptr,
+    //                   PROJECT* aProject = nullptr ) override;
 
     void SaveBoard( const wxString& aFileName, BOARD* aBoard,
-                const STRING_UTF8_MAP* aProperties = nullptr ) override;
+                    const STRING_UTF8_MAP* aProperties = nullptr ) override;
 
     const IO_BASE::IO_FILE_DESC GetBoardFileDesc() const override
     {
@@ -120,73 +114,54 @@ public:
     }
 
 
-    /**
-     * Return the automapped layers.
-     *
-     * @param aInputLayerDescriptionVector
-     * @return Auto-mapped layers
-     */
-    // static std::map<wxString, PCB_LAYER_ID> DefaultLayerMappingCallback(
-    //         const std::vector<INPUT_LAYER_DESC>& aInputLayerDescriptionVector );
-
-    /**
-     * Register a different handler to be called when mapping of IPC2581 to KiCad layers occurs.
-     *
-     * @param aLayerMappingHandler
-     */
-    // void RegisterLayerMappingCallback( LAYER_MAPPING_HANDLER aLayerMappingHandler ) override
-    // {};
-
 private:
 
     /**
      * Frees the memory allocated for the loaded footprints in #m_loaded_footprints.
-     *
-    */
+     */
     void clearLoadedFootprints();
 
     /**
      * Creates the XML header for IPC-2581
-     *
-    */
+     */
     wxXmlNode* generateXmlHeader();
 
     /**
      * Creates the Content section of the XML file.  This holds the overview of
      * the rest of the board data.  Includes references to the step, bom, and layers
      * as well as the content dictionaries
-    */
+     */
     wxXmlNode* generateContentSection();
 
     /**
      * Creates the logistical data header.  This section defines the organization and person
      * creating the file.  Can be used for contact information and config management
-    */
+     */
     wxXmlNode* generateLogisticSection();
 
     /**
      * Creates the history section.  This section defines the history of the file, the revision
      * number, and the date of the revision as well as software used to create the file.  Optionally,
      * the data could include information about the git revision and tag
-    */
+     */
     wxXmlNode* generateHistorySection();
 
     /**
      * Creates the BOM section.  This section defines the BOM data for the board.  This includes
      * the part number, manufacturer, and distributor information for each component on the board.
-    */
+     */
     wxXmlNode* generateBOMSection( wxXmlNode* aEcadNode );
 
     /**
      * Creates the ECAD section.  This describes the layout, layers, and design as well as
      * component placement and netlist information
-    */
+     */
     wxXmlNode* generateEcadSection();
 
     /**
      * Creates the Approved Vendor List section.  If the user chooses, this will associate
      * BOM items with vendor numbers and names.
-    */
+     */
     wxXmlNode* generateAvlSection();
 
     void generateCadLayers( wxXmlNode* aCadLayerNode );
@@ -235,6 +210,8 @@ private:
 
     void addSlotCavity( wxXmlNode* aContentNode, const PAD& aPad, const wxString& aName );
 
+    void addKnockoutText( wxXmlNode* aContentNode, PCB_TEXT* aText );
+
     void addText( wxXmlNode* aContentNode, EDA_TEXT* aShape, const KIFONT::METRICS& aFontMetrics );
 
     void addLineDesc( wxXmlNode* aNode, int aWidth, LINE_STYLE aDashType, bool aForce = false );
@@ -259,6 +236,8 @@ private:
     size_t shapeHash( const PCB_SHAPE& aShape );
 
     wxString genString( const wxString& aStr, const char* aPrefix = nullptr ) const;
+    wxString genLayerString( PCB_LAYER_ID aLayer, const char* aPrefix ) const;
+    wxString genLayersString( PCB_LAYER_ID aTop, PCB_LAYER_ID aBottom, const char* aPrefix ) const;
 
     wxString floatVal( double aVal );
 
@@ -285,8 +264,6 @@ private:
 
     bool isValidLayerFor2581( PCB_LAYER_ID aLayer );
 private:
-    LAYER_MAPPING_HANDLER   m_layerMappingHandler;
-    bool                    m_show_layer_mapping_warnings;
 
     size_t                  m_total_bytes;  //<! Total number of bytes to be written
 

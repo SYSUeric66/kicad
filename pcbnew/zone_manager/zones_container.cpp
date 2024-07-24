@@ -42,7 +42,7 @@ ZONES_CONTAINER::ZONES_CONTAINER( BOARD* aBoard ) : m_originalZoneList( aBoard->
         {
             std::shared_ptr<ZONE> zone_clone =
                     std::shared_ptr<ZONE>( static_cast<ZONE*>( zone->Clone() ) );
-            m_zonesColoneMap.try_emplace( zone, zone_clone );
+            m_zonesCloneMap.try_emplace( zone, zone_clone );
             m_clonedZoneList.push_back( zone_clone.get() );
             clonedZones.push_back( std::move( zone_clone ) );
         }
@@ -84,9 +84,25 @@ void ZONES_CONTAINER::OnUserConfirmChange()
     FlushZoneSettingsChange();
     FlushPriorityChange();
 
-    for( auto& [c, v] : m_zonesColoneMap )
+    for( auto& [zone, zoneClone] : m_zonesCloneMap )
     {
-        *c = *v;
+        std::map<PCB_LAYER_ID, std::shared_ptr<SHAPE_POLY_SET>> filled_zone_to_restore;
+        zone->GetLayerSet().RunOnLayers(
+                [&]( PCB_LAYER_ID layer )
+                {
+                    std::shared_ptr<SHAPE_POLY_SET> fill = zone->GetFilledPolysList( layer );
+                    if( fill )
+                    {
+                        filled_zone_to_restore[layer] = fill;
+                    }
+                } );
+
+        *zone = *zoneClone;
+
+        for( auto& it : filled_zone_to_restore )
+        {
+            zone->SetFilledPolysList( it.first, *it.second.get() );
+        }
     }
 }
 
@@ -115,9 +131,7 @@ bool ZONES_CONTAINER::FlushPriorityChange()
     if( priorityChanged )
     {
         for( std::shared_ptr<ZONE_PRIORITY_CONTAINER>& c : m_zonesPriorityContainer )
-        {
             c->OnUserConfirmChange();
-        }
     }
 
     return priorityChanged;

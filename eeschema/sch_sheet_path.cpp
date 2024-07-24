@@ -52,7 +52,7 @@ public:
         SCH_ITEM( nullptr, NOT_USED )
     {}
 
-    wxString GetItemDescription( UNITS_PROVIDER* aUnitsProvider ) const override
+    wxString GetItemDescription( UNITS_PROVIDER* aUnitsProvider, bool aFull ) const override
     {
         return _( "(Deleted Item)" );
     }
@@ -138,11 +138,12 @@ SCH_SHEET_PATH SCH_SHEET_PATH::operator+( const SCH_SHEET_PATH& aOther )
 
 void SCH_SHEET_PATH::initFromOther( const SCH_SHEET_PATH& aOther )
 {
-    m_sheets            = aOther.m_sheets;
-    m_virtualPageNumber = aOther.m_virtualPageNumber;
-    m_current_hash      = aOther.m_current_hash;
+    m_sheets             = aOther.m_sheets;
+    m_virtualPageNumber  = aOther.m_virtualPageNumber;
+    m_current_hash       = aOther.m_current_hash;
+    m_cached_page_number = aOther.m_cached_page_number;
 
-    // Note: don't copy m_recursion_test_cache as it is slow and we want SCH_SHEET_PATHS to be
+    // Note: don't copy m_recursion_test_cache as it is slow and we want std::vector<SCH_SHEET_PATH> to be
     // very fast to construct for use in the connectivity algorithm.
 }
 
@@ -261,6 +262,54 @@ SCH_SCREEN* SCH_SHEET_PATH::LastScreen() const
 }
 
 
+bool SCH_SHEET_PATH::GetExcludedFromSim() const
+{
+    for( SCH_SHEET* sheet : m_sheets )
+    {
+        if( sheet->GetExcludedFromSim() )
+            return true;
+    }
+
+    return false;
+}
+
+
+bool SCH_SHEET_PATH::GetExcludedFromBOM() const
+{
+    for( SCH_SHEET* sheet : m_sheets )
+    {
+        if( sheet->GetExcludedFromBOM() )
+            return true;
+    }
+
+    return false;
+}
+
+
+bool SCH_SHEET_PATH::GetExcludedFromBoard() const
+{
+    for( SCH_SHEET* sheet : m_sheets )
+    {
+        if( sheet->GetExcludedFromBoard() )
+            return true;
+    }
+
+    return false;
+}
+
+
+bool SCH_SHEET_PATH::GetDNP() const
+{
+    for( SCH_SHEET* sheet : m_sheets )
+    {
+        if( sheet->GetDNP() )
+            return true;
+    }
+
+    return false;
+}
+
+
 wxString SCH_SHEET_PATH::PathAsString() const
 {
     wxString s;
@@ -279,6 +328,7 @@ wxString SCH_SHEET_PATH::PathAsString() const
 KIID_PATH SCH_SHEET_PATH::Path() const
 {
     KIID_PATH path;
+    path.reserve( m_sheets.size() );
 
     for( const SCH_SHEET* sheet : m_sheets )
         path.push_back( sheet->m_Uuid );
@@ -386,11 +436,9 @@ void SCH_SHEET_PATH::AppendSymbol( SCH_REFERENCE_LIST& aReferences, SCH_SYMBOL* 
     // affects power symbols.
     if( aIncludePowerSymbols || aSymbol->GetRef( this )[0] != wxT( '#' ) )
     {
-        LIB_SYMBOL* symbol = aSymbol->GetLibSymbolRef().get();
-
-        if( symbol || aForceIncludeOrphanSymbols )
+        if( aSymbol->GetLibSymbolRef() || aForceIncludeOrphanSymbols )
         {
-            SCH_REFERENCE schReference( aSymbol, symbol, *this );
+            SCH_REFERENCE schReference( aSymbol, *this );
 
             schReference.SetSheetNumber( m_virtualPageNumber );
             aReferences.AddItem( schReference );
@@ -423,7 +471,7 @@ void SCH_SHEET_PATH::AppendMultiUnitSymbol( SCH_MULTI_UNIT_REFERENCE_MAP& aRefLi
 
     if( symbol && symbol->GetUnitCount() > 1 )
     {
-        SCH_REFERENCE schReference = SCH_REFERENCE( aSymbol, symbol, *this );
+        SCH_REFERENCE schReference = SCH_REFERENCE( aSymbol, *this );
         schReference.SetSheetNumber( m_virtualPageNumber );
         wxString reference_str = schReference.GetRef();
 
@@ -528,8 +576,7 @@ wxString SCH_SHEET_PATH::GetPageNumber() const
 
     wxCHECK( sheet, wxEmptyString );
 
-    SCH_SHEET_PATH tmpPath = *this;
-
+    KIID_PATH tmpPath = Path();
     tmpPath.pop_back();
 
     return sheet->getPageNumber( tmpPath );
@@ -542,7 +589,7 @@ void SCH_SHEET_PATH::SetPageNumber( const wxString& aPageNumber )
 
     wxCHECK( sheet, /* void */ );
 
-    SCH_SHEET_PATH tmpPath = *this;
+    KIID_PATH tmpPath = Path();
 
     tmpPath.pop_back();
 
@@ -664,15 +711,10 @@ void SCH_SHEET_PATH::MakeFilePathRelativeToParentSheet()
 }
 
 
-SCH_SHEET_LIST::SCH_SHEET_LIST( SCH_SHEET* aSheet, bool aCheckIntegrity )
+SCH_SHEET_LIST::SCH_SHEET_LIST( SCH_SHEET* aSheet )
 {
     if( aSheet != nullptr )
-    {
-        BuildSheetList( aSheet, aCheckIntegrity );
-
-        if( aSheet->IsRootSheet() )
-            SortByPageNumbers();
-    }
+        BuildSheetList( aSheet, false );
 }
 
 
@@ -730,17 +772,27 @@ void SCH_SHEET_LIST::BuildSheetList( SCH_SHEET* aSheet, bool aCheckIntegrity )
 
 void SCH_SHEET_LIST::SortByPageNumbers( bool aUpdateVirtualPageNums )
 {
+    for( const SCH_SHEET_PATH& path : *this )
+        path.CachePageNumber();
+
     std::sort( begin(), end(),
-        []( SCH_SHEET_PATH a, SCH_SHEET_PATH b ) -> bool
+        []( const SCH_SHEET_PATH& a, const SCH_SHEET_PATH& b ) -> bool
         {
-            int retval = a.ComparePageNum( b );
+            int retval = SCH_SHEET::ComparePageNum( a.GetCachedPageNumber(),
+                                                    b.GetCachedPageNumber() );
 
             if( retval < 0 )
                 return true;
             else if( retval > 0 )
                 return false;
-            else /// Enforce strict ordering.  If the page numbers are the same, use UUIDs
-                return a.GetCurrentHash() < b.GetCurrentHash();
+
+            if( a.GetVirtualPageNumber() < b.GetVirtualPageNumber() )
+                return true;
+            else if( a.GetVirtualPageNumber() > b.GetVirtualPageNumber() )
+                return false;
+
+            /// Enforce strict ordering.  If the page numbers are the same, use UUIDs
+            return a.GetCurrentHash() < b.GetCurrentHash();
         } );
 
     if( aUpdateVirtualPageNums )
@@ -748,9 +800,7 @@ void SCH_SHEET_LIST::SortByPageNumbers( bool aUpdateVirtualPageNums )
         int virtualPageNum = 1;
 
         for( SCH_SHEET_PATH& sheet : *this )
-        {
             sheet.SetVirtualPageNumber( virtualPageNum++ );
-        }
     }
 }
 
@@ -898,7 +948,7 @@ void SCH_SHEET_LIST::AnnotatePowerSymbols()
 
             if( libSymbol && libSymbol->IsPower() )
             {
-                SCH_REFERENCE schReference( symbol, libSymbol, sheet );
+                SCH_REFERENCE schReference( symbol, sheet );
                 references.AddItem( schReference );
             }
         }
@@ -970,7 +1020,7 @@ void SCH_SHEET_LIST::GetSymbolsWithinPath( SCH_REFERENCE_LIST&   aReferences,
 }
 
 
-void SCH_SHEET_LIST::GetSheetsWithinPath( SCH_SHEET_PATHS&      aSheets,
+void SCH_SHEET_LIST::GetSheetsWithinPath( std::vector<SCH_SHEET_PATH>& aSheets,
                                           const SCH_SHEET_PATH& aSheetPath ) const
 {
     for( const SCH_SHEET_PATH& sheet : *this )
@@ -1002,7 +1052,7 @@ std::optional<SCH_SHEET_PATH> SCH_SHEET_LIST::GetSheetPathByKIIDPath( const KIID
 void SCH_SHEET_LIST::GetMultiUnitSymbols( SCH_MULTI_UNIT_REFERENCE_MAP &aRefList,
                                           bool aIncludePowerSymbols ) const
 {
-    for( SCH_SHEET_PATHS::const_iterator it = begin(); it != end(); ++it )
+    for( auto it = begin(); it != end(); ++it )
     {
         SCH_MULTI_UNIT_REFERENCE_MAP tempMap;
         ( *it ).GetMultiUnitSymbols( tempMap, aIncludePowerSymbols );
@@ -1275,7 +1325,7 @@ void SCH_SHEET_LIST::AddNewSheetInstances( const SCH_SHEET_PATH& aPrefixSheetPat
 
     for( SCH_SHEET_PATH& sheetPath : *this )
     {
-        SCH_SHEET_PATH tmp( sheetPath );
+        KIID_PATH tmp = sheetPath.Path();
         SCH_SHEET_PATH newSheetPath( aPrefixSheetPath );
 
         // Prefix the new hierarchical path.
@@ -1293,10 +1343,10 @@ void SCH_SHEET_LIST::AddNewSheetInstances( const SCH_SHEET_PATH& aPrefixSheetPat
         SCH_SHEET_INSTANCE instance;
 
         // Add the instance if it doesn't already exist
-        if( !sheet->getInstance( instance, tmp.Path(), true ) )
+        if( !sheet->getInstance( instance, tmp, true ) )
         {
             sheet->addInstance( tmp );
-            sheet->getInstance( instance, tmp.Path(), true );
+            sheet->getInstance( instance, tmp, true );
         }
 
         // Get a new page number if we don't have one

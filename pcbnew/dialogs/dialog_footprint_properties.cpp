@@ -42,8 +42,8 @@
 #include <widgets/text_ctrl_eval.h>
 #include <widgets/std_bitmap_button.h>
 #include <settings/settings_manager.h>
+#include <panel_embedded_files.h>
 #include <panel_fp_properties_3d_model.h>
-#include <dialogs/3d_cache_dialogs.h>
 #include <dialogs/panel_preview_3d_model.h>
 #include <dialog_footprint_properties.h>
 
@@ -74,6 +74,9 @@ DIALOG_FOOTPRINT_PROPERTIES::DIALOG_FOOTPRINT_PROPERTIES( PCB_EDIT_FRAME* aParen
     // Create the 3D models page
     m_3dPanel = new PANEL_FP_PROPERTIES_3D_MODEL( m_frame, m_footprint, this, m_NoteBook );
     m_NoteBook->AddPage( m_3dPanel, _("3D Models"), false );
+
+    m_embeddedFiles = new PANEL_EMBEDDED_FILES( m_NoteBook, m_footprint );
+    m_NoteBook->AddPage( m_embeddedFiles, _( "Embedded Files" ) );
 
     // Configure display origin transforms
     m_posX.SetCoordType( ORIGIN_TRANSFORMS::ABS_X_COORD );
@@ -261,6 +264,9 @@ bool DIALOG_FOOTPRINT_PROPERTIES::TransferDataToWindow()
     if( !m_3dPanel->TransferDataToWindow() )
         return false;
 
+    if( !m_embeddedFiles->TransferDataToWindow() )
+        return false;
+
     // Footprint Fields
     for( PCB_FIELD* srcField : m_footprint->GetFields() )
     {
@@ -353,8 +359,8 @@ bool DIALOG_FOOTPRINT_PROPERTIES::TransferDataToWindow()
             for( PCB_LAYER_ID layer : board->GetEnabledLayers().Seq() )
                 col_size = std::max( col_size, GetTextExtent( board->GetLayerName( layer ) ).x );
 
-            // And the swatch:
-            col_size += 20;
+            // Swatch and gaps:
+            col_size += KiROUND( 14 * GetDPIScaleFactor() ) + 12;
         }
 
         if( m_itemsGrid->IsColShown( col ) )
@@ -492,6 +498,9 @@ bool DIALOG_FOOTPRINT_PROPERTIES::TransferDataFromWindow()
     // This only commits the editor, model updating is done below so it is inside
     // the commit
     if( !m_3dPanel->TransferDataFromWindow() )
+        return false;
+
+    if( !m_embeddedFiles->TransferDataFromWindow() )
         return false;
 
     auto view = m_frame->GetCanvas()->GetView();

@@ -591,7 +591,7 @@ void EDA_3D_VIEWER_FRAME::LoadSettings( APP_SETTINGS_BASE *aCfg )
                                                   GetAdapter().GetDefaultColors() );
             }
 
-            cfg->m_CurrentPreset = wxEmptyString;
+            cfg->m_CurrentPreset = FOLLOW_PLOT_SETTINGS;
         }
 
         m_boardAdapter.InitSettings( nullptr, nullptr );
@@ -810,9 +810,6 @@ void EDA_3D_VIEWER_FRAME::loadCommonSettings()
     wxCHECK_RET( m_canvas, wxT( "Cannot load settings to null canvas" ) );
 
     COMMON_SETTINGS* settings = Pgm().GetCommonSettings();
-
-    const DPI_SCALING_COMMON dpi{ settings, this };
-    m_canvas->SetScaleFactor( dpi.GetScaleFactor() );
 
     // TODO(JE) use all control options
     m_boardAdapter.m_MousewheelPanning = settings->m_Input.scroll_modifier_zoom != 0;

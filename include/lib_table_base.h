@@ -334,9 +334,6 @@ public:
 
     virtual ~LIB_TABLE();
 
-    /// Delete all rows.
-    void Clear();
-
     /**
      * Compares this table against another.
      *
@@ -530,6 +527,11 @@ public:
     }
 
 protected:
+    /*
+     * Do not make this public.  It MUST be called with a lock already in place.
+     */
+    void clear();
+
     /**
      * Return a #LIB_TABLE_ROW if \a aNickname is found in this table or in any chained
      * fallBack table fragment, else NULL.
@@ -541,6 +543,11 @@ protected:
     LIB_TABLE_ROW* findRow( const wxString& aNickname, bool aCheckIfEnabled = false ) const;
 
     /**
+     * Performs the mechanics of inserting a row, but without locking or reindexing.
+     */
+    bool doInsertRow( LIB_TABLE_ROW* aRow, bool doReplace = false );
+
+    /**
      * Updates the env vars from older version of KiCad, provided they do not currently
      * resolve to anything
      *
@@ -548,6 +555,9 @@ protected:
      */
     bool migrate();
 
+    /*
+     * Do not make this public.  It MUST be called with a lock already in place.
+     */
     void reindex();
 
 protected:

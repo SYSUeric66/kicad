@@ -249,8 +249,7 @@ void TEARDROP_MANAGER::computeCurvedForRoundShape( const TEARDROP_PARAMETERS& aP
     VECTOR2I tangentA = VECTOR2I( pts[0].x - aTrackDir.x * biasAE, pts[0].y - aTrackDir.y * biasAE );
 
     std::vector<VECTOR2I> curve_pts;
-    curve_pts.reserve( aParams.m_CurveSegCount );
-    BEZIER_POLY( pts[1], tangentB, tangentC, pts[2] ).GetPoly( curve_pts, 0, aParams.m_CurveSegCount );
+    BEZIER_POLY( pts[1], tangentB, tangentC, pts[2] ).GetPoly( curve_pts, ARC_HIGH_DEF );
 
     for( VECTOR2I& corner: curve_pts )
         aPoly.push_back( corner );
@@ -258,7 +257,7 @@ void TEARDROP_MANAGER::computeCurvedForRoundShape( const TEARDROP_PARAMETERS& aP
     aPoly.push_back( pts[3] );
 
     curve_pts.clear();
-    BEZIER_POLY( pts[4], tangentE, tangentA, pts[0] ).GetPoly( curve_pts, 0, aParams.m_CurveSegCount );
+    BEZIER_POLY( pts[4], tangentE, tangentA, pts[0] ).GetPoly( curve_pts, ARC_HIGH_DEF );
 
     for( VECTOR2I& corner: curve_pts )
         aPoly.push_back( corner );
@@ -272,11 +271,12 @@ void TEARDROP_MANAGER::computeCurvedForRoundShape( const TEARDROP_PARAMETERS& aP
 void TEARDROP_MANAGER::computeCurvedForRectShape( const TEARDROP_PARAMETERS& aParams,
                                                   std::vector<VECTOR2I>& aPoly, int aTdWidth,
                                                   int aTrackHalfWidth,
-                                                  std::vector<VECTOR2I>& aPts ) const
+                                                  std::vector<VECTOR2I>& aPts,
+                                                  const VECTOR2I& aIntersection) const
 {
     // in aPts:
-    // A and B are points on the track ( pts[0] and  pts[1] )
-    // C and E are points on the aViaPad ( pts[2] and  pts[4] )
+    // A and B are points on the track ( pts[0] and pts[1] )
+    // C and E are points on the pad/via ( pts[2] and pts[4] )
     // D is the aViaPad centre ( pts[3] )
 
     // side1 is( aPts[1], aPts[2] );  from track to via
@@ -284,70 +284,28 @@ void TEARDROP_MANAGER::computeCurvedForRectShape( const TEARDROP_PARAMETERS& aPa
     // side2 is ( aPts[4], aPts[0] ); from via to track
     VECTOR2I side2( aPts[4] - aPts[0] );  // vector from track to via
 
+    VECTOR2I trackDir( aIntersection - ( aPts[0] + aPts[1] ) / 2 );
+
     std::vector<VECTOR2I> curve_pts;
-    curve_pts.reserve( aParams.m_CurveSegCount );
 
-    // Note: This side is from track to via
-    VECTOR2I ctrl1 = ( aPts[1] + aPts[1] + aPts[2] ) / 3;
-    VECTOR2I ctrl2 = ( aPts[1] + aPts[2] + aPts[2] ) / 3;
+    // Note: This side is from track to pad/via
+    VECTOR2I ctrl1 = aPts[1] + trackDir.Resize( side1.EuclideanNorm() / 4 );
+    VECTOR2I ctrl2 = ( aPts[2] + aIntersection ) / 2;
 
-    // The control points must be moved toward the polygon inside, in order to give a curved shape
-    // The move vector is perpendicular to the vertex (side 1 or side 2), and its
-    // value is delta, depending on the sizes of via and track
-    int delta = ( aTdWidth / 2 - aTrackHalfWidth );
-
-    delta /= 4;     // A scaling factor giving a fine shape, defined from tests.
-    // However for short sides, the value of delta must be reduced, depending
-    // on the side length
-    // We use here a max delta value = side_length/8, defined from tests
-
-    int side_length = side1.EuclideanNorm();
-    int delta_effective = std::min( delta, side_length/8 );
-    // The move vector depend on the quadrant: it must be always defined to create a
-    // curve with a direction toward the track
-    EDA_ANGLE angle1( side1 );
-    int       sign = std::abs( angle1 ) >= ANGLE_90 ? 1 : -1;
-    VECTOR2I  bias( 0, sign * delta_effective );
-
-    // Does not works well with the current algo, due to an initial bug.
-    // but I (JPC) keep it here because probably it will gives a better shape
-    // if the algo is refined.
-    // RotatePoint( bias, angle1 );
-
-    ctrl1.x += bias.x;
-    ctrl1.y += bias.y;
-    ctrl2.x += bias.x;
-    ctrl2.y += bias.y;
-
-    BEZIER_POLY( aPts[1], ctrl1, ctrl2, aPts[2] ).GetPoly( curve_pts, 0, aParams.m_CurveSegCount );
+    BEZIER_POLY( aPts[1], ctrl1, ctrl2, aPts[2] ).GetPoly( curve_pts, ARC_HIGH_DEF );
 
     for( VECTOR2I& corner: curve_pts )
         aPoly.push_back( corner );
 
     aPoly.push_back( aPts[3] );
 
-    // Note: This side is from via to track
+    // Note: This side is from pad/via to track
     curve_pts.clear();
-    ctrl1 = ( aPts[4] + aPts[4] + aPts[0] ) / 3;
-    ctrl2 = ( aPts[4] + aPts[0] + aPts[0] ) / 3;
 
-    side_length = side2.EuclideanNorm();
-    delta_effective = std::min( delta, side_length/8 );
+    ctrl1 = ( aPts[4] + aIntersection ) / 2;
+    ctrl2 = aPts[0] + trackDir.Resize( side2.EuclideanNorm() / 4 );
 
-    EDA_ANGLE angle2( side2 );
-    sign = std::abs( angle2 ) <= ANGLE_90 ? 1 : -1;
-
-    bias = VECTOR2I( 0, sign * delta_effective );
-
-    // Does not works well with the current algo
-    // RotatePoint( bias, angle2 );
-
-    ctrl1.x += bias.x;
-    ctrl1.y += bias.y;
-    ctrl2.x += bias.x;
-    ctrl2.y += bias.y;
-
-    BEZIER_POLY( aPts[4], ctrl1, ctrl2, aPts[0] ).GetPoly( curve_pts, 0, aParams.m_CurveSegCount );
+    BEZIER_POLY( aPts[4], ctrl1, ctrl2, aPts[0] ).GetPoly( curve_pts, ARC_HIGH_DEF );
 
     for( VECTOR2I& corner: curve_pts )
         aPoly.push_back( corner );
@@ -536,8 +494,8 @@ bool TEARDROP_MANAGER::computeAnchorPoints( const TEARDROP_PARAMETERS& aParams, 
 
 bool TEARDROP_MANAGER::findAnchorPointsOnTrack( const TEARDROP_PARAMETERS& aParams,
                                                 VECTOR2I& aStartPoint, VECTOR2I& aEndPoint,
-                                                PCB_TRACK*& aTrack, BOARD_ITEM* aOther,
-                                                const VECTOR2I& aOtherPos,
+                                                VECTOR2I& aIntersection, PCB_TRACK*& aTrack,
+                                                BOARD_ITEM* aOther, const VECTOR2I& aOtherPos,
                                                 int* aEffectiveTeardropLen ) const
 {
     bool found = true;
@@ -594,15 +552,17 @@ bool TEARDROP_MANAGER::findAnchorPointsOnTrack( const TEARDROP_PARAMETERS& aPara
         pt_count = outline.Intersect( poly, pts );
     }
     else
+    {
         pt_count = outline.Intersect( SEG( start, end ), pts );
+    }
 
     // Ensure a intersection point was found, otherwise we cannot built the teardrop
     // using this track (it is fully outside or inside the pad/via shape)
     if( pt_count < 1 )
         return false;
 
-    VECTOR2I intersect = pts[0].p;
-    start = intersect;      // This is currently the reference point of the teardrop lenght
+    aIntersection = pts[0].p;
+    start = aIntersection;      // This is currently the reference point of the teardrop length
 
     // actualTdLen for now the distance between start and the teardrop point on the (start end)segment
     // It cannot be bigger than the lenght of this segment
@@ -719,12 +679,16 @@ bool TEARDROP_MANAGER::computeTeardropPolygon( const TEARDROP_PARAMETERS& aParam
     VECTOR2I start, end;    // Start and end points of the track anchor of the teardrop
                             // the start point is inside the teardrop shape
                             // the end point is outside.
+    VECTOR2I intersection;  // Where the track centerline intersects the pad/via edge
     int track_stub_len;     // the dist between the start point and the anchor point
                             // on the track
 
     // Note: aTrack can be modified if the initial track is too short
-    if( !findAnchorPointsOnTrack( aParams, start, end, aTrack, aOther, aOtherPos, &track_stub_len ) )
+    if( !findAnchorPointsOnTrack( aParams, start, end, intersection, aTrack, aOther, aOtherPos,
+                                  &track_stub_len ) )
+    {
         return false;
+    }
 
     // The start and end points must be different to calculate a valid polygon shape
     if( start == end )
@@ -759,8 +723,8 @@ bool TEARDROP_MANAGER::computeTeardropPolygon( const TEARDROP_PARAMETERS& aParam
     int offset = pcbIUScale.mmToIU( 0.001 );
     pointD += VECTOR2I( int( -vecT.x*offset), int(-vecT.y*offset) );
 
-    VECTOR2I pointC, pointE;     // Point on PADVIA outlines
-    std::vector<VECTOR2I> pts = {pointA, pointB, pointC, pointD, pointE};
+    VECTOR2I pointC, pointE;     // Point on pad/via outlines
+    std::vector<VECTOR2I> pts = { pointA, pointB, pointC, pointD, pointE };
 
     computeAnchorPoints( aParams, aTrack->GetLayer(), aOther, aOtherPos, pts );
 
@@ -782,7 +746,7 @@ bool TEARDROP_MANAGER::computeTeardropPolygon( const TEARDROP_PARAMETERS& aParam
         if( aParams.m_TdMaxWidth > 0 && aParams.m_TdMaxWidth < td_width )
             td_width = aParams.m_TdMaxWidth;
 
-        computeCurvedForRectShape( aParams, aCorners, td_width, track_halfwidth, pts );
+        computeCurvedForRectShape( aParams, aCorners, td_width, track_halfwidth, pts, intersection );
     }
 
     return true;

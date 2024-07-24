@@ -40,7 +40,6 @@
 #include <geometry/shape_segment.h>
 #include <gestfich.h>
 #include <dialogs/html_message_box.h>
-#include <core/ignore.h>
 #include <invoke_sch_dialog.h>
 #include <string_utils.h>
 #include <kiface_base.h>
@@ -56,10 +55,8 @@
 #include <sch_edit_frame.h>
 #include <symbol_chooser_frame.h>
 #include <sch_painter.h>
-#include <sch_sheet.h>
 #include <sch_marker.h>
 #include <sch_sheet_pin.h>
-#include <schematic.h>
 #include <sch_commit.h>
 #include <sch_rule_area.h>
 #include <settings/settings_manager.h>
@@ -69,6 +66,7 @@
 #include <tool/action_toolbar.h>
 #include <tool/common_control.h>
 #include <tool/common_tools.h>
+#include <tool/embed_tool.h>
 #include <tool/picker_tool.h>
 #include <tool/properties_tool.h>
 #include <tool/selection.h>
@@ -78,7 +76,6 @@
 #include <tools/ee_actions.h>
 #include <tools/ee_inspection_tool.h>
 #include <tools/ee_point_editor.h>
-#include <tools/ee_selection_tool.h>
 #include <tools/sch_drawing_tools.h>
 #include <tools/sch_edit_tool.h>
 #include <tools/sch_edit_table_tool.h>
@@ -99,6 +96,7 @@
 #include <wx/app.h>
 #include <wx/filedlg.h>
 #include <wx/socket.h>
+#include <wx/debug.h>
 #include <widgets/panel_sch_selection_filter.h>
 #include <widgets/wx_aui_utils.h>
 #include <drawing_sheet/ds_proxy_view_item.h>
@@ -178,7 +176,10 @@ SCH_EDIT_FRAME::SCH_EDIT_FRAME( KIWAY* aKiway, wxWindow* aParent ) :
 
     // NB: also links the schematic to the loaded project
     CreateScreens();
-    SetCurrentSheet( Schematic().GetSheets()[0] );
+
+    SCH_SHEET_PATH root;
+    root.push_back( &Schematic().Root() );
+    SetCurrentSheet( root );
 
     setupTools();
     setupUIConditions();
@@ -189,12 +190,7 @@ SCH_EDIT_FRAME::SCH_EDIT_FRAME( KIWAY* aKiway, wxWindow* aParent ) :
 
 #ifdef KICAD_IPC_API
     wxTheApp->Bind( EDA_EVT_PLUGIN_AVAILABILITY_CHANGED,
-            [&]( wxCommandEvent& aEvt )
-            {
-                wxLogTrace( traceApi, "SCH frame: EDA_EVT_PLUGIN_AVAILABILITY_CHANGED" );
-                ReCreateHToolbar();
-                aEvt.Skip();
-            } );
+                    &SCH_EDIT_FRAME::onPluginAvailabilityChanged, this );
 #endif
 
     m_hierarchy = new HIERARCHY_PANE( this );
@@ -373,6 +369,7 @@ SCH_EDIT_FRAME::SCH_EDIT_FRAME( KIWAY* aKiway, wxWindow* aParent ) :
     }
 
     LoadProjectSettings();
+    LoadDrawingSheet();
 
     view->SetLayerVisible( LAYER_ERC_ERR, cfg->m_Appearance.show_erc_errors );
     view->SetLayerVisible( LAYER_ERC_WARN, cfg->m_Appearance.show_erc_warnings );
@@ -429,6 +426,12 @@ SCH_EDIT_FRAME::SCH_EDIT_FRAME( KIWAY* aKiway, wxWindow* aParent ) :
 
 SCH_EDIT_FRAME::~SCH_EDIT_FRAME()
 {
+#ifdef KICAD_IPC_API
+    Pgm().GetApiServer().DeregisterHandler( m_apiHandler.get() );
+    wxTheApp->Unbind( EDA_EVT_PLUGIN_AVAILABILITY_CHANGED,
+                      &SCH_EDIT_FRAME::onPluginAvailabilityChanged, this );
+#endif
+
     m_hierarchy->Unbind( wxEVT_SIZE, &SCH_EDIT_FRAME::OnResizeHierarchyNavigator, this );
 
     // Ensure m_canvasType is up to date, to save it in config
@@ -438,6 +441,11 @@ SCH_EDIT_FRAME::~SCH_EDIT_FRAME()
 
     if( m_schematic )
         m_schematic->RemoveAllListeners();
+
+    // Delete all items not in draw list before deleting schematic
+    // to avoid dangling pointers stored in these items
+    ClearUndoRedoList();
+    ClearRepeatItemsList();
 
     delete m_schematic;
     m_schematic = nullptr;
@@ -449,11 +457,9 @@ SCH_EDIT_FRAME::~SCH_EDIT_FRAME()
         {
             GetSettingsManager()->UnloadProject( &Prj(), false );
         }
-        catch( const nlohmann::detail::type_error& exc )
+        catch( const nlohmann::detail::type_error& e )
         {
-            // This may be overkill and could be an assertion but we are more likely to
-            // find any settings manager errors this way.
-            wxLogError( wxT( "Settings exception '%s' occurred." ), exc.what() );
+            wxFAIL_MSG( wxString::Format( wxT( "Settings exception occurred: %s" ), e.what() ) );
         }
     }
 
@@ -520,6 +526,7 @@ void SCH_EDIT_FRAME::setupTools()
     m_toolManager->RegisterTool( new EE_POINT_EDITOR );
     m_toolManager->RegisterTool( new SCH_NAVIGATE_TOOL );
     m_toolManager->RegisterTool( new PROPERTIES_TOOL );
+    m_toolManager->RegisterTool( new EMBED_TOOL );
     m_toolManager->InitTools();
 
     // Run the selection tool, it is supposed to be always active
@@ -670,6 +677,13 @@ void SCH_EDIT_FRAME::setupUIConditions()
                 return cfg && cfg->m_Appearance.show_erc_exclusions;
             };
 
+    auto markSimExclusionsCond =
+            [this]( const SELECTION& )
+            {
+                EESCHEMA_SETTINGS* cfg = eeconfig();
+                return cfg && cfg->m_Appearance.mark_sim_exclusions;
+            };
+
     auto showOPVoltagesCond =
             [this]( const SELECTION& )
             {
@@ -707,20 +721,6 @@ void SCH_EDIT_FRAME::setupUIConditions()
                 return navigateTool && navigateTool->CanGoUp();
             };
 
-    auto navSchematicHasPreviousSheet =
-            [this]( const SELECTION& aSel )
-            {
-                SCH_NAVIGATE_TOOL* navigateTool = m_toolManager->GetTool<SCH_NAVIGATE_TOOL>();
-                return navigateTool && navigateTool->CanGoPrevious();
-            };
-
-    auto navSchematicHasNextSheet =
-            [this]( const SELECTION& aSel )
-            {
-                SCH_NAVIGATE_TOOL* navigateTool = m_toolManager->GetTool<SCH_NAVIGATE_TOOL>();
-                return navigateTool && navigateTool->CanGoNext();
-            };
-
     mgr->SetConditions( EE_ACTIONS::leaveSheet,            ENABLE( belowRootSheetCondition ) );
 
     /* Some of these are bound by default to arrow keys which will get a different action if we
@@ -731,8 +731,6 @@ void SCH_EDIT_FRAME::setupUIConditions()
     mgr->SetConditions( EE_ACTIONS::navigateBack,          ENABLE( navHistoryHsBackward ) );
      */
 
-    mgr->SetConditions( EE_ACTIONS::navigatePrevious,      ENABLE( navSchematicHasPreviousSheet ) );
-    mgr->SetConditions( EE_ACTIONS::navigateNext,          ENABLE( navSchematicHasNextSheet ) );
     mgr->SetConditions( EE_ACTIONS::remapSymbols,          ENABLE( remapSymbolsCondition ) );
     mgr->SetConditions( EE_ACTIONS::toggleHiddenPins,      CHECK( showHiddenPinsCond ) );
     mgr->SetConditions( EE_ACTIONS::toggleHiddenFields,    CHECK( showHiddenFieldsCond ) );
@@ -740,6 +738,7 @@ void SCH_EDIT_FRAME::setupUIConditions()
     mgr->SetConditions( EE_ACTIONS::toggleERCErrors,       CHECK( showERCErrorsCond ) );
     mgr->SetConditions( EE_ACTIONS::toggleERCWarnings,     CHECK( showERCWarningsCond ) );
     mgr->SetConditions( EE_ACTIONS::toggleERCExclusions,   CHECK( showERCExclusionsCond ) );
+    mgr->SetConditions( EE_ACTIONS::markSimExclusions,     CHECK( markSimExclusionsCond ) );
     mgr->SetConditions( EE_ACTIONS::toggleOPVoltages,      CHECK( showOPVoltagesCond ) );
     mgr->SetConditions( EE_ACTIONS::toggleOPCurrents,      CHECK( showOPCurrentsCond ) );
     mgr->SetConditions( EE_ACTIONS::toggleAnnotateAuto,    CHECK( showAnnotateAutomaticallyCond ) );
@@ -814,7 +813,7 @@ void SCH_EDIT_FRAME::AddCopyForRepeatItem( const SCH_ITEM* aItem )
 
 EDA_ITEM* SCH_EDIT_FRAME::GetItem( const KIID& aId ) const
 {
-    return Schematic().GetSheets().GetItem( aId );
+    return Schematic().GetItem( aId );
 }
 
 
@@ -934,7 +933,7 @@ bool SCH_EDIT_FRAME::canCloseWindow( wxCloseEvent& aEvent )
 
     // Shutdown blocks must be determined and vetoed as early as possible
     if( KIPLATFORM::APP::SupportsShutdownBlockReason() && aEvent.GetId() == wxEVT_QUERY_END_SESSION
-            && Schematic().GetSheets().IsModified() )
+            && IsContentModified() )
     {
         return false;
     }
@@ -982,9 +981,7 @@ bool SCH_EDIT_FRAME::canCloseWindow( wxCloseEvent& aEvent )
     if( !Schematic().IsValid() )
         return false;
 
-    SCH_SHEET_LIST sheetlist = Schematic().GetSheets();
-
-    if( sheetlist.IsModified() )
+    if( IsContentModified() )
     {
         wxFileName fileName = Schematic().RootScreen()->GetFileName();
         wxString msg = _( "Save changes to '%s' before closing?" );
@@ -1005,7 +1002,7 @@ bool SCH_EDIT_FRAME::canCloseWindow( wxCloseEvent& aEvent )
 
 void SCH_EDIT_FRAME::doCloseWindow()
 {
-    SCH_SHEET_LIST sheetlist = Schematic().GetSheets();
+    SCH_SHEET_LIST sheetlist = Schematic().BuildUnorderedSheetList();
 
     // Shutdown all running tools
     if( m_toolManager )
@@ -1097,7 +1094,7 @@ void SCH_EDIT_FRAME::doCloseWindow()
     if( !Schematic().GetFileName().IsEmpty() && !Schematic().RootScreen()->IsEmpty() )
         UpdateFileHistory( fileName );
 
-    Schematic().RootScreen()->Clear();
+    Schematic().RootScreen()->Clear( true );
 
     // all sub sheets are deleted, only the main sheet is usable
     GetCurrentSheet().clear();
@@ -1124,12 +1121,13 @@ void SCH_EDIT_FRAME::OnModify()
 {
     EDA_BASE_FRAME::OnModify();
 
-    wxCHECK( GetScreen(), /* void */ );
+    if( GetScreen() )
+        GetScreen()->SetContentModified();
 
-    GetScreen()->SetContentModified();
     m_autoSaveRequired = true;
 
-    GetCanvas()->Refresh();
+    if( GetCanvas() )
+        GetCanvas()->Refresh();
 
     if( !GetTitle().StartsWith( wxS( "*" ) ) )
         updateTitle();
@@ -1489,30 +1487,29 @@ void SCH_EDIT_FRAME::RefreshOperatingPointDisplay()
             {
                 int flags = 0;
 
+                auto invalidateTextVars =
+                        [&flags]( EDA_TEXT* text )
+                        {
+                            if( text->HasTextVars() )
+                            {
+                                text->ClearRenderCache();
+                                text->ClearBoundingBoxCache();
+                                flags |= KIGFX::GEOMETRY | KIGFX::REPAINT;
+                            }
+                        };
+
                 if( SCH_ITEM* item = dynamic_cast<SCH_ITEM*>( aItem ) )
                 {
                     item->RunOnChildren(
-                            [&flags]( SCH_ITEM* aChild )
+                            [&invalidateTextVars]( SCH_ITEM* aChild )
                             {
-                                EDA_TEXT* text = dynamic_cast<EDA_TEXT*>( aChild );
-
-                                if( text && text->HasTextVars() )
-                                {
-                                    text->ClearRenderCache();
-                                    text->ClearBoundingBoxCache();
-                                    flags |= KIGFX::GEOMETRY | KIGFX::REPAINT;
-                                }
+                                if( EDA_TEXT* text = dynamic_cast<EDA_TEXT*>( aChild ) )
+                                    invalidateTextVars( text );
                             } );
-
-                    EDA_TEXT* text = dynamic_cast<EDA_TEXT*>( aItem );
-
-                    if( text && text->HasTextVars() )
-                    {
-                        text->ClearRenderCache();
-                        text->ClearBoundingBoxCache();
-                        flags |= KIGFX::GEOMETRY | KIGFX::REPAINT;
-                    }
                 }
+
+                if( EDA_TEXT* text = dynamic_cast<EDA_TEXT*>( aItem ) )
+                    invalidateTextVars( text );
 
                 return flags;
             } );
@@ -1521,6 +1518,9 @@ void SCH_EDIT_FRAME::RefreshOperatingPointDisplay()
     //
     for( SCH_ITEM* item : GetScreen()->Items() )
     {
+        if( GetCurrentSheet().GetExcludedFromSim() )
+            continue;
+
         if( item->Type() == SCH_LINE_T )
         {
             SCH_LINE* line = static_cast<SCH_LINE*>( item );
@@ -1573,7 +1573,7 @@ void SCH_EDIT_FRAME::RefreshOperatingPointDisplay()
                 for( const auto& modelPin : model.GetPins() )
                 {
                     SCH_PIN* symbolPin = symbol->GetPin( modelPin.get().symbolPinNumber );
-                    wxString signalName = ref + wxS( ":" ) + modelPin.get().name;
+                    wxString signalName = ref + wxS( ":" ) + modelPin.get().modelPinName;
                     wxString op = m_schematic->GetOperatingPoint( signalName,
                                                                   settings.m_OPO_IPrecision,
                                                                   settings.m_OPO_IRange );
@@ -1600,16 +1600,19 @@ void SCH_EDIT_FRAME::RefreshOperatingPointDisplay()
                 SCH_LINE* longestWire = nullptr;
                 double    length = 0.0;
 
+                if( subgraph->GetSheet().GetExcludedFromSim() )
+                    continue;
+
                 for( SCH_ITEM* item : subgraph->GetItems() )
                 {
-                    if( item->IsType( { SCH_ITEM_LOCATE_WIRE_T } ) )
+                    if( item->Type() == SCH_LINE_T )
                     {
-                        SCH_LINE* wire = static_cast<SCH_LINE*>( item );
+                        SCH_LINE* line = static_cast<SCH_LINE*>( item );
 
-                        if( wire->GetLength() > length )
+                        if( line->IsWire() && line->GetLength() > length )
                         {
-                            longestWire = wire;
-                            length = wire->GetLength();
+                            longestWire = line;
+                            length = line->GetLength();
                         }
                     }
                 }
@@ -1627,7 +1630,7 @@ void SCH_EDIT_FRAME::RefreshOperatingPointDisplay()
 
 void SCH_EDIT_FRAME::AutoRotateItem( SCH_SCREEN* aScreen, SCH_ITEM* aItem )
 {
-    if( aItem->IsType( { SCH_GLOBAL_LABEL_T, SCH_HIER_LABEL_T } ) )
+    if( aItem->Type() == SCH_GLOBAL_LABEL_T || aItem->Type() == SCH_HIER_LABEL_T )
     {
         SCH_LABEL_BASE* label = static_cast<SCH_LABEL_BASE*>( aItem );
 
@@ -1712,7 +1715,7 @@ void SCH_EDIT_FRAME::RecalculateConnections( SCH_COMMIT* aCommit, SCH_CLEANUP_FL
     wxString            highlightedConn = GetHighlightedConnection();
     bool                hasHighlightedConn = !highlightedConn.IsEmpty();
     SCHEMATIC_SETTINGS& settings = Schematic().Settings();
-    SCH_SHEET_LIST      list = Schematic().GetSheets();
+    SCH_SHEET_LIST      list = Schematic().BuildSheetListSortedByPageNumbers();
     SCH_COMMIT          localCommit( m_toolManager );
 
     if( !aCommit )
@@ -1766,7 +1769,7 @@ void SCH_EDIT_FRAME::RecalculateConnections( SCH_COMMIT* aCommit, SCH_CLEANUP_FL
             };
 
     if( !ADVANCED_CFG::GetCfg().m_IncrementalConnectivity || aCleanupFlags == GLOBAL_CLEANUP
-            || m_undoList.m_CommandsList.empty() )
+            || m_undoList.m_CommandsList.empty()|| Schematic().ConnectionGraph()->IsMinor() )
     {
         // Update all rule areas so we can cascade implied connectivity changes
         std::unordered_set<SCH_SCREEN*> all_screens;
@@ -1803,7 +1806,7 @@ void SCH_EDIT_FRAME::RecalculateConnections( SCH_COMMIT* aCommit, SCH_CLEANUP_FL
         // Lambda to add an item to the connectivity update sets
         auto addItemToChangeSet = [&changed_items, &pts, &item_paths]( CHANGED_ITEM itemData )
         {
-            SCH_SHEET_PATHS& paths = itemData.screen->GetClientSheetPaths();
+            std::vector<SCH_SHEET_PATH>& paths = itemData.screen->GetClientSheetPaths();
 
             std::vector<VECTOR2I> tmp_pts = itemData.item->GetConnectionPoints();
             pts.insert( tmp_pts.begin(), tmp_pts.end() );
@@ -1834,6 +1837,19 @@ void SCH_EDIT_FRAME::RecalculateConnections( SCH_COMMIT* aCommit, SCH_CLEANUP_FL
         // Get all changed connectable items and determine all changed screens
         for( unsigned ii = 0; ii < changed_list->GetCount(); ++ii )
         {
+            switch( changed_list->GetPickedItemStatus( ii ) )
+            {
+                // Only care about changed, new, and deleted items, the other
+                // cases are not connectivity-related
+                case UNDO_REDO::CHANGED:
+                case UNDO_REDO::NEWITEM:
+                case UNDO_REDO::DELETED:
+                    break;
+
+                default:
+                    continue;
+            }
+
             SCH_ITEM* item = dynamic_cast<SCH_ITEM*>( changed_list->GetPickedItem( ii ) );
 
             if( item )
@@ -1976,6 +1992,17 @@ void SCH_EDIT_FRAME::RecalculateConnections( SCH_COMMIT* aCommit, SCH_CLEANUP_FL
                 SCH_ITEM*       item = dynamic_cast<SCH_ITEM*>( aItem );
                 SCH_CONNECTION* connection = item ? item->Connection() : nullptr;
 
+                auto invalidateTextVars =
+                        [&flags]( EDA_TEXT* text )
+                        {
+                            if( text->HasTextVars() )
+                            {
+                                text->ClearRenderCache();
+                                text->ClearBoundingBoxCache();
+                                flags |= KIGFX::GEOMETRY | KIGFX::REPAINT;
+                            }
+                        };
+
                 if( connection && connection->HasDriverChanged() )
                 {
                     connection->ClearDriverChanged();
@@ -1985,30 +2012,18 @@ void SCH_EDIT_FRAME::RecalculateConnections( SCH_COMMIT* aCommit, SCH_CLEANUP_FL
                 if( item )
                 {
                     item->RunOnChildren(
-                            [&flags]( SCH_ITEM* aChild )
+                            [&invalidateTextVars]( SCH_ITEM* aChild )
                             {
-                                EDA_TEXT* text = dynamic_cast<EDA_TEXT*>( aChild );
-
-                                if( text && text->HasTextVars() )
-                                {
-                                    text->ClearRenderCache();
-                                    text->ClearBoundingBoxCache();
-                                    flags |= KIGFX::GEOMETRY | KIGFX::REPAINT;
-                                }
+                                if( EDA_TEXT* text = dynamic_cast<EDA_TEXT*>( aChild ) )
+                                    invalidateTextVars( text );
                             } );
-
-                    EDA_TEXT* text = dynamic_cast<EDA_TEXT*>( aItem );
-
-                    if( text && text->HasTextVars() )
-                    {
-                        text->ClearRenderCache();
-                        text->ClearBoundingBoxCache();
-                        flags |= KIGFX::GEOMETRY | KIGFX::REPAINT;
-                    }
 
                     if( flags & KIGFX::GEOMETRY )
                         GetScreen()->Update( item, false );     // Refresh RTree
                 }
+
+                if( EDA_TEXT* text = dynamic_cast<EDA_TEXT*>( aItem ) )
+                    invalidateTextVars( text );
 
                 return flags;
             } );
@@ -2189,7 +2204,7 @@ const BOX2I SCH_EDIT_FRAME::GetDocumentExtents( bool aIncludeAllVisible ) const
 
 bool SCH_EDIT_FRAME::IsContentModified() const
 {
-    return Schematic().GetSheets().IsModified();
+    return Schematic().BuildUnorderedSheetList().IsModified();
 }
 
 
@@ -2204,9 +2219,8 @@ void SCH_EDIT_FRAME::FocusOnItem( SCH_ITEM* aItem )
 {
     static KIID lastBrightenedItemID( niluuid );
 
-    SCH_SHEET_LIST sheetList = Schematic().GetSheets();
     SCH_SHEET_PATH dummy;
-    SCH_ITEM*      lastItem = sheetList.GetItem( lastBrightenedItemID, &dummy );
+    SCH_ITEM*      lastItem = Schematic().GetItem( lastBrightenedItemID, &dummy );
 
     if( lastItem && lastItem != aItem )
     {
@@ -2262,7 +2276,8 @@ void SCH_EDIT_FRAME::SaveSymbolToSchematic( const LIB_SYMBOL& aSymbol,
                                             const KIID& aSchematicSymbolUUID )
 {
     SCH_SHEET_PATH principalPath;
-    SCH_ITEM*      item = Schematic().GetSheets().GetItem( aSchematicSymbolUUID, &principalPath );
+    SCH_SHEET_LIST sheets = Schematic().BuildUnorderedSheetList();
+    SCH_ITEM*      item = sheets.GetItem( aSchematicSymbolUUID, &principalPath );
     SCH_SYMBOL*    principalSymbol = dynamic_cast<SCH_SYMBOL*>( item );
     SCH_COMMIT     commit( m_toolManager );
 
@@ -2276,7 +2291,7 @@ void SCH_EDIT_FRAME::SaveSymbolToSchematic( const LIB_SYMBOL& aSymbol,
 
     std::vector< std::pair<SCH_SYMBOL*, SCH_SHEET_PATH> > allUnits;
 
-    for( const SCH_SHEET_PATH& path : Schematic().GetSheets() )
+    for( const SCH_SHEET_PATH& path : sheets )
     {
         for( SCH_ITEM* candidate : path.LastScreen()->Items().OfType( SCH_SYMBOL_T ) )
         {
@@ -2556,3 +2571,12 @@ void SCH_EDIT_FRAME::updateSelectionFilterVisbility()
 
     selectionFilterPane.Show( showFilter );
 }
+
+#ifdef KICAD_IPC_API
+void SCH_EDIT_FRAME::onPluginAvailabilityChanged( wxCommandEvent& aEvt )
+{
+    wxLogTrace( traceApi, "SCH frame: EDA_EVT_PLUGIN_AVAILABILITY_CHANGED" );
+    ReCreateHToolbar();
+    aEvt.Skip();
+}
+#endif

@@ -1097,9 +1097,9 @@ SCH_TEXT* SCH_IO_KICAD_LEGACY::loadText( LINE_READER& aReader )
 
     for( ; ; )
     {
-        int i = val.find( wxT( "\\n" ) );
+        size_t i = val.find( wxT( "\\n" ) );
 
-        if( i == wxNOT_FOUND )
+        if( i == wxString::npos )
             break;
 
         val.erase( i, 2 );
@@ -1285,6 +1285,10 @@ SCH_SYMBOL* SCH_IO_KICAD_LEGACY::loadSymbol( LINE_READER& aReader )
             VECTOR2I pos;
             pos.x = schIUScale.MilsToIU( parseInt( aReader, line, &line ) );
             pos.y = schIUScale.MilsToIU( parseInt( aReader, line, &line ) );
+
+            // Y got inverted in symbol coordinates
+            pos.y = -( pos.y - symbol->GetY() ) + symbol->GetY();
+
             int size = schIUScale.MilsToIU( parseInt( aReader, line, &line ) );
             int attributes = parseHex( aReader, line, &line );
 
@@ -1445,7 +1449,7 @@ SCH_SYMBOL* SCH_IO_KICAD_LEGACY::loadSymbol( LINE_READER& aReader )
             if( transform.x1 < -1 || transform.x1 > 1 )
                 SCH_PARSE_ERROR( "invalid symbol X1 transform value", aReader, line );
 
-            transform.y1 = parseInt( aReader, line, &line );
+            transform.y1 = -parseInt( aReader, line, &line );
 
             if( transform.y1 < -1 || transform.y1 > 1 )
                 SCH_PARSE_ERROR( "invalid symbol Y1 transform value", aReader, line );
@@ -1455,7 +1459,7 @@ SCH_SYMBOL* SCH_IO_KICAD_LEGACY::loadSymbol( LINE_READER& aReader )
             if( transform.x2 < -1 || transform.x2 > 1 )
                 SCH_PARSE_ERROR( "invalid symbol X2 transform value", aReader, line );
 
-            transform.y2 = parseInt( aReader, line, &line );
+            transform.y2 = -parseInt( aReader, line, &line );
 
             if( transform.y2 < -1 || transform.y2 > 1 )
                 SCH_PARSE_ERROR( "invalid symbol Y2 transform value", aReader, line );

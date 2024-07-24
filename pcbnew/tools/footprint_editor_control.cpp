@@ -24,16 +24,18 @@
  */
 
 #include <advanced_config.h>
-#include "footprint_editor_control.h"
-#include <wx/generic/textdlgg.h>
 #include <string_utils.h>
 #include <pgm_base.h>
 #include <tool/tool_manager.h>
+#include <tool/library_editor_control.h>
 #include <tools/pcb_actions.h>
 #include <footprint_edit_frame.h>
 #include <pcbnew_id.h>
 #include <confirm.h>
 #include <kidialog.h>
+#include <wx/filename.h>
+#include <wildcards_and_files_ext.h>
+#include <launch_ext.h> // To default when file manager setting is empty
 #include <gestfich.h> // To open with a text editor
 #include <widgets/wx_infobar.h>
 #include <footprint.h>
@@ -45,22 +47,18 @@
 #include <dialogs/dialog_footprint_checker.h>
 #include <footprint_wizard_frame.h>
 #include <kiway.h>
-#include <drc/drc_item.h>
 #include <project_pcb.h>
 #include <view/view_controls.h>
 
 #include <memory>
+
+#include "footprint_editor_control.h"
 
 
 FOOTPRINT_EDITOR_CONTROL::FOOTPRINT_EDITOR_CONTROL() :
     PCB_TOOL_BASE( "pcbnew.ModuleEditor" ),
     m_frame( nullptr ),
     m_checkerDialog( nullptr )
-{
-}
-
-
-FOOTPRINT_EDITOR_CONTROL::~FOOTPRINT_EDITOR_CONTROL()
 {
 }
 
@@ -76,6 +74,8 @@ void FOOTPRINT_EDITOR_CONTROL::Reset( RESET_REASON aReason )
 
 bool FOOTPRINT_EDITOR_CONTROL::Init()
 {
+    LIBRARY_EDITOR_CONTROL* libraryTreeTool = m_toolMgr->GetTool<LIBRARY_EDITOR_CONTROL>();
+
     // Build a context menu for the footprint tree
     //
     CONDITIONAL_MENU& ctxMenu = m_menu.GetMenu();
@@ -83,7 +83,7 @@ bool FOOTPRINT_EDITOR_CONTROL::Init()
     auto libSelectedCondition =
             [ this ]( const SELECTION& aSel )
             {
-                LIB_ID sel = m_frame->GetTreeFPID();
+                LIB_ID sel = m_frame->GetLibTree()->GetSelectedLibId();
                 return !sel.GetLibNickname().empty() && sel.GetLibItemName().empty();
             };
 
@@ -93,25 +93,14 @@ bool FOOTPRINT_EDITOR_CONTROL::Init()
     auto libInferredCondition =
             [ this ]( const SELECTION& aSel )
             {
-                LIB_ID sel = m_frame->GetTreeFPID();
+                LIB_ID sel = m_frame->GetLibTree()->GetSelectedLibId();
                 return !sel.GetLibNickname().empty();
             };
-    auto pinnedLibSelectedCondition =
-            [ this ]( const SELECTION& aSel )
-            {
-                LIB_TREE_NODE* current = m_frame->GetCurrentTreeNode();
-                return current && current->m_Type == LIB_TREE_NODE::LIBRARY && current->m_Pinned;
-            };
-    auto unpinnedLibSelectedCondition =
-            [ this ](const SELECTION& aSel )
-            {
-                LIB_TREE_NODE* current = m_frame->GetCurrentTreeNode();
-                return current && current->m_Type == LIB_TREE_NODE::LIBRARY && !current->m_Pinned;
-            };
+
     auto fpSelectedCondition =
             [ this ]( const SELECTION& aSel )
             {
-                LIB_ID sel = m_frame->GetTreeFPID();
+                LIB_ID sel = m_frame->GetLibTree()->GetSelectedLibId();
                 return !sel.GetLibNickname().empty() && !sel.GetLibItemName().empty();
             };
 
@@ -122,7 +111,7 @@ bool FOOTPRINT_EDITOR_CONTROL::Init()
                 return fp != nullptr;
             };
 
-    auto canOpenWithTextEditor =
+    auto canOpenExternally =
             [ this ]( const SELECTION& aSel )
             {
                 // The option is shown if the editor has no current edits,
@@ -131,39 +120,41 @@ bool FOOTPRINT_EDITOR_CONTROL::Init()
                 return ret;
             };
 
-    ctxMenu.AddItem( ACTIONS::pinLibrary,             unpinnedLibSelectedCondition );
-    ctxMenu.AddItem( ACTIONS::unpinLibrary,           pinnedLibSelectedCondition );
+// clang-format off
+    ctxMenu.AddItem( PCB_ACTIONS::newFootprint,       libSelectedCondition, 10 );
+    ctxMenu.AddItem( PCB_ACTIONS::createFootprint,    libSelectedCondition, 10 );
 
-    ctxMenu.AddSeparator();
-    ctxMenu.AddItem( PCB_ACTIONS::newFootprint,       libSelectedCondition );
-    ctxMenu.AddItem( PCB_ACTIONS::createFootprint,    libSelectedCondition );
+    ctxMenu.AddSeparator( 10 );
+    ctxMenu.AddItem( ACTIONS::save,                   SELECTION_CONDITIONS::ShowAlways, 10 );
+    ctxMenu.AddItem( ACTIONS::saveAs,                 libSelectedCondition || fpSelectedCondition, 10 );
+    ctxMenu.AddItem( ACTIONS::revert,                 libSelectedCondition || libInferredCondition, 10 );
 
-    ctxMenu.AddSeparator();
-    ctxMenu.AddItem( ACTIONS::save,                   SELECTION_CONDITIONS::ShowAlways );
-    ctxMenu.AddItem( ACTIONS::saveAs,                 libSelectedCondition || fpSelectedCondition );
-    ctxMenu.AddItem( ACTIONS::revert,                 libSelectedCondition || libInferredCondition );
+    ctxMenu.AddSeparator( 10 );
+    ctxMenu.AddItem( PCB_ACTIONS::cutFootprint,       fpSelectedCondition, 10 );
+    ctxMenu.AddItem( PCB_ACTIONS::copyFootprint,      fpSelectedCondition, 10 );
+    ctxMenu.AddItem( PCB_ACTIONS::pasteFootprint,     libInferredCondition, 10 );
+    ctxMenu.AddItem( PCB_ACTIONS::duplicateFootprint, fpSelectedCondition, 10 );
+    ctxMenu.AddItem( PCB_ACTIONS::renameFootprint,    fpSelectedCondition, 10 );
+    ctxMenu.AddItem( PCB_ACTIONS::deleteFootprint,    fpSelectedCondition, 10 );
 
-    ctxMenu.AddSeparator();
-    ctxMenu.AddItem( PCB_ACTIONS::cutFootprint,       fpSelectedCondition );
-    ctxMenu.AddItem( PCB_ACTIONS::copyFootprint,      fpSelectedCondition );
-    ctxMenu.AddItem( PCB_ACTIONS::pasteFootprint,     libInferredCondition );
-    ctxMenu.AddItem( PCB_ACTIONS::duplicateFootprint, fpSelectedCondition );
-    ctxMenu.AddItem( PCB_ACTIONS::renameFootprint,    fpSelectedCondition );
-    ctxMenu.AddItem( PCB_ACTIONS::deleteFootprint,    fpSelectedCondition );
-
-    ctxMenu.AddSeparator();
-    ctxMenu.AddItem( PCB_ACTIONS::importFootprint,    libInferredCondition );
-    ctxMenu.AddItem( PCB_ACTIONS::exportFootprint,    fpExportCondition );
-
-    // If we've got nothing else to show, at least show a hide tree option
-    ctxMenu.AddItem( PCB_ACTIONS::hideFootprintTree,  !libInferredCondition );
+    ctxMenu.AddSeparator( 100 );
+    ctxMenu.AddItem( PCB_ACTIONS::importFootprint,    libInferredCondition, 100 );
+    ctxMenu.AddItem( PCB_ACTIONS::exportFootprint,    fpExportCondition, 100 );
 
     if( ADVANCED_CFG::GetCfg().m_EnableLibWithText )
     {
-        ctxMenu.AddSeparator();
-        ctxMenu.AddItem( PCB_ACTIONS::openWithTextEditor,
-                         canOpenWithTextEditor && fpSelectedCondition );
+        ctxMenu.AddSeparator( 200 );
+        ctxMenu.AddItem( ACTIONS::openWithTextEditor, canOpenExternally && fpSelectedCondition, 200 );
     }
+
+    if( ADVANCED_CFG::GetCfg().m_EnableLibDir )
+    {
+        ctxMenu.AddSeparator( 200 );
+        ctxMenu.AddItem( ACTIONS::openDirectory,  canOpenExternally && ( libSelectedCondition || fpSelectedCondition ), 200 );
+    }
+// clang-format on
+
+    libraryTreeTool->AddContextMenuItems( &ctxMenu );
 
     return true;
 }
@@ -171,9 +162,9 @@ bool FOOTPRINT_EDITOR_CONTROL::Init()
 
 int FOOTPRINT_EDITOR_CONTROL::NewFootprint( const TOOL_EVENT& aEvent )
 {
-    LIB_ID     selected = m_frame->GetTreeFPID();
+    LIB_ID     selected = m_frame->GetTargetFPID();
     wxString   libraryName = selected.GetUniStringLibNickname();
-    FOOTPRINT* newFootprint = m_frame->CreateNewFootprint( wxEmptyString, libraryName, false );
+    FOOTPRINT* newFootprint = m_frame->CreateNewFootprint( wxEmptyString, libraryName );
 
     if( !newFootprint )
         return 0;
@@ -213,7 +204,7 @@ int FOOTPRINT_EDITOR_CONTROL::NewFootprint( const TOOL_EVENT& aEvent )
 
 int FOOTPRINT_EDITOR_CONTROL::CreateFootprint( const TOOL_EVENT& aEvent )
 {
-    LIB_ID selected = m_frame->GetTreeFPID();
+    LIB_ID selected = m_frame->GetLibTree()->GetSelectedLibId();
 
     if( m_frame->IsContentModified() )
     {
@@ -228,51 +219,54 @@ int FOOTPRINT_EDITOR_CONTROL::CreateFootprint( const TOOL_EVENT& aEvent )
         }
     }
 
-    auto* wizard = (FOOTPRINT_WIZARD_FRAME*) m_frame->Kiway().Player( FRAME_FOOTPRINT_WIZARD,
-                                                                      true, m_frame );
-
-    if( wizard->ShowModal( nullptr, m_frame ) )
+    if( KIWAY_PLAYER* frame = m_frame->Kiway().Player( FRAME_FOOTPRINT_WIZARD, true, m_frame ) )
     {
-        // Creates the new footprint from python script wizard
-        FOOTPRINT* newFootprint = wizard->GetBuiltFootprint();
+        FOOTPRINT_WIZARD_FRAME* wizard = static_cast<FOOTPRINT_WIZARD_FRAME*>( frame );
 
-        if( newFootprint )    // i.e. if create footprint command is OK
+        if( wizard->ShowModal( nullptr, m_frame ) )
         {
-            m_frame->Clear_Pcb( false );
+            // Creates the new footprint from python script wizard
+            FOOTPRINT* newFootprint = wizard->GetBuiltFootprint();
 
-            canvas()->GetViewControls()->SetCrossHairCursorPosition( VECTOR2D( 0, 0 ), false );
-            //  Add the new object to board
-            m_frame->AddFootprintToBoard( newFootprint );
-
-            // Initialize data relative to nets and netclasses (for a new footprint the defaults
-            // are used).  This is mandatory to handle and draw pads.
-            board()->BuildListOfNets();
-            newFootprint->SetPosition( VECTOR2I( 0, 0 ) );
-            newFootprint->ClearFlags();
-
-            m_frame->Zoom_Automatique( false );
-            m_frame->GetScreen()->SetContentModified();
-            m_frame->OnModify();
-
-            // If selected from the library tree then go ahead and save it there
-            if( !selected.GetLibNickname().empty() )
+            if( newFootprint )    // i.e. if create footprint command is OK
             {
-                LIB_ID fpid = newFootprint->GetFPID();
-                fpid.SetLibNickname( selected.GetLibNickname() );
-                newFootprint->SetFPID( fpid );
-                m_frame->SaveFootprint( newFootprint );
-                m_frame->ClearModify();
+                m_frame->Clear_Pcb( false );
+
+                canvas()->GetViewControls()->SetCrossHairCursorPosition( VECTOR2D( 0, 0 ), false );
+                //  Add the new object to board
+                m_frame->AddFootprintToBoard( newFootprint );
+
+                // Initialize data relative to nets and netclasses (for a new footprint the
+                // defaults are used).  This is mandatory to handle and draw pads.
+                board()->BuildListOfNets();
+                newFootprint->SetPosition( VECTOR2I( 0, 0 ) );
+                newFootprint->ClearFlags();
+
+                m_frame->Zoom_Automatique( false );
+                m_frame->GetScreen()->SetContentModified();
+                m_frame->OnModify();
+
+                // If selected from the library tree then go ahead and save it there
+                if( !selected.GetLibNickname().empty() )
+                {
+                    LIB_ID fpid = newFootprint->GetFPID();
+                    fpid.SetLibNickname( selected.GetLibNickname() );
+                    newFootprint->SetFPID( fpid );
+                    m_frame->SaveFootprint( newFootprint );
+                    m_frame->ClearModify();
+                }
+
+                m_frame->UpdateView();
+                canvas()->Refresh();
+                m_frame->Update3DView( true, true );
+
+                m_frame->SyncLibraryTree( false );
             }
-
-            m_frame->UpdateView();
-            canvas()->Refresh();
-            m_frame->Update3DView( true, true );
-
-            m_frame->SyncLibraryTree( false );
         }
+
+        wizard->Destroy();
     }
 
-    wizard->Destroy();
     return 0;
 }
 
@@ -354,7 +348,7 @@ int FOOTPRINT_EDITOR_CONTROL::Revert( const TOOL_EVENT& aEvent )
 
 int FOOTPRINT_EDITOR_CONTROL::CutCopyFootprint( const TOOL_EVENT& aEvent )
 {
-    LIB_ID fpID = m_frame->GetTreeFPID();
+    LIB_ID fpID = m_frame->GetLibTree()->GetSelectedLibId();
 
     if( fpID == m_frame->GetLoadedFPID() )
     {
@@ -375,9 +369,9 @@ int FOOTPRINT_EDITOR_CONTROL::CutCopyFootprint( const TOOL_EVENT& aEvent )
 
 int FOOTPRINT_EDITOR_CONTROL::PasteFootprint( const TOOL_EVENT& aEvent )
 {
-    if( m_copiedFootprint && !m_frame->GetTreeFPID().GetLibNickname().empty() )
+    if( m_copiedFootprint && !m_frame->GetLibTree()->GetSelectedLibId().GetLibNickname().empty() )
     {
-        wxString newLib = m_frame->GetTreeFPID().GetLibNickname();
+        wxString newLib = m_frame->GetLibTree()->GetSelectedLibId().GetLibNickname();
         wxString newName = m_copiedFootprint->GetFPID().GetLibItemName();
 
         while( PROJECT_PCB::PcbFootprintLibs( &m_frame->Prj() )->FootprintExists( newLib, newName ) )
@@ -398,7 +392,7 @@ int FOOTPRINT_EDITOR_CONTROL::PasteFootprint( const TOOL_EVENT& aEvent )
 
 int FOOTPRINT_EDITOR_CONTROL::DuplicateFootprint( const TOOL_EVENT& aEvent )
 {
-    LIB_ID     fpID = m_frame->GetTreeFPID();
+    LIB_ID     fpID = m_frame->GetLibTree()->GetSelectedLibId();
     FOOTPRINT* footprint;
 
     if( fpID == m_frame->GetLoadedFPID() )
@@ -418,44 +412,22 @@ int FOOTPRINT_EDITOR_CONTROL::DuplicateFootprint( const TOOL_EVENT& aEvent )
 }
 
 
-class RENAME_DIALOG : public wxTextEntryDialog
-{
-public:
-    RENAME_DIALOG( wxWindow* aParent, const wxString& aName,
-                   std::function<bool( wxString newName )> aValidator ) :
-            wxTextEntryDialog( aParent, _( "New name:" ), _( "Change Footprint Name" ), aName ),
-            m_validator( std::move( aValidator ) )
-    { }
-
-    wxString GetFPName()
-    {
-        wxString name = m_textctrl->GetValue();
-        name.Trim( true ).Trim( false );
-        return name;
-    }
-
-protected:
-    bool TransferDataFromWindow() override
-    {
-        return m_validator( GetFPName() );
-    }
-
-private:
-    std::function<bool( wxString newName )> m_validator;
-};
-
-
 int FOOTPRINT_EDITOR_CONTROL::RenameFootprint( const TOOL_EVENT& aEvent )
 {
-    FP_LIB_TABLE* tbl = PROJECT_PCB::PcbFootprintLibs( &m_frame->Prj() );
-    LIB_ID        fpID = m_frame->GetTreeFPID();
-    wxString      libraryName = fpID.GetLibNickname();
-    wxString      oldName = fpID.GetLibItemName();
-    wxString      msg;
+    LIBRARY_EDITOR_CONTROL* libTool   = m_toolMgr->GetTool<LIBRARY_EDITOR_CONTROL>();
+    FP_LIB_TABLE*           tbl = PROJECT_PCB::PcbFootprintLibs( &m_frame->Prj() );
 
-    RENAME_DIALOG dlg( m_frame, oldName,
-            [&]( wxString newName )
+    LIB_ID   fpID = m_frame->GetLibTree()->GetSelectedLibId();
+    wxString libraryName = fpID.GetLibNickname();
+    wxString oldName = fpID.GetLibItemName();
+    wxString newName;
+    wxString msg;
+
+    if( !libTool->RenameLibrary( _( "Change Footprint Name" ), oldName,
+            [&]( const wxString& aNewName )
             {
+                newName = aNewName;
+
                 if( newName.IsEmpty() )
                 {
                     wxMessageBox( _( "Footprint must have a name." ) );
@@ -475,12 +447,11 @@ int FOOTPRINT_EDITOR_CONTROL::RenameFootprint( const TOOL_EVENT& aEvent )
                 }
 
                 return true;
-            } );
+            } ) )
+    {
+        return 0;   // cancelled by user
+    }
 
-    if( dlg.ShowModal() != wxID_OK )
-        return 0;   // canceled by user
-
-    wxString   newName = dlg.GetFPName();
     FOOTPRINT* footprint = nullptr;
 
     if( fpID == m_frame->GetLoadedFPID() )
@@ -587,6 +558,77 @@ int FOOTPRINT_EDITOR_CONTROL::ExportFootprint( const TOOL_EVENT& aEvent )
 }
 
 
+int FOOTPRINT_EDITOR_CONTROL::OpenDirectory( const TOOL_EVENT& aEvent )
+{
+    // No check for multi selection since the context menu option must be hidden in that case
+    FP_LIB_TABLE* globalTable = dynamic_cast<FP_LIB_TABLE*>( &GFootprintTable );
+    FP_LIB_TABLE* projectTable = PROJECT_PCB::PcbFootprintLibs( &m_frame->Prj() );
+    LIB_ID        libId = m_frame->GetTargetFPID();
+
+    wxString    libName = libId.GetLibNickname();
+    wxString    libItemName = libId.GetLibItemName();
+    wxString    path = wxEmptyString;
+
+    for( FP_LIB_TABLE* table : { globalTable, projectTable } )
+    {
+        if( !table )
+            break;
+
+        try
+        {
+            path = table->FindRow( libName, true )->GetFullURI( true );
+        }
+        catch( IO_ERROR& )
+        {
+            // Do nothing: libName can be not found in globalTable if libName is in projectTable
+        }
+
+        if( !path.IsEmpty() )
+            break;
+    }
+
+    wxString fileExt = wxEmptyString;
+
+    // If selection is footprint
+    if( !libItemName.IsEmpty() )
+        fileExt = FILEEXT::KiCadFootprintFileExtension;
+
+    wxFileName fileName( path, libItemName, fileExt );
+
+    COMMON_SETTINGS* cfg = Pgm().GetCommonSettings();
+
+    wxString explCommand = cfg->m_System.file_explorer;
+
+    if( explCommand.IsEmpty() )
+    {
+        path = fileName.GetFullPath().BeforeLast( wxFileName::GetPathSeparator() );
+
+        if( !path.IsEmpty() && wxDirExists( path ) )
+            LaunchExternal( path );
+        return 0;
+    }
+
+    if( !explCommand.EndsWith( "%F" ) )
+    {
+        wxMessageBox( _( "Missing/malformed file explorer argument '%F' in common settings." ) );
+        return 0;
+    }
+
+    wxString escapedFilePath = fileName.GetFullPath();
+    escapedFilePath.Replace( wxS( "\"" ), wxS( "_" ) );
+
+    wxString fileArg = wxEmptyString;
+    fileArg << '"' << escapedFilePath << '"';
+
+    explCommand.Replace( wxT( "%F" ), fileArg );
+
+    if( !explCommand.IsEmpty() )
+        wxExecute( explCommand );
+
+    return 0;
+}
+
+
 int FOOTPRINT_EDITOR_CONTROL::OpenWithTextEditor( const TOOL_EVENT& aEvent )
 {
     wxString fullEditorName = Pgm().GetTextEditor();
@@ -597,11 +639,12 @@ int FOOTPRINT_EDITOR_CONTROL::OpenWithTextEditor( const TOOL_EVENT& aEvent )
         return 0;
     }
 
+    // No check for multi selection since the context menu option must be hidden in that case
     FP_LIB_TABLE* globalTable = dynamic_cast<FP_LIB_TABLE*>( &GFootprintTable );
     FP_LIB_TABLE* projectTable = PROJECT_PCB::PcbFootprintLibs( &m_frame->Prj() );
-    LIB_ID        libId = m_frame->GetTreeFPID();
+    LIB_ID        libId = m_frame->GetLibTree()->GetSelectedLibId();
 
-    const char* libName = libId.GetLibNickname().c_str();
+    wxString    libName = libId.GetLibNickname();
     wxString    libItemName = wxEmptyString;
 
     for( FP_LIB_TABLE* table : { globalTable, projectTable } )
@@ -609,16 +652,27 @@ int FOOTPRINT_EDITOR_CONTROL::OpenWithTextEditor( const TOOL_EVENT& aEvent )
         if( !table )
             break;
 
-        libItemName = table->FindRow( libName, true )->GetFullURI( true ).c_str();
+        try
+        {
+            libItemName = table->FindRow( libName, true )->GetFullURI( true );
+        }
+        catch( IO_ERROR& )
+        {
+            // Do nothing: libName can be not found in globalTable if libName is in projectTable
+        }
 
-        libItemName = libItemName + "/" + libId.GetLibItemName() + ".kicad_mod";
-
+        if( !libItemName.IsEmpty() )
+            break;
     }
 
-    if( !libItemName.IsEmpty() )
-    {
-        ExecuteFile( fullEditorName, libItemName.wc_str(), nullptr, false );
-    }
+    libItemName << wxFileName::GetPathSeparator();
+    libItemName << libId.GetLibItemName();
+    libItemName << '.' + FILEEXT::KiCadFootprintFileExtension;
+
+    if( !wxFileName::FileExists( libItemName ) )
+        return 0;
+
+    ExecuteFile( fullEditorName, libItemName.wc_str(), nullptr, false );
 
     return 0;
 }
@@ -626,56 +680,7 @@ int FOOTPRINT_EDITOR_CONTROL::OpenWithTextEditor( const TOOL_EVENT& aEvent )
 
 int FOOTPRINT_EDITOR_CONTROL::EditFootprint( const TOOL_EVENT& aEvent )
 {
-    m_frame->LoadFootprintFromLibrary( m_frame->GetTreeFPID() );
-    return 0;
-}
-
-
-int FOOTPRINT_EDITOR_CONTROL::PinLibrary( const TOOL_EVENT& aEvent )
-{
-    LIB_TREE_NODE* currentNode = m_frame->GetCurrentTreeNode();
-
-    if( currentNode && !currentNode->m_Pinned )
-    {
-        m_frame->Prj().PinLibrary( currentNode->m_LibId.GetLibNickname(), false );
-
-        currentNode->m_Pinned = true;
-        m_frame->RegenerateLibraryTree();
-    }
-
-    return 0;
-}
-
-
-int FOOTPRINT_EDITOR_CONTROL::UnpinLibrary( const TOOL_EVENT& aEvent )
-{
-    LIB_TREE_NODE* currentNode = m_frame->GetCurrentTreeNode();
-
-    if( currentNode && currentNode->m_Pinned )
-    {
-        m_frame->Prj().UnpinLibrary( currentNode->m_LibId.GetLibNickname(), false );
-
-        currentNode->m_Pinned = false;
-        m_frame->RegenerateLibraryTree();
-    }
-
-    return 0;
-}
-
-
-int FOOTPRINT_EDITOR_CONTROL::ToggleFootprintTree( const TOOL_EVENT& aEvent )
-{
-    m_frame->ToggleSearchTree();
-    return 0;
-}
-
-
-int FOOTPRINT_EDITOR_CONTROL::FootprintTreeSearch( const TOOL_EVENT& aEvent )
-{
-    if (!m_frame->IsSearchTreeShown()) {
-        m_frame->ToggleSearchTree();
-    }
-    m_frame->FocusSearchTreeInput();
+    m_frame->LoadFootprintFromLibrary( m_frame->GetLibTree()->GetSelectedLibId() );
     return 0;
 }
 
@@ -813,14 +818,6 @@ int FOOTPRINT_EDITOR_CONTROL::RepairFootprint( const TOOL_EVENT& aEvent )
         details += wxString::Format( _( "%d duplicate IDs replaced.\n" ), duplicates );
     }
 
-    /*******************************
-     * Your test here
-     */
-
-    /*******************************
-     * Inform the user
-     */
-
     if( errors )
     {
         m_frame->OnModify();
@@ -855,7 +852,9 @@ void FOOTPRINT_EDITOR_CONTROL::setTransitions()
 
     Go( &FOOTPRINT_EDITOR_CONTROL::ImportFootprint,      PCB_ACTIONS::importFootprint.MakeEvent() );
     Go( &FOOTPRINT_EDITOR_CONTROL::ExportFootprint,      PCB_ACTIONS::exportFootprint.MakeEvent() );
-    Go( &FOOTPRINT_EDITOR_CONTROL::OpenWithTextEditor,   PCB_ACTIONS::openWithTextEditor.MakeEvent() );
+
+    Go( &FOOTPRINT_EDITOR_CONTROL::OpenWithTextEditor,   ACTIONS::openWithTextEditor.MakeEvent() );
+    Go( &FOOTPRINT_EDITOR_CONTROL::OpenDirectory,        ACTIONS::openDirectory.MakeEvent() );
 
     Go( &FOOTPRINT_EDITOR_CONTROL::EditTextAndGraphics,  PCB_ACTIONS::editTextAndGraphics.MakeEvent() );
     Go( &FOOTPRINT_EDITOR_CONTROL::CleanupGraphics,      PCB_ACTIONS::cleanupGraphics.MakeEvent() );
@@ -863,11 +862,6 @@ void FOOTPRINT_EDITOR_CONTROL::setTransitions()
     Go( &FOOTPRINT_EDITOR_CONTROL::CheckFootprint,       PCB_ACTIONS::checkFootprint.MakeEvent() );
     Go( &FOOTPRINT_EDITOR_CONTROL::RepairFootprint,      PCB_ACTIONS::repairFootprint.MakeEvent() );
 
-    Go( &FOOTPRINT_EDITOR_CONTROL::PinLibrary,           ACTIONS::pinLibrary.MakeEvent() );
-    Go( &FOOTPRINT_EDITOR_CONTROL::UnpinLibrary,         ACTIONS::unpinLibrary.MakeEvent() );
-    Go( &FOOTPRINT_EDITOR_CONTROL::ToggleFootprintTree,  PCB_ACTIONS::showFootprintTree.MakeEvent() );
-    Go( &FOOTPRINT_EDITOR_CONTROL::ToggleFootprintTree,  PCB_ACTIONS::hideFootprintTree.MakeEvent() );
-    Go( &FOOTPRINT_EDITOR_CONTROL::FootprintTreeSearch,  PCB_ACTIONS::footprintTreeSearch.MakeEvent() );
     Go( &FOOTPRINT_EDITOR_CONTROL::Properties,           PCB_ACTIONS::footprintProperties.MakeEvent() );
     Go( &FOOTPRINT_EDITOR_CONTROL::DefaultPadProperties, PCB_ACTIONS::defaultPadProperties.MakeEvent() );
     Go( &FOOTPRINT_EDITOR_CONTROL::ToggleLayersManager,  PCB_ACTIONS::showLayersManager.MakeEvent() );

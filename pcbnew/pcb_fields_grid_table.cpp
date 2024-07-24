@@ -21,13 +21,18 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA
  */
 
-#include <kiway_player.h>
-#include <project.h>
-#include <pcb_fields_grid_table.h>
-#include <widgets/grid_combobox.h>
-#include <trigo.h>
-#include <pcb_base_frame.h>
+#include <board.h>
 #include <footprint.h>
+#include <footprint_edit_frame.h>
+#include <kiway.h>
+#include <kiway_player.h>
+#include <pcb_fields_grid_table.h>
+#include <pcb_base_frame.h>
+#include <pcb_edit_frame.h>
+#include <project.h>
+#include <trigo.h>
+#include <widgets/grid_combobox.h>
+
 #include "grid_layer_box_helpers.h"
 #include <widgets/grid_text_button_helpers.h>
 #include <widgets/grid_text_helpers.h>
@@ -95,8 +100,36 @@ PCB_FIELDS_GRID_TABLE::PCB_FIELDS_GRID_TABLE( PCB_BASE_FRAME* aFrame, DIALOG_SHI
     fpIdEditor->SetValidator( m_nonUrlValidator );
     m_footprintAttr->SetEditor( fpIdEditor );
 
+    EMBEDDED_FILES* files = nullptr;
+
+    // In the case of the footprint editor, we need to distinguish between the footprint
+    // in the library where the embedded files are stored with the footprint and the footprint
+    // from the board where the embedded files are stored with the board.
+    if( m_frame->GetFrameType() == FRAME_FOOTPRINT_EDITOR )
+    {
+        FOOTPRINT_EDIT_FRAME* fpFrame = static_cast<FOOTPRINT_EDIT_FRAME*>( m_frame );
+
+        if( fpFrame->IsCurrentFPFromBoard() )
+        {
+            PCB_EDIT_FRAME* pcbframe = (PCB_EDIT_FRAME*) m_frame->Kiway().Player( FRAME_PCB_EDITOR, false );
+
+            if( pcbframe != nullptr )       // happens when the board editor is not active (or closed)
+            {
+                files = pcbframe->GetBoard();
+            }
+        }
+        else
+        {
+            files = fpFrame->GetBoard()->GetFirstFootprint();
+        }
+    }
+    else if( m_frame->GetFrameType() == FRAME_PCB_EDITOR )
+    {
+        files = static_cast<PCB_EDIT_FRAME*>( m_frame )->GetBoard();
+    }
+
     m_urlAttr = new wxGridCellAttr;
-    GRID_CELL_URL_EDITOR* urlEditor = new GRID_CELL_URL_EDITOR( m_dialog );
+    GRID_CELL_URL_EDITOR* urlEditor = new GRID_CELL_URL_EDITOR( m_dialog, nullptr, files );
     urlEditor->SetValidator( m_urlValidator );
     m_urlAttr->SetEditor( urlEditor );
 
@@ -190,7 +223,8 @@ bool PCB_FIELDS_GRID_TABLE::CanSetValueAs( int aRow, int aCol, const wxString& a
 }
 
 
-wxGridCellAttr* PCB_FIELDS_GRID_TABLE::GetAttr( int aRow, int aCol, wxGridCellAttr::wxAttrKind  )
+wxGridCellAttr* PCB_FIELDS_GRID_TABLE::GetAttr( int aRow, int aCol,
+                                                wxGridCellAttr::wxAttrKind aKind  )
 {
     switch( aCol )
     {
@@ -198,41 +232,41 @@ wxGridCellAttr* PCB_FIELDS_GRID_TABLE::GetAttr( int aRow, int aCol, wxGridCellAt
         if( aRow < MANDATORY_FIELDS )
         {
             m_readOnlyAttr->IncRef();
-            return m_readOnlyAttr;
+            return enhanceAttr( m_readOnlyAttr, aRow, aCol, aKind );
         }
 
-        return nullptr;
+        return enhanceAttr( nullptr, aRow, aCol, aKind );
 
     case PFC_VALUE:
         if( aRow == REFERENCE_FIELD )
         {
             m_referenceAttr->IncRef();
-            return m_referenceAttr;
+            return enhanceAttr( m_referenceAttr, aRow, aCol, aKind );
         }
         else if( aRow == VALUE_FIELD )
         {
             m_valueAttr->IncRef();
-            return m_valueAttr;
+            return enhanceAttr( m_valueAttr, aRow, aCol, aKind );
         }
         else if( aRow == FOOTPRINT_FIELD )
         {
             m_footprintAttr->IncRef();
-            return m_footprintAttr;
+            return enhanceAttr( m_footprintAttr, aRow, aCol, aKind );
         }
         else if( aRow == DATASHEET_FIELD )
         {
             m_urlAttr->IncRef();
-            return m_urlAttr;
+            return enhanceAttr( m_urlAttr, aRow, aCol, aKind );
         }
 
-        return nullptr;
+        return enhanceAttr( nullptr, aRow, aCol, aKind );
 
     case PFC_WIDTH:
     case PFC_HEIGHT:
     case PFC_THICKNESS:
     case PFC_XOFFSET:
     case PFC_YOFFSET:
-        return nullptr;
+        return enhanceAttr( nullptr, aRow, aCol, aKind );
 
     case PFC_SHOWN:
     case PFC_ITALIC:
@@ -240,19 +274,19 @@ wxGridCellAttr* PCB_FIELDS_GRID_TABLE::GetAttr( int aRow, int aCol, wxGridCellAt
     case PFC_KNOCKOUT:
     case PFC_MIRRORED:
         m_boolColAttr->IncRef();
-        return m_boolColAttr;
+        return enhanceAttr( m_boolColAttr, aRow, aCol, aKind );
 
     case PFC_LAYER:
         m_layerColAttr->IncRef();
-        return m_layerColAttr;
+        return enhanceAttr( m_layerColAttr, aRow, aCol, aKind );
 
     case PFC_ORIENTATION:
         m_orientationColAttr->IncRef();
-        return m_orientationColAttr;
+        return enhanceAttr( m_orientationColAttr, aRow, aCol, aKind );
 
     default:
         wxFAIL;
-        return nullptr;
+        return enhanceAttr( nullptr, aRow, aCol, aKind );
     }
 }
 

@@ -1210,36 +1210,36 @@ wxString SETTINGS_MANAGER::GetProjectBackupsPath() const
 wxString SETTINGS_MANAGER::backupDateTimeFormat = wxT( "%Y-%m-%d_%H%M%S" );
 
 
-bool SETTINGS_MANAGER::BackupProject( REPORTER& aReporter ) const
+bool SETTINGS_MANAGER::BackupProject( REPORTER& aReporter, wxFileName& aTarget ) const
 {
     wxDateTime timestamp = wxDateTime::Now();
 
     wxString fileName = wxString::Format( wxT( "%s-%s" ), Prj().GetProjectName(),
                                           timestamp.Format( backupDateTimeFormat ) );
 
-    wxFileName target;
-    target.SetPath( GetProjectBackupsPath() );
-    target.SetName( fileName );
-    target.SetExt( FILEEXT::ArchiveFileExtension );
+    if( !aTarget.IsOk() )
+    {
+        aTarget.SetPath( GetProjectBackupsPath() );
+        aTarget.SetName( fileName );
+        aTarget.SetExt( FILEEXT::ArchiveFileExtension );
+    }
 
-    if( !target.DirExists() && !wxMkdir( target.GetPath() ) )
+    if( !aTarget.DirExists() && !wxMkdir( aTarget.GetPath() ) )
     {
         wxLogTrace( traceSettings, wxT( "Could not create project backup path %s" ),
-                    target.GetPath() );
+                    aTarget.GetPath() );
         return false;
     }
 
-    if( !target.IsDirWritable() )
+    if( !aTarget.IsDirWritable() )
     {
-        wxLogTrace( traceSettings, wxT( "Backup directory %s is not writable" ), target.GetPath() );
+        wxLogTrace( traceSettings, wxT( "Backup directory %s is not writable" ), aTarget.GetPath() );
         return false;
     }
 
-    wxLogTrace( traceSettings, wxT( "Backing up project to %s" ), target.GetPath() );
+    wxLogTrace( traceSettings, wxT( "Backing up project to %s" ), aTarget.GetPath() );
 
-    PROJECT_ARCHIVER archiver;
-
-    return archiver.Archive( Prj().GetProjectPath(), target.GetFullPath(), aReporter );
+    return PROJECT_ARCHIVER::Archive( Prj().GetProjectPath(), aTarget.GetFullPath(), aReporter );
 }
 
 
@@ -1353,6 +1353,24 @@ bool SETTINGS_MANAGER::TriggerBackupIfNeeded( REPORTER& aReporter ) const
         }
     }
 
+    // Backup
+    wxFileName target;
+    bool backupSuccessful = BackupProject( aReporter, target );
+
+    if( !backupSuccessful )
+        return false;
+
+    // Update the file list
+    files.insert( files.begin(), target.GetFullPath() );
+
+    // Are there any changes since the last backup?
+    if( files.size() >= 2
+        && PROJECT_ARCHIVER::AreZipArchivesIdentical( files[0], files[1], aReporter ) )
+    {
+        wxRemoveFile( files[0] );
+        return true;
+    }
+
     // Now that we know a backup is needed, apply the retention policy
 
     // Step 1: if we're over the total file limit, remove the oldest
@@ -1413,7 +1431,7 @@ bool SETTINGS_MANAGER::TriggerBackupIfNeeded( REPORTER& aReporter ) const
             wxRemoveFile( file );
     }
 
-    return BackupProject( aReporter );
+    return true;
 }
 
 

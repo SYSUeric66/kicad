@@ -591,7 +591,7 @@ wxString RemoveHTMLTags( const wxString& aInput )
 
 wxString LinkifyHTML( wxString aStr )
 {
-    wxRegEx regex( wxS( "\\b(https?|ftp|file)://([-\\w+&@#/%?=~|!:,.;]*[^.<>\\s\u00b6])" ),
+    wxRegEx regex( wxS( "\\b(https?|ftp|file)://([-\\w+&@#/%?=~|!:,.;]*[^.,:;<>\\s\u00b6])" ),
                    wxRE_ICASE );
 
     regex.ReplaceAll( &aStr, "<a href=\"\\0\">\\0</a>" );
@@ -826,8 +826,10 @@ int StrNumCmp( const wxString& aString1, const wxString& aString2, bool aIgnoreC
 bool WildCompareString( const wxString& pattern, const wxString& string_to_tst,
                         bool case_sensitive )
 {
-    const wxChar* cp = nullptr, * mp = nullptr;
-    const wxChar* wild, * str;
+    const wxChar* cp = nullptr;
+    const wxChar* mp = nullptr;
+    const wxChar* wild = nullptr;
+    const wxChar* str = nullptr;
     wxString      _pattern, _string_to_tst;
 
     if( case_sensitive )
@@ -841,7 +843,7 @@ bool WildCompareString( const wxString& pattern, const wxString& string_to_tst,
         _pattern.MakeUpper();
         _string_to_tst = string_to_tst;
         _string_to_tst.MakeUpper();
-        wild   = _pattern.GetData();
+        wild = _pattern.GetData();
         str = _string_to_tst.GetData();
     }
 
@@ -859,7 +861,8 @@ bool WildCompareString( const wxString& pattern, const wxString& string_to_tst,
         if( *wild == '*' )
         {
             if( !*++wild )
-                return 1;
+                return true;
+
             mp = wild;
             cp = str + 1;
         }
@@ -907,11 +910,12 @@ bool ApplyModifier( double& value, const wxString& aString )
     }
 
     if( units.length()
-            && !units.CmpNoCase( wxT( "F" ) )
-            && !units.CmpNoCase( wxT( "hz" ) )
-            && !units.CmpNoCase( wxT( "W" ) )
-            && !units.CmpNoCase( wxT( "V" ) )
-            && !units.CmpNoCase( wxT( "H" ) ) )
+            && !units.IsSameAs( wxT( "F" ), false )
+            && !units.IsSameAs( wxT( "hz" ), false )
+            && !units.IsSameAs( wxT( "W" ), false )
+            && !units.IsSameAs( wxT( "V" ), false )
+            && !units.IsSameAs( wxT( "A" ), false )
+            && !units.IsSameAs( wxT( "H" ), false ) )
     {
         return false;
     }

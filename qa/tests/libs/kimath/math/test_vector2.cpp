@@ -67,4 +67,119 @@ BOOST_AUTO_TEST_CASE( test_resize, *boost::unit_test::tolerance( 0.000001 ) )
     BOOST_CHECK( v5.Resize( 100 ) == VECTOR2I( -71, -71 ) );
 }
 
+BOOST_AUTO_TEST_CASE( test_casting )
+{
+    VECTOR2I vint( 4, 3 );
+    VECTOR2D vdouble( 4.0, 3.0 );
+    VECTOR2L vlong( 4, 3 );
+    VECTOR2<float> vfloat( 4.0f, 3.0f );
+    VECTOR2<unsigned> vunsigned( 4, 3 );
+
+    BOOST_CHECK_EQUAL( vint, VECTOR2I( vdouble ) );
+    BOOST_CHECK_EQUAL( vint, VECTOR2I( vlong ) );
+    BOOST_CHECK_EQUAL( vint, VECTOR2I( vfloat ) );
+    BOOST_CHECK_EQUAL( vint, VECTOR2I( vunsigned ) );
+
+    BOOST_CHECK_EQUAL( vdouble, VECTOR2D( vint ) );
+    BOOST_CHECK_EQUAL( vdouble, VECTOR2D( vlong ) );
+    BOOST_CHECK_EQUAL( vdouble, VECTOR2D( vfloat ) );
+    BOOST_CHECK_EQUAL( vdouble, VECTOR2D( vunsigned ) );
+
+    BOOST_CHECK_EQUAL( vlong, VECTOR2L( vint ) );
+    BOOST_CHECK_EQUAL( vlong, VECTOR2L( vdouble ) );
+    BOOST_CHECK_EQUAL( vlong, VECTOR2L( vfloat ) );
+    BOOST_CHECK_EQUAL( vlong, VECTOR2L( vunsigned ) );
+
+    BOOST_CHECK_EQUAL( vfloat, VECTOR2<float>( vint ) );
+    BOOST_CHECK_EQUAL( vfloat, VECTOR2<float>( vdouble ) );
+    BOOST_CHECK_EQUAL( vfloat, VECTOR2<float>( vlong ) );
+    BOOST_CHECK_EQUAL( vfloat, VECTOR2<float>( vunsigned ) );
+
+    BOOST_CHECK_EQUAL( vunsigned, VECTOR2<unsigned>( vint ) );
+    BOOST_CHECK_EQUAL( vunsigned, VECTOR2<unsigned>( vdouble ) );
+    BOOST_CHECK_EQUAL( vunsigned, VECTOR2<unsigned>( vlong ) );
+    BOOST_CHECK_EQUAL( vunsigned, VECTOR2<unsigned>( vfloat ) );
+
+    // Check that negative values are handled correctly
+    vint = vint - 1;
+    vdouble = vdouble - 1;
+    vlong = vlong - 1;
+    vfloat = vfloat - 1;
+    vunsigned = vunsigned - 1;
+
+    BOOST_CHECK_EQUAL( vint, VECTOR2I( 3, 2 ) );
+    BOOST_CHECK_EQUAL( vdouble, VECTOR2D( 3.0, 2.0 ) );
+    BOOST_CHECK_EQUAL( vlong, VECTOR2L( 3, 2 ) );
+    BOOST_CHECK_EQUAL( vfloat, VECTOR2<float>( 3.0f, 2.0f ) );
+    BOOST_CHECK_EQUAL( vunsigned, VECTOR2<unsigned>( 3, 2 ) );
+
+    // Check that subtracting unsigned values works correctly
+    vint = vint - (unsigned)1;
+    vdouble = vdouble - (unsigned)1;
+    vlong = vlong - (unsigned)1;
+    vfloat = vfloat - (unsigned)1;
+    vunsigned = vunsigned - (unsigned)1;
+
+    BOOST_CHECK_EQUAL( vint, VECTOR2I( 2, 1 ) );
+    BOOST_CHECK_EQUAL( vdouble, VECTOR2D( 2.0, 1.0 ) );
+    BOOST_CHECK_EQUAL( vlong, VECTOR2L( 2, 1 ) );
+    BOOST_CHECK_EQUAL( vfloat, VECTOR2<float>( 2.0f, 1.0f ) );
+    BOOST_CHECK_EQUAL( vunsigned, VECTOR2<unsigned>( 2, 1 ) );
+
+    vint = vint - 5.0;
+    vdouble = vdouble - 5.0;
+    vlong = vlong - 5.0;
+    vfloat = vfloat - 5.0;
+    vunsigned = vunsigned - 5.0;
+
+    BOOST_CHECK_EQUAL( vint, VECTOR2I( -3, -4 ) );
+    BOOST_CHECK_EQUAL( vdouble, VECTOR2D( -3.0, -4.0 ) );
+    BOOST_CHECK_EQUAL( vlong, VECTOR2L( -3, -4 ) );
+    BOOST_CHECK_EQUAL( vfloat, VECTOR2<float>( -3.0f, -4.0f ) );
+    BOOST_CHECK_EQUAL( vunsigned, VECTOR2<unsigned>( 4294967293, 4294967292 ) ); // roll over unsigned when explicitly subtracting.
+
+    // Check that negative initial values are handled correctly
+    vint = VECTOR2I( -4, -3 );
+    vdouble = VECTOR2D( -4.0, -3.0 );
+    vlong = VECTOR2L( -4, -3 );
+    vfloat = VECTOR2<float>( -4.0f, -3.0f );
+    vunsigned = VECTOR2<unsigned>( -4, -3 );
+
+    vint = vint - 1;
+    vdouble = vdouble - 1;
+    vlong = vlong - 1;
+    vfloat = vfloat - 1;
+    vunsigned = vunsigned - 1;
+
+    BOOST_CHECK_EQUAL( vint, VECTOR2I( -5, -4 ) );
+    BOOST_CHECK_EQUAL( vdouble, VECTOR2D( -5.0, -4.0 ) );
+    BOOST_CHECK_EQUAL( vlong, VECTOR2L( -5, -4 ) );
+    BOOST_CHECK_EQUAL( vfloat, VECTOR2<float>( -5.0f, -4.0f ) );
+    BOOST_CHECK_EQUAL( vunsigned, VECTOR2<unsigned>( 4294967291, 4294967292 ) );
+
+    vint = vint - 1u;
+    vdouble = vdouble - 1u;
+    vlong = vlong - 1u;
+    vfloat = vfloat - 1u;
+
+    BOOST_CHECK_EQUAL( vint, VECTOR2I( -6, -5 ) );
+    BOOST_CHECK_EQUAL( vdouble, VECTOR2D( -6.0, -5.0 ) );
+    BOOST_CHECK_EQUAL( vlong, VECTOR2L( -6, -5 ) );
+    BOOST_CHECK_EQUAL( vfloat, VECTOR2<float>( -6.0f, -5.0f ) );
+
+    auto add = vint + vdouble;
+    BOOST_CHECK_EQUAL( add, VECTOR2D( -12.0, -10.0 ) );
+
+    auto sub = vint - 2 * vlong;
+    BOOST_CHECK_EQUAL( sub.x, 6 );
+    BOOST_CHECK_EQUAL( sub.y, 5 );
+
+    vunsigned = VECTOR2<unsigned>( std::numeric_limits<unsigned>::max(), std::numeric_limits<unsigned>::max() );
+    vint = VECTOR2I( vunsigned );
+    BOOST_CHECK_EQUAL( vint.x, std::numeric_limits<int>::max() );
+
+    vunsigned += 1;
+    BOOST_CHECK_EQUAL( vunsigned.x, 0 );
+}
+
 BOOST_AUTO_TEST_SUITE_END()

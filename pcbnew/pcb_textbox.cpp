@@ -21,6 +21,7 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA
  */
 
+#include <advanced_config.h>
 #include <pcb_edit_frame.h>
 #include <base_units.h>
 #include <bitmaps.h>
@@ -244,12 +245,18 @@ std::vector<VECTOR2I> PCB_TEXTBOX::GetAnchorAndOppositeCorner() const
 
 VECTOR2I PCB_TEXTBOX::GetDrawPos() const
 {
+    return GetDrawPos( false );
+}
+
+
+VECTOR2I PCB_TEXTBOX::GetDrawPos( bool aIsFlipped ) const
+{
     std::vector<VECTOR2I> corners = GetAnchorAndOppositeCorner();
     GR_TEXT_H_ALIGN_T     effectiveAlignment = GetHorizJustify();
     VECTOR2I              textAnchor;
     VECTOR2I              offset;
 
-    if( IsMirrored() )
+    if( IsMirrored() != aIsFlipped )
     {
         switch( GetHorizJustify() )
         {
@@ -321,29 +328,33 @@ void PCB_TEXTBOX::ViewGetLayers( int aLayers[], int& aCount ) const
 
 wxString PCB_TEXTBOX::GetShownText( bool aAllowExtraText, int aDepth ) const
 {
-    BOARD* board = dynamic_cast<BOARD*>( GetParent() );
+    const FOOTPRINT* parentFootprint = GetParentFootprint();
+    const BOARD*     board = GetBoard();
 
-    std::function<bool( wxString* )> pcbTextResolver =
-            [&]( wxString* token ) -> bool
-            {
-                if( token->IsSameAs( wxT( "LAYER" ) ) )
-                {
-                    *token = GetLayerName();
-                    return true;
-                }
+    std::function<bool( wxString* )> resolver = [&]( wxString* token ) -> bool
+    {
+        if( parentFootprint && parentFootprint->ResolveTextVar( token, aDepth + 1 ) )
+            return true;
 
-                if( board->ResolveTextVar( token, aDepth + 1 ) )
-                {
-                    return true;
-                }
+        if( token->IsSameAs( wxT( "LAYER" ) ) )
+        {
+            *token = GetLayerName();
+            return true;
+        }
 
-                return false;
-            };
+        if( board->ResolveTextVar( token, aDepth + 1 ) )
+            return true;
+
+        return false;
+    };
 
     wxString text = EDA_TEXT::GetShownText( aAllowExtraText, aDepth );
 
-    if( board && HasTextVars() && aDepth < 10 )
-        text = ExpandTextVars( text, &pcbTextResolver );
+    if( HasTextVars() )
+    {
+        if( aDepth < ADVANCED_CFG::GetCfg().m_ResolveTextRecursionDepth )
+            text = ExpandTextVars( text, &resolver );
+    }
 
     KIFONT::FONT*         font = getDrawFont();
     std::vector<VECTOR2I> corners = GetAnchorAndOppositeCorner();
@@ -449,7 +460,7 @@ void PCB_TEXTBOX::Flip( const VECTOR2I& aCentre, bool aFlipLeftRight )
     else
         EDA_TEXT::SetTextAngle( ANGLE_180 - GetTextAngle() );
 
-    if( ( GetLayerSet() & LSET::SideSpecificMask() ).any() )
+    if( IsSideSpecific() )
         SetMirrored( !IsMirrored() );
 }
 
@@ -477,10 +488,10 @@ bool PCB_TEXTBOX::HitTest( const BOX2I& aRect, bool aContained, int aAccuracy ) 
 }
 
 
-wxString PCB_TEXTBOX::GetItemDescription( UNITS_PROVIDER* aUnitsProvider ) const
+wxString PCB_TEXTBOX::GetItemDescription( UNITS_PROVIDER* aUnitsProvider, bool aFull ) const
 {
     return wxString::Format( _( "PCB Text Box '%s' on %s" ),
-                             KIUI::EllipsizeMenuText( GetText() ),
+                             aFull ? GetShownText( false ) : KIUI::EllipsizeMenuText( GetText() ),
                              GetLayerName() );
 }
 
@@ -629,7 +640,6 @@ void PCB_TEXTBOX::SetBorderWidth( const int aSize )
 }
 
 
-
 bool PCB_TEXTBOX::operator==( const BOARD_ITEM& aBoardItem ) const
 {
     if( aBoardItem.Type() != Type() )
@@ -637,7 +647,14 @@ bool PCB_TEXTBOX::operator==( const BOARD_ITEM& aBoardItem ) const
 
     const PCB_TEXTBOX& other = static_cast<const PCB_TEXTBOX&>( aBoardItem );
 
-    return m_borderEnabled == other.m_borderEnabled && EDA_TEXT::operator==( other );
+    return *this == other;
+}
+
+
+bool PCB_TEXTBOX::operator==( const PCB_TEXTBOX& aOther ) const
+{
+    return m_borderEnabled == aOther.m_borderEnabled
+            && EDA_TEXT::operator==( aOther );
 }
 
 
@@ -699,8 +716,11 @@ static struct PCB_TEXTBOX_DESC
         propMgr.Mask( TYPE_HASH( PCB_TEXTBOX ), TYPE_HASH( EDA_SHAPE ), _HKI( "Start Y" ) );
         propMgr.Mask( TYPE_HASH( PCB_TEXTBOX ), TYPE_HASH( EDA_SHAPE ), _HKI( "End X" ) );
         propMgr.Mask( TYPE_HASH( PCB_TEXTBOX ), TYPE_HASH( EDA_SHAPE ), _HKI( "End Y" ) );
+        propMgr.Mask( TYPE_HASH( PCB_TEXTBOX ), TYPE_HASH( EDA_SHAPE ), _HKI( "Width" ) );
+        propMgr.Mask( TYPE_HASH( PCB_TEXTBOX ), TYPE_HASH( EDA_SHAPE ), _HKI( "Height" ) );
         propMgr.Mask( TYPE_HASH( PCB_TEXTBOX ), TYPE_HASH( EDA_SHAPE ), _HKI( "Line Width" ) );
         propMgr.Mask( TYPE_HASH( PCB_TEXTBOX ), TYPE_HASH( EDA_SHAPE ), _HKI( "Line Style" ) );
+        propMgr.Mask( TYPE_HASH( PCB_TEXTBOX ), TYPE_HASH( EDA_SHAPE ), _HKI( "Filled" ) );
         propMgr.Mask( TYPE_HASH( PCB_TEXTBOX ), TYPE_HASH( EDA_TEXT ), _HKI( "Visible" ) );
         propMgr.Mask( TYPE_HASH( PCB_TEXTBOX ), TYPE_HASH( EDA_TEXT ), _HKI( "Color" ) );
 

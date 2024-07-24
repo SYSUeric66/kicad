@@ -71,40 +71,46 @@ bool PCB_DIMENSION_BASE::operator==( const BOARD_ITEM& aOther ) const
 
     const PCB_DIMENSION_BASE& other = static_cast<const PCB_DIMENSION_BASE&>( aOther );
 
-    if( m_textPosition != other.m_textPosition )
+    return *this == other;
+}
+
+
+bool PCB_DIMENSION_BASE::operator==( const PCB_DIMENSION_BASE& aOther ) const
+{
+    if( m_textPosition != aOther.m_textPosition )
         return false;
 
-    if( m_keepTextAligned != other.m_keepTextAligned )
+    if( m_keepTextAligned != aOther.m_keepTextAligned )
         return false;
 
-    if( m_units != other.m_units )
+    if( m_units != aOther.m_units )
         return false;
 
-    if( m_autoUnits != other.m_autoUnits )
+    if( m_autoUnits != aOther.m_autoUnits )
         return false;
 
-    if( m_unitsFormat != other.m_unitsFormat )
+    if( m_unitsFormat != aOther.m_unitsFormat )
         return false;
 
-    if( m_precision != other.m_precision )
+    if( m_precision != aOther.m_precision )
         return false;
 
-    if( m_suppressZeroes != other.m_suppressZeroes )
+    if( m_suppressZeroes != aOther.m_suppressZeroes )
         return false;
 
-    if( m_lineThickness != other.m_lineThickness )
+    if( m_lineThickness != aOther.m_lineThickness )
         return false;
 
-    if( m_arrowLength != other.m_arrowLength )
+    if( m_arrowLength != aOther.m_arrowLength )
         return false;
 
-    if( m_extensionOffset != other.m_extensionOffset )
+    if( m_extensionOffset != aOther.m_extensionOffset )
         return false;
 
-    if( m_measuredValue != other.m_measuredValue )
+    if( m_measuredValue != aOther.m_measuredValue )
         return false;
 
-    return EDA_TEXT::operator==( other );
+    return EDA_TEXT::operator==( aOther );
 }
 
 
@@ -194,7 +200,7 @@ void PCB_DIMENSION_BASE::ClearRenderCache()
     if( !m_inClearRenderCache )
     {
         m_inClearRenderCache = true;
-        updateText();
+        Update();
         m_inClearRenderCache = false;
     }
 }
@@ -313,6 +319,22 @@ void PCB_DIMENSION_BASE::SetUnitsMode( DIM_UNITS_MODE aMode )
 }
 
 
+void PCB_DIMENSION_BASE::ChangeTextAngleDegrees( double aDegrees )
+{
+    SetTextAngleDegrees( aDegrees );
+    // Create or repair any knockouts
+    Update();
+}
+
+
+void PCB_DIMENSION_BASE::ChangeKeepTextAligned( bool aKeepAligned )
+{
+    SetKeepTextAligned( aKeepAligned );
+    // Re-align the text and repair any knockouts
+    Update();
+}
+
+
 void PCB_DIMENSION_BASE::Move( const VECTOR2I& offset )
 {
     PCB_TEXT::Offset( offset );
@@ -347,7 +369,7 @@ void PCB_DIMENSION_BASE::Flip( const VECTOR2I& aCentre, bool aFlipLeftRight )
 {
     Mirror( aCentre );
 
-    SetLayer( FlipLayer( GetLayer(), GetBoard()->GetCopperLayerCount() ) );
+    SetLayer( GetBoard()->FlipLayer( GetLayer() ) );
 }
 
 
@@ -378,7 +400,7 @@ void PCB_DIMENSION_BASE::Mirror( const VECTOR2I& axis_pos, bool aMirrorLeftRight
         INVERT( m_end.y );
     }
 
-    if( ( GetLayerSet() & LSET::SideSpecificMask() ).any() )
+    if( IsSideSpecific() )
         SetMirrored( !IsMirrored() );
 
     Update();
@@ -546,10 +568,10 @@ const BOX2I PCB_DIMENSION_BASE::GetBoundingBox() const
 }
 
 
-wxString PCB_DIMENSION_BASE::GetItemDescription( UNITS_PROVIDER* aUnitsProvider ) const
+wxString PCB_DIMENSION_BASE::GetItemDescription( UNITS_PROVIDER* aUnitsProvider, bool aFull ) const
 {
     return wxString::Format( _( "Dimension '%s' on %s" ),
-                             KIUI::EllipsizeMenuText( GetText() ),
+                             aFull ? GetShownText( false ) : KIUI::EllipsizeMenuText( GetText() ),
                              GetLayerName() );
 }
 
@@ -1433,6 +1455,8 @@ static struct DIMENSION_DESC
         propMgr.InheritsAfter( TYPE_HASH( PCB_DIMENSION_BASE ), TYPE_HASH( BOARD_ITEM ) );
         propMgr.InheritsAfter( TYPE_HASH( PCB_DIMENSION_BASE ), TYPE_HASH( EDA_TEXT ) );
 
+        propMgr.Mask( TYPE_HASH( PCB_DIMENSION_BASE ), TYPE_HASH( EDA_TEXT ), _HKI( "Orientation" ) );
+
         const wxString groupDimension = _HKI( "Dimension Properties" );
 
         auto isLeader =
@@ -1481,6 +1505,26 @@ static struct DIMENSION_DESC
                 &PCB_DIMENSION_BASE::ChangeSuppressZeroes, &PCB_DIMENSION_BASE::GetSuppressZeroes ),
                 groupDimension )
                 .SetAvailableFunc( isNotLeader );
+
+        const wxString groupText = _HKI( "Text Properties" );
+
+        const auto isTextOrientationWriteable =
+                []( INSPECTABLE* aItem ) -> bool
+                {
+                    return !static_cast<PCB_DIMENSION_BASE*>( aItem )->GetKeepTextAligned();
+                };
+
+        propMgr.AddProperty( new PROPERTY<PCB_DIMENSION_BASE, bool>( _HKI( "Keep Aligned with Dimension" ),
+                &PCB_DIMENSION_BASE::ChangeKeepTextAligned,
+                &PCB_DIMENSION_BASE::GetKeepTextAligned ),
+                groupText );
+
+        propMgr.AddProperty( new PROPERTY<PCB_DIMENSION_BASE, double>( _HKI( "Orientation" ),
+                &PCB_DIMENSION_BASE::ChangeTextAngleDegrees,
+                &PCB_DIMENSION_BASE::GetTextAngleDegreesProp,
+                PROPERTY_DISPLAY::PT_DEGREE ),
+                groupText )
+                .SetWriteableFunc( isTextOrientationWriteable );
     }
 } _DIMENSION_DESC;
 
@@ -1691,5 +1735,3 @@ static struct CENTER_DIMENSION_DESC
                                       []( INSPECTABLE* aItem ) { return false; } );
     }
 } CENTER_DIMENSION_DESC;
-
-

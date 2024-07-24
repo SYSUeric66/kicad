@@ -21,6 +21,7 @@
 #define KICAD_SCHEMATIC_H
 
 #include <eda_item.h>
+#include <embedded_files.h>
 #include <sch_sheet_path.h>
 #include <schematic_settings.h>
 
@@ -43,7 +44,7 @@ public:
     virtual ~SCHEMATIC_IFACE() {};
 
     virtual CONNECTION_GRAPH* ConnectionGraph() const = 0;
-    virtual SCH_SHEET_LIST GetSheets() const = 0;
+    virtual SCH_SHEET_LIST BuildSheetListSortedByPageNumbers() const = 0;
     virtual void SetCurrentSheet( const SCH_SHEET_PATH& aPath ) = 0;
     virtual SCH_SHEET_PATH& CurrentSheet() const = 0;
     virtual wxString GetFileName() const = 0;
@@ -71,7 +72,7 @@ public:
  * Right now, Eeschema can have only one schematic open at a time, but this could change.
  * Please keep this possibility in mind when adding to this object.
  */
-class SCHEMATIC : public SCHEMATIC_IFACE, public EDA_ITEM
+class SCHEMATIC : public SCHEMATIC_IFACE, public EDA_ITEM, public EMBEDDED_FILES
 {
 public:
     SCHEMATIC( PROJECT* aPrj );
@@ -92,14 +93,21 @@ public:
 
     const std::map<wxString, wxString>* GetProperties() { return &m_properties; }
 
-    /**
-     * Builds and returns an updated schematic hierarchy
-     * TODO: can this be cached?
-     * @return a SCH_SHEET_LIST containing the schematic hierarchy
-     */
-    SCH_SHEET_LIST GetSheets() const override
+    SCH_SHEET_LIST BuildSheetListSortedByPageNumbers() const override
     {
         return SCH_SHEET_LIST( m_rootSheet );
+    }
+
+    SCH_SHEET_LIST BuildUnorderedSheetList() const
+    {
+        SCH_SHEET_LIST sheets;
+        sheets.BuildSheetList( m_rootSheet, false );
+        return sheets;
+    }
+
+    SCH_ITEM* GetItem( const KIID& aID, SCH_SHEET_PATH* aPathOut = nullptr ) const
+    {
+        return BuildUnorderedSheetList().GetItem( aID, aPathOut );
     }
 
     SCH_SHEET& Root() const
@@ -153,6 +161,9 @@ public:
     ERC_SETTINGS& ErcSettings() const;
 
     std::vector<SCH_MARKER*> ResolveERCExclusions();
+
+    EMBEDDED_FILES* GetEmbeddedFiles() override;
+    const EMBEDDED_FILES* GetEmbeddedFiles() const;
 
     /**
      * Return a pointer to a bus alias object for the given label, or null if one
@@ -297,6 +308,16 @@ public:
      * Remove all listeners
      */
     void RemoveAllListeners();
+
+    /**
+     * Embed fonts in the schematic
+     */
+    void EmbedFonts() override;
+
+    /**
+     * True if a SCHEMATIC exists, false if not
+     */
+    static bool m_IsSchematicExists;
 
 #if defined(DEBUG)
     void Show( int nestLevel, std::ostream& os ) const override {}

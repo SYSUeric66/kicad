@@ -109,7 +109,7 @@ set( PCBNEW_DIALOGS
     dialogs/dialog_import_settings.cpp
     dialogs/dialog_import_settings_base.cpp
     dialogs/dialog_imported_layers_base.cpp
-    dialogs/dialog_imported_layers.cpp
+        dialogs/dialog_map_layers.cpp
     dialogs/dialog_rule_area_properties.cpp
     dialogs/dialog_rule_area_properties_base.cpp
     dialogs/dialog_layer_selection_base.cpp
@@ -220,6 +220,7 @@ set( PCBNEW_EXPORTERS
     exporters/export_svg.cpp
     exporters/step/exporter_step.cpp
     exporters/step/step_pcb_model.cpp
+    exporters/step/KI_XCAFDoc_AssemblyGraph.cxx
     exporters/exporter_vrml.cpp
     exporters/place_file_exporter.cpp
     exporters/gen_drill_report_files.cpp

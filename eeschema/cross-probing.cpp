@@ -52,7 +52,7 @@ SCH_ITEM* SCH_EDITOR_CONTROL::FindSymbolAndItem( const wxString* aPath, const wx
     if( !aSearchHierarchy )
         sheetList.push_back( m_frame->GetCurrentSheet() );
     else
-        sheetList = m_frame->Schematic().GetSheets();
+        sheetList = m_frame->Schematic().BuildSheetListSortedByPageNumbers();
 
     for( SCH_SHEET_PATH& sheet : sheetList )
     {
@@ -452,7 +452,7 @@ void SCH_EDIT_FRAME::SendCrossProbeClearHighlight()
 
 
 bool findSymbolsAndPins(
-        const SCHEMATIC& aSchematic, const SCH_SHEET_PATH& aSheetPath,
+        const SCH_SHEET_LIST& aSchematicSheetList, const SCH_SHEET_PATH& aSheetPath,
         std::unordered_map<wxString, std::vector<SCH_REFERENCE>>&             aSyncSymMap,
         std::unordered_map<wxString, std::unordered_map<wxString, SCH_PIN*>>& aSyncPinMap,
         bool                                                                  aRecursive = false )
@@ -460,12 +460,13 @@ bool findSymbolsAndPins(
     if( aRecursive )
     {
         // Iterate over children
-        for( const SCH_SHEET_PATH& candidate : aSchematic.GetSheets() )
+        for( const SCH_SHEET_PATH& candidate : aSchematicSheetList )
         {
             if( candidate == aSheetPath || !candidate.IsContainedWithin( aSheetPath ) )
                 continue;
 
-            findSymbolsAndPins( aSchematic, candidate, aSyncSymMap, aSyncPinMap, aRecursive );
+            findSymbolsAndPins( aSchematicSheetList, candidate, aSyncSymMap, aSyncPinMap,
+                                aRecursive );
         }
     }
 
@@ -531,7 +532,7 @@ bool findSymbolsAndPins(
 
 
 bool sheetContainsOnlyWantedItems(
-        const SCHEMATIC& aSchematic, const SCH_SHEET_PATH& aSheetPath,
+        const SCH_SHEET_LIST& aSchematicSheetList, const SCH_SHEET_PATH& aSheetPath,
         std::unordered_map<wxString, std::vector<SCH_REFERENCE>>&             aSyncSymMap,
         std::unordered_map<wxString, std::unordered_map<wxString, SCH_PIN*>>& aSyncPinMap,
         std::unordered_map<SCH_SHEET_PATH, bool>&                             aCache )
@@ -542,12 +543,12 @@ bool sheetContainsOnlyWantedItems(
         return cacheIt->second;
 
     // Iterate over children
-    for( const SCH_SHEET_PATH& candidate : aSchematic.GetSheets() )
+    for( const SCH_SHEET_PATH& candidate : aSchematicSheetList )
     {
         if( candidate == aSheetPath || !candidate.IsContainedWithin( aSheetPath ) )
             continue;
 
-        bool childRet = sheetContainsOnlyWantedItems( aSchematic, candidate, aSyncSymMap,
+        bool childRet = sheetContainsOnlyWantedItems( aSchematicSheetList, candidate, aSyncSymMap,
                                                       aSyncPinMap, aCache );
 
         if( !childRet )
@@ -617,10 +618,10 @@ findItemsFromSyncSelection( const SCHEMATIC& aSchematic, const std::string aSync
     std::optional<std::pair<wxString, wxString>>               focusPin;
     std::unordered_map<SCH_SHEET_PATH, std::vector<SCH_ITEM*>> focusItemResults;
 
-    const SCH_SHEET_LIST allSheetsList = aSchematic.GetSheets();
+    const SCH_SHEET_LIST allSheetsList = aSchematic.BuildUnorderedSheetList();
 
     // In orderedSheets, the current sheet comes first.
-    SCH_SHEET_PATHS orderedSheets;
+    std::vector<SCH_SHEET_PATH> orderedSheets;
     orderedSheets.reserve( allSheetsList.size() );
     orderedSheets.push_back( aSchematic.CurrentSheet() );
 
@@ -652,6 +653,7 @@ findItemsFromSyncSelection( const SCHEMATIC& aSchematic, const std::string aSync
             syncSymMap[symRef] = std::vector<SCH_REFERENCE>();
             break;
         }
+
         case 'P': // Select by pad: P<Footprint reference>/<Pad number>
         {
             wxString symRef = UnescapeString( syncData.BeforeFirst( '/' ) );
@@ -663,126 +665,125 @@ findItemsFromSyncSelection( const SCHEMATIC& aSchematic, const std::string aSync
             syncPinMap[symRef][padNum] = nullptr;
             break;
         }
-        default: break;
+
+        default:
+            break;
         }
     }
 
     // Lambda definitions
-    auto flattenSyncMaps = [&syncSymMap, &syncPinMap]() -> std::vector<SCH_ITEM*>
-    {
-        std::vector<SCH_ITEM*> allVec;
-
-        for( auto const& pairSym : syncSymMap )
-        {
-            for( const SCH_REFERENCE& ref : pairSym.second )
+    auto flattenSyncMaps =
+            [&syncSymMap, &syncPinMap]() -> std::vector<SCH_ITEM*>
             {
-                allVec.push_back( ref.GetSymbol() );
-            }
-        }
+                std::vector<SCH_ITEM*> allVec;
 
-        for( auto const& pairSym : syncPinMap )
-        {
-            for( auto const& pairPin : pairSym.second )
-            {
-                if( pairPin.second )
-                    allVec.push_back( pairPin.second );
-            }
-        }
-
-        return allVec;
-    };
-
-    auto clearSyncMaps = [&syncSymMap, &syncPinMap]()
-    {
-        for( auto& pairSym : syncSymMap )
-        {
-            pairSym.second.clear();
-        }
-
-        for( auto& pairSym : syncPinMap )
-        {
-            for( auto& pairPin : pairSym.second )
-            {
-                pairPin.second = nullptr;
-            }
-        }
-    };
-
-    auto syncMapsValuesEmpty = [&syncSymMap, &syncPinMap]() -> bool
-    {
-        for( auto const& pairSym : syncSymMap )
-        {
-            if( pairSym.second.size() > 0 )
-                return false;
-        }
-
-        for( auto const& pairSym : syncPinMap )
-        {
-            for( auto const& pairPin : pairSym.second )
-            {
-                if( pairPin.second )
-                    return false;
-            }
-        }
-
-        return true;
-    };
-
-    auto checkFocusItems = [&]( const SCH_SHEET_PATH& aSheetPath )
-    {
-        if( focusSymbol )
-        {
-            auto findIt = syncSymMap.find( *focusSymbol );
-            if( findIt != syncSymMap.end() )
-            {
-                if( findIt->second.size() > 0 )
+                for( const auto& [symRef, symbols] : syncSymMap )
                 {
-                    focusItemResults[aSheetPath].push_back( findIt->second.front().GetSymbol() );
+                    for( const SCH_REFERENCE& ref : symbols )
+                        allVec.push_back( ref.GetSymbol() );
                 }
-            }
-        }
-        else if( focusPin )
-        {
-            auto findIt = syncPinMap.find( focusPin->first );
-            if( findIt != syncPinMap.end() )
-            {
-                if( findIt->second[focusPin->second] )
+
+                for( const auto& [symRef, pinMap] : syncPinMap )
                 {
-                    focusItemResults[aSheetPath].push_back( findIt->second[focusPin->second] );
+                    for( const auto& [padNum, pin] : pinMap )
+                    {
+                        if( pin )
+                            allVec.push_back( pin );
+                    }
                 }
-            }
-        }
-    };
 
-    auto makeRetForSheet = [&]( const SCH_SHEET_PATH& aSheet, SCH_ITEM* aFocusItem )
-    {
-        clearSyncMaps();
+                return allVec;
+            };
 
-        // Fill sync maps
-        findSymbolsAndPins( aSchematic, aSheet, syncSymMap, syncPinMap );
-        std::vector<SCH_ITEM*> itemsVector = flattenSyncMaps();
-
-        // Add fully wanted sheets to vector
-        for( SCH_ITEM* item : aSheet.LastScreen()->Items().OfType( SCH_SHEET_T ) )
-        {
-            KIID_PATH kiidPath = aSheet.Path();
-            kiidPath.push_back( item->m_Uuid );
-
-            std::optional<SCH_SHEET_PATH> subsheetPath =
-                    allSheetsList.GetSheetPathByKIIDPath( kiidPath );
-
-            if( !subsheetPath )
-                continue;
-
-            if( sheetContainsOnlyWantedItems( aSchematic, *subsheetPath, syncSymMap, syncPinMap,
-                                              fullyWantedCache ) )
+    auto clearSyncMaps =
+            [&syncSymMap, &syncPinMap]()
             {
-                itemsVector.push_back( item );
-            }
-        }
+                for( auto& [symRef, symbols] : syncSymMap )
+                    symbols.clear();
 
-        return std::make_tuple( aSheet, aFocusItem, itemsVector );
-    };
+                for( auto& [reference, pins] : syncPinMap )
+                {
+                    for( auto& [number, pin] : pins )
+                        pin = nullptr;
+                }
+            };
+
+    auto syncMapsValuesEmpty =
+            [&syncSymMap, &syncPinMap]() -> bool
+            {
+                for( const auto& [symRef, symbols] : syncSymMap )
+                {
+                    if( symbols.size() > 0 )
+                        return false;
+                }
+
+                for( const auto& [symRef, pins] : syncPinMap )
+                {
+                    for( const auto& [padNum, pin] : pins )
+                    {
+                        if( pin )
+                            return false;
+                    }
+                }
+
+                return true;
+            };
+
+    auto checkFocusItems =
+            [&]( const SCH_SHEET_PATH& aSheet )
+            {
+                if( focusSymbol )
+                {
+                    auto findIt = syncSymMap.find( *focusSymbol );
+
+                    if( findIt != syncSymMap.end() )
+                    {
+                        if( findIt->second.size() > 0 )
+                            focusItemResults[aSheet].push_back( findIt->second.front().GetSymbol() );
+                    }
+                }
+                else if( focusPin )
+                {
+                    auto findIt = syncPinMap.find( focusPin->first );
+
+                    if( findIt != syncPinMap.end() )
+                    {
+                        if( findIt->second[focusPin->second] )
+                            focusItemResults[aSheet].push_back( findIt->second[focusPin->second] );
+                    }
+                }
+            };
+
+    auto makeRetForSheet =
+            [&]( const SCH_SHEET_PATH& aSheet, SCH_ITEM* aFocusItem )
+            {
+                clearSyncMaps();
+
+                // Fill sync maps
+                findSymbolsAndPins( allSheetsList, aSheet, syncSymMap, syncPinMap );
+                std::vector<SCH_ITEM*> itemsVector = flattenSyncMaps();
+
+                // Add fully wanted sheets to vector
+                for( SCH_ITEM* item : aSheet.LastScreen()->Items().OfType( SCH_SHEET_T ) )
+                {
+                    KIID_PATH kiidPath = aSheet.Path();
+                    kiidPath.push_back( item->m_Uuid );
+
+                    std::optional<SCH_SHEET_PATH> subsheetPath =
+                            allSheetsList.GetSheetPathByKIIDPath( kiidPath );
+
+                    if( !subsheetPath )
+                        continue;
+
+                    if( sheetContainsOnlyWantedItems( allSheetsList, *subsheetPath, syncSymMap,
+                                                      syncPinMap, fullyWantedCache ) )
+                    {
+                        itemsVector.push_back( item );
+                    }
+                }
+
+                return std::make_tuple( aSheet, aFocusItem, itemsVector );
+            };
 
     if( aFocusOnFirst )
     {
@@ -790,7 +791,7 @@ findItemsFromSyncSelection( const SCHEMATIC& aSchematic, const std::string aSync
         {
             clearSyncMaps();
 
-            findSymbolsAndPins( aSchematic, sheetPath, syncSymMap, syncPinMap );
+            findSymbolsAndPins( allSheetsList, sheetPath, syncSymMap, syncPinMap );
 
             checkFocusItems( sheetPath );
         }
@@ -799,10 +800,10 @@ findItemsFromSyncSelection( const SCHEMATIC& aSchematic, const std::string aSync
         {
             for( const SCH_SHEET_PATH& sheetPath : orderedSheets )
             {
-                auto vec = focusItemResults[sheetPath];
+                const std::vector<SCH_ITEM*>& items = focusItemResults[sheetPath];
 
-                if( !vec.empty() )
-                    return makeRetForSheet( sheetPath, vec.front() );
+                if( !items.empty() )
+                    return makeRetForSheet( sheetPath, items.front() );
             }
         }
     }
@@ -812,7 +813,7 @@ findItemsFromSyncSelection( const SCHEMATIC& aSchematic, const std::string aSync
         {
             clearSyncMaps();
 
-            findSymbolsAndPins( aSchematic, sheetPath, syncSymMap, syncPinMap );
+            findSymbolsAndPins( allSheetsList, sheetPath, syncSymMap, syncPinMap );
 
             if( !syncMapsValuesEmpty() )
             {
@@ -907,7 +908,7 @@ void SCH_EDIT_FRAME::KiwayMailIn( KIWAY_EXPRESS& mail )
         KIID           uuid( payload );
         SCH_SHEET_PATH path;
 
-        if( SCH_ITEM* item = m_schematic->GetSheets().GetItem( uuid, &path ) )
+        if( SCH_ITEM* item = m_schematic->GetItem( uuid, &path ) )
         {
             if( item->Type() == SCH_SHEET_T )
                 payload = static_cast<SCH_SHEET*>( item )->GetShownName( false );

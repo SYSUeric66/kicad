@@ -59,6 +59,7 @@ class SYMBOL_LIB;
 class SYMBOL_LIBS;
 class EE_COLLECTOR;
 class SCH_SCREEN;
+class SCH_COMMIT;
 class SYMBOL_LIB_TABLE;
 
 
@@ -256,16 +257,23 @@ public:
      *
      * @return true if the display name of a unit is set, otherwise false.
      */
-    bool HasUnitDisplayName( int aUnit );
+    bool HasUnitDisplayName( int aUnit ) const;
 
     /**
      * Return the display name for a given unit \a aUnit.
      *
      * @return the display name of a unit if set, or the ordinal name of the unit otherwise.
      */
-    wxString GetUnitDisplayName( int aUnit );
+    wxString GetUnitDisplayName( int aUnit ) const;
 
     void SetBodyStyle( int aBodyStyle ) override;
+
+    /**
+     * Similar to SetBodyStyle(), but always set the body style, regardless
+     * the lib symbol properties (the LIB_SYMBOL m_part can be not set during
+     * schematic files loading)
+     */
+    void SetBodyStyleUnconditional( int aBodyStyle );
 
     bool HasAlternateBodyStyle() const override;
 
@@ -548,6 +556,29 @@ public:
     {
         SetValueFieldText( aRef );
     }
+    int GetUnitProp() const
+    {
+        return GetUnitSelection( &Schematic()->CurrentSheet() );
+    }
+    void SetUnitProp( int aUnit )
+    {
+        if( aUnit < 1 )
+            return;
+
+        if( aUnit > GetUnitCount() )
+            aUnit = GetUnitCount();
+
+        SetUnitSelection( &Schematic()->CurrentSheet(), aUnit );
+        SetUnit( aUnit );
+    }
+    int GetBodyStyleProp() const
+    {
+        return GetBodyStyle();
+    }
+    void SetBodyStyleProp( int aBodyStyle )
+    {
+        SetBodyStyle( aBodyStyle );
+    }
 
     /**
      * Restore fields to the original library values.
@@ -561,6 +592,18 @@ public:
      */
     void UpdateFields( const SCH_SHEET_PATH* aPath, bool aUpdateStyle, bool aUpdateRef,
                        bool aUpdateOtherFields, bool aResetRef, bool aResetOtherFields );
+
+    /**
+     * Keep fields other than the reference, include/exclude flags, and alternate pin assignements
+     * in sync in multi-unit parts.
+     *
+     * @param aSourceSheet the sheet instance of the unit to sync to
+     * @param aProperty [optional] if present, the single property to sync.  (Otherwise the
+     *                  include/exclude flags, alternate pin assignments, and all fields bar the
+     *                  reference will be synced.)
+     */
+    void SyncOtherUnits( const SCH_SHEET_PATH& aSourceSheet, SCH_COMMIT& aCommit,
+                         PROPERTY_BASE* aProperty );
 
     /**
      * Return the number of fields in this symbol.
@@ -763,7 +806,7 @@ public:
      */
     SCH_ITEM* GetDrawItem( const VECTOR2I& aPosition, KICAD_T aType = TYPE_NOT_INIT );
 
-    wxString GetItemDescription( UNITS_PROVIDER* aUnitsProvider ) const override;
+    wxString GetItemDescription( UNITS_PROVIDER* aUnitsProvider, bool aFull ) const override;
 
     BITMAPS GetMenuImage() const override;
 

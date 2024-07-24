@@ -27,6 +27,7 @@
 #include <settings/color_settings.h>
 #include <footprint_editor_settings.h>
 #include <board.h>
+#include <lset.h>
 #include <pcb_edit_frame.h>
 #include <pcb_layer_box_selector.h>
 #include <settings/color_settings.h>
@@ -72,11 +73,15 @@ void GRID_CELL_LAYER_RENDERER::Draw( wxGrid& aGrid, wxGridCellAttr& aAttr, wxDC&
     }
 
     // draw the swatch
-    wxBitmap bitmap( 14, 14 );
+    int      size = KiROUND( 14 * aDC.GetContentScaleFactor() );
+    wxBitmap bitmap( size, size );
+
     LAYER_SELECTOR::DrawColorSwatch( bitmap,
                                      cs->GetColor( ToLAYER_ID( LAYER_PCB_BACKGROUND ) ),
                                      cs->GetColor( ToLAYER_ID( value ) ) );
-    aDC.DrawBitmap( bitmap, rect.GetLeft() + 4, rect.GetTop() + 3, true );
+
+    aDC.DrawBitmap( bitmap, rect.GetLeft() + 4,
+                    rect.GetTop() + ( rect.GetHeight() - bitmap.GetHeight() ) / 2, true );
 
     // draw the text
     PCB_LAYER_ID layer = ToLAYER_ID( value );
@@ -120,6 +125,7 @@ void GRID_CELL_LAYER_SELECTOR::Create( wxWindow* aParent, wxWindowID aId,
                     wxDefaultPosition, wxDefaultSize, 0, nullptr,
                     wxCB_READONLY | wxTE_PROCESS_ENTER | wxTE_PROCESS_TAB | wxBORDER_NONE );
 
+    LayerBox()->SetLayersHotkeys( false );
     LayerBox()->SetBoardFrame( m_frame );
     LayerBox()->SetNotAllowedLayerSet( m_mask );
 

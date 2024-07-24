@@ -32,6 +32,7 @@
 #include <gerbview_draw_panel_gal.h>
 #include <gerbview_settings.h>
 #include <drawing_sheet/ds_proxy_view_item.h>
+#include <lset.h>
 #include <settings/settings_manager.h>
 #include <tool/tool_manager.h>
 #include <tool/action_toolbar.h>
@@ -85,7 +86,6 @@ GERBVIEW_FRAME::GERBVIEW_FRAME( KIWAY* aKiway, wxWindow* aParent )
     m_netText = nullptr;
     m_apertText = nullptr;
     m_dcodeText = nullptr;
-    m_displayMode = 0;
     m_aboutTitle = _HKI( "KiCad Gerber Viewer" );
 
     SHAPE_POLY_SET dummy;   // A ugly trick to force the linker to include
@@ -878,7 +878,10 @@ void GERBVIEW_FRAME::SetActiveLayer( int aLayer, bool doLayerWidgetUpdate )
         UpdateXORLayers();
 
     if( doLayerWidgetUpdate )
+    {
         m_LayersManager->SelectLayer( aLayer );
+        m_LayersManager->OnLayerSelected();
+    }
 
     UpdateTitleAndInfo();
 
@@ -1147,10 +1150,10 @@ void GERBVIEW_FRAME::setupUIConditions()
             return gvconfig()->m_Appearance.show_dcodes;
         };
 
-    auto diffModeCond =
+    auto forceOpacityModeCond =
         [this] ( const SELECTION& )
         {
-            return gvconfig()->m_Display.m_DiffMode;
+            return gvconfig()->m_Display.m_ForceOpacityMode;
         };
 
     auto xorModeCond =
@@ -1182,7 +1185,7 @@ void GERBVIEW_FRAME::setupUIConditions()
     mgr->SetConditions( GERBVIEW_ACTIONS::polygonsDisplayOutlines, CHECK( polygonsFilledCond ) );
     mgr->SetConditions( GERBVIEW_ACTIONS::negativeObjectDisplay,   CHECK( negativeObjectsCond ) );
     mgr->SetConditions( GERBVIEW_ACTIONS::dcodeDisplay,            CHECK( dcodeCond ) );
-    mgr->SetConditions( GERBVIEW_ACTIONS::toggleDiffMode,          CHECK( diffModeCond ) );
+    mgr->SetConditions( GERBVIEW_ACTIONS::toggleForceOpacityMode,  CHECK( forceOpacityModeCond ) );
     mgr->SetConditions( GERBVIEW_ACTIONS::toggleXORMode,           CHECK( xorModeCond ) );
     mgr->SetConditions( GERBVIEW_ACTIONS::flipGerberView,          CHECK( flipGerberCond ) );
     mgr->SetConditions( ACTIONS::highContrastMode,                 CHECK( highContrastModeCond ) );

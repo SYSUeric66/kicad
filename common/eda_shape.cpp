@@ -128,12 +128,12 @@ double EDA_SHAPE::GetLength() const
     {
     case SHAPE_T::BEZIER:
         for( size_t ii = 1; ii < m_bezierPoints.size(); ++ii )
-            length += GetLineLength( m_bezierPoints[ ii - 1], m_bezierPoints[ii] );
+            length += m_bezierPoints[ ii - 1].Distance( m_bezierPoints[ii] );
 
         return length;
 
     case SHAPE_T::SEGMENT:
-        return GetLineLength( GetStart(), GetEnd() );
+        return GetStart().Distance( GetEnd() );
 
     case SHAPE_T::POLY:
         for( int ii = 0; ii < m_poly.COutline( 0 ).SegmentCount(); ii++ )
@@ -154,7 +154,8 @@ int EDA_SHAPE::GetRectangleHeight() const
 {
     switch( m_shape )
     {
-    case SHAPE_T::RECTANGLE: return GetEndY() - GetStartY();
+    case SHAPE_T::RECTANGLE:
+        return GetEndY() - GetStartY();
 
     default:
         UNIMPLEMENTED_FOR( SHAPE_T_asString() );
@@ -166,7 +167,8 @@ int EDA_SHAPE::GetRectangleWidth() const
 {
     switch( m_shape )
     {
-    case SHAPE_T::RECTANGLE: return GetEndX() - GetStartX();
+    case SHAPE_T::RECTANGLE:
+        return GetEndX() - GetStartX();
 
     default:
         UNIMPLEMENTED_FOR( SHAPE_T_asString() );
@@ -178,7 +180,36 @@ void EDA_SHAPE::SetLength( const double& aLength )
 {
     switch( m_shape )
     {
-    case SHAPE_T::SEGMENT: m_segmentLength = aLength; break;
+    case SHAPE_T::SEGMENT:
+        m_segmentLength = aLength; break;
+
+    default:
+        UNIMPLEMENTED_FOR( SHAPE_T_asString() );
+    }
+}
+
+void EDA_SHAPE::SetRectangleHeight( const int& aHeight )
+{
+    switch ( m_shape )
+    {
+    case SHAPE_T::RECTANGLE:
+        m_rectangleHeight = aHeight;
+        SetEndY( GetStartY() + m_rectangleHeight );
+        break;
+
+    default:
+        UNIMPLEMENTED_FOR( SHAPE_T_asString() );
+    }
+}
+
+void EDA_SHAPE::SetRectangleWidth( const int& aWidth )
+{
+    switch ( m_shape )
+    {
+    case SHAPE_T::RECTANGLE:
+        m_rectangleWidth = aWidth;
+        SetEndX( GetStartX() + m_rectangleWidth );
+        break;
 
     default:
         UNIMPLEMENTED_FOR( SHAPE_T_asString() );
@@ -194,7 +225,8 @@ void EDA_SHAPE::SetRectangle( const long long int& aHeight, const long long int&
         m_rectangleWidth = aWidth;
         break;
 
-    default: UNIMPLEMENTED_FOR( SHAPE_T_asString() );
+    default:
+        UNIMPLEMENTED_FOR( SHAPE_T_asString() );
     }
 }
 
@@ -203,9 +235,12 @@ void EDA_SHAPE::SetSegmentAngle( const EDA_ANGLE& aAngle )
 {
     switch( m_shape )
     {
-    case SHAPE_T::SEGMENT: m_segmentAngle = aAngle; break;
+    case SHAPE_T::SEGMENT:
+        m_segmentAngle = aAngle;
+        break;
 
-    default: UNIMPLEMENTED_FOR( SHAPE_T_asString() );
+    default:
+        UNIMPLEMENTED_FOR( SHAPE_T_asString() );
     }
 }
 
@@ -326,6 +361,7 @@ void EDA_SHAPE::scale( double aScale )
         scalePt( m_end );
         scalePt( m_bezierC1 );
         scalePt( m_bezierC2 );
+        RebuildBezierToSegmentsPointsList( m_stroke.GetWidth() / 2 );
         break;
 
     default:
@@ -462,12 +498,7 @@ void EDA_SHAPE::flip( const VECTOR2I& aCentre, bool aFlipLeftRight )
             m_bezierC2.y = aCentre.y - ( m_bezierC2.y - aCentre.y );
         }
 
-        // Rebuild the poly points shape
-        {
-            std::vector<VECTOR2I> ctrlPoints = { m_start, m_bezierC1, m_bezierC2, m_end };
-            BEZIER_POLY converter( ctrlPoints );
-            converter.GetPoly( m_bezierPoints, m_stroke.GetWidth() );
-        }
+        RebuildBezierToSegmentsPointsList( m_stroke.GetWidth() / 2 );
         break;
 
     default:
@@ -477,7 +508,7 @@ void EDA_SHAPE::flip( const VECTOR2I& aCentre, bool aFlipLeftRight )
 }
 
 
-void EDA_SHAPE::RebuildBezierToSegmentsPointsList( int aMinSegLen )
+void EDA_SHAPE::RebuildBezierToSegmentsPointsList( int aMaxError )
 {
     // Has meaning only for SHAPE_T::BEZIER
     if( m_shape != SHAPE_T::BEZIER )
@@ -487,30 +518,18 @@ void EDA_SHAPE::RebuildBezierToSegmentsPointsList( int aMinSegLen )
     }
 
     // Rebuild the m_BezierPoints vertex list that approximate the Bezier curve
-    m_bezierPoints = buildBezierToSegmentsPointsList( aMinSegLen );
-
-    // Ensure last point respects aMinSegLen parameter
-    if( m_bezierPoints.size() > 2 )
-    {
-        int idx = m_bezierPoints.size() - 1;
-
-        if( VECTOR2I( m_bezierPoints[idx] - m_bezierPoints[idx] - 1 ).EuclideanNorm() < aMinSegLen )
-        {
-            m_bezierPoints[idx - 1] = m_bezierPoints[idx];
-            m_bezierPoints.pop_back();
-        }
-    }
+    m_bezierPoints = buildBezierToSegmentsPointsList( aMaxError );
 }
 
 
-const std::vector<VECTOR2I> EDA_SHAPE::buildBezierToSegmentsPointsList( int aMinSegLen ) const
+const std::vector<VECTOR2I> EDA_SHAPE::buildBezierToSegmentsPointsList( int aMaxError ) const
 {
     std::vector<VECTOR2I> bezierPoints;
 
     // Rebuild the m_BezierPoints vertex list that approximate the Bezier curve
     std::vector<VECTOR2I> ctrlPoints = { m_start, m_bezierC1, m_bezierC2, m_end };
     BEZIER_POLY converter( ctrlPoints );
-    converter.GetPoly( bezierPoints, aMinSegLen );
+    converter.GetPoly( bezierPoints, aMaxError );
 
     return bezierPoints;
 }
@@ -597,11 +616,11 @@ int EDA_SHAPE::GetRadius() const
     switch( m_shape )
     {
     case SHAPE_T::ARC:
-        radius = GetLineLength( m_arcCenter, m_start );
+        radius = m_arcCenter.Distance( m_start );
         break;
 
     case SHAPE_T::CIRCLE:
-        radius = GetLineLength( m_start, m_end );
+        radius = m_start.Distance( m_end );
         break;
 
     default:
@@ -770,7 +789,7 @@ void EDA_SHAPE::ShapeGetMsgPanelInfo( EDA_DRAW_FRAME* aFrame, std::vector<MSG_PA
     case SHAPE_T::SEGMENT:
     {
         aList.emplace_back( _( "Length" ),
-                            aFrame->MessageTextFromValue( GetLineLength( GetStart(), GetEnd() ) ));
+                            aFrame->MessageTextFromValue( GetStart().Distance( GetEnd() ) ));
 
         // angle counter-clockwise from 3'o-clock
         EDA_ANGLE angle( atan2( (double)( GetStart().y - GetEnd().y ),
@@ -843,21 +862,19 @@ const BOX2I EDA_SHAPE::getBoundingBox() const
 
 bool EDA_SHAPE::hitTest( const VECTOR2I& aPosition, int aAccuracy ) const
 {
-    int maxdist = aAccuracy;
+    double maxdist = aAccuracy;
 
     if( GetWidth() > 0 )
-        maxdist += GetWidth() / 2;
+        maxdist += GetWidth() / 2.0;
 
     switch( m_shape )
     {
     case SHAPE_T::CIRCLE:
     {
-        int radius = GetRadius();
+        double radius = GetRadius();
+        double dist = aPosition.Distance( getCenter() );
 
-        VECTOR2I::extended_type dist = KiROUND<double, VECTOR2I::extended_type>(
-                EuclideanNorm( aPosition - getCenter() ) );
-
-        if( IsFilled() )
+        if( IsFilledForHitTesting() )
             return dist <= radius + maxdist;          // Filled circle hit-test
         else
             return abs( radius - dist ) <= maxdist;   // Ring hit-test
@@ -865,19 +882,17 @@ bool EDA_SHAPE::hitTest( const VECTOR2I& aPosition, int aAccuracy ) const
 
     case SHAPE_T::ARC:
     {
-        if( EuclideanNorm( aPosition - m_start ) <= maxdist )
+        if( aPosition.Distance( m_start ) <= maxdist )
             return true;
 
-        if( EuclideanNorm( aPosition - m_end ) <= maxdist )
+        if( aPosition.Distance( m_end ) <= maxdist )
             return true;
 
-        VECTOR2I relPos = aPosition - getCenter();
-        int      radius = GetRadius();
+        double radius = GetRadius();
+        VECTOR2D relPos( VECTOR2D( aPosition ) - getCenter() );
+        double dist = relPos.EuclideanNorm();
 
-        VECTOR2I::extended_type dist =
-                KiROUND<double, VECTOR2I::extended_type>( EuclideanNorm( relPos ) );
-
-        if( IsFilled() )
+        if( IsFilledForHitTesting() )
         {
             // Check distance from arc center
             if( dist > radius + maxdist )
@@ -908,21 +923,30 @@ bool EDA_SHAPE::hitTest( const VECTOR2I& aPosition, int aAccuracy ) const
     }
 
     case SHAPE_T::BEZIER:
-        const_cast<EDA_SHAPE*>( this )->RebuildBezierToSegmentsPointsList( GetWidth() );
+    {
+        const std::vector<VECTOR2I>* pts = &m_bezierPoints;
+        std::vector<VECTOR2I> updatedBezierPoints;
 
-        for( unsigned int i= 1; i < m_bezierPoints.size(); i++)
+        if( m_bezierPoints.empty() )
         {
-            if( TestSegmentHit( aPosition, m_bezierPoints[ i - 1], m_bezierPoints[i], maxdist ) )
+            BEZIER_POLY converter( m_start, m_bezierC1, m_bezierC2, m_end );
+            converter.GetPoly( updatedBezierPoints, aAccuracy / 2 );
+            pts = &updatedBezierPoints;
+        }
+
+        for( unsigned int i = 1; i < pts->size(); i++ )
+        {
+            if( TestSegmentHit( aPosition, ( *pts )[i - 1], ( *pts )[i], maxdist ) )
                 return true;
         }
 
         return false;
-
+    }
     case SHAPE_T::SEGMENT:
         return TestSegmentHit( aPosition, GetStart(), GetEnd(), maxdist );
 
     case SHAPE_T::RECTANGLE:
-        if( IsProxyItem() || IsFilled() )               // Filled rect hit-test
+        if( IsProxyItem() || IsFilledForHitTesting() )   // Filled rect hit-test
         {
             SHAPE_POLY_SET poly;
             poly.NewOutline();
@@ -943,7 +967,7 @@ bool EDA_SHAPE::hitTest( const VECTOR2I& aPosition, int aAccuracy ) const
         }
 
     case SHAPE_T::POLY:
-        if( IsFilled() )
+        if( IsFilledForHitTesting() )
         {
             if( !m_poly.COutline( 0 ).IsClosed() )
             {
@@ -1110,12 +1134,20 @@ bool EDA_SHAPE::hitTest( const BOX2I& aRect, bool aContained, int aAccuracy ) co
 
             // Account for the width of the line
             arect.Inflate( GetWidth() / 2 );
-            unsigned count = m_bezierPoints.size();
+            const std::vector<VECTOR2I>* pts = &m_bezierPoints;
+            std::vector<VECTOR2I> updatedBezierPoints;
 
-            for( unsigned ii = 1; ii < count; ii++ )
+            if( m_bezierPoints.empty() )
             {
-                VECTOR2I vertex = m_bezierPoints[ii - 1];
-                VECTOR2I vertexNext = m_bezierPoints[ii];
+                BEZIER_POLY converter( m_start, m_bezierC1, m_bezierC2, m_end );
+                converter.GetPoly( updatedBezierPoints, aAccuracy / 2 );
+                pts = &updatedBezierPoints;
+            }
+
+            for( unsigned ii = 1; ii < pts->size(); ii++ )
+            {
+                VECTOR2I vertex = ( *pts )[ii - 1];
+                VECTOR2I vertexNext = ( *pts )[ii];
 
                 // Test if the point is within aRect
                 if( arect.Contains( vertex ) )
@@ -1256,7 +1288,7 @@ std::vector<SHAPE*> EDA_SHAPE::makeEffectiveShapes( bool aEdgeOnly, bool aLineCh
 
     case SHAPE_T::BEZIER:
     {
-        std::vector<VECTOR2I> bezierPoints = buildBezierToSegmentsPointsList( width );
+        std::vector<VECTOR2I> bezierPoints = buildBezierToSegmentsPointsList( width / 2 );
         VECTOR2I              start_pt = bezierPoints[0];
 
         for( unsigned int jj = 1; jj < bezierPoints.size(); jj++ )
@@ -1359,7 +1391,7 @@ void EDA_SHAPE::beginEdit( const VECTOR2I& aPosition )
         SetBezierC2( aPosition );
         m_editState = 1;
 
-        RebuildBezierToSegmentsPointsList( GetWidth() );
+        RebuildBezierToSegmentsPointsList( GetWidth() / 2 );
         break;
 
     case SHAPE_T::POLY:
@@ -1441,7 +1473,7 @@ void EDA_SHAPE::calcEdit( const VECTOR2I& aPosition )
         case 3: SetBezierC2( aPosition ); break;
         }
 
-        RebuildBezierToSegmentsPointsList( GetWidth() );
+        RebuildBezierToSegmentsPointsList( GetWidth() / 2 );
     }
     break;
 
@@ -1465,14 +1497,14 @@ void EDA_SHAPE::calcEdit( const VECTOR2I& aPosition )
 
         case 1:
             m_end = aPosition;
-            radius = sqrt( sq( GetLineLength( m_start, m_end ) ) / 2.0 );
+            radius = m_start.Distance( m_end ) * M_SQRT1_2;
             break;
 
         case 2:
         case 3:
         {
             VECTOR2I v = m_start - m_end;
-            double chordBefore = sq( v.x ) + sq( v.y );
+            double chordBefore = v.SquaredEuclideanNorm();
 
             if( m_editState == 2 )
                 m_start = aPosition;
@@ -1481,7 +1513,7 @@ void EDA_SHAPE::calcEdit( const VECTOR2I& aPosition )
 
             v = m_start - m_end;
 
-            double chordAfter = sq( v.x ) + sq( v.y );
+            double chordAfter = v.SquaredEuclideanNorm();
             double ratio = 0.0;
 
             if( chordBefore > 0 )
@@ -1494,8 +1526,8 @@ void EDA_SHAPE::calcEdit( const VECTOR2I& aPosition )
 
         case 4:
         {
-            double radialA = GetLineLength( m_start, aPosition );
-            double radialB = GetLineLength( m_end, aPosition );
+            double radialA = m_start.Distance( aPosition );
+            double radialB = m_end.Distance( aPosition );
             radius = ( radialA + radialB ) / 2.0;
         }
             break;
@@ -1508,9 +1540,9 @@ void EDA_SHAPE::calcEdit( const VECTOR2I& aPosition )
         // Calculate center based on start, end, and radius
         //
         // Let 'l' be the length of the chord and 'm' the middle point of the chord
-        double   l = GetLineLength( m_start, m_end );
+        double   l = m_start.Distance( m_end );
         VECTOR2D m = ( m_start + m_end ) / 2;
-        double   sqRadDiff = sq( radius ) - sq( l / 2 );
+        double   sqRadDiff = ( radius * radius ) - ( l * l ) / 4.0;
 
         // Calculate 'd', the vector from the chord midpoint to the center
         VECTOR2D d;
@@ -1549,7 +1581,7 @@ void EDA_SHAPE::calcEdit( const VECTOR2I& aPosition )
 
         case 4:
             // Pick the one closer to the mouse position
-            m_arcCenter = GetLineLength( c1, aPosition ) < GetLineLength( c2, aPosition ) ? c1 : c2;
+            m_arcCenter = c1.Distance( aPosition ) < c2.Distance( aPosition ) ? c1 : c2;
             break;
         }
     }
@@ -1770,7 +1802,7 @@ void EDA_SHAPE::TransformShapeToPolygon( SHAPE_POLY_SET& aBuffer, int aClearance
         std::vector<VECTOR2I> ctrlPts = { GetStart(), GetBezierC1(), GetBezierC2(), GetEnd() };
         BEZIER_POLY converter( ctrlPts );
         std::vector<VECTOR2I> poly;
-        converter.GetPoly( poly, GetWidth() );
+        converter.GetPoly( poly, aError );
 
         for( unsigned ii = 1; ii < poly.size(); ii++ )
             TransformOvalToPolygon( aBuffer, poly[ii - 1], poly[ii], width, aError, aErrorLoc );
@@ -1972,6 +2004,15 @@ static struct EDA_SHAPE_DESC
             return false;
         };
 
+        auto isRectangle = []( INSPECTABLE* aItem ) -> bool
+        {
+            // Polygons, unlike other shapes, have no meaningful start or end coordinates
+            if( EDA_SHAPE* shape = dynamic_cast<EDA_SHAPE*>( aItem ) )
+                return shape->GetShape() == SHAPE_T::RECTANGLE;
+
+            return false;
+        };
+
         const wxString shapeProps = _HKI( "Shape Properties" );
 
         auto shape = new PROPERTY_ENUM<EDA_SHAPE, SHAPE_T>( _HKI( "Shape" ),
@@ -2018,6 +2059,18 @@ static struct EDA_SHAPE_DESC
                     ORIGIN_TRANSFORMS::ABS_Y_COORD ),
                     shapeProps )
                 .SetAvailableFunc( isNotPolygonOrCircle );
+
+        propMgr.AddProperty( new PROPERTY<EDA_SHAPE, int>( _HKI( "Width" ),
+                    &EDA_SHAPE::SetRectangleWidth, &EDA_SHAPE::GetRectangleWidth,
+                    PROPERTY_DISPLAY::PT_COORD, ORIGIN_TRANSFORMS::ABS_Y_COORD ),
+                    shapeProps )
+                .SetAvailableFunc( isRectangle );
+
+        propMgr.AddProperty( new PROPERTY<EDA_SHAPE, int>( _HKI( "Height" ),
+                    &EDA_SHAPE::SetRectangleHeight, &EDA_SHAPE::GetRectangleHeight,
+                    PROPERTY_DISPLAY::PT_COORD, ORIGIN_TRANSFORMS::ABS_Y_COORD ),
+                    shapeProps )
+                .SetAvailableFunc( isRectangle );
 
         propMgr.AddProperty( new PROPERTY<EDA_SHAPE, int>( _HKI( "Line Width" ),
                     &EDA_SHAPE::SetWidth, &EDA_SHAPE::GetWidth, PROPERTY_DISPLAY::PT_SIZE ),

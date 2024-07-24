@@ -27,10 +27,12 @@
 
 #include <board_item_container.h>
 #include <board_stackup_manager/board_stackup.h>
+#include <embedded_files.h>
 #include <common.h> // Needed for stl hash extensions
 #include <convert_shape_list_to_polygon.h> // for OUTLINE_ERROR_HANDLER
 #include <hash.h>
 #include <layer_ids.h>
+#include <lset.h>
 #include <netinfo.h>
 #include <pcb_item_containers.h>
 #include <pcb_plot_params.h>
@@ -152,7 +154,10 @@ enum LAYER_T
     LT_SIGNAL,
     LT_POWER,
     LT_MIXED,
-    LT_JUMPER
+    LT_JUMPER,
+    LT_AUX,
+    LT_FRONT,
+    LT_BACK
 };
 
 
@@ -173,6 +178,7 @@ struct LAYER
         m_number  = 0;
         m_name.clear();
         m_userName.clear();
+        m_opposite = m_number;
     }
 
     /*
@@ -191,6 +197,7 @@ struct LAYER
     LAYER_T     m_type;      ///< The type of the layer. @see #LAYER_T
     bool        m_visible;
     int         m_number;    ///< The layer ID. @see PCB_LAYER_ID
+    int         m_opposite;  ///< Similar layer on opposite side of the board, if any.
 
     /**
      * Convert a #LAYER_T enum to a string representation of the layer type.
@@ -278,7 +285,7 @@ enum class BOARD_USE
 /**
  * Information pertinent to a Pcbnew printed circuit board.
  */
-class BOARD : public BOARD_ITEM_CONTAINER
+class BOARD : public BOARD_ITEM_CONTAINER, public EMBEDDED_FILES
 {
 public:
     static inline bool ClassOf( const EDA_ITEM* aItem )
@@ -420,6 +427,13 @@ public:
      */
     void FinalizeBulkRemove( std::vector<BOARD_ITEM*>& aRemovedItems );
 
+    /**
+     * After loading a file from disk, the footprints do not yet contain the full
+     * data for their embedded files, only a reference.  This iterates over all footprints
+     * in the board and updates them with the full embedded data.
+    */
+    void FixupEmbeddedData();
+
     void CacheTriangulation( PROGRESS_REPORTER* aReporter = nullptr,
                              const std::vector<ZONE*>& aZones = {} );
 
@@ -555,6 +569,8 @@ public:
     int  GetCopperLayerCount() const;
     void SetCopperLayerCount( int aCount );
 
+    PCB_LAYER_ID FlipLayer( PCB_LAYER_ID aLayer ) const;
+
     int LayerDepth( PCB_LAYER_ID aStartLayer, PCB_LAYER_ID aEndLayer ) const;
 
     /**
@@ -663,11 +679,6 @@ public:
 
     BOARD_STACKUP GetStackupOrDefault() const;
 
-    // Tented vias are vias covered by solder mask. So because the solder mask is a negative
-    // layer, tented vias are NOT plotted on solder mask layers
-    bool GetTentVias() const            { return !m_plotOptions.GetPlotViaOnMaskLayer(); }
-    void SetTentVias( bool aFlag )      { m_plotOptions.SetPlotViaOnMaskLayer( !aFlag ); }
-
     const PAGE_INFO& GetPageSettings() const                { return m_paper; }
     void SetPageSettings( const PAGE_INFO& aPageSettings )  { m_paper = aPageSettings; }
 
@@ -678,7 +689,7 @@ public:
     const TITLE_BLOCK& GetTitleBlock() const                { return m_titles; }
     void SetTitleBlock( const TITLE_BLOCK& aTitleBlock )    { m_titles = aTitleBlock; }
 
-    wxString GetItemDescription( UNITS_PROVIDER* aUnitsProvider ) const override;
+    wxString GetItemDescription( UNITS_PROVIDER* aUnitsProvider, bool aFull ) const override;
 
     EDA_UNITS GetUserUnits()                                { return m_userUnits; }
     void SetUserUnits( EDA_UNITS aUnits )                   { m_userUnits = aUnits; }
@@ -892,7 +903,7 @@ public:
      * @param aBoardEdgesOnly is true if we are interested in board edge segments only.
      * @return the board's bounding box.
      */
-    BOX2I ComputeBoundingBox( bool aBoardEdgesOnly, bool aIncludeHiddenText ) const;
+    BOX2I ComputeBoundingBox( bool aBoardEdgesOnly = false, bool aIncludeHiddenText = false ) const;
 
     const BOX2I GetBoundingBox() const override
     {
@@ -1154,10 +1165,7 @@ public:
      * the clearances from board design settings as well as embedded clearances in footprints,
      * pads and zones.  Includes electrical, physical, hole and edge clearances.
     */
-    int GetMaxClearanceValue() const
-    {
-        return m_maxClearanceValue;
-    };
+    int GetMaxClearanceValue() const;
 
     /**
      * Map all nets in the given board to nets with the same name (if any) in the destination
@@ -1246,6 +1254,14 @@ public:
     bool LegacyTeardrops() const { return m_legacyTeardrops; }
     void SetLegacyTeardrops( bool aFlag ) { m_legacyTeardrops = aFlag; }
 
+    EMBEDDED_FILES* GetEmbeddedFiles() override;
+    const EMBEDDED_FILES* GetEmbeddedFiles() const;
+
+    /**
+     * Finds all fonts used in the board and embeds them in the file if permissions allow
+    */
+    void EmbedFonts() override;
+
     // --------- Item order comparators ---------
 
     struct cmp_items
@@ -1258,6 +1274,7 @@ public:
         bool operator()( const BOARD_ITEM* aFirst, const BOARD_ITEM* aSecond ) const;
     };
 
+public:
     // ------------ Run-time caches -------------
     mutable std::shared_mutex                             m_CachesMutex;
     std::unordered_map<PTR_PTR_CACHE_KEY, bool>           m_IntersectsCourtyardCache;
@@ -1269,6 +1286,7 @@ public:
     std::unordered_map<ZONE*, std::unique_ptr<DRC_RTREE>> m_CopperZoneRTreeCache;
     std::shared_ptr<DRC_RTREE>                            m_CopperItemRTreeCache;
     mutable std::unordered_map<const ZONE*, BOX2I>        m_ZoneBBoxCache;
+    mutable std::optional<int>                            m_maxClearanceValue;
 
     // ------------ DRC caches -------------
     std::vector<ZONE*>    m_DRCZones;
@@ -1292,14 +1310,14 @@ private:
             ( l->*aFunc )( std::forward<Args>( args )... );
     }
 
-
-    void UpdateMaxClearanceCache();
+    // Refresh user layer opposites.
+    void recalcOpposites();
 
     friend class PCB_EDIT_FRAME;
 
-
+private:
     /// the max distance between 2 end point to see them connected when building the board outlines
-    int m_outlinesChainingEpsilon;
+    int                 m_outlinesChainingEpsilon;
 
     /// What is this board being used for
     BOARD_USE           m_boardUse;
@@ -1354,12 +1372,11 @@ private:
      */
     bool                         m_legacyTeardrops = false;
 
-    bool                         m_skipMaxClearanceCacheUpdate;
-    int                          m_maxClearanceValue;  // cached value
-
     NETINFO_LIST                 m_NetInfo;         // net info list (name, design constraints...
 
     std::vector<BOARD_LISTENER*> m_listeners;
+
+    bool                         m_embedFonts;
 };
 
 

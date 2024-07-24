@@ -28,6 +28,7 @@
 #include <footprint.h>
 #include "../../3d_math.h"
 #include "convert_basic_shapes_to_polygon.h"
+#include <lset.h>
 #include <trigo.h>
 #include <project.h>
 #include <core/profile.h>        // To use GetRunningMicroSecs or another profiling utility
@@ -973,7 +974,7 @@ void RENDER_3D_OPENGL::load3dModels( REPORTER* aStatusReporter )
                 {
                     // It is not present, try get it from cache
                     const S3DMODEL* modelPtr =
-                            m_boardAdapter.Get3dCacheManager()->GetModel( fp_model.m_Filename, footprintBasePath );
+                            m_boardAdapter.Get3dCacheManager()->GetModel( fp_model.m_Filename, footprintBasePath, footprint );
 
                     // only add it if the return is not NULL
                     if( modelPtr )

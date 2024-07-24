@@ -37,6 +37,7 @@
 #include <memory>
 #include <connection_graph.h>
 #include "eeschema_helpers.h"
+#include <filename_resolver.h>
 #include <kiway.h>
 #include <sch_painter.h>
 #include <locale_io.h>
@@ -111,13 +112,20 @@ void EESCHEMA_JOBS_HANDLER::InitRenderSettings( SCH_RENDER_SETTINGS* aRenderSett
     auto loadSheet =
             [&]( const wxString& path ) -> bool
             {
-                wxString absolutePath = DS_DATA_MODEL::ResolvePath( path,
-                                                                    aSch->Prj().GetProjectPath() );
+                wxString msg;
+                FILENAME_RESOLVER resolve;
+                resolve.SetProject( &aSch->Prj() );
+                resolve.SetProgramBase( &Pgm() );
 
-                if( !DS_DATA_MODEL::GetTheInstance().LoadDrawingSheet( absolutePath ) )
+                wxString absolutePath = resolve.ResolvePath( path,
+                                                            wxGetCwd(),
+                                                            aSch->GetEmbeddedFiles() );
+
+                if( !DS_DATA_MODEL::GetTheInstance().LoadDrawingSheet( absolutePath, &msg ) )
                 {
                     m_reporter->Report( wxString::Format( _( "Error loading drawing sheet '%s'." ),
-                                                          path ),
+                                                          path )
+                                            + wxS( "\n" ) + msg + wxS( "\n" ),
                                         RPT_SEVERITY_ERROR );
                     return false;
                 }
@@ -249,7 +257,7 @@ int EESCHEMA_JOBS_HANDLER::JobExportNetlist( JOB* aJob )
 
     // Annotation warning check
     SCH_REFERENCE_LIST referenceList;
-    sch->GetSheets().GetSymbols( referenceList );
+    sch->BuildUnorderedSheetList().GetSymbols( referenceList );
 
     if( referenceList.GetCount() > 0 )
     {
@@ -362,7 +370,7 @@ int EESCHEMA_JOBS_HANDLER::JobExportBom( JOB* aJob )
 
     // Annotation warning check
     SCH_REFERENCE_LIST referenceList;
-    sch->GetSheets().GetSymbols( referenceList, false, false );
+    sch->BuildUnorderedSheetList().GetSymbols( referenceList, false, false );
 
     if( referenceList.GetCount() > 0 )
     {
@@ -618,7 +626,7 @@ int EESCHEMA_JOBS_HANDLER::JobExportPythonBom( JOB* aJob )
 
     // Annotation warning check
     SCH_REFERENCE_LIST referenceList;
-    sch->GetSheets().GetSymbols( referenceList );
+    sch->BuildUnorderedSheetList().GetSymbols( referenceList );
 
     if( referenceList.GetCount() > 0 )
     {
@@ -733,7 +741,7 @@ int EESCHEMA_JOBS_HANDLER::doSymExportSvg( JOB_SYM_EXPORT_SVG*  aSvgJob,
             }
 
             // Get the symbol bounding box to fit the plot page to it
-            BOX2I     symbolBB = symbol->Flatten()->GetUnitBoundingBox( unit, bodyStyle, false );
+            BOX2I     symbolBB = symbol->Flatten()->GetUnitBoundingBox( unit, bodyStyle, !aSvgJob->m_includeHiddenFields );
             PAGE_INFO pageInfo( PAGE_INFO::Custom );
             pageInfo.SetHeightMils( schIUScale.IUToMils( symbolBB.GetHeight() * 1.2 ) );
             pageInfo.SetWidthMils( schIUScale.IUToMils( symbolBB.GetWidth() * 1.2 ) );
@@ -743,7 +751,7 @@ int EESCHEMA_JOBS_HANDLER::doSymExportSvg( JOB_SYM_EXPORT_SVG*  aSvgJob,
             plotter->SetPageSettings( pageInfo );
             plotter->SetColorMode( !aSvgJob->m_blackAndWhite );
 
-            VECTOR2I     plot_offset;
+            VECTOR2I     plot_offset = symbolBB.GetCenter();
             const double scale = 1.0;
 
             // Currently, plot units are in decimal

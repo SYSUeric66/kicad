@@ -41,6 +41,7 @@
 #include <board_connected_item.h>
 #include <board_design_settings.h>
 #include <footprint.h>
+#include <lset.h>
 #include <pad.h>
 #include <pcb_shape.h>
 #include <connectivity/connectivity_data.h>
@@ -58,6 +59,7 @@
 #include <memory>
 #include <macros.h>
 #include <magic_enum.hpp>
+#include <drc/drc_item.h>
 #include "kiface_base.h"
 #include "pcbnew_settings.h"
 
@@ -66,11 +68,13 @@ using KIGFX::PCB_RENDER_SETTINGS;
 
 
 PAD::PAD( FOOTPRINT* parent ) :
-    BOARD_CONNECTED_ITEM( parent, PCB_PAD_T )
+    BOARD_CONNECTED_ITEM( parent, PCB_PAD_T ),
+    m_padStack( this )
 {
-    m_size.x = m_size.y = EDA_UNIT_UTILS::Mils2IU( pcbIUScale, 60 ); // Default pad size 60 mils.
-    m_drill.x = m_drill.y = EDA_UNIT_UTILS::Mils2IU( pcbIUScale, 30 );       // Default drill size 30 mils.
-    m_orient              = ANGLE_0;
+    VECTOR2I& drill = m_padStack.Drill().size;
+    VECTOR2I& size = m_padStack.Size();
+    size.x = size.y = EDA_UNIT_UTILS::Mils2IU( pcbIUScale, 60 ); // Default pad size 60 mils.
+    drill.x = drill.y = EDA_UNIT_UTILS::Mils2IU( pcbIUScale, 30 );       // Default drill size 30 mils.
     m_lengthPadToDie      = 0;
 
     if( m_parent && m_parent->Type() == PCB_FOOTPRINT_T )
@@ -79,40 +83,32 @@ PAD::PAD( FOOTPRINT* parent ) :
     SetShape( PAD_SHAPE::CIRCLE );               // Default pad shape is PAD_CIRCLE.
     SetAnchorPadShape( PAD_SHAPE::CIRCLE );      // Default shape for custom shaped pads
                                                  // is PAD_CIRCLE.
-    SetDrillShape( PAD_DRILL_SHAPE_CIRCLE );     // Default pad drill shape is a circle.
+    SetDrillShape( PAD_DRILL_SHAPE::CIRCLE );     // Default pad drill shape is a circle.
     m_attribute           = PAD_ATTRIB::PTH;     // Default pad type is plated through hole
     SetProperty( PAD_PROP::NONE );               // no special fabrication property
 
     // Parameters for round rect only:
-    m_roundedCornerScale = 0.25;                 // from IPC-7351C standard
+    m_padStack.SetRoundRectRadiusRatio( 0.25 );                 // from IPC-7351C standard
 
     // Parameters for chamfered rect only:
-    m_chamferScale = 0.2;                        // Size of chamfer: ratio of smallest of X,Y size
-    m_chamferPositions  = RECT_NO_CHAMFER;       // No chamfered corner
-
-    m_zoneConnection    = ZONE_CONNECTION::INHERITED; // Use parent setting by default
-    m_thermalSpokeWidth = 0;                          // Use parent setting by default
-    m_thermalSpokeAngle = ANGLE_45;                   // Default for circular pads
-    m_thermalGap        = 0;                          // Use parent setting by default
-
-    m_customShapeClearanceArea = CUST_PAD_SHAPE_IN_ZONE_OUTLINE;
+    m_padStack.SetChamferRatio( 0.2 );
+    m_padStack.SetChamferPositions( RECT_NO_CHAMFER );
 
     // Set layers mask to default for a standard thru hole pad.
-    m_layerMask = PTHMask();
+    m_padStack.SetLayerSet( PTHMask() );
 
     SetSubRatsnest( 0 );                       // used in ratsnest calculations
 
     SetDirty();
     m_effectiveBoundingRadius = 0;
-    m_removeUnconnectedLayer = false;
-    m_keepTopBottomLayer = true;
 
     m_zoneLayerOverrides.fill( ZLO_NONE );
 }
 
 
 PAD::PAD( const PAD& aOther ) :
-    BOARD_CONNECTED_ITEM( aOther.GetParent(), PCB_PAD_T )
+    BOARD_CONNECTED_ITEM( aOther.GetParent(), PCB_PAD_T ),
+    m_padStack( this )
 {
     PAD::operator=( aOther );
 
@@ -132,8 +128,6 @@ PAD& PAD::operator=( const PAD &aOther )
     SetPinFunction( aOther.GetPinFunction() );
     SetSubRatsnest( aOther.GetSubRatsnest() );
     m_effectiveBoundingRadius = aOther.m_effectiveBoundingRadius;
-    m_removeUnconnectedLayer = aOther.m_removeUnconnectedLayer;
-    m_keepTopBottomLayer = aOther.m_keepTopBottomLayer;
 
     return *this;
 }
@@ -141,7 +135,8 @@ PAD& PAD::operator=( const PAD &aOther )
 
 void PAD::Serialize( google::protobuf::Any &aContainer ) const
 {
-    kiapi::board::types::Pad pad;
+    using namespace kiapi::board::types;
+    Pad pad;
 
     pad.mutable_id()->set_value( m_Uuid.AsStdString() );
     kiapi::common::PackVector2( *pad.mutable_position(), GetPosition() );
@@ -149,63 +144,14 @@ void PAD::Serialize( google::protobuf::Any &aContainer ) const
                                : kiapi::common::types::LockedState::LS_UNLOCKED );
     pad.mutable_net()->mutable_code()->set_value( GetNetCode() );
     pad.mutable_net()->set_name( GetNetname() );
+    pad.set_type( ToProtoEnum<PAD_ATTRIB, PadType>( GetAttribute() ) );
 
-    kiapi::board::types::PadStack* padstack = pad.mutable_pad_stack();
-    padstack->set_type( kiapi::board::types::PadStackType::PST_THROUGH );
-    padstack->set_start_layer(
-            ToProtoEnum<PCB_LAYER_ID, kiapi::board::types::BoardLayer>( m_layer ) );
-    padstack->set_end_layer(
-            ToProtoEnum<PCB_LAYER_ID, kiapi::board::types::BoardLayer>( FlipLayer( m_layer ) ) );
-    kiapi::common::PackVector2( *padstack->mutable_drill_diameter(),
-                                { GetDrillSizeX(), GetDrillSizeY() } );
-    padstack->mutable_angle()->set_value_degrees( GetOrientationDegrees() );
-
-    kiapi::board::types::PadStackLayer* stackLayer = padstack->add_layers();
-    kiapi::board::PackLayerSet( *stackLayer->mutable_layers(), GetLayerSet() );
-    kiapi::common::PackVector2( *stackLayer->mutable_size(),
-                                { GetSizeX(), GetSizeY() } );
-    stackLayer->set_shape(
-            ToProtoEnum<PAD_SHAPE, kiapi::board::types::PadStackShape>( GetShape() ) );
-
-    kiapi::board::types::UnconnectedLayerRemoval ulr;
-
-    if( m_removeUnconnectedLayer )
-    {
-        if( m_keepTopBottomLayer )
-            ulr = kiapi::board::types::UnconnectedLayerRemoval::ULR_REMOVE_EXCEPT_START_AND_END;
-        else
-            ulr = kiapi::board::types::UnconnectedLayerRemoval::ULR_REMOVE;
-    }
-    else
-    {
-        ulr = kiapi::board::types::UnconnectedLayerRemoval::ULR_KEEP;
-    }
-
-    padstack->set_unconnected_layer_removal( ulr );
-
-    kiapi::board::types::DesignRuleOverrides* overrides = pad.mutable_overrides();
+    google::protobuf::Any padStackMsg;
+    m_padStack.Serialize( padStackMsg );
+    padStackMsg.UnpackTo( pad.mutable_pad_stack() );
 
     if( GetLocalClearance().has_value() )
-        overrides->mutable_clearance()->set_value_nm( *GetLocalClearance() );
-
-    if( GetLocalSolderMaskMargin().has_value() )
-        overrides->mutable_solder_mask_margin()->set_value_nm( *GetLocalSolderMaskMargin() );
-
-    if( GetLocalSolderPasteMargin().has_value() )
-        overrides->mutable_solder_paste_margin()->set_value_nm( *GetLocalSolderPasteMargin() );
-
-    if( GetLocalSolderPasteMarginRatio().has_value() )
-        overrides->mutable_solder_paste_margin_ratio()->set_value( *GetLocalSolderPasteMarginRatio() );
-
-    overrides->set_zone_connection(
-            ToProtoEnum<ZONE_CONNECTION,
-                        kiapi::board::types::ZoneConnectionStyle>( GetLocalZoneConnection() ) );
-
-    kiapi::board::types::ThermalSpokeSettings* thermals = pad.mutable_thermal_spokes();
-
-    thermals->set_width( GetThermalSpokeWidth() );
-    thermals->set_gap( GetThermalGap() );
-    thermals->mutable_angle()->set_value_degrees( GetThermalSpokeAngleDegrees() );
+        pad.mutable_copper_clearance_override()->set_value_nm( *GetLocalClearance() );
 
     aContainer.PackFrom( pad );
 }
@@ -222,72 +168,18 @@ bool PAD::Deserialize( const google::protobuf::Any &aContainer )
     SetPosition( kiapi::common::UnpackVector2( pad.position() ) );
     SetNetCode( pad.net().code().value() );
     SetLocked( pad.locked() == kiapi::common::types::LockedState::LS_LOCKED );
+    SetAttribute( FromProtoEnum<PAD_ATTRIB>( pad.type() ) );
 
-    const kiapi::board::types::PadStack& padstack = pad.pad_stack();
+    google::protobuf::Any padStackWrapper;
+    padStackWrapper.PackFrom( pad.pad_stack() );
+    m_padStack.Deserialize( padStackWrapper );
 
-    SetLayer( FromProtoEnum<PCB_LAYER_ID, kiapi::board::types::BoardLayer>(
-            padstack.start_layer() ) );
+    SetLayer( m_padStack.StartLayer() );
 
-    SetDrillSize( kiapi::common::UnpackVector2( padstack.drill_diameter() ) );
-    SetOrientationDegrees( padstack.angle().value_degrees() );
-
-    // We don't yet support complex padstacks
-    if( padstack.layers_size() == 1 )
-    {
-        const kiapi::board::types::PadStackLayer& layer = padstack.layers( 0 );
-        SetSize( kiapi::common::UnpackVector2( layer.size() ) );
-        SetLayerSet( kiapi::board::UnpackLayerSet( layer.layers() ) );
-        SetShape( FromProtoEnum<PAD_SHAPE>( layer.shape() ) );
-    }
-
-    switch( padstack.unconnected_layer_removal() )
-    {
-    case kiapi::board::types::UnconnectedLayerRemoval::ULR_REMOVE:
-        m_removeUnconnectedLayer = true;
-        m_keepTopBottomLayer = false;
-        break;
-
-    case kiapi::board::types::UnconnectedLayerRemoval::ULR_REMOVE_EXCEPT_START_AND_END:
-        m_removeUnconnectedLayer = true;
-        m_keepTopBottomLayer = true;
-        break;
-
-    default:
-    case kiapi::board::types::UnconnectedLayerRemoval::ULR_KEEP:
-        m_removeUnconnectedLayer = false;
-        m_keepTopBottomLayer = false;
-        break;
-    }
-
-    const kiapi::board::types::DesignRuleOverrides& overrides = pad.overrides();
-
-    if( overrides.has_clearance() )
-        SetLocalClearance( overrides.clearance().value_nm() );
+    if( pad.has_copper_clearance_override() )
+        SetLocalClearance( pad.copper_clearance_override().value_nm() );
     else
         SetLocalClearance( std::nullopt );
-
-    if( overrides.has_solder_mask_margin() )
-        SetLocalSolderMaskMargin( overrides.solder_mask_margin().value_nm() );
-    else
-        SetLocalSolderMaskMargin( std::nullopt );
-
-    if( overrides.has_solder_paste_margin() )
-        SetLocalSolderPasteMargin( overrides.solder_paste_margin().value_nm() );
-    else
-        SetLocalSolderPasteMargin( std::nullopt );
-
-    if( overrides.has_solder_paste_margin_ratio() )
-        SetLocalSolderPasteMarginRatio( overrides.solder_paste_margin_ratio().value() );
-    else
-        SetLocalSolderPasteMarginRatio( std::nullopt );
-
-    SetLocalZoneConnection( FromProtoEnum<ZONE_CONNECTION>( overrides.zone_connection() ) );
-
-    const kiapi::board::types::ThermalSpokeSettings& thermals = pad.thermal_spokes();
-
-    SetThermalGap( thermals.gap() );
-    SetThermalSpokeWidth( thermals.width() );
-    SetThermalSpokeAngleDegrees( thermals.angle().value_degrees() );
 
     return true;
 }
@@ -348,35 +240,35 @@ bool PAD::IsFreePad() const
 
 LSET PAD::PTHMask()
 {
-    static LSET saved = LSET::AllCuMask() | LSET( 2, F_Mask, B_Mask );
+    static LSET saved = LSET::AllCuMask() | LSET( { F_Mask, B_Mask } );
     return saved;
 }
 
 
 LSET PAD::SMDMask()
 {
-    static LSET saved( 3, F_Cu, F_Paste, F_Mask );
+    static LSET saved( { F_Cu, F_Paste, F_Mask } );
     return saved;
 }
 
 
 LSET PAD::ConnSMDMask()
 {
-    static LSET saved( 2, F_Cu, F_Mask );
+    static LSET saved( { F_Cu, F_Mask } );
     return saved;
 }
 
 
 LSET PAD::UnplatedHoleMask()
 {
-    static LSET saved = LSET( 4, F_Cu, B_Cu, F_Mask, B_Mask );
+    static LSET saved = LSET( { F_Cu, B_Cu, F_Mask, B_Mask } );
     return saved;
 }
 
 
 LSET PAD::ApertureMask()
 {
-    static LSET saved( 1, F_Paste );
+    static LSET saved( F_Paste );
     return saved;
 }
 
@@ -427,12 +319,12 @@ bool PAD::FlashLayer( int aLayer, bool aOnlyCheckIfPermitted ) const
 
     if( GetAttribute() == PAD_ATTRIB::NPTH && IsCopperLayer( aLayer ) )
     {
-        if( GetShape() == PAD_SHAPE::CIRCLE && GetDrillShape() == PAD_DRILL_SHAPE_CIRCLE )
+        if( GetShape() == PAD_SHAPE::CIRCLE && GetDrillShape() == PAD_DRILL_SHAPE::CIRCLE )
         {
             if( GetOffset() == VECTOR2I( 0, 0 ) && GetDrillSize().x >= GetSize().x )
                 return false;
         }
-        else if( GetShape() == PAD_SHAPE::OVAL && GetDrillShape() == PAD_DRILL_SHAPE_OBLONG )
+        else if( GetShape() == PAD_SHAPE::OVAL && GetDrillShape() == PAD_DRILL_SHAPE::OBLONG )
         {
             if( GetOffset() == VECTOR2I( 0, 0 )
                     && GetDrillSize().x >= GetSize().x && GetDrillSize().y >= GetSize().y )
@@ -453,13 +345,18 @@ bool PAD::FlashLayer( int aLayer, bool aOnlyCheckIfPermitted ) const
         if( GetProperty() == PAD_PROP::HEATSINK )
             return true;
 
-        if( !m_removeUnconnectedLayer )
+        PADSTACK::UNCONNECTED_LAYER_MODE mode = m_padStack.UnconnectedLayerMode();
+
+        if( mode == PADSTACK::UNCONNECTED_LAYER_MODE::KEEP_ALL )
             return true;
 
         // Plated through hole pads need copper on the top/bottom layers for proper soldering
         // Unless the user has removed them in the pad dialog
-        if( m_keepTopBottomLayer && ( aLayer == F_Cu || aLayer == B_Cu ) )
+        if( mode == PADSTACK::UNCONNECTED_LAYER_MODE::REMOVE_EXCEPT_START_AND_END
+            && ( aLayer == F_Cu || aLayer == B_Cu ) )
+        {
             return true;
+        }
 
         if( const BOARD* board = GetBoard() )
         {
@@ -482,22 +379,19 @@ bool PAD::FlashLayer( int aLayer, bool aOnlyCheckIfPermitted ) const
 
 int PAD::GetRoundRectCornerRadius() const
 {
-    return KiROUND( std::min( m_size.x, m_size.y ) * m_roundedCornerScale );
+    return m_padStack.RoundRectRadius();
 }
 
 
 void PAD::SetRoundRectCornerRadius( double aRadius )
 {
-    int min_r = std::min( m_size.x, m_size.y );
-
-    if( min_r > 0 )
-        SetRoundRectRadiusRatio( aRadius / min_r );
+    m_padStack.SetRoundRectRadius( aRadius );
 }
 
 
 void PAD::SetRoundRectRadiusRatio( double aRadiusScale )
 {
-    m_roundedCornerScale = alg::clamp( 0.0, aRadiusScale, 0.5 );
+    m_padStack.SetRoundRectRadiusRatio( alg::clamp( 0.0, aRadiusScale, 0.5 ) );
 
     SetDirty();
 }
@@ -505,7 +399,7 @@ void PAD::SetRoundRectRadiusRatio( double aRadiusScale )
 
 void PAD::SetChamferRectRatio( double aChamferScale )
 {
-    m_chamferScale = alg::clamp( 0.0, aChamferScale, 0.5 );
+    m_padStack.SetChamferRatio( alg::clamp( 0.0, aChamferScale, 0.5 ) );
 
     SetDirty();
 }
@@ -597,6 +491,7 @@ void PAD::BuildEffectiveShapes( PCB_LAYER_ID aLayer ) const
 
     VECTOR2I  shapePos = ShapePos(); // Fetch only once; rotation involves trig
     PAD_SHAPE effectiveShape = GetShape();
+    const VECTOR2I& size = m_padStack.Size( aLayer );
 
     if( GetShape() == PAD_SHAPE::CUSTOM )
         effectiveShape = GetAnchorPadShape();
@@ -604,20 +499,20 @@ void PAD::BuildEffectiveShapes( PCB_LAYER_ID aLayer ) const
     switch( effectiveShape )
     {
     case PAD_SHAPE::CIRCLE:
-        add( new SHAPE_CIRCLE( shapePos, m_size.x / 2 ) );
+        add( new SHAPE_CIRCLE( shapePos, size.x / 2 ) );
         break;
 
     case PAD_SHAPE::OVAL:
-        if( m_size.x == m_size.y ) // the oval pad is in fact a circle
+        if( size.x == size.y ) // the oval pad is in fact a circle
         {
-            add( new SHAPE_CIRCLE( shapePos, m_size.x / 2 ) );
+            add( new SHAPE_CIRCLE( shapePos, size.x / 2 ) );
         }
         else
         {
-            VECTOR2I half_size = m_size / 2;
+            VECTOR2I half_size = size / 2;
             int     half_width = std::min( half_size.x, half_size.y );
             VECTOR2I half_len( half_size.x - half_width, half_size.y - half_width );
-            RotatePoint( half_len, m_orient );
+            RotatePoint( half_len, GetOrientation() );
             add( new SHAPE_SEGMENT( shapePos - half_len, shapePos + half_len, half_width * 2 ) );
         }
 
@@ -628,7 +523,7 @@ void PAD::BuildEffectiveShapes( PCB_LAYER_ID aLayer ) const
     case PAD_SHAPE::ROUNDRECT:
     {
         int      r = ( effectiveShape == PAD_SHAPE::ROUNDRECT ) ? GetRoundRectCornerRadius() : 0;
-        VECTOR2I half_size( m_size.x / 2, m_size.y / 2 );
+        VECTOR2I half_size( size.x / 2, size.y / 2 );
         VECTOR2I trap_delta( 0, 0 );
 
         if( r )
@@ -647,7 +542,7 @@ void PAD::BuildEffectiveShapes( PCB_LAYER_ID aLayer ) const
         }
         else if( effectiveShape == PAD_SHAPE::TRAPEZOID )
         {
-            trap_delta = m_deltaSize / 2;
+            trap_delta = m_padStack.TrapezoidDeltaSize( aLayer ) / 2;
         }
 
         SHAPE_LINE_CHAIN corners;
@@ -657,7 +552,7 @@ void PAD::BuildEffectiveShapes( PCB_LAYER_ID aLayer ) const
         corners.Append(  half_size.x - trap_delta.y, -half_size.y + trap_delta.x );
         corners.Append( -half_size.x + trap_delta.y, -half_size.y - trap_delta.x );
 
-        corners.Rotate( m_orient );
+        corners.Rotate( GetOrientation() );
         corners.Move( shapePos );
 
         // GAL renders rectangles faster than 4-point polygons so it's worth checking if our
@@ -702,7 +597,7 @@ void PAD::BuildEffectiveShapes( PCB_LAYER_ID aLayer ) const
     {
         SHAPE_POLY_SET outline;
 
-        TransformRoundChamferedRectToPolygon( outline, shapePos, GetSize(), m_orient,
+        TransformRoundChamferedRectToPolygon( outline, shapePos, GetSize(), GetOrientation(),
                                               GetRoundRectCornerRadius(), GetChamferRectRatio(),
                                               GetChamferPositions(), 0, maxError, ERROR_INSIDE );
 
@@ -718,13 +613,13 @@ void PAD::BuildEffectiveShapes( PCB_LAYER_ID aLayer ) const
 
     if( GetShape() == PAD_SHAPE::CUSTOM )
     {
-        for( const std::shared_ptr<PCB_SHAPE>& primitive : m_editPrimitives )
+        for( const std::shared_ptr<PCB_SHAPE>& primitive : m_padStack.Primitives() )
         {
             if( !primitive->IsProxyItem() )
             {
                 for( SHAPE* shape : primitive->MakeEffectiveShapes() )
                 {
-                    shape->Rotate( m_orient );
+                    shape->Rotate( GetOrientation() );
                     shape->Move( shapePos );
                     add( shape );
                 }
@@ -735,11 +630,11 @@ void PAD::BuildEffectiveShapes( PCB_LAYER_ID aLayer ) const
     m_effectiveBoundingBox = m_effectiveShape->BBox();
 
     // Hole shape
-    VECTOR2I half_size = m_drill / 2;
+    VECTOR2I half_size = m_padStack.Drill().size / 2;
     int      half_width = std::min( half_size.x, half_size.y );
     VECTOR2I half_len( half_size.x - half_width, half_size.y - half_width );
 
-    RotatePoint( half_len, m_orient );
+    RotatePoint( half_len, GetOrientation() );
 
     m_effectiveHoleShape = std::make_shared<SHAPE_SEGMENT>( m_pos - half_len, m_pos + half_len,
                                                             half_width * 2 );
@@ -808,31 +703,33 @@ void PAD::SetAttribute( PAD_ATTRIB aAttribute )
     {
         m_attribute = aAttribute;
 
+        LSET& layerMask = m_padStack.LayerSet();
+
         switch( aAttribute )
         {
         case PAD_ATTRIB::PTH:
             // Plump up to all copper layers
-            m_layerMask |= LSET::AllCuMask();
+            layerMask |= LSET::AllCuMask();
             break;
 
         case PAD_ATTRIB::SMD:
         case PAD_ATTRIB::CONN:
         {
             // Trim down to no more than one copper layer
-            LSET copperLayers = m_layerMask & LSET::AllCuMask();
+            LSET copperLayers = layerMask & LSET::AllCuMask();
 
             if( copperLayers.count() > 1 )
             {
-                m_layerMask &= ~LSET::AllCuMask();
+                layerMask &= ~LSET::AllCuMask();
 
                 if( copperLayers.test( B_Cu ) )
-                    m_layerMask.set( B_Cu );
+                    layerMask.set( B_Cu );
                 else
-                    m_layerMask.set( copperLayers.Seq().front() );
+                    layerMask.set( copperLayers.Seq().front() );
             }
 
             // No hole
-            m_drill = VECTOR2I( 0, 0 );
+            m_padStack.Drill().size = VECTOR2I( 0, 0 );
             break;
         }
 
@@ -858,9 +755,7 @@ void PAD::SetProperty( PAD_PROP aProperty )
 
 void PAD::SetOrientation( const EDA_ANGLE& aAngle )
 {
-    m_orient = aAngle;
-    m_orient.Normalize();
-
+    m_padStack.SetOrientation( aAngle );
     SetDirty();
 }
 
@@ -888,14 +783,14 @@ void PAD::Flip( const VECTOR2I& aCentre, bool aFlipLeftRight )
     if( aFlipLeftRight )
     {
         MIRROR( m_pos.x, aCentre.x );
-        MIRROR( m_offset.x, 0 );
-        MIRROR( m_deltaSize.x, 0 );
+        MIRROR( m_padStack.Offset().x, 0 );
+        MIRROR( m_padStack.TrapezoidDeltaSize().x, 0 );
     }
     else
     {
         MIRROR( m_pos.y, aCentre.y );
-        MIRROR( m_offset.y, 0 );
-        MIRROR( m_deltaSize.y, 0 );
+        MIRROR( m_padStack.Offset().y, 0 );
+        MIRROR( m_padStack.TrapezoidDeltaSize().y, 0 );
     }
 
     SetFPRelativeOrientation( -GetFPRelativeOrientation() );
@@ -917,20 +812,25 @@ void PAD::Flip( const VECTOR2I& aCentre, bool aFlipLeftRight )
 
     if( aFlipLeftRight )
     {
-        mirrorBitFlags( m_chamferPositions, RECT_CHAMFER_TOP_LEFT, RECT_CHAMFER_TOP_RIGHT );
-        mirrorBitFlags( m_chamferPositions, RECT_CHAMFER_BOTTOM_LEFT, RECT_CHAMFER_BOTTOM_RIGHT );
+        mirrorBitFlags( m_padStack.ChamferPositions(), RECT_CHAMFER_TOP_LEFT,
+                        RECT_CHAMFER_TOP_RIGHT );
+        mirrorBitFlags( m_padStack.ChamferPositions(), RECT_CHAMFER_BOTTOM_LEFT,
+                        RECT_CHAMFER_BOTTOM_RIGHT );
     }
     else
     {
-        mirrorBitFlags( m_chamferPositions, RECT_CHAMFER_TOP_LEFT, RECT_CHAMFER_BOTTOM_LEFT );
-        mirrorBitFlags( m_chamferPositions, RECT_CHAMFER_TOP_RIGHT, RECT_CHAMFER_BOTTOM_RIGHT );
+        mirrorBitFlags( m_padStack.ChamferPositions(), RECT_CHAMFER_TOP_LEFT,
+                        RECT_CHAMFER_BOTTOM_LEFT );
+        mirrorBitFlags( m_padStack.ChamferPositions(), RECT_CHAMFER_TOP_RIGHT,
+                        RECT_CHAMFER_BOTTOM_RIGHT );
     }
 
     // flip pads layers
     // PADS items are currently on all copper layers, or
     // currently, only on Front or Back layers.
     // So the copper layers count is not taken in account
-    SetLayerSet( FlipLayerMask( m_layerMask ) );
+    LSET layerSet = m_padStack.LayerSet();
+    SetLayerSet( layerSet.Flip() );
 
     // Flip the basic shapes, in custom pads
     FlipPrimitives( aFlipLeftRight );
@@ -941,7 +841,7 @@ void PAD::Flip( const VECTOR2I& aCentre, bool aFlipLeftRight )
 
 void PAD::FlipPrimitives( bool aFlipLeftRight )
 {
-    for( std::shared_ptr<PCB_SHAPE>& primitive : m_editPrimitives )
+    for( std::shared_ptr<PCB_SHAPE>& primitive : m_padStack.Primitives() )
         primitive->Flip( VECTOR2I( 0, 0 ), aFlipLeftRight );
 
     SetDirty();
@@ -950,12 +850,12 @@ void PAD::FlipPrimitives( bool aFlipLeftRight )
 
 VECTOR2I PAD::ShapePos() const
 {
-    if( m_offset.x == 0 && m_offset.y == 0 )
+    if( m_padStack.Offset().x == 0 && m_padStack.Offset().y == 0 )
         return m_pos;
 
-    VECTOR2I loc_offset = m_offset;
+    VECTOR2I loc_offset = m_padStack.Offset();
 
-    RotatePoint( loc_offset, m_orient );
+    RotatePoint( loc_offset, GetOrientation() );
 
     VECTOR2I shape_pos = m_pos + loc_offset;
 
@@ -973,14 +873,21 @@ bool PAD::IsOnCopperLayer() const
         switch( GetShape() )
         {
         case PAD_SHAPE::CIRCLE:
-            if( m_offset == VECTOR2I( 0, 0 ) && m_size.x <= m_drill.x )
+            if( m_padStack.Offset() == VECTOR2I( 0, 0 )
+                && m_padStack.Size().x <= m_padStack.Drill().size.x )
+            {
                 return false;
+            }
 
             break;
 
         case PAD_SHAPE::OVAL:
-            if( m_offset == VECTOR2I( 0, 0 ) && m_size.x <= m_drill.x && m_size.y <= m_drill.y )
+            if( m_padStack.Offset() == VECTOR2I( 0, 0 )
+                && m_padStack.Size().x <= m_padStack.Drill().size.x
+                && m_padStack.Size().y <= m_padStack.Drill().size.y )
+            {
                 return false;
+            }
 
             break;
 
@@ -997,16 +904,16 @@ bool PAD::IsOnCopperLayer() const
 
 std::optional<int> PAD::GetLocalClearance( wxString* aSource ) const
 {
-    if( m_clearance.has_value() && aSource )
+    if( m_padStack.Clearance().has_value() && aSource )
         *aSource = _( "pad" );
 
-    return m_clearance;
+    return m_padStack.Clearance();
 }
 
 
 std::optional<int> PAD::GetClearanceOverrides( wxString* aSource ) const
 {
-    if( m_clearance.has_value() )
+    if( m_padStack.Clearance().has_value() )
         return GetLocalClearance( aSource );
 
     if( FOOTPRINT* parentFootprint = GetParentFootprint() )
@@ -1047,10 +954,10 @@ int PAD::GetSolderMaskExpansion() const
     // Pads defined only on mask layers (and perhaps on other tech layers) use the shape
     // defined by the pad settings only.  ALL other pads, even those that don't actually have
     // any copper (such as NPTH pads with holes the same size as the pad) get mask expansion.
-    if( ( m_layerMask & LSET::AllCuMask() ).none() )
+    if( ( m_padStack.LayerSet() & LSET::AllCuMask() ).none() )
         return 0;
 
-    std::optional<int> margin = m_solderMaskMargin;
+    std::optional<int> margin = m_padStack.SolderMaskMargin();
 
     if( !margin.has_value() )
     {
@@ -1069,7 +976,7 @@ int PAD::GetSolderMaskExpansion() const
     // ensure mask have a size always >= 0
     if( marginValue < 0 )
     {
-        int minsize = -std::min( m_size.x, m_size.y ) / 2;
+        int minsize = -std::min( m_padStack.Size().x, m_padStack.Size().y ) / 2;
 
         if( marginValue < minsize )
             marginValue = minsize;
@@ -1084,11 +991,11 @@ VECTOR2I PAD::GetSolderPasteMargin() const
     // Pads defined only on mask layers (and perhaps on other tech layers) use the shape
     // defined by the pad settings only.  ALL other pads, even those that don't actually have
     // any copper (such as NPTH pads with holes the same size as the pad) get paste expansion.
-    if( ( m_layerMask & LSET::AllCuMask() ).none() )
+    if( ( m_padStack.LayerSet() & LSET::AllCuMask() ).none() )
         return VECTOR2I( 0, 0 );
 
-    std::optional<int>    margin = m_solderPasteMargin;
-    std::optional<double> mratio = m_solderPasteMarginRatio;
+    std::optional<int>    margin = m_padStack.SolderPasteMargin();
+    std::optional<double> mratio = m_padStack.SolderPasteMarginRatio();
 
     if( !margin.has_value() )
     {
@@ -1115,17 +1022,17 @@ VECTOR2I PAD::GetSolderPasteMargin() const
     }
 
     VECTOR2I pad_margin;
-    pad_margin.x = margin.value_or( 0 ) + KiROUND( m_size.x * mratio.value_or( 0 ) );
-    pad_margin.y = margin.value_or( 0 ) + KiROUND( m_size.y * mratio.value_or( 0 ) );
+    pad_margin.x = margin.value_or( 0 ) + KiROUND( m_padStack.Size().x * mratio.value_or( 0 ) );
+    pad_margin.y = margin.value_or( 0 ) + KiROUND( m_padStack.Size().y * mratio.value_or( 0 ) );
 
     // ensure mask have a size always >= 0
-    if( m_padShape != PAD_SHAPE::CUSTOM )
+    if( m_padStack.Shape() != PAD_SHAPE::CUSTOM )
     {
-        if( pad_margin.x < -m_size.x / 2 )
-            pad_margin.x = -m_size.x / 2;
+        if( pad_margin.x < -m_padStack.Size().x / 2 )
+            pad_margin.x = -m_padStack.Size().x / 2;
 
-        if( pad_margin.y < -m_size.y / 2 )
-            pad_margin.y = -m_size.y / 2;
+        if( pad_margin.y < -m_padStack.Size().y / 2 )
+            pad_margin.y = -m_padStack.Size().y / 2;
     }
 
     return pad_margin;
@@ -1134,7 +1041,7 @@ VECTOR2I PAD::GetSolderPasteMargin() const
 
 ZONE_CONNECTION PAD::GetZoneConnectionOverrides( wxString* aSource ) const
 {
-    ZONE_CONNECTION connection = m_zoneConnection;
+    ZONE_CONNECTION connection = m_padStack.ZoneConnection().value_or( ZONE_CONNECTION::INHERITED );
 
     if( connection != ZONE_CONNECTION::INHERITED )
     {
@@ -1154,19 +1061,19 @@ ZONE_CONNECTION PAD::GetZoneConnectionOverrides( wxString* aSource ) const
 
 int PAD::GetLocalSpokeWidthOverride( wxString* aSource ) const
 {
-    if( m_thermalSpokeWidth > 0 && aSource )
+    if( m_padStack.ThermalSpokeWidth().has_value() && aSource )
         *aSource = _( "pad" );
 
-    return m_thermalSpokeWidth;
+    return m_padStack.ThermalSpokeWidth().value_or( 0 );
 }
 
 
 int PAD::GetLocalThermalGapOverride( wxString* aSource ) const
 {
-    if( m_thermalGap > 0 && aSource )
+    if( m_padStack.ThermalGap().has_value() && aSource )
         *aSource = _( "pad" );
 
-    return m_thermalGap;
+    return m_padStack.ThermalGap().value_or( 0 );
 }
 
 
@@ -1235,14 +1142,14 @@ void PAD::GetMsgPanelInfo( EDA_DRAW_FRAME* aFrame, std::vector<MSG_PANEL_ITEM>& 
     aList.emplace_back( ShowPadShape(), props );
 
     if( ( GetShape() == PAD_SHAPE::CIRCLE || GetShape() == PAD_SHAPE::OVAL )
-            && m_size.x == m_size.y )
+            && m_padStack.Size().x == m_padStack.Size().y )
     {
-        aList.emplace_back( _( "Diameter" ), aFrame->MessageTextFromValue( m_size.x ) );
+        aList.emplace_back( _( "Diameter" ), aFrame->MessageTextFromValue( m_padStack.Size().x ) );
     }
     else
     {
-        aList.emplace_back( _( "Width" ), aFrame->MessageTextFromValue( m_size.x ) );
-        aList.emplace_back( _( "Height" ), aFrame->MessageTextFromValue( m_size.y ) );
+        aList.emplace_back( _( "Width" ), aFrame->MessageTextFromValue( m_padStack.Size().x ) );
+        aList.emplace_back( _( "Height" ), aFrame->MessageTextFromValue( m_padStack.Size().y ) );
     }
 
     EDA_ANGLE fp_orient = parentFootprint ? parentFootprint->GetOrientation() : ANGLE_0;
@@ -1262,20 +1169,22 @@ void PAD::GetMsgPanelInfo( EDA_DRAW_FRAME* aFrame, std::vector<MSG_PANEL_ITEM>& 
                             aFrame->MessageTextFromValue( GetPadToDieLength() ) );
     }
 
-    if( m_drill.x > 0 || m_drill.y > 0 )
+    const VECTOR2I& drill = m_padStack.Drill().size;
+
+    if( drill.x > 0 || drill.y > 0 )
     {
-        if( GetDrillShape() == PAD_DRILL_SHAPE_CIRCLE )
+        if( GetDrillShape() == PAD_DRILL_SHAPE::CIRCLE )
         {
             aList.emplace_back( _( "Hole" ),
                                 wxString::Format( wxT( "%s" ),
-                                                  aFrame->MessageTextFromValue( m_drill.x ) ) );
+                                                  aFrame->MessageTextFromValue( drill.x ) ) );
         }
         else
         {
             aList.emplace_back( _( "Hole X / Y" ),
                                 wxString::Format( wxT( "%s / %s" ),
-                                                  aFrame->MessageTextFromValue( m_drill.x ),
-                                                  aFrame->MessageTextFromValue( m_drill.y ) ) );
+                                                  aFrame->MessageTextFromValue( drill.x ),
+                                                  aFrame->MessageTextFromValue( drill.y ) ) );
         }
     }
 
@@ -1354,6 +1263,8 @@ int PAD::Compare( const PAD* aPadRef, const PAD* aPadCmp )
 {
     int diff;
 
+    // TODO(JE) move padstack comparision into PADSTACK
+
     if( ( diff = static_cast<int>( aPadRef->GetShape() ) -
           static_cast<int>( aPadCmp->GetShape() ) ) != 0 )
         return diff;
@@ -1362,44 +1273,57 @@ int PAD::Compare( const PAD* aPadRef, const PAD* aPadCmp )
           static_cast<int>( aPadCmp->m_attribute ) ) != 0 )
         return diff;
 
-    if( ( diff = aPadRef->m_drillShape - aPadCmp->m_drillShape ) != 0 )
+    if( ( diff = static_cast<int>( aPadRef->GetDrillShape() ) -
+          static_cast<int>( aPadCmp->GetDrillShape() ) ) != 0 )
         return diff;
 
-    if( ( diff = aPadRef->m_drill.x - aPadCmp->m_drill.x ) != 0 )
+    if( ( diff = aPadRef->Padstack().Drill().size.x - aPadCmp->Padstack().Drill().size.x ) != 0 )
         return diff;
 
-    if( ( diff = aPadRef->m_drill.y - aPadCmp->m_drill.y ) != 0 )
+    if( ( diff = aPadRef->Padstack().Drill().size.y - aPadCmp->Padstack().Drill().size.y ) != 0 )
         return diff;
 
-    if( ( diff = aPadRef->m_size.x - aPadCmp->m_size.x ) != 0 )
+    if( ( diff = aPadRef->m_padStack.Size().x - aPadCmp->m_padStack.Size().x ) != 0 )
         return diff;
 
-    if( ( diff = aPadRef->m_size.y - aPadCmp->m_size.y ) != 0 )
+    if( ( diff = aPadRef->m_padStack.Size().y - aPadCmp->m_padStack.Size().y ) != 0 )
         return diff;
 
-    if( ( diff = aPadRef->m_offset.x - aPadCmp->m_offset.x ) != 0 )
+    if( ( diff = aPadRef->m_padStack.Offset().x - aPadCmp->m_padStack.Offset().x ) != 0 )
         return diff;
 
-    if( ( diff = aPadRef->m_offset.y - aPadCmp->m_offset.y ) != 0 )
+    if( ( diff = aPadRef->m_padStack.Offset().y - aPadCmp->m_padStack.Offset().y ) != 0 )
         return diff;
 
-    if( ( diff = aPadRef->m_deltaSize.x - aPadCmp->m_deltaSize.x ) != 0 )
+    if( ( diff = aPadRef->m_padStack.TrapezoidDeltaSize().x
+                 - aPadCmp->m_padStack.TrapezoidDeltaSize().x )
+        != 0 )
+    {
+        return diff;
+    }
+
+    if( ( diff = aPadRef->m_padStack.TrapezoidDeltaSize().y
+                 - aPadCmp->m_padStack.TrapezoidDeltaSize().y )
+        != 0 )
+    {
+        return diff;
+    }
+
+    if( ( diff = aPadRef->m_padStack.RoundRectRadiusRatio()
+                 - aPadCmp->m_padStack.RoundRectRadiusRatio() )
+        != 0 )
+    {
+        return diff;
+    }
+
+    if( ( diff = aPadRef->m_padStack.ChamferPositions() - aPadCmp->m_padStack.ChamferPositions() ) != 0 )
         return diff;
 
-    if( ( diff = aPadRef->m_deltaSize.y - aPadCmp->m_deltaSize.y ) != 0 )
+    if( ( diff = aPadRef->m_padStack.ChamferRatio() - aPadCmp->m_padStack.ChamferRatio() ) != 0 )
         return diff;
 
-    if( ( diff = aPadRef->m_roundedCornerScale - aPadCmp->m_roundedCornerScale ) != 0 )
-        return diff;
-
-    if( ( diff = aPadRef->m_chamferPositions - aPadCmp->m_chamferPositions ) != 0 )
-        return diff;
-
-    if( ( diff = aPadRef->m_chamferScale - aPadCmp->m_chamferScale ) != 0 )
-        return diff;
-
-    if( ( diff = static_cast<int>( aPadRef->m_editPrimitives.size() ) -
-          static_cast<int>( aPadCmp->m_editPrimitives.size() ) ) != 0 )
+    if( ( diff = static_cast<int>( aPadRef->m_padStack.Primitives().size() ) -
+          static_cast<int>( aPadCmp->m_padStack.Primitives().size() ) ) != 0 )
         return diff;
 
     // @todo: Compare custom pad primitives for pads that have the same number of primitives
@@ -1408,30 +1332,14 @@ int PAD::Compare( const PAD* aPadRef, const PAD* aPadCmp )
     // Dick: specctra_export needs this
     // Lorenzo: gencad also needs it to implement padstacks!
 
-#if __cplusplus >= 201103L
-    long long d = aPadRef->m_layerMask.to_ullong() - aPadCmp->m_layerMask.to_ullong();
-
-    if( d < 0 )
-        return -1;
-    else if( d > 0 )
-        return 1;
-
-    return 0;
-#else
-    // these strings are not typically constructed, since we don't get here often.
-    std::string s1 = aPadRef->m_layerMask.to_string();
-    std::string s2 = aPadCmp->m_layerMask.to_string();
-    return s1.compare( s2 );
-#endif
+    return aPadRef->GetLayerSet().compare( aPadCmp->GetLayerSet() );
 }
 
 
 void PAD::Rotate( const VECTOR2I& aRotCentre, const EDA_ANGLE& aAngle )
 {
     RotatePoint( m_pos, aRotCentre, aAngle );
-
-    m_orient += aAngle;
-    m_orient.Normalize();
+    m_padStack.SetOrientation( m_padStack.GetOrientation() + aAngle );
 
     SetDirty();
 }
@@ -1443,7 +1351,7 @@ wxString PAD::ShowPadShape() const
     {
     case PAD_SHAPE::CIRCLE:         return _( "Circle" );
     case PAD_SHAPE::OVAL:           return _( "Oval" );
-    case PAD_SHAPE::RECTANGLE:           return _( "Rect" );
+    case PAD_SHAPE::RECTANGLE:      return _( "Rect" );
     case PAD_SHAPE::TRAPEZOID:      return _( "Trap" );
     case PAD_SHAPE::ROUNDRECT:      return _( "Roundrect" );
     case PAD_SHAPE::CHAMFERED_RECT: return _( "Chamferedrect" );
@@ -1466,48 +1374,92 @@ wxString PAD::ShowPadAttr() const
 }
 
 
-wxString PAD::GetItemDescription( UNITS_PROVIDER* aUnitsProvider ) const
+wxString PAD::GetItemDescription( UNITS_PROVIDER* aUnitsProvider, bool aFull ) const
 {
-    if( GetNumber().IsEmpty() )
+    FOOTPRINT* parentFP = nullptr;
+
+    if( EDA_DRAW_FRAME* frame = dynamic_cast<EDA_DRAW_FRAME*>( aUnitsProvider ) )
     {
-        if( GetAttribute() == PAD_ATTRIB::SMD || GetAttribute() == PAD_ATTRIB::CONN )
+        if( frame->GetName() == PCB_EDIT_FRAME_NAME )
+            parentFP = GetParentFootprint();
+    }
+
+    if( GetAttribute() == PAD_ATTRIB::NPTH )
+    {
+        if( parentFP )
         {
-            return wxString::Format( _( "Pad %s of %s on %s" ),
-                                     GetNetnameMsg(),
-                                     GetParentFootprint()->GetReference(),
-                                     layerMaskDescribe() );
-        }
-        else if( GetAttribute() == PAD_ATTRIB::NPTH )
-        {
-            return wxString::Format( _( "NPTH pad of %s" ), GetParentFootprint()->GetReference() );
+            return wxString::Format( _( "NPTH pad of %s" ),
+                                     parentFP->GetReference() );
         }
         else
         {
-            return wxString::Format( _( "PTH pad %s of %s" ),
-                                     GetNetnameMsg(),
-                                     GetParentFootprint()->GetReference() );
+            return _( "NPTH pad" );
+        }
+    }
+    else if( GetNumber().IsEmpty() )
+    {
+        if( GetAttribute() == PAD_ATTRIB::SMD || GetAttribute() == PAD_ATTRIB::CONN )
+        {
+            if( parentFP )
+            {
+                return wxString::Format( _( "Pad %s of %s on %s" ),
+                                         GetNetnameMsg(),
+                                         parentFP->GetReference(),
+                                         layerMaskDescribe() );
+            }
+            else
+            {
+                return wxString::Format( _( "Pad on %s" ),
+                                         layerMaskDescribe() );
+            }
+        }
+        else
+        {
+            if( parentFP )
+            {
+                return wxString::Format( _( "PTH pad %s of %s" ),
+                                         GetNetnameMsg(),
+                                         parentFP->GetReference() );
+            }
+            else
+            {
+                return _( "PTH pad" );
+            }
         }
     }
     else
     {
         if( GetAttribute() == PAD_ATTRIB::SMD || GetAttribute() == PAD_ATTRIB::CONN )
         {
-            return wxString::Format( _( "Pad %s %s of %s on %s" ),
-                                     GetNumber(),
-                                     GetNetnameMsg(),
-                                     GetParentFootprint()->GetReference(),
-                                     layerMaskDescribe() );
-        }
-        else if( GetAttribute() == PAD_ATTRIB::NPTH )
-        {
-            return wxString::Format( _( "NPTH of %s" ), GetParentFootprint()->GetReference() );
+            if( parentFP )
+            {
+                return wxString::Format( _( "Pad %s %s of %s on %s" ),
+                                         GetNumber(),
+                                         GetNetnameMsg(),
+                                         parentFP->GetReference(),
+                                         layerMaskDescribe() );
+            }
+            else
+            {
+                return wxString::Format( _( "Pad %s on %s" ),
+                                         GetNumber(),
+                                         layerMaskDescribe() );
+            }
         }
         else
         {
-            return wxString::Format( _( "PTH pad %s %s of %s" ),
-                                     GetNumber(),
-                                     GetNetnameMsg(),
-                                     GetParentFootprint()->GetReference() );
+            if( parentFP )
+            {
+                return wxString::Format( _( "PTH pad %s %s of %s" ),
+                                         GetNumber(),
+                                         GetNetnameMsg(),
+                                         parentFP->GetReference() );
+            }
+            else
+            {
+                return wxString::Format( _( "PTH pad %s" ),
+                                         GetNumber() );
+            }
         }
     }
 }
@@ -1655,8 +1607,15 @@ double PAD::ViewGetLOD( int aLayer, KIGFX::VIEW* aView ) const
         return ( double ) pcbIUScale.mmToIU( 5 ) / divisor;
     }
 
-    // Passed all tests; show.
-    return 0.0;
+    VECTOR2L padSize =
+            GetShape() != PAD_SHAPE::CUSTOM ? VECTOR2L( GetSize() ) : GetBoundingBox().GetSize();
+
+    int64_t minSide = std::min( padSize.x, padSize.y );
+
+    if( minSide > 0 )
+        return std::min( (double) pcbIUScale.mmToIU( 0.2 ) / minSide, 3.5 );
+    else
+        return 0;
 }
 
 
@@ -1686,6 +1645,7 @@ const BOX2I PAD::ViewBBox() const
 
 void PAD::ImportSettingsFrom( const PAD& aMasterPad )
 {
+    SetPadstack( aMasterPad.Padstack() );
     SetShape( aMasterPad.GetShape() );
     // Layer Set should be updated before calling SetAttribute()
     SetLayerSet( aMasterPad.GetLayerSet() );
@@ -1715,9 +1675,6 @@ void PAD::ImportSettingsFrom( const PAD& aMasterPad )
         pad_rot += GetParentFootprint()->GetOrientation();
 
     SetOrientation( pad_rot );
-
-    SetRemoveUnconnected( aMasterPad.GetRemoveUnconnected() );
-    SetKeepTopBottom( aMasterPad.GetKeepTopBottom() );
 
     SetSize( aMasterPad.GetSize() );
     SetDelta( VECTOR2I( 0, 0 ) );
@@ -1812,8 +1769,8 @@ void PAD::TransformShapeToPolygon( SHAPE_POLY_SET& aBuffer, PCB_LAYER_ID aLayer,
     // This minimal value is mainly for very small pads, like SM0402.
     // Most of time pads are using the segment count given by aError value.
     const int pad_min_seg_per_circle_count = 16;
-    int       dx = m_size.x / 2;
-    int       dy = m_size.y / 2;
+    int       dx = m_padStack.Size().x / 2;
+    int       dy = m_padStack.Size().y / 2;
 
     VECTOR2I padShapePos = ShapePos();    // Note: for pad having a shape offset, the pad
                                           //   position is NOT the shape position
@@ -1833,7 +1790,7 @@ void PAD::TransformShapeToPolygon( SHAPE_POLY_SET& aBuffer, PCB_LAYER_ID aLayer,
             int      half_width = std::min( dx, dy );
             VECTOR2I delta( dx - half_width, dy - half_width );
 
-            RotatePoint( delta, m_orient );
+            RotatePoint( delta, GetOrientation() );
 
             TransformOvalToPolygon( aBuffer, padShapePos - delta, padShapePos + delta,
                                     ( half_width + aClearance ) * 2, aMaxError, aErrorLoc,
@@ -1845,12 +1802,12 @@ void PAD::TransformShapeToPolygon( SHAPE_POLY_SET& aBuffer, PCB_LAYER_ID aLayer,
     case PAD_SHAPE::TRAPEZOID:
     case PAD_SHAPE::RECTANGLE:
     {
-        int  ddx = GetShape() == PAD_SHAPE::TRAPEZOID ? m_deltaSize.x / 2 : 0;
-        int  ddy = GetShape() == PAD_SHAPE::TRAPEZOID ? m_deltaSize.y / 2 : 0;
+        int  ddx = GetShape() == PAD_SHAPE::TRAPEZOID ? m_padStack.TrapezoidDeltaSize().x / 2 : 0;
+        int  ddy = GetShape() == PAD_SHAPE::TRAPEZOID ? m_padStack.TrapezoidDeltaSize().y / 2 : 0;
 
         SHAPE_POLY_SET outline;
-        TransformTrapezoidToPolygon( outline, padShapePos, m_size, m_orient, ddx, ddy, aClearance,
-                                     aMaxError, aErrorLoc );
+        TransformTrapezoidToPolygon( outline, padShapePos, m_padStack.Size(), GetOrientation(), ddx,
+                                     ddy, aClearance, aMaxError, aErrorLoc );
         aBuffer.Append( outline );
         break;
     }
@@ -1861,8 +1818,8 @@ void PAD::TransformShapeToPolygon( SHAPE_POLY_SET& aBuffer, PCB_LAYER_ID aLayer,
         bool doChamfer = GetShape() == PAD_SHAPE::CHAMFERED_RECT;
 
         SHAPE_POLY_SET outline;
-        TransformRoundChamferedRectToPolygon( outline, padShapePos, m_size, m_orient,
-                                              GetRoundRectCornerRadius(),
+        TransformRoundChamferedRectToPolygon( outline, padShapePos, m_padStack.Size(),
+                                              GetOrientation(), GetRoundRectCornerRadius(),
                                               doChamfer ? GetChamferRectRatio() : 0,
                                               doChamfer ? GetChamferPositions() : 0,
                                               aClearance, aMaxError, aErrorLoc );
@@ -1874,7 +1831,7 @@ void PAD::TransformShapeToPolygon( SHAPE_POLY_SET& aBuffer, PCB_LAYER_ID aLayer,
     {
         SHAPE_POLY_SET outline;
         MergePrimitivesAsPolygon( &outline, aErrorLoc );
-        outline.Rotate( m_orient );
+        outline.Rotate( GetOrientation() );
         outline.Move( VECTOR2I( padShapePos ) );
 
         if( aClearance > 0 || aErrorLoc == ERROR_OUTSIDE )
@@ -1907,92 +1864,492 @@ void PAD::TransformShapeToPolygon( SHAPE_POLY_SET& aBuffer, PCB_LAYER_ID aLayer,
 }
 
 
-bool PAD::operator==( const BOARD_ITEM& aOther ) const
+std::vector<PCB_SHAPE*> PAD::Recombine( bool aIsDryRun, int maxError )
 {
-    if( Type() != aOther.Type() )
+    FOOTPRINT* footprint = GetParentFootprint();
+
+    for( BOARD_ITEM* item : footprint->GraphicalItems() )
+        item->ClearFlags( SKIP_STRUCT );
+
+    auto findNext =
+            [&]( PCB_LAYER_ID aLayer ) -> PCB_SHAPE*
+            {
+                SHAPE_POLY_SET padPoly;
+                TransformShapeToPolygon( padPoly, aLayer, 0, maxError, ERROR_INSIDE );
+
+                for( BOARD_ITEM* item : footprint->GraphicalItems() )
+                {
+                    PCB_SHAPE* shape = dynamic_cast<PCB_SHAPE*>( item );
+
+                    if( !shape || ( shape->GetFlags() & SKIP_STRUCT ) )
+                        continue;
+
+                    if( shape->GetLayer() != aLayer )
+                        continue;
+
+                    if( shape->IsProxyItem() )    // Pad number (and net name) box
+                        return shape;
+
+                    SHAPE_POLY_SET drawPoly;
+                    shape->TransformShapeToPolygon( drawPoly, aLayer, 0, maxError, ERROR_INSIDE );
+                    drawPoly.BooleanIntersection( padPoly, SHAPE_POLY_SET::PM_FAST );
+
+                    if( !drawPoly.IsEmpty() )
+                        return shape;
+                }
+
+                return nullptr;
+            };
+
+    auto findMatching =
+            [&]( PCB_SHAPE* aShape ) -> std::vector<PCB_SHAPE*>
+            {
+                std::vector<PCB_SHAPE*> matching;
+
+                for( BOARD_ITEM* item : footprint->GraphicalItems() )
+                {
+                    PCB_SHAPE* other = dynamic_cast<PCB_SHAPE*>( item );
+
+                    if( !other || ( other->GetFlags() & SKIP_STRUCT ) )
+                        continue;
+
+                    if( GetLayerSet().test( other->GetLayer() )
+                            && aShape->Compare( other ) == 0 )
+                    {
+                        matching.push_back( other );
+                    }
+                }
+
+                return matching;
+            };
+
+    PCB_LAYER_ID            layer;
+    std::vector<PCB_SHAPE*> mergedShapes;
+
+    if( IsOnLayer( F_Cu ) )
+        layer = F_Cu;
+    else if( IsOnLayer( B_Cu ) )
+        layer = B_Cu;
+    else
+        layer = GetLayerSet().UIOrder().front();
+
+    // If there are intersecting items to combine, we need to first make sure the pad is a
+    // custom-shape pad.
+    if( !aIsDryRun && findNext( layer ) && GetShape() != PAD_SHAPE::CUSTOM )
+    {
+        if( GetShape() == PAD_SHAPE::CIRCLE || GetShape() == PAD_SHAPE::RECTANGLE )
+        {
+            // Use the existing pad as an anchor
+            SetAnchorPadShape( GetShape() );
+            SetShape( PAD_SHAPE::CUSTOM );
+        }
+        else
+        {
+            // Create a new circular anchor and convert existing pad to a polygon primitive
+            SHAPE_POLY_SET existingOutline;
+            TransformShapeToPolygon( existingOutline, layer, 0, maxError, ERROR_INSIDE );
+
+            int minExtent = std::min( GetSize().x, GetSize().y );
+            SetAnchorPadShape( PAD_SHAPE::CIRCLE );
+            SetSize( VECTOR2I( minExtent, minExtent ) );
+            SetShape( PAD_SHAPE::CUSTOM );
+
+            PCB_SHAPE* shape = new PCB_SHAPE( nullptr, SHAPE_T::POLY );
+            shape->SetFilled( true );
+            shape->SetStroke( STROKE_PARAMS( 0, LINE_STYLE::SOLID ) );
+            shape->SetPolyShape( existingOutline );
+            shape->Move( - ShapePos() );
+            shape->Rotate( VECTOR2I( 0, 0 ), - GetOrientation() );
+            AddPrimitive( shape );
+        }
+    }
+
+    while( PCB_SHAPE* fpShape = findNext( layer ) )
+    {
+        fpShape->SetFlags( SKIP_STRUCT );
+
+        mergedShapes.push_back( fpShape );
+
+        if( !aIsDryRun )
+        {
+            PCB_SHAPE* primitive = static_cast<PCB_SHAPE*>( fpShape->Duplicate() );
+
+            primitive->SetParent( nullptr );
+            primitive->Move( - ShapePos() );
+            primitive->Rotate( VECTOR2I( 0, 0 ), - GetOrientation() );
+
+            AddPrimitive( primitive );
+        }
+
+        // See if there are other shapes that match and mark them for delete.  (KiCad won't
+        // produce these, but old footprints from other vendors have them.)
+        for( PCB_SHAPE* other : findMatching( fpShape ) )
+        {
+            other->SetFlags( SKIP_STRUCT );
+            mergedShapes.push_back( other );
+        }
+    }
+
+    for( BOARD_ITEM* item : footprint->GraphicalItems() )
+        item->ClearFlags( SKIP_STRUCT );
+
+    if( !aIsDryRun )
+        ClearFlags( ENTERED );
+
+    return mergedShapes;
+}
+
+
+void PAD::CheckPad( UNITS_PROVIDER* aUnitsProvider,
+                    const std::function<void( int aErrorCode,
+                                              const wxString& aMsg )>& aErrorHandler ) const
+{
+    VECTOR2I pad_size = GetSize();
+    VECTOR2I drill_size = GetDrillSize();
+    wxString msg;
+
+    if( GetShape() == PAD_SHAPE::CUSTOM )
+        pad_size = GetBoundingBox().GetSize();
+    else if( pad_size.x <= 0 || ( pad_size.y <= 0 && GetShape() != PAD_SHAPE::CIRCLE ) )
+        aErrorHandler( DRCE_PADSTACK_INVALID, _( "(Pad must have a positive size)" ) );
+
+    // Test hole against pad shape
+    if( IsOnCopperLayer() && GetDrillSize().x > 0 )
+    {
+        // Ensure the drill size can be handled in next calculations.
+        // Use min size = 4 IU to be able to build a polygon from a hole shape
+        const int min_drill_size = 4;
+
+        if( GetDrillSizeX() <= min_drill_size || GetDrillSizeY() <= min_drill_size )
+        {
+            msg.Printf( _( "(PTH pad hole size must be larger than %s)" ),
+                        aUnitsProvider->StringFromValue( min_drill_size, true ) );
+            aErrorHandler( DRCE_PADSTACK_INVALID, msg );
+        }
+
+        int            maxError = GetBoard()->GetDesignSettings().m_MaxError;
+        SHAPE_POLY_SET padOutline;
+
+        TransformShapeToPolygon( padOutline, UNDEFINED_LAYER, 0, maxError, ERROR_INSIDE );
+
+        if( GetAttribute() == PAD_ATTRIB::PTH )
+        {
+            // Test if there is copper area outside hole
+            std::shared_ptr<SHAPE_SEGMENT> hole = GetEffectiveHoleShape();
+            SHAPE_POLY_SET                 holeOutline;
+
+            TransformOvalToPolygon( holeOutline, hole->GetSeg().A, hole->GetSeg().B,
+                                    hole->GetWidth(), ARC_HIGH_DEF, ERROR_OUTSIDE );
+
+            SHAPE_POLY_SET copper = padOutline;
+            copper.BooleanSubtract( holeOutline, SHAPE_POLY_SET::POLYGON_MODE::PM_FAST );
+
+            if( copper.IsEmpty() )
+            {
+                aErrorHandler( DRCE_PADSTACK, _( "(PTH pad hole leaves no copper)" ) );
+            }
+            else
+            {
+                // Test if the pad hole is fully inside the copper area
+                holeOutline.BooleanSubtract( padOutline, SHAPE_POLY_SET::POLYGON_MODE::PM_FAST );
+
+                if( !holeOutline.IsEmpty() )
+                    aErrorHandler( DRCE_PADSTACK, _( "(PTH pad hole non fully inside copper)" ) );
+            }
+        }
+        else
+        {
+            // Test only if the pad hole's centre is inside the copper area
+            if( !padOutline.Collide( GetPosition() ) )
+                aErrorHandler( DRCE_PADSTACK, _( "(pad hole not inside pad shape)" ) );
+        }
+    }
+
+    if( GetLocalClearance().value_or( 0 ) < 0 )
+        aErrorHandler( DRCE_PADSTACK, _( "(negative local clearance values have no effect)" ) );
+
+    // Some pads need a negative solder mask clearance (mainly for BGA with small pads)
+    // However the negative solder mask clearance must not create negative mask size
+    // Therefore test for minimal acceptable negative value
+    std::optional<int> solderMaskMargin = GetLocalSolderMaskMargin();
+
+    if( solderMaskMargin.has_value() && solderMaskMargin.value() < 0 )
+    {
+        int absMargin = abs( solderMaskMargin.value() );
+
+        if( GetShape() == PAD_SHAPE::CUSTOM )
+        {
+            for( const std::shared_ptr<PCB_SHAPE>& shape : GetPrimitives() )
+            {
+                BOX2I shapeBBox = shape->GetBoundingBox();
+
+                if( absMargin > shapeBBox.GetWidth() || absMargin > shapeBBox.GetHeight() )
+                {
+                    aErrorHandler( DRCE_PADSTACK, _( "(negative solder mask clearance is larger "
+                                                     "than some shape primitives; results may be "
+                                                     "surprising)" ) );
+
+                    break;
+                }
+            }
+        }
+        else if( absMargin > pad_size.x || absMargin > pad_size.y )
+        {
+            aErrorHandler( DRCE_PADSTACK, _( "(negative solder mask clearance is larger than pad; "
+                                             "no solder mask will be generated)" ) );
+        }
+    }
+
+    // Some pads need a positive solder paste clearance (mainly for BGA with small pads)
+    // However, a positive value can create issues if the resulting shape is too big.
+    // (like a solder paste creating a solder paste area on a neighbor pad or on the solder mask)
+    // So we could ask for user to confirm the choice
+    // For now we just check for disappearing paste
+    wxSize paste_size;
+    int    paste_margin = GetLocalSolderPasteMargin().value_or( 0 );
+    double paste_ratio = GetLocalSolderPasteMarginRatio().value_or( 0 );
+
+    paste_size.x = pad_size.x + paste_margin + KiROUND( pad_size.x * paste_ratio );
+    paste_size.y = pad_size.y + paste_margin + KiROUND( pad_size.y * paste_ratio );
+
+    if( paste_size.x <= 0 || paste_size.y <= 0 )
+    {
+        aErrorHandler( DRCE_PADSTACK, _( "(negative solder paste margin is larger than pad; "
+                                         "no solder paste mask will be generated)" ) );
+    }
+
+    LSET padlayers_mask = GetLayerSet();
+
+    if( padlayers_mask == 0 )
+        aErrorHandler( DRCE_PADSTACK_INVALID, _( "(Pad has no layer)" ) );
+
+    if( GetAttribute() == PAD_ATTRIB::PTH && !IsOnCopperLayer() )
+        aErrorHandler( DRCE_PADSTACK, _( "(PTH pad has no copper layers)" ) );
+
+    if( !padlayers_mask[F_Cu] && !padlayers_mask[B_Cu] )
+    {
+        if( ( drill_size.x || drill_size.y ) && GetAttribute() != PAD_ATTRIB::NPTH )
+        {
+            aErrorHandler( DRCE_PADSTACK, _( "(plated through holes normally have a copper pad on "
+                                             "at least one layer)" ) );
+        }
+    }
+
+    switch( GetAttribute() )
+    {
+    case PAD_ATTRIB::NPTH:   // Not plated, but through hole, a hole is expected
+    case PAD_ATTRIB::PTH:    // Pad through hole, a hole is also expected
+        if( drill_size.x <= 0
+            || ( drill_size.y <= 0 && GetDrillShape() == PAD_DRILL_SHAPE::OBLONG ) )
+        {
+            aErrorHandler( DRCE_PAD_TH_WITH_NO_HOLE, wxEmptyString );
+        }
+        break;
+
+    case PAD_ATTRIB::CONN:      // Connector pads are smd pads, just they do not have solder paste.
+        if( padlayers_mask[B_Paste] || padlayers_mask[F_Paste] )
+        {
+            aErrorHandler( DRCE_PADSTACK, _( "(connector pads normally have no solder paste; use a "
+                                             "SMD pad instead)" ) );
+        }
+        KI_FALLTHROUGH;
+
+    case PAD_ATTRIB::SMD:       // SMD and Connector pads (One external copper layer only)
+    {
+        if( drill_size.x > 0 || drill_size.y > 0 )
+            aErrorHandler( DRCE_PADSTACK_INVALID, _( "(SMD pad has a hole)" ) );
+
+        LSET innerlayers_mask = padlayers_mask & LSET::InternalCuMask();
+
+        if( IsOnLayer( F_Cu ) && IsOnLayer( B_Cu ) )
+        {
+            aErrorHandler( DRCE_PADSTACK, _( "(SMD pad has copper on both sides of the board)" ) );
+        }
+        else if( IsOnLayer( F_Cu ) )
+        {
+            if( IsOnLayer( B_Mask ) )
+            {
+                aErrorHandler( DRCE_PADSTACK, _( "(SMD pad has copper and mask layers on different "
+                                                 "sides of the board)" ) );
+            }
+            else if( IsOnLayer( B_Paste ) )
+            {
+                aErrorHandler( DRCE_PADSTACK, _( "(SMD pad has copper and paste layers on different "
+                                                 "sides of the board)" ) );
+            }
+        }
+        else if( IsOnLayer( B_Cu ) )
+        {
+            if( IsOnLayer( F_Mask ) )
+            {
+                aErrorHandler( DRCE_PADSTACK, _( "(SMD pad has copper and mask layers on different "
+                                                 "sides of the board)" ) );
+            }
+            else if( IsOnLayer( F_Paste ) )
+            {
+                aErrorHandler( DRCE_PADSTACK, _( "(SMD pad has copper and paste layers on different "
+                                                 "sides of the board)" ) );
+            }
+        }
+        else if( innerlayers_mask.count() != 0 )
+        {
+            aErrorHandler( DRCE_PADSTACK, _( "(SMD pad has no outer layers)" ) );
+        }
+
+        break;
+    }
+    }
+
+    if( ( GetProperty() == PAD_PROP::FIDUCIAL_GLBL || GetProperty() == PAD_PROP::FIDUCIAL_LOCAL )
+            && GetAttribute() == PAD_ATTRIB::NPTH )
+    {
+        aErrorHandler( DRCE_PADSTACK, _( "('fiducial' property makes no sense on NPTH pads)" ) );
+    }
+
+    if( GetProperty() == PAD_PROP::TESTPOINT && GetAttribute() == PAD_ATTRIB::NPTH )
+        aErrorHandler( DRCE_PADSTACK, _( "('testpoint' property makes no sense on NPTH pads)" ) );
+
+    if( GetProperty() == PAD_PROP::HEATSINK && GetAttribute() == PAD_ATTRIB::NPTH )
+        aErrorHandler( DRCE_PADSTACK, _( "('heatsink' property makes no sense of NPTH pads)" ) );
+
+    if( GetProperty() == PAD_PROP::CASTELLATED && GetAttribute() != PAD_ATTRIB::PTH )
+        aErrorHandler( DRCE_PADSTACK, _( "('castellated' property is for PTH pads)" ) );
+
+    if( GetProperty() == PAD_PROP::BGA && GetAttribute() != PAD_ATTRIB::SMD )
+        aErrorHandler( DRCE_PADSTACK, _( "('BGA' property is for SMD pads)" ) );
+
+    if( GetProperty() == PAD_PROP::MECHANICAL && GetAttribute() != PAD_ATTRIB::PTH )
+        aErrorHandler( DRCE_PADSTACK, _( "('mechanical' property is for PTH pads)" ) );
+
+    if( GetShape() == PAD_SHAPE::ROUNDRECT )
+    {
+        if( GetRoundRectRadiusRatio() < 0.0 )
+            aErrorHandler( DRCE_PADSTACK_INVALID, _( "(negative corner radius is not allowed)" ) );
+        else if( GetRoundRectRadiusRatio() > 50.0 )
+            aErrorHandler( DRCE_PADSTACK, _( "(corner size will make pad circular)" ) );
+    }
+    else if( GetShape() == PAD_SHAPE::CHAMFERED_RECT )
+    {
+        if( GetChamferRectRatio() < 0.0 )
+            aErrorHandler( DRCE_PADSTACK_INVALID, _( "(negative corner chamfer is not allowed)" ) );
+        else if( GetChamferRectRatio() > 50.0 )
+            aErrorHandler( DRCE_PADSTACK_INVALID, _( "(corner chamfer is too large)" ) );
+    }
+    else if( GetShape() == PAD_SHAPE::TRAPEZOID )
+    {
+        if(    ( GetDelta().x < 0 && GetDelta().x < -GetSize().y )
+            || ( GetDelta().x > 0 && GetDelta().x > GetSize().y )
+            || ( GetDelta().y < 0 && GetDelta().y < -GetSize().x )
+            || ( GetDelta().y > 0 && GetDelta().y > GetSize().x ) )
+        {
+            aErrorHandler( DRCE_PADSTACK_INVALID, _( "(trapazoid delta is too large)" ) );
+        }
+    }
+
+    // PADSTACKS TODO: this will need to check each layer in the pad...
+    if( GetShape() == PAD_SHAPE::CUSTOM )
+    {
+        SHAPE_POLY_SET mergedPolygon;
+        MergePrimitivesAsPolygon( &mergedPolygon );
+
+        if( mergedPolygon.OutlineCount() > 1 )
+            aErrorHandler( DRCE_PADSTACK_INVALID, _( "(custom pad shape must resolve to a single polygon)" ) );
+    }
+}
+
+
+bool PAD::operator==( const BOARD_ITEM& aBoardItem ) const
+{
+    if( Type() != aBoardItem.Type() )
         return false;
 
-    if( m_parent && aOther.GetParent() && m_parent->m_Uuid != aOther.GetParent()->m_Uuid )
+    if( m_parent && aBoardItem.GetParent() && m_parent->m_Uuid != aBoardItem.GetParent()->m_Uuid )
         return false;
 
-    const PAD& other = static_cast<const PAD&>( aOther );
+    const PAD& other = static_cast<const PAD&>( aBoardItem );
 
-    if( GetShape() != other.GetShape() )
+    return *this == other;
+}
+
+
+bool PAD::operator==( const PAD& aOther ) const
+{
+    if( GetShape() != aOther.GetShape() )
         return false;
 
-    if( GetPosition() != other.GetPosition() )
+    if( GetPosition() != aOther.GetPosition() )
         return false;
 
-    if( GetAttribute() != other.GetAttribute() )
+    if( GetAttribute() != aOther.GetAttribute() )
         return false;
 
-    if( GetSize() != other.GetSize() )
+    if( GetSize() != aOther.GetSize() )
         return false;
 
-    if( GetOffset() != other.GetOffset() )
+    if( GetOffset() != aOther.GetOffset() )
         return false;
 
-    if( GetDrillSize() != other.GetDrillSize() )
+    if( GetDrillSize() != aOther.GetDrillSize() )
         return false;
 
-    if( GetDrillShape() != other.GetDrillShape() )
+    if( GetDrillShape() != aOther.GetDrillShape() )
         return false;
 
-    if( GetRoundRectRadiusRatio() != other.GetRoundRectRadiusRatio() )
+    if( GetRoundRectRadiusRatio() != aOther.GetRoundRectRadiusRatio() )
         return false;
 
-    if( GetChamferRectRatio() != other.GetChamferRectRatio() )
+    if( GetChamferRectRatio() != aOther.GetChamferRectRatio() )
         return false;
 
-    if( GetChamferPositions() != other.GetChamferPositions() )
+    if( GetChamferPositions() != aOther.GetChamferPositions() )
         return false;
 
-    if( GetOrientation() != other.GetOrientation() )
+    if( GetOrientation() != aOther.GetOrientation() )
         return false;
 
-    if( GetLocalZoneConnection() != other.GetLocalZoneConnection() )
+    if( GetLocalZoneConnection() != aOther.GetLocalZoneConnection() )
         return false;
 
-    if( GetThermalSpokeWidth() != other.GetThermalSpokeWidth() )
+    if( GetThermalSpokeWidth() != aOther.GetThermalSpokeWidth() )
         return false;
 
-    if( GetThermalSpokeAngle() != other.GetThermalSpokeAngle() )
+    if( GetThermalSpokeAngle() != aOther.GetThermalSpokeAngle() )
         return false;
 
-    if( GetThermalGap() != other.GetThermalGap() )
+    if( GetThermalGap() != aOther.GetThermalGap() )
         return false;
 
-    if( GetCustomShapeInZoneOpt() != other.GetCustomShapeInZoneOpt() )
+    if( GetCustomShapeInZoneOpt() != aOther.GetCustomShapeInZoneOpt() )
         return false;
 
-    if( GetPrimitives().size() != other.GetPrimitives().size() )
+    if( GetPrimitives().size() != aOther.GetPrimitives().size() )
         return false;
 
     for( size_t ii = 0; ii < GetPrimitives().size(); ii++ )
     {
-        if( GetPrimitives()[ii] != other.GetPrimitives()[ii] )
+        if( *GetPrimitives()[ii] != *aOther.GetPrimitives()[ii] )
             return false;
     }
 
-    if( GetAnchorPadShape() != other.GetAnchorPadShape() )
+    if( GetAnchorPadShape() != aOther.GetAnchorPadShape() )
         return false;
 
-    if( GetLocalClearance() != other.GetLocalClearance() )
+    if( GetLocalClearance() != aOther.GetLocalClearance() )
         return false;
 
-    if( GetLocalSolderMaskMargin() != other.GetLocalSolderMaskMargin() )
+    if( GetLocalSolderMaskMargin() != aOther.GetLocalSolderMaskMargin() )
         return false;
 
-    if( GetLocalSolderPasteMargin() != other.GetLocalSolderPasteMargin() )
+    if( GetLocalSolderPasteMargin() != aOther.GetLocalSolderPasteMargin() )
         return false;
 
-    if( GetLocalSolderPasteMarginRatio() != other.GetLocalSolderPasteMarginRatio() )
+    if( GetLocalSolderPasteMarginRatio() != aOther.GetLocalSolderPasteMarginRatio() )
         return false;
 
-    if( GetLocalSpokeWidthOverride() != other.GetLocalSpokeWidthOverride() )
+    if( GetLocalSpokeWidthOverride() != aOther.GetLocalSpokeWidthOverride() )
         return false;
 
-    if( GetLayerSet() != other.GetLayerSet() )
+    if( GetLayerSet() != aOther.GetLayerSet() )
         return false;
 
     return true;
@@ -2128,6 +2485,12 @@ static struct PAD_DESC
                  .Map( ZONE_CONNECTION::THT_THERMAL, _HKI( "Thermal reliefs for PTH" ) );
         }
 
+        ENUM_MAP<PADSTACK::UNCONNECTED_LAYER_MODE>::Instance()
+                .Map( PADSTACK::UNCONNECTED_LAYER_MODE::KEEP_ALL,   _HKI( "All copper layers" ) )
+                .Map( PADSTACK::UNCONNECTED_LAYER_MODE::REMOVE_ALL, _HKI( "Connected layers only" ) )
+                .Map( PADSTACK::UNCONNECTED_LAYER_MODE::REMOVE_EXCEPT_START_AND_END,
+                      _HKI( "Front, back and connected layers" ) );
+
         PROPERTY_MANAGER& propMgr = PROPERTY_MANAGER::Instance();
         REGISTER_TYPE( PAD );
         propMgr.InheritsAfter( TYPE_HASH( PAD ), TYPE_HASH( BOARD_CONNECTED_ITEM ) );
@@ -2228,6 +2591,11 @@ static struct PAD_DESC
 
         propMgr.AddProperty( new PROPERTY_ENUM<PAD, PAD_PROP>( _HKI( "Fabrication Property" ),
                     &PAD::SetProperty, &PAD::GetProperty ), groupPad );
+
+        auto layerMode = new PROPERTY_ENUM<PAD, PADSTACK::UNCONNECTED_LAYER_MODE>(
+                _HKI( "Copper Layers" ),
+                &PAD::SetUnconnectedLayerMode, &PAD::GetUnconnectedLayerMode );
+        propMgr.AddProperty( layerMode, groupPad );
 
         auto padToDie = new PROPERTY<PAD, int>( _HKI( "Pad To Die Length" ),
                                                 &PAD::SetPadToDieLength, &PAD::GetPadToDieLength,

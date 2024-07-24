@@ -73,7 +73,7 @@ public:
     /**
      * Called when rotating the parent footprint.
      */
-    void KeepUpright( const EDA_ANGLE& aNewOrientation );
+    void KeepUpright();
 
     wxString GetShownText( bool aAllowExtraText, int aDepth = 0 ) const override;
 
@@ -142,7 +142,7 @@ public:
 
     virtual wxString GetTextTypeDescription() const;
 
-    wxString GetItemDescription( UNITS_PROVIDER* aUnitsProvider ) const override;
+    wxString GetItemDescription( UNITS_PROVIDER* aUnitsProvider, bool aFull ) const override;
 
     BITMAPS GetMenuImage() const override;
 
@@ -166,6 +166,7 @@ public:
 
     double Similarity( const BOARD_ITEM& aBoardItem ) const override;
 
+    bool operator==( const PCB_TEXT& aOther ) const;
     bool operator==( const BOARD_ITEM& aBoardItem ) const override;
 
 #if defined(DEBUG)

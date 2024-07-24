@@ -151,17 +151,16 @@ void DIALOG_FOOTPRINT_CHECKER::runChecks()
                               { 0, 0 } );
             } );
 
-    footprint->CheckPads(
+    footprint->CheckPads( m_frame,
             [&]( const PAD* aPad, int aErrorCode, const wxString& aMsg )
             {
                 errorHandler( aPad, nullptr, nullptr, aErrorCode, aMsg, aPad->GetPosition() );
             } );
 
     footprint->CheckShortingPads(
-            [&]( const PAD* aPadA, const PAD* aPadB, const VECTOR2I& aPosition )
+            [&]( const PAD* aPadA, const PAD* aPadB, int aErrorCode, const VECTOR2I& aPosition )
             {
-                errorHandler( aPadA, aPadB, nullptr, DRCE_SHORTING_ITEMS, wxEmptyString,
-                              aPosition );
+                errorHandler( aPadA, aPadB, nullptr, aErrorCode, wxEmptyString, aPosition );
             } );
 
     if( footprint->IsNetTie() )

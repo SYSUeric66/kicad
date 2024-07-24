@@ -97,7 +97,10 @@ ERC_SETTINGS::ERC_SETTINGS( JSON_SETTINGS* aParent, const std::string& aPath ) :
     m_ERCSeverities[ERCE_ENDPOINT_OFF_GRID]       = RPT_SEVERITY_WARNING;
     m_ERCSeverities[ERCE_PIN_TO_PIN_WARNING]      = RPT_SEVERITY_WARNING;
     m_ERCSeverities[ERCE_SIMILAR_LABELS]          = RPT_SEVERITY_WARNING;
+    m_ERCSeverities[ERCE_SIMILAR_POWER]           = RPT_SEVERITY_WARNING;
+    m_ERCSeverities[ERCE_SIMILAR_LABEL_AND_POWER] = RPT_SEVERITY_WARNING;
     m_ERCSeverities[ERCE_SINGLE_GLOBAL_LABEL]     = RPT_SEVERITY_IGNORE;
+    m_ERCSeverities[ERCE_SAME_LOCAL_GLOBAL_LABEL] = RPT_SEVERITY_WARNING;
     m_ERCSeverities[ERCE_GLOBLABEL]               = RPT_SEVERITY_WARNING;
     m_ERCSeverities[ERCE_DRIVER_CONFLICT]         = RPT_SEVERITY_WARNING;
     m_ERCSeverities[ERCE_BUS_ENTRY_CONFLICT]      = RPT_SEVERITY_WARNING;
@@ -111,6 +114,8 @@ ERC_SETTINGS::ERC_SETTINGS( JSON_SETTINGS* aParent, const std::string& aPath ) :
     m_ERCSeverities[ERCE_MISSING_BIDI_PIN]        = RPT_SEVERITY_WARNING;
     m_ERCSeverities[ERCE_SIMULATION_MODEL]        = RPT_SEVERITY_IGNORE;
     m_ERCSeverities[ERCE_FOUR_WAY_JUNCTION]       = RPT_SEVERITY_IGNORE;
+    m_ERCSeverities[ERCE_LABEL_MULTIPLE_WIRES]    = RPT_SEVERITY_WARNING;
+    m_ERCSeverities[ERCE_UNCONNECTED_WIRE_ENDPOINT] = RPT_SEVERITY_WARNING;
 
     m_params.emplace_back( new PARAM_LAMBDA<nlohmann::json>( "rule_severities",
             [&]() -> nlohmann::json
@@ -241,10 +246,16 @@ ERC_SETTINGS::~ERC_SETTINGS()
 
 SEVERITY ERC_SETTINGS::GetSeverity( int aErrorCode ) const
 {
+    // Special-case duplicate pin error.  Unique pin names are required by KiCad, so this
+    // is always an error.
+    if( aErrorCode == ERCE_DUPLICATE_PIN_ERROR )
+    {
+        return RPT_SEVERITY_ERROR;
+    }
     // Special-case pin-to-pin errors:
     // Ignore-or-not is controlled by ERCE_PIN_TO_PIN_WARNING (for both)
     // Warning-or-error is controlled by which errorCode it is
-    if( aErrorCode == ERCE_PIN_TO_PIN_ERROR )
+    else if( aErrorCode == ERCE_PIN_TO_PIN_ERROR )
     {
         wxASSERT( m_ERCSeverities.count( ERCE_PIN_TO_PIN_WARNING ) );
 
@@ -261,6 +272,14 @@ SEVERITY ERC_SETTINGS::GetSeverity( int aErrorCode ) const
             return RPT_SEVERITY_IGNORE;
         else
             return RPT_SEVERITY_WARNING;
+    }
+    else if( aErrorCode == ERCE_GENERIC_WARNING )
+    {
+        return RPT_SEVERITY_WARNING;
+    }
+    else if( aErrorCode == ERCE_GENERIC_ERROR )
+    {
+        return RPT_SEVERITY_ERROR;
     }
 
     wxCHECK_MSG( m_ERCSeverities.count( aErrorCode ), RPT_SEVERITY_IGNORE,
@@ -284,18 +303,16 @@ void ERC_SETTINGS::ResetPinMap()
 
 void SHEETLIST_ERC_ITEMS_PROVIDER::visitMarkers( std::function<void( SCH_MARKER* )> aVisitor ) const
 {
-    SCH_SHEET_LIST sheetList = m_schematic->GetSheets();
-
     std::set<SCH_SCREEN*> seenScreens;
 
-    for( unsigned i = 0; i < sheetList.size(); i++ )
+    for( const SCH_SHEET_PATH& sheet : m_schematic->BuildUnorderedSheetList() )
     {
-        bool firstTime = seenScreens.count( sheetList[i].LastScreen() ) == 0;
+        bool firstTime = seenScreens.count( sheet.LastScreen() ) == 0;
 
         if( firstTime )
-            seenScreens.insert( sheetList[i].LastScreen() );
+            seenScreens.insert( sheet.LastScreen() );
 
-        for( SCH_ITEM* item : sheetList[i].LastScreen()->Items().OfType( SCH_MARKER_T ) )
+        for( SCH_ITEM* item : sheet.LastScreen()->Items().OfType( SCH_MARKER_T ) )
         {
             SCH_MARKER* marker = static_cast<SCH_MARKER*>( item );
 
@@ -308,7 +325,7 @@ void SHEETLIST_ERC_ITEMS_PROVIDER::visitMarkers( std::function<void( SCH_MARKER*
             // Only show sheet-specific markers on the owning sheet
             if( ercItem->IsSheetSpecific() )
             {
-                if( ercItem->GetSpecificSheetPath() != sheetList[i] )
+                if( ercItem->GetSpecificSheetPath() != sheet )
                     continue;
             }
 

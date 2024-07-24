@@ -30,6 +30,7 @@
 #include <widgets/msgpanel.h>
 #include <board.h>
 #include <footprint.h>
+#include <lset.h>
 #include <pcb_shape.h>
 #include <pad.h>
 #include <board_commit.h>
@@ -880,9 +881,6 @@ AR_RESULT AR_AUTOPLACER::AutoplaceFootprints( std::vector<FOOTPRINT*>& aFootprin
             genModuleOnRoutingMatrix( footprint );
     }
 
-
-    int         cnt = 0;
-
     if( m_progressReporter )
     {
         m_progressReporter->Report( _( "Autoplacing components..." ) );
@@ -930,8 +928,6 @@ AR_RESULT AR_AUTOPLACER::AutoplaceFootprints( std::vector<FOOTPRINT*>& aFootprin
                 break;
             }
         }
-
-        cnt++;
     }
 
     m_curPosition = memopos;

@@ -80,7 +80,6 @@ public:
             m_sheetPath()
     {
         m_rootSymbol      = nullptr;
-        m_libPart         = nullptr;
         m_unit            = 0;
         m_isNew           = false;
         m_numRef          = 0;
@@ -88,11 +87,11 @@ public:
         m_sheetNum        = 0;
     }
 
-    SCH_REFERENCE( SCH_SYMBOL* aSymbol, LIB_SYMBOL* aLibSymbol, const SCH_SHEET_PATH& aSheetPath );
+    SCH_REFERENCE( SCH_SYMBOL* aSymbol, const SCH_SHEET_PATH& aSheetPath );
 
     SCH_SYMBOL* GetSymbol() const           { return m_rootSymbol; }
 
-    LIB_SYMBOL* GetLibPart() const          { return m_libPart; }
+    LIB_SYMBOL* GetLibPart() const          { return m_rootSymbol->GetLibSymbolRef().get(); }
 
     const SCH_SHEET_PATH& GetSheetPath() const { return m_sheetPath; }
 
@@ -226,8 +225,8 @@ public:
 
     bool IsUnitsLocked()
     {
-        if( m_libPart )
-            return m_libPart->UnitsLocked();
+        if( GetLibPart() )
+            return GetLibPart()->UnitsLocked();
         else
             return true; // Assume units locked when we don't have a library
     }
@@ -238,7 +237,6 @@ private:
     /// Symbol reference prefix, without number (for IC1, this is IC) )
     wxString        m_ref;               // it's private, use the accessors please
     SCH_SYMBOL*     m_rootSymbol;        ///< The symbol associated the reference object.
-    LIB_SYMBOL*     m_libPart;           ///< The source symbol from a library.
     VECTOR2I        m_symbolPos;         ///< The physical position of the symbol in schematic
                                          ///< used to annotate by X or Y position
     int             m_unit;              ///< The unit number for symbol with multiple parts
@@ -293,8 +291,8 @@ public:
 
     size_t GetCount() const { return m_flatList.size(); }
 
-    SCH_REFERENCE& GetItem( int aIdx ) { return m_flatList[aIdx]; }
-    const SCH_REFERENCE& GetItem( int aIdx ) const { return m_flatList[aIdx]; }
+    SCH_REFERENCE& GetItem( size_t aIdx ) { return m_flatList[aIdx]; }
+    const SCH_REFERENCE& GetItem( size_t aIdx ) const { return m_flatList[aIdx]; }
 
     void AddItem( const SCH_REFERENCE& aItem ) { m_flatList.push_back( aItem ); }
 

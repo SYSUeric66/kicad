@@ -992,8 +992,19 @@ void CVPCB_MAINFRAME::BuildLibrariesList()
     COMMON_SETTINGS*   cfg = Pgm().GetCommonSettings();
     PROJECT_FILE&      project = Kiway().Prj().GetProjectFile();
     FP_LIB_TABLE*      tbl = PROJECT_PCB::PcbFootprintLibs( &Prj() );
-    std::set<wxString> pinnedMatches;
-    std::set<wxString> otherMatches;
+
+    // Use same sorting algorithm as LIB_TREE_NODE::AssignIntrinsicRanks
+    struct library_sort
+    {
+        bool operator()( const wxString& lhs, const wxString& rhs ) const
+        {
+            return StrNumCmp( lhs, rhs, true ) < 0;
+        }
+    };
+
+    std::set<wxString, library_sort> pinnedMatches;
+    std::set<wxString, library_sort> otherMatches;
+
     m_librariesListBox->ClearList();
 
     auto process =
@@ -1166,10 +1177,10 @@ void CVPCB_MAINFRAME::SetStatusText( const wxString& aText, int aNumber )
 {
     switch( aNumber )
     {
-    case 0:  m_statusLine1->SetLabel( aText );          break;
-    case 1:  m_statusLine2->SetLabel( aText );          break;
-    case 2:  m_statusLine3->SetLabel( aText );          break;
-    default: wxFAIL_MSG( "Invalid status row number" ); break;
+    case 0:  m_statusLine1->SetLabel( aText );                 break;
+    case 1:  m_statusLine2->SetLabel( aText );                 break;
+    case 2:  m_statusLine3->SetLabel( aText );                 break;
+    default: wxFAIL_MSG( wxT( "Invalid status row number" ) ); break;
     }
 }
 

@@ -24,6 +24,7 @@
 #include <pcb_dimension.h>
 #include <pcb_track.h>
 #include <layer_ids.h>
+#include <lset.h>
 #include <kiface_base.h>
 #include <pad.h>
 #include <board_design_settings.h>
@@ -160,6 +161,7 @@ BOARD_DESIGN_SETTINGS::BOARD_DESIGN_SETTINGS( JSON_SETTINGS* aParent, const std:
         m_DRCSeverities[ errorCode ] = RPT_SEVERITY_ERROR;
 
     m_DRCSeverities[ DRCE_DRILLED_HOLES_COLOCATED ] = RPT_SEVERITY_WARNING;
+    m_DRCSeverities[ DRCE_DRILLED_HOLES_TOO_CLOSE ] = RPT_SEVERITY_WARNING;
 
     m_DRCSeverities[ DRCE_MISSING_COURTYARD ] = RPT_SEVERITY_IGNORE;
     m_DRCSeverities[ DRCE_PTH_IN_COURTYARD ] = RPT_SEVERITY_IGNORE;
@@ -209,6 +211,8 @@ BOARD_DESIGN_SETTINGS::BOARD_DESIGN_SETTINGS( JSON_SETTINGS* aParent, const std:
     m_SolderPasteMarginRatio = DEFAULT_SOLDERPASTE_RATIO;
 
     m_AllowSoldermaskBridgesInFPs = false;
+    m_TentViasFront = true;
+    m_TentViasBack = true;
 
     // Layer thickness for 3D viewer
     m_boardThickness = pcbIUScale.mmToIU( DEFAULT_BOARD_THICKNESS_MM );
@@ -551,7 +555,6 @@ BOARD_DESIGN_SETTINGS::BOARD_DESIGN_SETTINGS( JSON_SETTINGS* aParent, const std:
                     entry["td_curve_segcount"]  = td_prm->m_CurveSegCount;
                     entry["td_width_to_size_filter_ratio"] = td_prm->m_WidthtoSizeFilterRatio;
                     entry["td_allow_use_two_tracks"] = td_prm->m_AllowUseTwoTracks;
-                    entry["td_curve_segcount"]  = td_prm->m_CurveSegCount;
                     entry["td_on_pad_in_zone"]  = td_prm->m_TdOnPadsInZones;
 
                     js.push_back( entry );
@@ -598,9 +601,6 @@ BOARD_DESIGN_SETTINGS::BOARD_DESIGN_SETTINGS( JSON_SETTINGS* aParent, const std:
 
                         if( entry.contains( "td_allow_use_two_tracks" ) )
                             td_prm->m_AllowUseTwoTracks = entry["td_allow_use_two_tracks"].get<bool>();
-
-                        if( entry.contains( "td_curve_segcount" ) )
-                            td_prm->m_CurveSegCount = entry["td_curve_segcount"].get<int>();
 
                         if( entry.contains( "td_on_pad_in_zone" ) )
                             td_prm->m_TdOnPadsInZones = entry["td_on_pad_in_zone"].get<bool>();
@@ -954,6 +954,8 @@ void BOARD_DESIGN_SETTINGS::initFromOther( const BOARD_DESIGN_SETTINGS& aOther )
     m_SolderPasteMargin           = aOther.m_SolderPasteMargin;
     m_SolderPasteMarginRatio      = aOther.m_SolderPasteMarginRatio;
     m_AllowSoldermaskBridgesInFPs = aOther.m_AllowSoldermaskBridgesInFPs;
+    m_TentViasFront               = aOther.m_TentViasFront;
+    m_TentViasBack                = aOther.m_TentViasBack;
     m_DefaultFPTextItems          = aOther.m_DefaultFPTextItems;
 
     std::copy( std::begin( aOther.m_LineThickness ), std::end( aOther.m_LineThickness ),
@@ -1042,6 +1044,8 @@ bool BOARD_DESIGN_SETTINGS::operator==( const BOARD_DESIGN_SETTINGS& aOther ) co
     if( m_SolderPasteMargin           != aOther.m_SolderPasteMargin ) return false;
     if( m_SolderPasteMarginRatio      != aOther.m_SolderPasteMarginRatio ) return false;
     if( m_AllowSoldermaskBridgesInFPs != aOther.m_AllowSoldermaskBridgesInFPs ) return false;
+    if( m_TentViasFront               != aOther.m_TentViasFront ) return false;
+    if( m_TentViasBack                != aOther.m_TentViasBack ) return false;
     if( m_DefaultFPTextItems          != aOther.m_DefaultFPTextItems ) return false;
 
     if( !std::equal( std::begin( m_LineThickness ), std::end( m_LineThickness ),
@@ -1490,7 +1494,7 @@ void BOARD_DESIGN_SETTINGS::SetDefaultMasterPad()
 {
     m_Pad_Master.get()->SetSizeX( pcbIUScale.mmToIU( DEFAULT_PAD_WIDTH_MM ) );
     m_Pad_Master.get()->SetSizeY( pcbIUScale.mmToIU( DEFAULT_PAD_HEIGTH_MM ) );
-    m_Pad_Master.get()->SetDrillShape( PAD_DRILL_SHAPE_CIRCLE );
+    m_Pad_Master.get()->SetDrillShape( PAD_DRILL_SHAPE::CIRCLE );
     m_Pad_Master.get()->SetDrillSize(
             VECTOR2I( pcbIUScale.mmToIU( DEFAULT_PAD_DRILL_DIAMETER_MM ), 0 ) );
     m_Pad_Master.get()->SetShape( PAD_SHAPE::ROUNDRECT );

@@ -3,7 +3,7 @@
  *
  * Copyright (C) 2015 Mark Roszko <mark.roszko@gmail.com>
  * Copyright (C) 2016 SoftPLC Corporation, Dick Hollenbeck <dick@softplc.com>
- * Copyright (C) 2015-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2015-2024 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -27,11 +27,18 @@
 // conflicts for some defines, at least on Windows
 #include <kicad_curl/kicad_curl.h>
 
+#include <mutex>
 #include <ki_exception.h>   // THROW_IO_ERROR
+
+
+static std::shared_mutex s_curlMutex;
+static bool              s_curlShuttingDown = false;
 
 
 void KICAD_CURL::Init()
 {
+    s_curlShuttingDown = false;
+
     if( curl_global_init( CURL_GLOBAL_ALL ) != CURLE_OK )
     {
         THROW_IO_ERROR( "curl_global_init() failed." );
@@ -41,7 +48,23 @@ void KICAD_CURL::Init()
 
 void KICAD_CURL::Cleanup()
 {
+    s_curlShuttingDown = true;
+
+    std::unique_lock lock( s_curlMutex );
+
     curl_global_cleanup();
+}
+
+
+std::shared_mutex& KICAD_CURL::Mutex()
+{
+    return s_curlMutex;
+}
+
+
+bool KICAD_CURL::IsShuttingDown()
+{
+    return s_curlShuttingDown;
 }
 
 

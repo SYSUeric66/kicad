@@ -218,7 +218,8 @@ class FP_GRID_TRICKS : public LIB_TABLE_GRID_TRICKS
 {
 public:
     FP_GRID_TRICKS( DIALOG_EDIT_LIBRARY_TABLES* aParent, WX_GRID* aGrid ) :
-            LIB_TABLE_GRID_TRICKS( aGrid ), m_dialog( aParent )
+            LIB_TABLE_GRID_TRICKS( aGrid ),
+            m_dialog( aParent )
     { }
 
 protected:
@@ -297,6 +298,18 @@ protected:
             m_grid->AutoSizeColumns( false );
         }
     }
+
+
+    bool toggleCell( int aRow, int aCol, bool aPreserveSelection ) override
+    {
+        if( aCol == COL_VISIBLE )
+        {
+            m_dialog->ShowInfoBarError( _( "Hidden footprint libraries are not yet supported." ) );
+            return true;
+        }
+
+        return LIB_TABLE_GRID_TRICKS::toggleCell( aRow, aCol, aPreserveSelection );
+    }
 };
 
 
@@ -304,12 +317,12 @@ void PANEL_FP_LIB_TABLE::setupGrid( WX_GRID* aGrid )
 {
     PCBNEW_SETTINGS* cfg = Pgm().GetSettingsManager().GetAppSettings<PCBNEW_SETTINGS>();
 
-    auto autoSizeCol = [&]( WX_GRID* aGrid, int aCol )
+    auto autoSizeCol = [&]( WX_GRID* aLocGrid, int aCol )
     {
-        int prevWidth = aGrid->GetColSize( aCol );
+        int prevWidth = aLocGrid->GetColSize( aCol );
 
-        aGrid->AutoSizeColumn( aCol, false );
-        aGrid->SetColSize( aCol, std::max( prevWidth, aGrid->GetColSize( aCol ) ) );
+        aLocGrid->AutoSizeColumn( aCol, false );
+        aLocGrid->SetColSize( aCol, std::max( prevWidth, aLocGrid->GetColSize( aCol ) ) );
     };
 
     // Give a bit more room for wxChoice editors
@@ -349,6 +362,10 @@ void PANEL_FP_LIB_TABLE::setupGrid( WX_GRID* aGrid )
     attr->SetReadOnly(); // not really; we delegate interactivity to GRID_TRICKS
     aGrid->SetColAttr( COL_ENABLED, attr );
 
+    attr = new wxGridCellAttr;
+    attr->SetRenderer( new wxGridCellBoolRenderer() );
+    attr->SetReadOnly();    // not really; we delegate interactivity to GRID_TRICKS
+    aGrid->SetColAttr( COL_VISIBLE, attr );
     // No visibility control for footprint libraries yet; this feature is primarily
     // useful for database libraries and it's only implemented for schematic symbols
     // at the moment.
@@ -1111,16 +1128,12 @@ bool PANEL_FP_LIB_TABLE::TransferDataFromWindow()
         if( *global_model() != *m_globalTable )
         {
             m_parent->m_GlobalTableChanged = true;
-
-            m_globalTable->Clear();
             m_globalTable->TransferRows( global_model()->m_rows );
         }
 
         if( project_model() && *project_model() != *m_projectTable )
         {
             m_parent->m_ProjectTableChanged = true;
-
-            m_projectTable->Clear();
             m_projectTable->TransferRows( project_model()->m_rows );
         }
 

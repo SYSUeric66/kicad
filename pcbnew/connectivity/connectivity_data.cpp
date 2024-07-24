@@ -248,14 +248,11 @@ void CONNECTIVITY_DATA::internalRecalculateRatsnest( BOARD_COMMIT* aCommit  )
 
     const std::vector<std::shared_ptr<CN_CLUSTER>>& clusters = m_connAlgo->GetClusters();
 
-    int dirtyNets = 0;
-
     for( int net = 0; net < lastNet; net++ )
     {
         if( m_connAlgo->IsNetDirty( net ) )
         {
             m_nets[net]->Clear();
-            dirtyNets++;
         }
     }
 
@@ -534,7 +531,7 @@ void CONNECTIVITY_DATA::ClearRatsnest()
 
 const std::vector<BOARD_CONNECTED_ITEM*>
 CONNECTIVITY_DATA::GetConnectedItems( const BOARD_CONNECTED_ITEM *aItem,
-                                      const std::initializer_list<KICAD_T>& aTypes,
+                                      const std::vector<KICAD_T>& aTypes,
                                       bool aIgnoreNetcodes ) const
 {
     std::vector<BOARD_CONNECTED_ITEM*> rv;
@@ -565,7 +562,7 @@ CONNECTIVITY_DATA::GetConnectedItems( const BOARD_CONNECTED_ITEM *aItem,
 
 
 const std::vector<BOARD_CONNECTED_ITEM*>
-CONNECTIVITY_DATA::GetNetItems( int aNetCode, const std::initializer_list<KICAD_T>& aTypes ) const
+CONNECTIVITY_DATA::GetNetItems( int aNetCode, const std::vector<KICAD_T>& aTypes ) const
 {
     std::vector<BOARD_CONNECTED_ITEM*> items;
     items.reserve( 32 );
@@ -729,12 +726,12 @@ static int getMinDist( BOARD_CONNECTED_ITEM* aItem, const VECTOR2I& aPoint )
     {
         PCB_TRACK* track = static_cast<PCB_TRACK*>( aItem );
 
-        return std::min( GetLineLength( track->GetStart(), aPoint ),
-                         GetLineLength( track->GetEnd(), aPoint ) );
+        return std::min( track->GetStart().Distance(aPoint ),
+                         track->GetEnd().Distance( aPoint ) );
     }
 
     default:
-        return GetLineLength( aItem->GetPosition(), aPoint );
+        return aItem->GetPosition().Distance( aPoint );
     }
 }
 
@@ -880,7 +877,7 @@ bool CONNECTIVITY_DATA::TestTrackEndpointDangling( PCB_TRACK* aTrack, bool aIgno
 const std::vector<BOARD_CONNECTED_ITEM*>
 CONNECTIVITY_DATA::GetConnectedItemsAtAnchor( const BOARD_CONNECTED_ITEM* aItem,
                                               const VECTOR2I& aAnchor,
-                                              const std::initializer_list<KICAD_T>& aTypes,
+                                              const std::vector<KICAD_T>& aTypes,
                                               const int& aMaxError ) const
 {
     CN_CONNECTIVITY_ALGO::ITEM_MAP_ENTRY& entry = m_connAlgo->ItemEntry( aItem );

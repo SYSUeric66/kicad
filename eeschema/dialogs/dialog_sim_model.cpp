@@ -26,9 +26,9 @@
 #include <dialog_ibis_parser_reporter.h>
 #include <dialog_sim_model.h>
 #include <sim/sim_property.h>
-#include <sim/sim_library_kibis.h>
+#include <sim/sim_library_ibis.h>
 #include <sim/sim_model.h>
-#include <sim/sim_model_kibis.h>
+#include <sim/sim_model_ibis.h>
 #include <sim/sim_model_raw_spice.h>
 #include <sim/sim_model_spice_fallback.h>
 #include <sim/sim_model_subckt.h>
@@ -44,6 +44,7 @@
 #include <sch_edit_frame.h>
 #include <sim/sim_model_l_mutual.h>
 #include <sim/spice_circuit_model.h>
+#include <wx/log.h>
 
 using CATEGORY = SIM_MODEL::PARAM::CATEGORY;
 
@@ -74,8 +75,7 @@ DIALOG_SIM_MODEL<T>::DIALOG_SIM_MODEL( wxWindow* aParent, EDA_BASE_FRAME* aFrame
         m_scintillaTricksSubckt( nullptr ),
         m_firstCategory( nullptr ),
         m_prevParamGridSelection( nullptr ),
-        m_lastParamGridWidth( 0 ),
-        m_inKillFocus( false )
+        m_lastParamGridWidth( 0 )
 {
     m_browseButton->SetBitmap( KiBitmapBundle( BITMAPS::small_folder ) );
 
@@ -216,12 +216,14 @@ bool DIALOG_SIM_MODEL<T>::TransferDataToWindow()
         // The model is sourced from a library, optionally with instance overrides.
         m_rbLibraryModel->SetValue( true );
 
-        if( !loadLibrary( libraryFilename ) )
+        if( !loadLibrary( libraryFilename, reporter ) )
         {
+            if( reporter.HasMessage() )
+                m_infoBar->ShowMessage( msg );
+
             m_libraryPathText->ChangeValue( libraryFilename );
             m_curModelType = SIM_MODEL::ReadTypeFromFields( m_fields, reporter );
 
-            // load library will mangle the set reporter
             m_libraryModelsMgr.CreateModel( nullptr, m_sortedPartPins, m_fields, reporter );
 
             m_modelNameChoice->Append( _( "<unknown>" ) );
@@ -234,14 +236,15 @@ bool DIALOG_SIM_MODEL<T>::TransferDataToWindow()
 
             if( modelIdx == wxNOT_FOUND )
             {
-                DisplayErrorMessage( this, wxString::Format( _( "No model named '%s' in library." ),
-                                                             modelName ) );
+                m_infoBar->ShowMessage( wxString::Format( _( "No model named '%s' in library." ),
+                                                          modelName ) );
 
                 // Default to first item in library
                 m_modelNameChoice->SetSelection( 0 );
             }
             else
             {
+                m_infoBar->Hide();
                 m_modelNameChoice->SetSelection( modelIdx );
             }
 
@@ -251,43 +254,43 @@ bool DIALOG_SIM_MODEL<T>::TransferDataToWindow()
         if( isIbisLoaded() && ( m_modelNameChoice->GetSelection() >= 0 ) )
         {
             int  idx = m_modelNameChoice->GetSelection();
-            auto kibismodel = dynamic_cast<SIM_MODEL_KIBIS*>( &m_libraryModelsMgr.GetModels()[idx].get() );
+            auto ibismodel = dynamic_cast<SIM_MODEL_IBIS*>( &m_libraryModelsMgr.GetModels()[idx].get() );
 
-            if( kibismodel )
+            if( ibismodel )
             {
                 onModelNameChoice( dummyEvent ); // refresh list of pins
 
                 int i = 0;
 
-                for( const std::pair<std::string, std::string>& strs : kibismodel->GetIbisPins() )
+                for( const std::pair<std::string, std::string>& strs : ibismodel->GetIbisPins() )
                 {
-                    if( strs.first == SIM_MODEL::GetFieldValue( &m_fields, SIM_LIBRARY_KIBIS::PIN_FIELD ) )
+                    if( strs.first == SIM_MODEL::GetFieldValue( &m_fields, SIM_LIBRARY_IBIS::PIN_FIELD ) )
                     {
-                        auto kibisLibrary = static_cast<const SIM_LIBRARY_KIBIS*>( library() );
+                        auto ibisLibrary = static_cast<const SIM_LIBRARY_IBIS*>( library() );
 
-                        kibismodel->ChangePin( *kibisLibrary, strs.first );
+                        ibismodel->ChangePin( *ibisLibrary, strs.first );
                         m_pinCombobox->SetSelection( static_cast<int>( i ) );
                         break;
                     }
                     i++;
                 }
 
-                if( i < static_cast<int>( kibismodel->GetIbisPins().size() ) )
+                if( i < static_cast<int>( ibismodel->GetIbisPins().size() ) )
                 {
                     onPinCombobox( dummyEvent ); // refresh list of models
 
                     m_pinModelCombobox->SetStringSelection(
-                            SIM_MODEL::GetFieldValue( &m_fields, SIM_LIBRARY_KIBIS::MODEL_FIELD ) );
+                            SIM_MODEL::GetFieldValue( &m_fields, SIM_LIBRARY_IBIS::MODEL_FIELD ) );
                 }
 
-                if( SIM_MODEL::GetFieldValue( &m_fields, SIM_LIBRARY_KIBIS::DIFF_FIELD ) == "1" )
+                if( SIM_MODEL::GetFieldValue( &m_fields, SIM_LIBRARY_IBIS::DIFF_FIELD ) == "1" )
                 {
-                    kibismodel->SwitchSingleEndedDiff( true );
+                    ibismodel->SwitchSingleEndedDiff( true );
                     m_differentialCheckbox->SetValue( true );
                 }
                 else
                 {
-                    kibismodel->SwitchSingleEndedDiff( false );
+                    ibismodel->SwitchSingleEndedDiff( false );
                     m_differentialCheckbox->SetValue( false );
                 }
             }
@@ -372,7 +375,7 @@ bool DIALOG_SIM_MODEL<T>::TransferDataFromWindow()
 
     if( isIbisLoaded() )
     {
-        SIM_MODEL_KIBIS* ibismodel = static_cast<SIM_MODEL_KIBIS*>(
+        SIM_MODEL_IBIS* ibismodel = static_cast<SIM_MODEL_IBIS*>(
                 &m_libraryModelsMgr.GetModels().at( m_modelNameChoice->GetSelection() ).get() );
 
         if( ibismodel )
@@ -387,9 +390,9 @@ bool DIALOG_SIM_MODEL<T>::TransferDataFromWindow()
             if( ibismodel->CanDifferential() && m_differentialCheckbox->GetValue() )
                 differential = "1";
 
-            SIM_MODEL::SetFieldValue( m_fields, SIM_LIBRARY_KIBIS::PIN_FIELD, pins );
-            SIM_MODEL::SetFieldValue( m_fields, SIM_LIBRARY_KIBIS::MODEL_FIELD, modelName );
-            SIM_MODEL::SetFieldValue( m_fields, SIM_LIBRARY_KIBIS::DIFF_FIELD, differential );
+            SIM_MODEL::SetFieldValue( m_fields, SIM_LIBRARY_IBIS::PIN_FIELD, pins );
+            SIM_MODEL::SetFieldValue( m_fields, SIM_LIBRARY_IBIS::MODEL_FIELD, modelName );
+            SIM_MODEL::SetFieldValue( m_fields, SIM_LIBRARY_IBIS::DIFF_FIELD, differential );
         }
     }
 
@@ -409,8 +412,8 @@ bool DIALOG_SIM_MODEL<T>::TransferDataFromWindow()
         wxString modelPinName = m_pinAssignmentsGrid->GetCellValue( row, PIN_COLUMN::MODEL );
         wxString symbolPinName = m_sortedPartPins.at( row )->GetShownNumber();
 
-        model.SetPinSymbolPinNumber( getModelPinIndex( modelPinName ),
-                                     std::string( symbolPinName.ToUTF8() ) );
+        model.AssignSymbolPinNumberToModelPin( getModelPinIndex( modelPinName ),
+                                               std::string( symbolPinName.ToUTF8() ) );
     }
 
     removeOrphanedPinAssignments( &model );
@@ -474,8 +477,8 @@ void DIALOG_SIM_MODEL<T>::updateWidgets()
 template <typename T>
 void DIALOG_SIM_MODEL<T>::updateIbisWidgets( SIM_MODEL* aModel )
 {
-    SIM_MODEL_KIBIS* modelkibis = isIbisLoaded() ? dynamic_cast<SIM_MODEL_KIBIS*>( aModel )
-                                                 : nullptr;
+    SIM_MODEL_IBIS* modelibis = isIbisLoaded() ? dynamic_cast<SIM_MODEL_IBIS*>( aModel )
+                                               : nullptr;
 
     m_pinLabel->Show( isIbisLoaded() );
     m_pinCombobox->Show( isIbisLoaded() );
@@ -510,7 +513,7 @@ void DIALOG_SIM_MODEL<T>::updateIbisWidgets( SIM_MODEL* aModel )
         }
     }
 
-    m_differentialCheckbox->Show( isIbisLoaded() && modelkibis && modelkibis->CanDifferential() );
+    m_differentialCheckbox->Show( isIbisLoaded() && modelibis && modelibis->CanDifferential() );
     m_modelNameLabel->SetLabel( isIbisLoaded() ? _( "Component:" ) : _( "Model:" ) );
 }
 
@@ -797,41 +800,33 @@ void DIALOG_SIM_MODEL<T>::removeOrphanedPinAssignments( SIM_MODEL* aModel )
     for( int i = 0; i < aModel->GetPinCount(); ++i )
     {
         if( !m_symbol.GetPin( aModel->GetPin( i ).symbolPinNumber ) )
-            aModel->SetPinSymbolPinNumber( i, "" );
+            aModel->AssignSymbolPinNumberToModelPin( i, "" );
     }
 }
 
 
 template <typename T>
-bool DIALOG_SIM_MODEL<T>::loadLibrary( const wxString& aLibraryPath, bool aForceReload )
+bool DIALOG_SIM_MODEL<T>::loadLibrary( const wxString& aLibraryPath, REPORTER& aReporter,
+                                       bool aForceReload )
 {
     if( m_prevLibrary == aLibraryPath && !aForceReload )
         return true;
 
-    wxString           msg;
-    WX_STRING_REPORTER reporter( &msg );
-
     m_libraryModelsMgr.SetForceFullParse();
-    m_libraryModelsMgr.SetLibrary( aLibraryPath, reporter );
+    m_libraryModelsMgr.SetLibrary( aLibraryPath, aReporter );
 
-    if( reporter.HasMessage() )
-    {
-        DisplayErrorMessage( this, msg );
+    if( aReporter.HasMessage() )
         return false;
-    }
 
     std::string modelName = SIM_MODEL::GetFieldValue( &m_fields, SIM_LIBRARY::NAME_FIELD );
 
     for( const auto& [baseModelName, baseModel] : library()->GetModels() )
     {
         if( baseModelName == modelName )
-            m_libraryModelsMgr.CreateModel( &baseModel, m_sortedPartPins, m_fields, reporter );
+            m_libraryModelsMgr.CreateModel( &baseModel, m_sortedPartPins, m_fields, aReporter );
         else
-            m_libraryModelsMgr.CreateModel( &baseModel, m_sortedPartPins, reporter );
+            m_libraryModelsMgr.CreateModel( &baseModel, m_sortedPartPins, aReporter );
     }
-
-    if( reporter.HasMessage() )
-        DisplayErrorMessage( this, msg );
 
     m_rbLibraryModel->SetValue( true );
     m_libraryPathText->ChangeValue( aLibraryPath );
@@ -1081,16 +1076,16 @@ SIM_MODEL& DIALOG_SIM_MODEL<T>::curModel() const
     {
         int sel = m_modelNameChoice->GetSelection();
 
-        if( sel >= 0 && sel < (int) m_libraryModelsMgr.GetModels().size() )
+        if( sel >= 0 && sel < static_cast<int>( m_libraryModelsMgr.GetModels().size() ) )
             return m_libraryModelsMgr.GetModels().at( sel ).get();
     }
     else
     {
-        if( (int) m_curModelType < (int) m_builtinModelsMgr.GetModels().size() )
-            return m_builtinModelsMgr.GetModels().at( (int) m_curModelType );
+        if( static_cast<int>( m_curModelType ) < static_cast<int>( m_builtinModelsMgr.GetModels().size() ) )
+            return m_builtinModelsMgr.GetModels().at( static_cast<int>( m_curModelType ) );
     }
 
-    return m_builtinModelsMgr.GetModels().at( (int) SIM_MODEL::TYPE::NONE );
+    return m_builtinModelsMgr.GetModels().at( static_cast<int>( SIM_MODEL::TYPE::NONE ) );
 }
 
 
@@ -1127,16 +1122,16 @@ wxString DIALOG_SIM_MODEL<T>::getSymbolPinString( int symbolPinIndex ) const
 template <typename T>
 wxString DIALOG_SIM_MODEL<T>::getModelPinString( SIM_MODEL* aModel, int aModelPinIndex ) const
 {
-    const wxString& pinName = aModel->GetPin( aModelPinIndex ).name;
+    const wxString& modelPinName = aModel->GetPin( aModelPinIndex ).modelPinName;
 
     LOCALE_IO toggle;
 
-    wxString pinNumber = wxString::Format( "%d", aModelPinIndex + 1 );
+    wxString modelPinNumber = wxString::Format( "%d", aModelPinIndex + 1 );
 
-    if( !pinName.IsEmpty() && pinName != pinNumber )
-        pinNumber += wxString::Format( wxT( " (%s)" ), pinName );
+    if( !modelPinName.IsEmpty() && modelPinName != modelPinNumber )
+        modelPinNumber += wxString::Format( wxT( " (%s)" ), modelPinName );
 
-    return pinNumber;
+    return modelPinNumber;
 }
 
 
@@ -1144,7 +1139,7 @@ template <typename T>
 int DIALOG_SIM_MODEL<T>::getModelPinIndex( const wxString& aModelPinString ) const
 {
     if( aModelPinString == "Not Connected" )
-        return SIM_MODEL::PIN::NOT_CONNECTED;
+        return SIM_MODEL_PIN::NOT_CONNECTED;
 
     int length = aModelPinString.Find( " " );
 
@@ -1167,48 +1162,43 @@ void DIALOG_SIM_MODEL<T>::onRadioButton( wxCommandEvent& aEvent )
 
 
 template <typename T>
-void DIALOG_SIM_MODEL<T>::onLibrarayPathText( wxCommandEvent& aEvent )
+void DIALOG_SIM_MODEL<T>::onLibraryPathText( wxCommandEvent& aEvent )
 {
     m_rbLibraryModel->SetValue( true );
-    updateWidgets();
 }
 
 
 template <typename T>
 void DIALOG_SIM_MODEL<T>::onLibraryPathTextEnter( wxCommandEvent& aEvent )
 {
-    if( m_rbLibraryModel->GetValue() )
-    {
-        wxString path = m_libraryPathText->GetValue();
+    m_rbLibraryModel->SetValue( true );
 
-        if( !path.IsEmpty() )
-        {
-            try
-            {
-                loadLibrary( path );
-                updateWidgets();
-            }
-            catch( const IO_ERROR& )
-            {
-                // TODO: Add an infobar to report the error?
-            }
-        }
-    }
+    wxString           msg;
+    WX_STRING_REPORTER reporter( &msg );
+    wxString           path = m_libraryPathText->GetValue();
+
+    if( loadLibrary( path, reporter, true ) )
+        m_infoBar->Hide();
+    else if( reporter.HasMessage() )
+        m_infoBar->ShowMessage( msg );
+
+    updateWidgets();
 }
 
 
 template <typename T>
 void DIALOG_SIM_MODEL<T>::onLibraryPathTextKillFocus( wxFocusEvent& aEvent )
 {
-    if( !m_inKillFocus )
-    {
-        m_inKillFocus = true;
+    CallAfter(
+            [this]()
+            {
+                // Disable logging -- otherwise we'll end up in an endless loop of show-log,
+                // kill-focus, show-log, kill-focus, etc.
+                wxLogNull doNotLog;
 
-        wxCommandEvent dummy;
-        onLibraryPathTextEnter( dummy );
-
-        m_inKillFocus = false;
-    }
+                wxCommandEvent dummy;
+                onLibraryPathTextEnter( dummy );
+            } );
 }
 
 
@@ -1233,7 +1223,14 @@ void DIALOG_SIM_MODEL<T>::onBrowseButtonClick( wxCommandEvent& aEvent )
     if( fn.MakeRelativeTo( Prj().GetProjectPath() ) && !fn.GetFullPath().StartsWith( wxS( ".." ) ) )
         path = fn.GetFullPath();
 
-    loadLibrary( path, true );
+    wxString           msg;
+    WX_STRING_REPORTER reporter( &msg );
+
+    if( loadLibrary( path, reporter, true ) )
+        m_infoBar->Hide();
+    else
+        m_infoBar->ShowMessage( msg );
+
     updateWidgets();
 }
 
@@ -1244,7 +1241,7 @@ void DIALOG_SIM_MODEL<T>::onModelNameChoice( wxCommandEvent& aEvent )
     if( isIbisLoaded() )
     {
         wxArrayString    pinLabels;
-        SIM_MODEL_KIBIS* modelkibis = dynamic_cast<SIM_MODEL_KIBIS*>( &curModel() );
+        SIM_MODEL_IBIS* modelkibis = dynamic_cast<SIM_MODEL_IBIS*>( &curModel() );
 
         wxCHECK2( modelkibis, return );
 
@@ -1267,12 +1264,12 @@ void DIALOG_SIM_MODEL<T>::onPinCombobox( wxCommandEvent& aEvent )
 {
     wxArrayString modelLabels;
 
-    SIM_MODEL_KIBIS& ibisModel = static_cast<SIM_MODEL_KIBIS&>( curModel() );
+    SIM_MODEL_IBIS& ibisModel = static_cast<SIM_MODEL_IBIS&>( curModel() );
 
     std::vector<std::pair<std::string, std::string>> strs = ibisModel.GetIbisPins();
     std::string pinNumber = strs.at( m_pinCombobox->GetSelection() ).first;
 
-    const SIM_LIBRARY_KIBIS* ibisLibrary = dynamic_cast<const SIM_LIBRARY_KIBIS*>( library() );
+    const SIM_LIBRARY_IBIS* ibisLibrary = dynamic_cast<const SIM_LIBRARY_IBIS*>( library() );
 
     ibisModel.ChangePin( *ibisLibrary, pinNumber );
 
@@ -1317,14 +1314,13 @@ void DIALOG_SIM_MODEL<T>::onPinModelComboboxTextEnter( wxCommandEvent& aEvent )
 template <typename T>
 void DIALOG_SIM_MODEL<T>::onDifferentialCheckbox( wxCommandEvent& aEvent )
 {
-    SIM_MODEL_KIBIS* modelkibis = dynamic_cast<SIM_MODEL_KIBIS*>( &curModel() );
+    if( SIM_MODEL_IBIS* modelibis = dynamic_cast<SIM_MODEL_IBIS*>( &curModel() ) )
+    {
+        bool diff = m_differentialCheckbox->GetValue() && modelibis->CanDifferential();
+        modelibis->SwitchSingleEndedDiff( diff );
 
-    wxCHECK( modelkibis, /* void */ );
-
-    bool             diff = m_differentialCheckbox->GetValue() && modelkibis->CanDifferential();
-    modelkibis->SwitchSingleEndedDiff( diff );
-
-    updateWidgets();
+        updateWidgets();
+    }
 }
 
 
@@ -1362,9 +1358,9 @@ void DIALOG_SIM_MODEL<T>::onWaveformChoice( wxCommandEvent& aEvent )
         {
             int idx = m_modelNameChoice->GetSelection();
 
-            auto& baseModel = static_cast<SIM_MODEL_KIBIS&>( m_libraryModelsMgr.GetModels()[idx].get() );
+            auto& baseModel = static_cast<SIM_MODEL_IBIS&>( m_libraryModelsMgr.GetModels()[idx].get() );
 
-            m_libraryModelsMgr.SetModel( idx, std::make_unique<SIM_MODEL_KIBIS>( type, baseModel ) );
+            m_libraryModelsMgr.SetModel( idx, std::make_unique<SIM_MODEL_IBIS>( type, baseModel ) );
 
             try
             {
@@ -1423,13 +1419,14 @@ void DIALOG_SIM_MODEL<T>::onPinAssignmentsGridCellChange( wxGridEvent& aEvent )
     int oldModelPinIndex = getModelPinIndex( oldModelPinName );
     int modelPinIndex = getModelPinIndex( modelPinName );
 
-    if( oldModelPinIndex != SIM_MODEL::PIN::NOT_CONNECTED )
-        curModel().SetPinSymbolPinNumber( oldModelPinIndex, "" );
+    if( oldModelPinIndex != SIM_MODEL_PIN::NOT_CONNECTED )
+        curModel().AssignSymbolPinNumberToModelPin( oldModelPinIndex, "" );
 
-    if( modelPinIndex != SIM_MODEL::PIN::NOT_CONNECTED )
+    if( modelPinIndex != SIM_MODEL_PIN::NOT_CONNECTED )
     {
-        curModel().SetPinSymbolPinNumber( modelPinIndex,
-            std::string( m_sortedPartPins.at( symbolPinIndex )->GetShownNumber().ToUTF8() ) );
+        SCH_PIN* symbolPin = m_sortedPartPins.at( symbolPinIndex );
+
+        curModel().AssignSymbolPinNumberToModelPin( modelPinIndex, symbolPin->GetShownNumber() );
     }
 
     updatePinAssignments( &curModel(), FORCE_UPDATE_PINS );

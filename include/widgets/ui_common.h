@@ -31,6 +31,7 @@
 #include <wx/string.h>
 #include <wx/font.h>
 
+class wxBitmapBundle;
 class wxSize;
 class wxTextCtrl;
 class wxTextEntry;
@@ -47,6 +48,9 @@ class wxMenu;
 
 namespace KIUI
 {
+
+const int c_IndicatorSizeDIP = 10;
+
 
 /**
  * Get the standard margin around a widget in the KiCad UI
@@ -139,7 +143,7 @@ KICOMMON_API extern const wxString s_FocusStealableInputName;
  * @param aMenu is the menuitem.
  * @param aImage is the icon to add to aMenu.
  */
-KICOMMON_API void AddBitmapToMenuItem( wxMenuItem* aMenu, const wxBitmap& aImage );
+KICOMMON_API void AddBitmapToMenuItem( wxMenuItem* aMenu, const wxBitmapBundle& aImage );
 
 
 /**
@@ -152,8 +156,9 @@ KICOMMON_API void AddBitmapToMenuItem( wxMenuItem* aMenu, const wxBitmap& aImage
  * @param aType is the type of menu :wxITEM_NORMAL (default), wxITEM_CHECK ...
  * @return a pointer to the new created wxMenuItem.
  */
-KICOMMON_API wxMenuItem* AddMenuItem( wxMenu* aMenu, int aId, const wxString& aText, const wxBitmap& aImage,
-                                      wxItemKind aType = wxITEM_NORMAL );
+KICOMMON_API wxMenuItem* AddMenuItem( wxMenu* aMenu, int aId, const wxString& aText,
+                                      const wxBitmapBundle& aImage,
+                                      wxItemKind            aType = wxITEM_NORMAL );
 
 
 /**
@@ -167,8 +172,9 @@ KICOMMON_API wxMenuItem* AddMenuItem( wxMenu* aMenu, int aId, const wxString& aT
  * @param aType is the type of menu :wxITEM_NORMAL (default), wxITEM_CHECK ...
  * @return a pointer to the new created wxMenuItem.
  */
-KICOMMON_API wxMenuItem* AddMenuItem( wxMenu* aMenu, int aId, const wxString& aText, const wxString& aHelpText,
-                                      const wxBitmap& aImage, wxItemKind aType = wxITEM_NORMAL );
+KICOMMON_API wxMenuItem* AddMenuItem( wxMenu* aMenu, int aId, const wxString& aText,
+                                      const wxString& aHelpText, const wxBitmapBundle& aImage,
+                                      wxItemKind aType = wxITEM_NORMAL );
 
 
 /**
@@ -181,8 +187,8 @@ KICOMMON_API wxMenuItem* AddMenuItem( wxMenu* aMenu, int aId, const wxString& aT
  * @param aImage is the icon to add to the new menu item.
  * @return a pointer to the new created wxMenuItem,
  */
-KICOMMON_API wxMenuItem* AddMenuItem( wxMenu* aMenu, wxMenu* aSubMenu, int aId, const wxString& aText,
-                                      const wxBitmap& aImage );
+KICOMMON_API wxMenuItem* AddMenuItem( wxMenu* aMenu, wxMenu* aSubMenu, int aId,
+                                      const wxString& aText, const wxBitmapBundle& aImage );
 
 
 /**
@@ -197,8 +203,9 @@ KICOMMON_API wxMenuItem* AddMenuItem( wxMenu* aMenu, wxMenu* aSubMenu, int aId, 
  * @param aImage is the icon to add to the new menu item.
  * @return a pointer to the new created wxMenuItem.
  */
-KICOMMON_API wxMenuItem* AddMenuItem( wxMenu* aMenu, wxMenu* aSubMenu, int aId, const wxString& aText,
-                                      const wxString& aHelpText, const wxBitmap& aImage );
+KICOMMON_API wxMenuItem* AddMenuItem( wxMenu* aMenu, wxMenu* aSubMenu, int aId,
+                                      const wxString& aText, const wxString& aHelpText,
+                                      const wxBitmapBundle& aImage );
 }
 
 KICOMMON_API SEVERITY SeverityFromString( const wxString& aSeverity );

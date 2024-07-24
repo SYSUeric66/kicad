@@ -48,10 +48,11 @@ private:
     void onWidthEdit( wxCommandEvent& aEvent ) override;
     void onViaSelect( wxCommandEvent& aEvent ) override;
     void onViaEdit( wxCommandEvent& aEvent ) override;
+    void onTentingLinkToggle( wxCommandEvent& event ) override;
+    void onFrontTentingChanged( wxCommandEvent& event ) override;
 
     void onUnitsChanged( wxCommandEvent& aEvent );
     void onTeardropsUpdateUi( wxUpdateUIEvent& event ) override;
-    void onCurvedEdgesUpdateUi( wxUpdateUIEvent& event ) override;
 
     bool confirmPadChange( const std::vector<PAD*>& connectedPads );
 

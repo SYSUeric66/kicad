@@ -29,8 +29,10 @@
 #include <tools/pcb_selection_tool.h>
 #include <board_design_settings.h>
 #include <drawing_sheet/ds_data_model.h>
+#include <filename_resolver.h>
 #include <pcbplot.h>
 #include <pcb_painter.h>
+#include <pgm_base.h>
 #include <project.h>
 #include <widgets/appearance_controls.h>
 #include <widgets/panel_selection_filter.h>
@@ -39,20 +41,33 @@
 #include <project/project_local_settings.h>
 
 
+void PCB_EDIT_FRAME::LoadDrawingSheet()
+{
+    PROJECT_FILE&           project       = Prj().GetProjectFile();
+
+    // Load the drawing sheet from the filename stored in the project
+    // If empty, or not existing, the default drawing sheet is loaded.
+    FILENAME_RESOLVER resolver;
+    resolver.SetProject( &Prj() );
+    resolver.SetProgramBase( &Pgm() );
+
+    wxString filename = resolver.ResolvePath( project.m_BoardDrawingSheetFile,
+                                              Prj().GetProjectPath(),
+                                              GetBoard()->GetEmbeddedFiles() );
+
+    wxString msg;
+
+    if( !DS_DATA_MODEL::GetTheInstance().LoadDrawingSheet( filename, &msg ) )
+        ShowInfoBarError( msg, true );
+
+}
+
 bool PCB_EDIT_FRAME::LoadProjectSettings()
 {
     PROJECT_FILE&           project       = Prj().GetProjectFile();
     PROJECT_LOCAL_SETTINGS& localSettings = Prj().GetLocalSettings();
 
     BASE_SCREEN::m_DrawingSheetFileName = project.m_BoardDrawingSheetFile;
-
-    // Load the drawing sheet from the filename stored in BASE_SCREEN::m_DrawingSheetFileName.
-    // If empty, or not existing, the default drawing sheet is loaded.
-    wxString filename = DS_DATA_MODEL::ResolvePath( BASE_SCREEN::m_DrawingSheetFileName,
-                                                    Prj().GetProjectPath());
-
-    if( !DS_DATA_MODEL::GetTheInstance().LoadDrawingSheet( filename ) )
-        ShowInfoBarError( _( "Error loading drawing sheet." ), true );
 
     // Load render settings that aren't stored in PCB_DISPLAY_OPTIONS
 
@@ -113,6 +128,7 @@ bool PCB_EDIT_FRAME::LoadProjectSettings()
     opts.m_ZoneOpacity         = localSettings.m_ZoneOpacity;
     opts.m_ZoneDisplayMode     = localSettings.m_ZoneDisplayMode;
     opts.m_ImageOpacity        = localSettings.m_ImageOpacity;
+    opts.m_FilledShapeOpacity        = localSettings.m_ShapeOpacity;
 
     // No refresh here: callers of LoadProjectSettings refresh later
     SetDisplayOptions( opts, false );
@@ -218,6 +234,7 @@ void PCB_EDIT_FRAME::saveProjectSettings()
     localSettings.m_ZoneOpacity         = displayOpts.m_ZoneOpacity;
     localSettings.m_ZoneDisplayMode     = displayOpts.m_ZoneDisplayMode;
     localSettings.m_ImageOpacity        = displayOpts.m_ImageOpacity;
+    localSettings.m_ShapeOpacity        = displayOpts.m_FilledShapeOpacity;
 
     // Save Design settings
     const BOARD_DESIGN_SETTINGS& bds = GetDesignSettings();

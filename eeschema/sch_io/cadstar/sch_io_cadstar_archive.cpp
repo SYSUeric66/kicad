@@ -22,6 +22,7 @@
 #include <sch_io/cadstar/sch_io_cadstar_archive.h>
 #include <io/cadstar/cadstar_parts_lib_parser.h>
 
+#include <font/fontconfig.h>
 #include <lib_symbol.h>
 #include <progress_reporter.h>
 #include <project_sch.h>
@@ -68,6 +69,9 @@ SCH_SHEET* SCH_IO_CADSTAR_ARCHIVE::LoadSchematicFile( const wxString&        aFi
 {
     wxCHECK( !aFileName.IsEmpty() && aSchematic, nullptr );
 
+    // Show the font substitution warnings
+    fontconfig::FONTCONFIG::SetReporter( &WXLOG_REPORTER::GetInstance() );
+
     SCH_SHEET* rootSheet = nullptr;
 
 
@@ -98,19 +102,8 @@ SCH_SHEET* SCH_IO_CADSTAR_ARCHIVE::LoadSchematicFile( const wxString&        aFi
 
     wxCHECK_MSG( libTable, nullptr, "Could not load symbol lib table." );
 
-    // Lets come up with a nice library name
-    wxString libName = aSchematic->Prj().GetProjectName();
-
-    if( libName.IsEmpty() )
-    {
-        wxFileName fn( rootSheet->GetFileName() );
-        libName = fn.GetName();
-    }
-
-    if( libName.IsEmpty() )
-        libName = "noname";
-
-    libName = LIB_ID::FixIllegalChars( libName, true ).wx_str();
+    wxFileName prj_fn = aSchematic->Prj().GetProjectFullName();
+    wxString libName = CADSTAR_SCH_ARCHIVE_LOADER::CreateLibName( prj_fn, nullptr );
 
     wxFileName libFileName( aSchematic->Prj().GetProjectPath(), libName,
                             FILEEXT::KiCadSymbolLibFileExtension );
@@ -128,12 +121,12 @@ SCH_SHEET* SCH_IO_CADSTAR_ARCHIVE::LoadSchematicFile( const wxString&        aFi
                 new SYMBOL_LIB_TABLE_ROW( libName, libTableUri, wxString( "KiCad" ) ) );
 
         // Save project symbol library table.
-        wxFileName fn( aSchematic->Prj().GetProjectPath(),
+        wxFileName libtab_fn( aSchematic->Prj().GetProjectPath(),
                        SYMBOL_LIB_TABLE::GetSymbolLibTableFileName() );
 
         // So output formatter goes out of scope and closes the file before reloading.
         {
-            FILE_OUTPUTFORMATTER formatter( fn.GetFullPath() );
+            FILE_OUTPUTFORMATTER formatter( libtab_fn.GetFullPath() );
             libTable->Format( &formatter, 0 );
         }
 
@@ -152,7 +145,7 @@ SCH_SHEET* SCH_IO_CADSTAR_ARCHIVE::LoadSchematicFile( const wxString&        aFi
     sch_plugin->SaveLibrary( libFileName.GetFullPath() );
 
     // Link up all symbols in the design to the newly created library
-    for( SCH_SHEET_PATH& sheet : aSchematic->GetSheets() )
+    for( SCH_SHEET_PATH& sheet : aSchematic->BuildUnorderedSheetList() )
     {
         for( SCH_ITEM* item : sheet.LastScreen()->Items().OfType( SCH_SYMBOL_T ) )
         {
@@ -250,6 +243,9 @@ void SCH_IO_CADSTAR_ARCHIVE::ensureLoadedLibrary( const wxString& aLibraryPath,
 {
     wxFileName csafn;
     wxString   fplibname = "cadstarpcblib";
+
+    // Suppress font substitution warnings
+    fontconfig::FONTCONFIG::SetReporter( nullptr );
 
     if( aProperties && aProperties->count( "csa" ) )
     {

@@ -75,7 +75,20 @@ public:
 
     static std::vector<std::reference_wrapper<RC_ITEM>> GetItemsWithSeverities()
     {
-        return allItemTypes;
+        static std::vector<std::reference_wrapper<RC_ITEM>> itemsWithSeverities;
+
+        if( itemsWithSeverities.empty() )
+        {
+            for( RC_ITEM& item : allItemTypes )
+            {
+                if( &item == &heading_internal )
+                    break;
+
+                itemsWithSeverities.push_back( item );
+            }
+        }
+
+        return itemsWithSeverities;
     }
 
     /**
@@ -142,8 +155,8 @@ public:
     }
 
     /**
-     * Gets the SCH_SHEET_PATH of the auxillary item causing this ERC violation
-     * @return SCH_SHEET_PATH containing the auxillary item
+     * Gets the SCH_SHEET_PATH of the auxiliary item causing this ERC violation
+     * @return SCH_SHEET_PATH containing the auxiliary item
      */
     SCH_SHEET_PATH& GetAuxItemSheetPath()
     {
@@ -182,22 +195,30 @@ private:
     static ERC_ITEM heading_connections;
     static ERC_ITEM heading_conflicts;
     static ERC_ITEM heading_misc;
+    static ERC_ITEM heading_internal;
 
     static ERC_ITEM duplicateSheetName;
     static ERC_ITEM endpointOffGrid;
     static ERC_ITEM pinNotConnected;
     static ERC_ITEM pinNotDriven;
     static ERC_ITEM powerpinNotDriven;
+    static ERC_ITEM duplicatePinError;
     static ERC_ITEM pinTableWarning;
     static ERC_ITEM pinTableError;
+    static ERC_ITEM genericWarning;
+    static ERC_ITEM genericError;
     static ERC_ITEM hierLabelMismatch;
     static ERC_ITEM noConnectConnected;
     static ERC_ITEM fourWayJunction;
+    static ERC_ITEM labelMultipleWires;
     static ERC_ITEM noConnectDangling;
     static ERC_ITEM labelDangling;
     static ERC_ITEM globalLabelDangling;
     static ERC_ITEM singleGlobalLabel;
+    static ERC_ITEM sameLocalGlobalLabel;
     static ERC_ITEM similarLabels;
+    static ERC_ITEM similarPower;
+    static ERC_ITEM similarLabelAndPower;
     static ERC_ITEM differentUnitFootprint;
     static ERC_ITEM differentUnitNet;
     static ERC_ITEM busDefinitionConflict;
@@ -223,6 +244,7 @@ private:
     static ERC_ITEM differentUnitValue;
     static ERC_ITEM duplicateReference;
     static ERC_ITEM busEntryNeeded;
+    static ERC_ITEM unconnectedWireEndpoint;
 
     /// True if this item is specific to a sheet instance (as opposed to applying to all instances)
     std::optional<SCH_SHEET_PATH> m_sheetSpecificPath;

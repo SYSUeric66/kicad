@@ -212,7 +212,6 @@ public:
     static TOOL_ACTION exportSymbol;
     static TOOL_ACTION updateSymbolFields;
     static TOOL_ACTION setUnitDisplayName;
-    static TOOL_ACTION openWithTextEditor;
 
     // Hierarchy navigation
     static TOOL_ACTION changeSheet;
@@ -239,6 +238,7 @@ public:
     static TOOL_ACTION toggleERCWarnings;
     static TOOL_ACTION toggleERCErrors;
     static TOOL_ACTION toggleERCExclusions;
+    static TOOL_ACTION markSimExclusions;
     static TOOL_ACTION toggleOPVoltages;
     static TOOL_ACTION toggleOPCurrents;
     static TOOL_ACTION toggleSyncedPinsMode;
@@ -249,8 +249,6 @@ public:
     static TOOL_ACTION pushPinNumSize;
     static TOOL_ACTION showElectricalTypes;
     static TOOL_ACTION showPinNumbers;
-    static TOOL_ACTION showSymbolTree;
-    static TOOL_ACTION hideSymbolTree;
     static TOOL_ACTION symbolTreeSearch;
     static TOOL_ACTION drawSheetOnClipboard;
     static TOOL_ACTION importGraphics;

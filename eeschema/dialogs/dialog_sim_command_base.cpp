@@ -1,5 +1,5 @@
 ///////////////////////////////////////////////////////////////////////////
-// C++ code generated with wxFormBuilder (version 4.0.0-0-g0efcecf02)
+// C++ code generated with wxFormBuilder (version 4.0.0-0-g0efcecf)
 // http://www.wxformbuilder.org/
 //
 // PLEASE DO *NOT* EDIT THIS FILE!
@@ -535,7 +535,7 @@ DIALOG_SIM_COMMAND_BASE::DIALOG_SIM_COMMAND_BASE( wxWindow* parent, wxWindowID i
 	wxBoxSizer* bSizer2;
 	bSizer2 = new wxBoxSizer( wxVERTICAL );
 
-	m_staticText18 = new wxStaticText( m_pgCustom, wxID_ANY, _("Spice directives:"), wxDefaultPosition, wxDefaultSize, 0 );
+	m_staticText18 = new wxStaticText( m_pgCustom, wxID_ANY, _("SPICE directives:"), wxDefaultPosition, wxDefaultSize, 0 );
 	m_staticText18->Wrap( -1 );
 	bSizer2->Add( m_staticText18, 0, wxRIGHT|wxLEFT, 5 );
 
@@ -652,6 +652,9 @@ DIALOG_SIM_COMMAND_BASE::DIALOG_SIM_COMMAND_BASE( wxWindow* parent, wxWindowID i
 
 	m_saveAllDissipations = new wxCheckBox( m_panelCommand, wxID_ANY, _("Save all power dissipations"), wxDefaultPosition, wxDefaultSize, 0 );
 	bSizer88->Add( m_saveAllDissipations, 0, wxBOTTOM|wxRIGHT|wxLEFT|wxEXPAND, 5 );
+
+	m_saveAllEvents = new wxCheckBox( m_panelCommand, wxID_ANY, _("Save all digital event data"), wxDefaultPosition, wxDefaultSize, 0 );
+	bSizer88->Add( m_saveAllEvents, 0, wxBOTTOM|wxRIGHT|wxLEFT, 5 );
 
 	m_compatibilityModeSizer = new wxBoxSizer( wxHORIZONTAL );
 

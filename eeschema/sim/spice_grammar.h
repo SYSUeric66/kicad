@@ -104,8 +104,7 @@ namespace SPICE_GRAMMAR
                             one<']'>> {};
 
     struct bracedExpr : seq<one<'{'>,
-                            star<sor<bracedExpr,
-                                     not_one<'}'>>>,
+                            star<not_one<'}'>>,
                             one<'}'>> {};
 
     // Ngspice has some heuristic logic to allow + and - in tokens. We replicate that here.
@@ -132,6 +131,16 @@ namespace SPICE_GRAMMAR
                                 sep,
                                 paramValue> {};
     struct paramValuePairs : list<paramValuePair, sep> {};
+
+    struct cplSep : opt<one<' '>> {};
+    struct cplParamValue : sor<list<bracedExpr, cplSep>,
+                               vectorExpr,
+                               list<token, cplSep>> {};
+    struct cplParamValuePair : seq<param,
+                                   sep,
+                                   cplParamValue> {};
+    struct cplParamValuePairs : list<cplParamValuePair, sep> {};
+
     struct dotModelAko : seq<opt<sep>,
                              if_must<seq<TAO_PEGTL_ISTRING( ".model" ),
                                          sep,
@@ -147,6 +156,17 @@ namespace SPICE_GRAMMAR
                                      opt<sep>,
                                      newline>> {};
 
+    struct dotModelCPL : seq<opt<sep>,
+                             if_must<seq<TAO_PEGTL_ISTRING( ".model" ),
+                                         sep,
+                                         modelName,
+                                         sep,
+                                         TAO_PEGTL_ISTRING( "CPL" )>,
+                                     opt<sep,
+                                         cplParamValuePairs>,
+                                     opt<sep>,
+                                     newline>> {};
+
     struct dotModel : seq<opt<sep>,
                           if_must<TAO_PEGTL_ISTRING( ".model" ),
                                   sep,
@@ -157,8 +177,6 @@ namespace SPICE_GRAMMAR
                                       paramValuePairs>,
                                   opt<sep>,
                                   newline>> {};
-                                     
-
 
     struct dotSubcktParamValuePair : seq<param,
                                          // TODO: Check if these `star<space>`s match Ngspice's
@@ -176,7 +194,8 @@ namespace SPICE_GRAMMAR
     struct dotSubcktPinName : seq<not_at<dotSubcktParams>,
                                   plus<not_at<space>, any>> {};
     struct dotSubcktPinSequence : list<dotSubcktPinName, sep> {};
-    struct dotSubcktEnd : seq<TAO_PEGTL_ISTRING( ".ends" ),
+    struct dotSubcktEnd : seq<opt<sep>,
+                              TAO_PEGTL_ISTRING( ".ends" ),
                               until<newline>> {};
     struct spiceUnit;
     struct dotSubckt : seq<opt<sep>,
@@ -195,6 +214,7 @@ namespace SPICE_GRAMMAR
 
     struct modelUnit : seq<star<commentLine>,
                            sor<dotModelAko,
+                               dotModelCPL,
                                dotModel,
                                dotSubckt>> {};
 
@@ -284,7 +304,9 @@ namespace SPICE_GRAMMAR
             "";
     template <> inline constexpr auto errorMessage<opt<sep, paramValuePairs>> = 
             "";
-    template <> inline constexpr auto errorMessage<opt<sep, dotSubcktPinSequence>> = 
+    template <> inline constexpr auto errorMessage<opt<sep, cplParamValuePairs>> =
+            "";
+    template <> inline constexpr auto errorMessage<opt<sep, dotSubcktPinSequence>> =
             "";
     template <> inline constexpr auto errorMessage<opt<sep, dotSubcktParams>> = 
             "";

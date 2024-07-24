@@ -28,7 +28,6 @@
 #include <pcb_base_frame.h>
 #include <widgets/panel_footprint_chooser.h>
 #include <3d_canvas/eda_3d_canvas.h>
-#include <common_ogl/ogl_attr_list.h>
 #include <board.h>
 #include <project_pcb.h>
 #include <board_design_settings.h>
@@ -130,27 +129,32 @@ DIALOG_FOOTPRINT_CHOOSER::DIALOG_FOOTPRINT_CHOOSER( PCB_BASE_FRAME* aParent,
 
     // Connect Events
     m_grButton3DView->Connect( wxEVT_COMMAND_BUTTON_CLICKED ,
-                         wxCommandEventHandler( DIALOG_FOOTPRINT_CHOOSER::on3DviewReq ),
-                         NULL, this );
+                               wxCommandEventHandler( DIALOG_FOOTPRINT_CHOOSER::on3DviewReq ),
+                               nullptr, this );
     m_grButtonFpView->Connect( wxEVT_COMMAND_BUTTON_CLICKED ,
-                             wxCommandEventHandler( DIALOG_FOOTPRINT_CHOOSER::onFpViewReq ),
-                             NULL, this );
+                               wxCommandEventHandler( DIALOG_FOOTPRINT_CHOOSER::onFpViewReq ),
+                               nullptr, this );
 
-    this->Connect( FP_SELECTION_EVENT,      // custom event fired by a PANEL_FOOTPRINT_CHOOSER
-                   wxCommandEventHandler( DIALOG_FOOTPRINT_CHOOSER::onFpChanged ), NULL, this );
+    Connect( FP_SELECTION_EVENT, wxCommandEventHandler( DIALOG_FOOTPRINT_CHOOSER::onFpChanged ),
+             nullptr, this );
 }
 
 
 DIALOG_FOOTPRINT_CHOOSER::~DIALOG_FOOTPRINT_CHOOSER()
 {
+    if( m_boardAdapter.m_Cfg )
+        m_boardAdapter.m_Cfg->m_Render = m_initialRender;
+
     // Disconnect Events
     m_grButton3DView->Disconnect( wxEVT_COMMAND_BUTTON_CLICKED,
-                            wxCommandEventHandler( DIALOG_FOOTPRINT_CHOOSER::on3DviewReq ), NULL, this );
+                                  wxCommandEventHandler( DIALOG_FOOTPRINT_CHOOSER::on3DviewReq ),
+                                  nullptr, this );
     m_grButtonFpView->Disconnect( wxEVT_COMMAND_BUTTON_CLICKED,
-                                wxCommandEventHandler( DIALOG_FOOTPRINT_CHOOSER::onFpViewReq ), NULL, this );
+                                  wxCommandEventHandler( DIALOG_FOOTPRINT_CHOOSER::onFpViewReq ),
+                                  nullptr, this );
 
-    this->Disconnect( FP_SELECTION_EVENT,
-                      wxCommandEventHandler( DIALOG_FOOTPRINT_CHOOSER::onFpChanged ), NULL, this );
+    Disconnect( FP_SELECTION_EVENT, wxCommandEventHandler( DIALOG_FOOTPRINT_CHOOSER::onFpChanged ),
+                nullptr, this );
 }
 
 
@@ -166,15 +170,41 @@ void DIALOG_FOOTPRINT_CHOOSER::build3DCanvas()
     m_boardAdapter.SetBoard( m_dummyBoard );
     m_boardAdapter.m_IsBoardView = false;
     m_boardAdapter.m_IsPreviewer = true;   // Force display 3D models, regardless the 3D viewer options
-    EDA_3D_VIEWER_SETTINGS* cfg = Pgm().GetSettingsManager().GetAppSettings<EDA_3D_VIEWER_SETTINGS>();
-    m_boardAdapter.m_Cfg = cfg;
 
     // Build the 3D canvas
 
     m_preview3DCanvas = new EDA_3D_CANVAS( m_chooserPanel->m_RightPanel,
-                                        OGL_ATT_LIST::GetAttributesList( ANTIALIASING_MODE::AA_8X ),
-                                        m_boardAdapter, m_currentCamera,
-                                        PROJECT_PCB::Get3DCacheManager( &m_parent->Prj() ) );
+                                           OGL_ATT_LIST::GetAttributesList( ANTIALIASING_MODE::AA_8X ),
+                                           m_boardAdapter, m_currentCamera,
+                                           PROJECT_PCB::Get3DCacheManager( &m_parent->Prj() ) );
+
+    COMMON_SETTINGS* settings = Pgm().GetCommonSettings();
+
+    // TODO(JE) use all control options
+    m_boardAdapter.m_MousewheelPanning = settings->m_Input.scroll_modifier_zoom != 0;
+
+    EDA_3D_VIEWER_SETTINGS* cfg = Pgm().GetSettingsManager().GetAppSettings<EDA_3D_VIEWER_SETTINGS>();
+
+    if( cfg )
+    {
+        // Save the 3D viewer render settings, to restore it after closing the preview
+        m_initialRender = cfg->m_Render;
+
+        m_boardAdapter.m_Cfg = cfg;
+
+        m_preview3DCanvas->SetAnimationEnabled( cfg->m_Camera.animation_enabled );
+        m_preview3DCanvas->SetMovingSpeedMultiplier( cfg->m_Camera.moving_speed_multiplier );
+        m_preview3DCanvas->SetProjectionMode( cfg->m_Camera.projection_mode );
+
+        // Ensure the board body is always shown, and do not use the settings of the 3D viewer
+        cfg->m_Render.show_copper_top = true;
+        cfg->m_Render.show_copper_bottom = true;
+        cfg->m_Render.show_soldermask_top = true;
+        cfg->m_Render.show_soldermask_bottom = true;
+        cfg->m_Render.show_solderpaste = true;
+        cfg->m_Render.show_zones = true;
+        cfg->m_Render.show_board_body = true;
+    }
 
     m_chooserPanel->m_RightPanelSizer->Add( m_preview3DCanvas, 1, wxEXPAND, 5 );
     m_chooserPanel->m_RightPanel->Layout();

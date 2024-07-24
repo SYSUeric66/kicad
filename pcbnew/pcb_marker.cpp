@@ -95,7 +95,9 @@ PCB_MARKER::~PCB_MARKER()
 
 wxString PCB_MARKER::SerializeToString() const
 {
-    if( m_rcItem->GetErrorCode() == DRCE_COPPER_SLIVER )
+    if( m_rcItem->GetErrorCode() == DRCE_COPPER_SLIVER
+            || m_rcItem->GetErrorCode() == DRCE_GENERIC_WARNING
+            || m_rcItem->GetErrorCode() == DRCE_GENERIC_ERROR )
     {
         return wxString::Format( wxT( "%s|%d|%d|%s|%s" ),
                                  m_rcItem->GetSettingsKey(),
@@ -156,12 +158,14 @@ PCB_MARKER* PCB_MARKER::DeserializeFromString( const wxString& data )
     VECTOR2I      markerPos( (int) strtol( props[1].c_str(), nullptr, 10 ),
                              (int) strtol( props[2].c_str(), nullptr, 10 ) );
 
-    std::shared_ptr<DRC_ITEM> drcItem =  DRC_ITEM::Create( props[0] );
+    std::shared_ptr<DRC_ITEM> drcItem = DRC_ITEM::Create( props[0] );
 
     if( !drcItem )
         return nullptr;
 
-    if( drcItem->GetErrorCode() == DRCE_COPPER_SLIVER )
+    if( drcItem->GetErrorCode() == DRCE_COPPER_SLIVER
+            || drcItem->GetErrorCode() == DRCE_GENERIC_WARNING
+            || drcItem->GetErrorCode() == DRCE_GENERIC_ERROR )
     {
         drcItem->SetItems( KIID( props[3] ) );
         markerLayer = getMarkerLayer( props[4] );
@@ -227,10 +231,10 @@ void PCB_MARKER::GetMsgPanelInfo( EDA_DRAW_FRAME* aFrame, std::vector<MSG_PANEL_
             auxItem = aFrame->GetItem( m_rcItem->GetAuxItemID() );
 
         if( mainItem )
-            mainText = mainItem->GetItemDescription( aFrame );
+            mainText = mainItem->GetItemDescription( aFrame, true );
 
         if( auxItem )
-            auxText = auxItem->GetItemDescription( aFrame );
+            auxText = auxItem->GetItemDescription( aFrame, true );
 
         aList.emplace_back( mainText, auxText );
     }
@@ -260,11 +264,10 @@ std::shared_ptr<SHAPE> PCB_MARKER::GetEffectiveShape( PCB_LAYER_ID aLayer, FLASH
 }
 
 
-wxString PCB_MARKER::GetItemDescription( UNITS_PROVIDER* aUnitsProvider ) const
+wxString PCB_MARKER::GetItemDescription( UNITS_PROVIDER* aUnitsProvider, bool aFull ) const
 {
-    // m_rcItem->GetErrorMessage() could be used instead, but is probably too long
-    // for menu duty.
-    return wxString::Format( _( "Marker (%s)" ), m_rcItem->GetErrorText() );
+    return wxString::Format( _( "Marker (%s)" ),
+                             aFull ? m_rcItem->GetErrorMessage() : m_rcItem->GetErrorText() );
 }
 
 
@@ -280,6 +283,12 @@ SEVERITY PCB_MARKER::GetSeverity() const
         return RPT_SEVERITY_EXCLUSION;
 
     DRC_ITEM* item = static_cast<DRC_ITEM*>( m_rcItem.get() );
+
+    if( item->GetErrorCode() == DRCE_GENERIC_WARNING )
+        return RPT_SEVERITY_WARNING;
+    else if( item->GetErrorCode() == DRCE_GENERIC_ERROR )
+        return RPT_SEVERITY_ERROR;
+
     DRC_RULE* rule = item->GetViolatingRule();
 
     if( rule && rule->m_Severity != RPT_SEVERITY_UNDEFINED )

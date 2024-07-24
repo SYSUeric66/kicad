@@ -27,13 +27,14 @@
 
 #include <pcb_io/pcb_io.h>
 #include <pcb_io/pcb_io_mgr.h>
+#include <pcb_io/common/plugin_common_layer_mapping.h>
 
 #include <map>
 #include <memory>
 
-class ALTIUM_COMPOUND_FILE;
+class ALTIUM_PCB_COMPOUND_FILE;
 
-class PCB_IO_ALTIUM_DESIGNER : public PCB_IO
+class PCB_IO_ALTIUM_DESIGNER : public PCB_IO, public LAYER_MAPPABLE_PLUGIN
 {
 public:
     // -----<PUBLIC PCB_IO API>--------------------------------------------------
@@ -74,8 +75,18 @@ public:
 
     static bool checkFileHeader( const wxString& aFileName );
 
+    /**
+     * Return the automapped layers.
+     *
+     * @param aInputLayerDescriptionVector
+     * @return Auto-mapped layers
+     */
+    static std::map<wxString, PCB_LAYER_ID> DefaultLayerMappingCallback(
+            const std::vector<INPUT_LAYER_DESC>& aInputLayerDescriptionVector );
+
 private:
-    std::map<wxString, std::vector<std::unique_ptr<ALTIUM_COMPOUND_FILE>>> m_fplibFiles;
+    std::map<wxString, std::vector<std::unique_ptr<ALTIUM_PCB_COMPOUND_FILE>>> m_fplibFiles;
+
 
     void loadAltiumLibrary( const wxString& aLibraryPath );
 };

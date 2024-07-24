@@ -28,19 +28,24 @@
 
 #include <wx/string.h>
 
+#include <font/fontconfig.h>
 #include <pcb_io_altium_circuit_maker.h>
 #include <pcb_io_altium_designer.h>
 #include <altium_pcb.h>
+#include <altium_pcb_compound_file.h>
 #include <io/altium/altium_binary_parser.h>
 #include <pcb_io/pcb_io.h>
+#include <reporter.h>
 
 #include <board.h>
 
 #include <compoundfilereader.h>
 #include <utf.h>
 
-PCB_IO_ALTIUM_CIRCUIT_MAKER::PCB_IO_ALTIUM_CIRCUIT_MAKER() : PCB_IO( wxS( "Altium Circuit Maker" ) )
+PCB_IO_ALTIUM_CIRCUIT_MAKER::PCB_IO_ALTIUM_CIRCUIT_MAKER() :
+        PCB_IO( wxS( "Altium Circuit Maker" ) )
 {
+    RegisterCallback( PCB_IO_ALTIUM_DESIGNER::DefaultLayerMappingCallback );
 }
 
 
@@ -65,6 +70,8 @@ BOARD* PCB_IO_ALTIUM_CIRCUIT_MAKER::LoadBoard( const wxString& aFileName, BOARD*
     m_props = aProperties;
 
     m_board = aAppendToMe ? aAppendToMe : new BOARD();
+
+    fontconfig::FONTCONFIG::SetReporter( &WXLOG_REPORTER::GetInstance() );
 
     // Give the filename to the board if it's new
     if( !aAppendToMe )
@@ -95,12 +102,12 @@ BOARD* PCB_IO_ALTIUM_CIRCUIT_MAKER::LoadBoard( const wxString& aFileName, BOARD*
     };
     // clang-format on
 
-    ALTIUM_COMPOUND_FILE altiumPcbFile( aFileName );
+    ALTIUM_PCB_COMPOUND_FILE altiumPcbFile( aFileName );
 
     try
     {
         // Parse File
-        ALTIUM_PCB pcb( m_board, m_progressReporter, m_reporter );
+        ALTIUM_PCB pcb( m_board, m_progressReporter, m_layer_mapping_handler, m_reporter );
         pcb.Parse( altiumPcbFile, mapping );
     }
     catch( CFB::CFBException& exception )

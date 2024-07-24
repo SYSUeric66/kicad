@@ -38,7 +38,37 @@
 #include <pgm_base.h>
 #include <settings/common_settings.h>
 
-#define MIN_GRIDCELL_MARGIN FromDIP( 3 )
+
+wxGridCellAttr* WX_GRID_TABLE_BASE::enhanceAttr( wxGridCellAttr* aInputAttr, int aRow, int aCol,
+                                                 wxGridCellAttr::wxAttrKind aKind  )
+{
+    wxGridCellAttr* attr = aInputAttr;
+
+    if( wxGridCellAttrProvider* provider = GetAttrProvider() )
+    {
+        wxGridCellAttr* providerAttr = provider->GetAttr( aRow, aCol, aKind );
+
+        if( providerAttr )
+        {
+            attr = new wxGridCellAttr;
+            attr->SetKind( wxGridCellAttr::Merged );
+
+            if( aInputAttr )
+            {
+                attr->MergeWith( aInputAttr );
+                aInputAttr->DecRef();
+            }
+
+            attr->MergeWith( providerAttr );
+            providerAttr->DecRef();
+        }
+    }
+
+    return attr;
+}
+
+
+#define MIN_GRIDCELL_MARGIN FromDIP( 2 )
 
 
 void WX_GRID::CellEditorSetMargins( wxTextEntryBase* aEntry )
@@ -124,7 +154,7 @@ class WX_GRID_ALT_ROW_COLOR_PROVIDER : public wxGridCellAttrProvider
 {
 public:
     WX_GRID_ALT_ROW_COLOR_PROVIDER( const wxColor& aBaseColor ) : wxGridCellAttrProvider(),
-        m_attrOdd( new wxGridCellAttr() )
+        m_attrEven( new wxGridCellAttr() )
     {
         UpdateColors( aBaseColor );
     }
@@ -135,7 +165,7 @@ public:
         // Choose the default color, taking into account if the dark mode theme is enabled
         wxColor rowColor = aBaseColor.ChangeLightness( KIPLATFORM::UI::IsDarkTheme() ? 105 : 95 );
 
-        m_attrOdd->SetBackgroundColour( rowColor );
+        m_attrEven->SetBackgroundColour( rowColor );
     }
 
 
@@ -144,20 +174,20 @@ public:
     {
         wxGridCellAttrPtr cellAttr( wxGridCellAttrProvider::GetAttr( row, col, kind ) );
 
-        // Just pass through the cell attribute on even rows
-        if( row % 2 )
+        // Just pass through the cell attribute on odd rows (start normal to allow for the header row)
+        if( !( row % 2 ) )
             return cellAttr.release();
 
         if( !cellAttr )
         {
-            cellAttr = m_attrOdd;
+            cellAttr = m_attrEven;
         }
         else
         {
             if( !cellAttr->HasBackgroundColour() )
             {
                 cellAttr = cellAttr->Clone();
-                cellAttr->SetBackgroundColour( m_attrOdd->GetBackgroundColour() );
+                cellAttr->SetBackgroundColour( m_attrEven->GetBackgroundColour() );
             }
         }
 
@@ -165,7 +195,7 @@ public:
     }
 
 private:
-    wxGridCellAttrPtr m_attrOdd;
+    wxGridCellAttrPtr m_attrEven;
 };
 
 
@@ -179,9 +209,6 @@ WX_GRID::WX_GRID( wxWindow *parent, wxWindowID id, const wxPoint& pos, const wxS
     // Make sure the GUI font scales properly
     SetDefaultCellFont( KIUI::GetControlFont( this ) );
     SetLabelFont( KIUI::GetControlFont( this ) );
-
-    if( GetColLabelSize() > 0 )
-        SetColLabelSize( GetColLabelSize() + FromDIP( 4 ) );
 
     Connect( wxEVT_DPI_CHANGED, wxDPIChangedEventHandler( WX_GRID::onDPIChanged ), nullptr, this );
     Connect( wxEVT_GRID_EDITOR_SHOWN, wxGridEventHandler( WX_GRID::onCellEditorShown ), nullptr, this );
@@ -202,6 +229,12 @@ WX_GRID::~WX_GRID()
 
 void WX_GRID::onDPIChanged(wxDPIChangedEvent& aEvt)
 {
+    CallAfter(
+            [&]()
+            {
+                wxGrid::SetColLabelSize( wxGRID_AUTOSIZE );
+            } );
+
     /// This terrible hack is a way to avoid the incredibly disruptive resizing of grids that happens on Macs
     /// when moving a window between monitors of different DPIs.
 #ifndef __WXMAC__
@@ -212,14 +245,15 @@ void WX_GRID::onDPIChanged(wxDPIChangedEvent& aEvt)
 
 void WX_GRID::SetColLabelSize( int aHeight )
 {
-    if( aHeight == 0 )
+    if( aHeight == 0 || aHeight == wxGRID_AUTOSIZE )
     {
-        wxGrid::SetColLabelSize( 0 );
+        wxGrid::SetColLabelSize( aHeight );
         return;
     }
 
     // Correct wxFormBuilder height for large fonts
-    int minHeight = GetLabelFont().GetPixelSize().y + 2 * MIN_GRIDCELL_MARGIN;
+    int minHeight = GetCharHeight() + 2 * MIN_GRIDCELL_MARGIN;
+
     wxGrid::SetColLabelSize( std::max( aHeight, minHeight ) );
 }
 

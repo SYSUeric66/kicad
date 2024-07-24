@@ -32,6 +32,7 @@
 #include <math/util.h>      // for KiROUND
 
 #include <board.h>
+#include <font/fontconfig.h>
 #include <footprint.h>
 #include <pad.h>
 #include <locale_io.h>
@@ -39,6 +40,7 @@
 #include <pcb_text.h>
 #include <pcb_shape.h>
 #include <pcb_io/geda/pcb_io_geda.h>
+#include <reporter.h>
 #include <wx_filename.h>
 
 #include <wx/dir.h>
@@ -506,8 +508,8 @@ FOOTPRINT* GPCB_FPL_CACHE::parseFOOTPRINT( LINE_READER* aLineReader )
 
             std::unique_ptr<PAD> pad = std::make_unique<PAD>( footprint.get() );
 
-            static const LSET pad_front( 3, F_Cu, F_Mask, F_Paste );
-            static const LSET pad_back(  3, B_Cu, B_Mask, B_Paste );
+            static const LSET pad_front( { F_Cu, F_Mask, F_Paste } );
+            static const LSET pad_back( { B_Cu, B_Mask, B_Paste } );
 
             pad->SetShape( PAD_SHAPE::RECTANGLE );
             pad->SetAttribute( PAD_ATTRIB::SMD );
@@ -557,7 +559,7 @@ FOOTPRINT* GPCB_FPL_CACHE::parseFOOTPRINT( LINE_READER* aLineReader )
 
             VECTOR2I padPos( ( x1 + x2 ) / 2, ( y1 + y2 ) / 2 );
 
-            pad->SetSize( VECTOR2I( KiROUND( EuclideanNorm( delta ) ) + width, width ) );
+            pad->SetSize( VECTOR2I( delta.EuclideanNorm() + width, width ) );
 
             padPos += footprint->GetPosition();
             pad->SetPosition( padPos );
@@ -602,7 +604,7 @@ FOOTPRINT* GPCB_FPL_CACHE::parseFOOTPRINT( LINE_READER* aLineReader )
 
             pad->SetShape( PAD_SHAPE::CIRCLE );
 
-            static const LSET pad_set = LSET::AllCuMask() | LSET( 3, F_SilkS, F_Mask, B_Mask );
+            static const LSET pad_set = LSET::AllCuMask() | LSET( { F_SilkS, F_Mask, B_Mask } );
 
             pad->SetLayerSet( pad_set );
 
@@ -933,6 +935,8 @@ FOOTPRINT* PCB_IO_GEDA::FootprintLoad( const wxString& aLibraryPath,
                                        bool  aKeepUUID,
                                        const STRING_UTF8_MAP* aProperties )
 {
+    fontconfig::FONTCONFIG::SetReporter( nullptr );
+
     const FOOTPRINT* footprint = getFootprint( aLibraryPath, aFootprintName, aProperties, true );
 
     if( footprint )

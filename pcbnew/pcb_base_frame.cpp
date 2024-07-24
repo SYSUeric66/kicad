@@ -43,6 +43,7 @@
 #include <footprint.h>
 #include <footprint_editor_settings.h>
 #include <fp_lib_table.h>
+#include <lset.h>
 #include <kiface_base.h>
 #include <pcb_painter.h>
 #include <pcbnew_id.h>
@@ -321,11 +322,9 @@ void PCB_BASE_FRAME::FocusOnItems( std::vector<BOARD_ITEM*> aItems, PCB_LAYER_ID
         {
             viewportPoly.BooleanSubtract( dialogPoly, SHAPE_POLY_SET::PM_FAST );
         }
-        catch( const std::exception& exc )
+        catch( const std::exception& e )
         {
-            // This may be overkill and could be an assertion but we are more likely to
-            // find any clipper errors this way.
-            wxLogError( wxT( "Clipper library exception '%s' occurred." ), exc.what() );
+            wxFAIL_MSG( wxString::Format( wxT( "Clipper exception occurred: %s" ), e.what() ) );
         }
     }
 
@@ -361,11 +360,10 @@ void PCB_BASE_FRAME::FocusOnItems( std::vector<BOARD_ITEM*> aItems, PCB_LAYER_ID
                 {
                     itemPoly = static_cast<FOOTPRINT*>( item )->GetBoundingHull();
                 }
-                catch( const std::exception& exc )
+                catch( const std::exception& e )
                 {
-                    // This may be overkill and could be an assertion but we are more likely to
-                    // find any clipper errors this way.
-                    wxLogError( wxT( "Clipper library exception '%s' occurred." ), exc.what() );
+                    wxFAIL_MSG( wxString::Format( wxT( "Clipper exception occurred: %s" ),
+                                                  e.what() ) );
                 }
 
                 break;
@@ -430,11 +428,9 @@ void PCB_BASE_FRAME::FocusOnItems( std::vector<BOARD_ITEM*> aItems, PCB_LAYER_ID
             {
                 clippedPoly.BooleanIntersection( itemPoly, viewportPoly, SHAPE_POLY_SET::PM_FAST );
             }
-            catch( const std::exception& exc )
+            catch( const std::exception& e )
             {
-                // This may be overkill and could be an assertion but we are more likely to
-                // find any clipper errors this way.
-                wxLogError( wxT( "Clipper library exception '%s' occurred." ), exc.what() );
+                wxFAIL_MSG( wxString::Format( wxT( "Clipper exception occurred: %s" ), e.what() ) );
             }
 
             if( !clippedPoly.IsEmpty() )
@@ -457,11 +453,9 @@ void PCB_BASE_FRAME::FocusOnItems( std::vector<BOARD_ITEM*> aItems, PCB_LAYER_ID
         {
             itemPoly.Deflate( step, CORNER_STRATEGY::ALLOW_ACUTE_CORNERS, ARC_LOW_DEF );
         }
-        catch( const std::exception& exc )
+        catch( const std::exception& e )
         {
-            // This may be overkill and could be an assertion but we are more likely to
-            // find any clipper errors this way.
-            wxLogError( wxT( "Clipper library exception '%s' occurred." ), exc.what() );
+            wxFAIL_MSG( wxString::Format( wxT( "Clipper exception occurred: %s" ), e.what() ) );
         }
     }
 
@@ -761,16 +755,16 @@ GENERAL_COLLECTORS_GUIDE PCB_BASE_FRAME::GetCollectorsGuide()
                                     GetCanvas()->GetView() );
 
     // account for the globals
-    guide.SetIgnoreMTextsMarkedNoShow( ! m_pcb->IsElementVisible( LAYER_HIDDEN_TEXT ) );
-    guide.SetIgnoreMTextsOnBack( ! m_pcb->IsElementVisible( LAYER_FP_TEXT ) );
-    guide.SetIgnoreMTextsOnFront( ! m_pcb->IsElementVisible( LAYER_FP_TEXT ) );
-    guide.SetIgnoreModulesOnBack( ! m_pcb->IsElementVisible( LAYER_FOOTPRINTS_BK ) );
-    guide.SetIgnoreModulesOnFront( ! m_pcb->IsElementVisible( LAYER_FOOTPRINTS_FR ) );
+    guide.SetIgnoreHiddenFPText( !m_pcb->IsElementVisible( LAYER_HIDDEN_TEXT ) );
+    guide.SetIgnoreFPTextOnBack( !m_pcb->IsElementVisible( LAYER_FP_TEXT ) );
+    guide.SetIgnoreFPTextOnFront( !m_pcb->IsElementVisible( LAYER_FP_TEXT ) );
+    guide.SetIgnoreFootprintsOnBack( !m_pcb->IsElementVisible( LAYER_FOOTPRINTS_BK ) );
+    guide.SetIgnoreFootprintsOnFront( !m_pcb->IsElementVisible( LAYER_FOOTPRINTS_FR ) );
     guide.SetIgnorePadsOnBack( ! m_pcb->IsElementVisible( LAYER_PADS_SMD_BK ) );
     guide.SetIgnorePadsOnFront( ! m_pcb->IsElementVisible( LAYER_PADS_SMD_FR ) );
     guide.SetIgnoreThroughHolePads( ! m_pcb->IsElementVisible( LAYER_PADS_TH ) );
-    guide.SetIgnoreModulesVals( ! m_pcb->IsElementVisible( LAYER_FP_VALUES ) );
-    guide.SetIgnoreModulesRefs( ! m_pcb->IsElementVisible( LAYER_FP_REFERENCES ) );
+    guide.SetIgnoreFPValues( !m_pcb->IsElementVisible( LAYER_FP_VALUES ) );
+    guide.SetIgnoreFPReferences( !m_pcb->IsElementVisible( LAYER_FP_REFERENCES ) );
     guide.SetIgnoreThroughVias( ! m_pcb->IsElementVisible( LAYER_VIAS ) );
     guide.SetIgnoreBlindBuriedVias( ! m_pcb->IsElementVisible( LAYER_VIAS ) );
     guide.SetIgnoreMicroVias( ! m_pcb->IsElementVisible( LAYER_VIAS ) );
@@ -1185,7 +1179,7 @@ void PCB_BASE_FRAME::setFPWatcher( FOOTPRINT* aFootprint )
 
     wxLogTrace( "KICAD_LIB_WATCH", "Add watch: %s", fn.GetPath() );
 
-    m_watcher->AddTree( fn );
+    m_watcher->Add( fn );
 }
 
 

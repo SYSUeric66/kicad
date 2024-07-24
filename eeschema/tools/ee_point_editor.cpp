@@ -40,9 +40,15 @@ using namespace std::placeholders;
 #include <sch_sheet.h>
 #include <sch_textbox.h>
 #include <sch_table.h>
-#include <sch_tablecell.h>
-#include <sch_shape.h>
-#include <symbol_edit_frame.h>
+
+
+static const std::vector<KICAD_T> pointEditorTypes = { SCH_SHAPE_T,
+                                                       SCH_RULE_AREA_T,
+                                                       SCH_TEXTBOX_T,
+                                                       SCH_TABLECELL_T,
+                                                       SCH_SHEET_T,
+                                                       SCH_ITEM_LOCATE_GRAPHIC_LINE_T,
+                                                       SCH_BITMAP_T };
 
 
 // Few constants to avoid using bare numbers for point indices
@@ -109,9 +115,9 @@ public:
             switch( shape->GetShape() )
             {
             case SHAPE_T::ARC:
-                points->AddPoint( shape->GetPosition() );
                 points->AddPoint( shape->GetStart() );
                 points->AddPoint( shape->GetEnd() );
+                points->AddPoint( shape->GetPosition() );
                 break;
 
             case SHAPE_T::CIRCLE:
@@ -380,13 +386,7 @@ int EE_POINT_EDITOR::Main( const TOOL_EVENT& aEvent )
 
     const EE_SELECTION& selection = m_selectionTool->GetSelection();
 
-    if( selection.Size() != 1 || !selection.Front()->IsType( { SCH_SHAPE_T,
-                                                               SCH_RULE_AREA_T,
-                                                               SCH_TEXTBOX_T,
-                                                               SCH_TABLECELL_T,
-                                                               SCH_SHEET_T,
-                                                               SCH_ITEM_LOCATE_GRAPHIC_LINE_T,
-                                                               SCH_BITMAP_T } ) )
+    if( selection.Size() != 1 || !selection.Front()->IsType( pointEditorTypes ) )
     {
         return 0;
     }
@@ -649,12 +649,7 @@ void EE_POINT_EDITOR::updateParentItem( bool aSnapToGrid ) const
         switch( shape->GetShape() )
         {
         case SHAPE_T::ARC:
-            if( getEditedPointIndex() == ARC_CENTER )
-            {
-                shape->SetEditState( 4 );
-                shape->CalcEdit( m_editPoints->Point( ARC_CENTER ).GetPosition() );
-            }
-            else if( getEditedPointIndex() == ARC_START )
+            if( getEditedPointIndex() == ARC_START )
             {
                 shape->SetEditState( 2 );
                 shape->CalcEdit( m_editPoints->Point( ARC_START ).GetPosition() );
@@ -663,6 +658,11 @@ void EE_POINT_EDITOR::updateParentItem( bool aSnapToGrid ) const
             {
                 shape->SetEditState( 3 );
                 shape->CalcEdit( m_editPoints->Point( ARC_END ).GetPosition() );
+            }
+            else if( getEditedPointIndex() == ARC_CENTER )
+            {
+                shape->SetEditState( 4 );
+                shape->CalcEdit( m_editPoints->Point( ARC_CENTER ).GetPosition() );
             }
             break;
 
@@ -739,7 +739,7 @@ void EE_POINT_EDITOR::updateParentItem( bool aSnapToGrid ) const
             shape->SetBezierC2( m_editPoints->Point( BEZIER_CTRL_PT2 ).GetPosition() );
             shape->SetEnd( m_editPoints->Point( BEZIER_END ).GetPosition() );
 
-            shape->RebuildBezierToSegmentsPointsList( shape->GetWidth() );
+            shape->RebuildBezierToSegmentsPointsList( shape->GetWidth() / 2 );
             break;
 
         default:
@@ -994,9 +994,9 @@ void EE_POINT_EDITOR::updatePoints()
         switch( shape->GetShape() )
         {
         case SHAPE_T::ARC:
-            m_editPoints->Point( ARC_CENTER ).SetPosition( shape->GetPosition() );
             m_editPoints->Point( ARC_START ).SetPosition( shape->GetStart() );
             m_editPoints->Point( ARC_END ).SetPosition( shape->GetEnd() );
+            m_editPoints->Point( ARC_CENTER ).SetPosition( shape->GetPosition() );
             break;
 
         case SHAPE_T::CIRCLE:
@@ -1174,7 +1174,9 @@ bool EE_POINT_EDITOR::removeCornerCondition( const SELECTION& )
 
     SHAPE_LINE_CHAIN& poly = shape->GetPolyShape().Outline( 0 );
 
-    if( poly.GetPointCount() < 3 )
+    if( m_editPoints->GetParent()->Type() == SCH_SHAPE_T && poly.GetPointCount() <= 2 )
+        return false;
+    if( m_editPoints->GetParent()->Type() == SCH_RULE_AREA_T && poly.GetPointCount() <= 3 )
         return false;
 
     for( const VECTOR2I& pt : poly.CPoints() )
@@ -1231,8 +1233,8 @@ int EE_POINT_EDITOR::addCorner( const TOOL_EVENT& aEvent )
 
     for( unsigned i = 0; i < numPoints; ++i )
     {
-        int distance = (int) DistanceLinePoint( poly.CPoint( i ),
-                                                poly.CPoint( i + 1 ), cursor );
+        SEG seg = poly.GetSegment( i );
+        int distance = seg.Distance( cursor );
 
         if( distance < currentMinDistance )
         {
@@ -1254,8 +1256,7 @@ int EE_POINT_EDITOR::addCorner( const TOOL_EVENT& aEvent )
 int EE_POINT_EDITOR::removeCorner( const TOOL_EVENT& aEvent )
 {
     if( !m_editPoints || !m_editedPoint
-        || !( m_editPoints->GetParent()->Type() == SCH_SHAPE_T
-              || m_editPoints->GetParent()->Type() == SCH_RULE_AREA_T ) )
+        || !m_editPoints->GetParent()->IsType( { SCH_SHAPE_T, SCH_RULE_AREA_T } ) )
     {
         return 0;
     }
@@ -1264,12 +1265,26 @@ int EE_POINT_EDITOR::removeCorner( const TOOL_EVENT& aEvent )
     SHAPE_LINE_CHAIN& poly = shape->GetPolyShape().Outline( 0 );
     SCH_COMMIT        commit( m_toolMgr );
 
-    if( poly.GetPointCount() <= 3 )
+    if( m_editPoints->GetParent()->Type() == SCH_SHAPE_T && poly.GetPointCount() <= 2 )
+        return 0;
+    if( m_editPoints->GetParent()->Type() == SCH_RULE_AREA_T && poly.GetPointCount() <= 3 )
         return 0;
 
     commit.Modify( shape, m_frame->GetScreen() );
 
-    poly.Remove( getEditedPointIndex() );
+    int idx = getEditedPointIndex();
+    int last = (int) poly.GetPointCount() - 1;
+
+    if( idx == 0 && poly.GetPoint( 0 ) == poly.GetPoint( last ) )
+    {
+        poly.Remove( idx );
+        poly.SetPoint( last-1, poly.GetPoint( 0 ) );
+    }
+    else
+    {
+        poly.Remove( idx );
+    }
+
     setEditedPoint( nullptr );
 
     updateItem( shape, true );

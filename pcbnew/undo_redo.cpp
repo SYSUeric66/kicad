@@ -34,6 +34,7 @@ using namespace std::placeholders;
 #include <pcb_generator.h>
 #include <pcb_target.h>
 #include <footprint.h>
+#include <lset.h>
 #include <pad.h>
 #include <origin_viewitem.h>
 #include <connectivity/connectivity_data.h>
@@ -277,7 +278,8 @@ void PCB_BASE_EDIT_FRAME::PutDataInPreviousState( PICKED_ITEMS_LIST* aList )
 
     std::unordered_map<EDA_ITEM*, ITEM_CHANGE_TYPE> item_changes;
 
-    auto update_item_change_state = [&]( EDA_ITEM* item, ITEM_CHANGE_TYPE change_type )
+    auto update_item_change_state =
+            [&]( EDA_ITEM* item, ITEM_CHANGE_TYPE change_type )
             {
                 auto item_itr = item_changes.find( item );
 
@@ -433,6 +435,7 @@ void PCB_BASE_EDIT_FRAME::PutDataInPreviousState( PICKED_ITEMS_LIST* aList )
         {
             BOARD_ITEM*           item = (BOARD_ITEM*) eda_item;
             BOARD_ITEM_CONTAINER* parent = GetBoard();
+            PCB_GROUP*            parentGroup = item->GetParentGroup();
 
             if( item->GetParentFootprint() )
             {
@@ -445,6 +448,10 @@ void PCB_BASE_EDIT_FRAME::PutDataInPreviousState( PICKED_ITEMS_LIST* aList )
             BOARD_ITEM* image = (BOARD_ITEM*) aList->GetPickedItemLink( ii );
 
             view->Remove( item );
+
+            if( parentGroup )
+                parentGroup->RemoveItem( item );
+
             parent->Remove( item );
 
             item->SwapItemData( image );
@@ -463,6 +470,10 @@ void PCB_BASE_EDIT_FRAME::PutDataInPreviousState( PICKED_ITEMS_LIST* aList )
             view->Add( item );
             view->Hide( item, false );
             parent->Add( item );
+
+            if( parentGroup )
+                parentGroup->AddItem( item );
+
             update_item_change_state( item, ITEM_CHANGE_TYPE::CHANGED );
             break;
         }
@@ -579,25 +590,21 @@ void PCB_BASE_EDIT_FRAME::PutDataInPreviousState( PICKED_ITEMS_LIST* aList )
     // Invoke bulk BOARD_LISTENER callbacks
     std::vector<BOARD_ITEM*> added_items, deleted_items, changed_items;
 
-    for( auto& item_itr : item_changes )
+    for( auto& [item, changeType] : item_changes )
     {
-        switch( item_itr.second )
+        switch( changeType )
         {
         case ITEM_CHANGE_TYPE::ADDED:
-        {
-            added_items.push_back( static_cast<BOARD_ITEM*>( item_itr.first ) );
+            added_items.push_back( static_cast<BOARD_ITEM*>( item ) );
             break;
-        }
+
         case ITEM_CHANGE_TYPE::DELETED:
-        {
-            deleted_items.push_back( static_cast<BOARD_ITEM*>( item_itr.first ) );
+            deleted_items.push_back( static_cast<BOARD_ITEM*>( item ) );
             break;
-        }
+
         case ITEM_CHANGE_TYPE::CHANGED:
-        {
-            changed_items.push_back( static_cast<BOARD_ITEM*>( item_itr.first ) );
+            changed_items.push_back( static_cast<BOARD_ITEM*>( item ) );
             break;
-        }
         }
     }
 

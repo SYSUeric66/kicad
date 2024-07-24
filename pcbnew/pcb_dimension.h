@@ -135,7 +135,7 @@ public:
     {
         SetOverrideTextEnabled( true );
         SetOverrideText( aValue );
-        updateText();
+        Update();
     }
 
     int GetMeasuredValue() const { return m_measuredValue; }
@@ -150,17 +150,21 @@ public:
 
     /**
      * Update the dimension's cached text and geometry.
+     *
+     * Call this whenever you change something in the geometry
+     * definition, or the text (which can affect geometry, e.g. by
+     * a knockout of a crossbar line or similar)
      */
     void Update()
     {
+        // Calls updateText internally
         updateGeometry();
-        updateText();
     }
 
     void UpdateUnits()
     {
         SetUnitsMode( GetUnitsMode() );
-        updateText();
+        Update();
     }
 
     wxString GetPrefix() const { return m_prefix; }
@@ -169,7 +173,7 @@ public:
     void ChangePrefix( const wxString& aPrefix )
     {
         SetPrefix( aPrefix );
-        updateText();
+        Update();
     }
 
     wxString GetSuffix() const { return m_suffix; }
@@ -178,7 +182,7 @@ public:
     void ChangeSuffix( const wxString& aSuffix )
     {
         SetSuffix( aSuffix );
-        updateText();
+        Update();
     }
 
     EDA_UNITS GetUnits() const { return m_units; }
@@ -190,7 +194,7 @@ public:
     void ChangeUnitsMode( DIM_UNITS_MODE aMode )
     {
         SetUnitsMode( aMode );
-        updateText();
+        Update();
     }
 
     void SetAutoUnits( bool aAuto = true ) { m_autoUnits = aAuto; }
@@ -201,7 +205,7 @@ public:
     void ChangeUnitsFormat( const DIM_UNITS_FORMAT aFormat )
     {
         SetUnitsFormat( aFormat );
-        updateText();
+        Update();
     }
 
     DIM_PRECISION GetPrecision() const { return m_precision; }
@@ -210,7 +214,7 @@ public:
     void ChangePrecision( DIM_PRECISION aPrecision )
     {
         SetPrecision( aPrecision );
-        updateText();
+        Update();
     }
 
     bool GetSuppressZeroes() const { return m_suppressZeroes; }
@@ -219,11 +223,15 @@ public:
     void ChangeSuppressZeroes( bool aSuppress )
     {
         SetSuppressZeroes( aSuppress );
-        updateText();
+        Update();
     }
 
     bool GetKeepTextAligned() const { return m_keepTextAligned; }
     void SetKeepTextAligned( bool aKeepAligned ) { m_keepTextAligned = aKeepAligned; }
+
+    double GetTextAngleDegreesProp() const { return GetTextAngleDegrees(); }
+    void ChangeTextAngleDegrees( double aDegrees );
+    void ChangeKeepTextAligned( bool aKeepAligned );
 
     void SetTextPositionMode( DIM_TEXT_POSITION aMode ) { m_textPosition = aMode; }
     DIM_TEXT_POSITION GetTextPositionMode() const { return m_textPosition; }
@@ -268,7 +276,7 @@ public:
     std::shared_ptr<SHAPE> GetEffectiveShape( PCB_LAYER_ID aLayer,
             FLASHING aFlash = FLASHING::DEFAULT ) const override;
 
-    wxString GetItemDescription( UNITS_PROVIDER* aUnitsProvider ) const override;
+    wxString GetItemDescription( UNITS_PROVIDER* aUnitsProvider, bool aFull ) const override;
 
     const BOX2I ViewBBox() const override;
 
@@ -280,7 +288,8 @@ public:
 
     double Similarity( const BOARD_ITEM& aOther ) const override;
 
-    bool operator==( const BOARD_ITEM& aOther ) const override;
+    bool operator==( const PCB_DIMENSION_BASE& aOther ) const;
+    bool operator==( const BOARD_ITEM& aBoardItem ) const override;
 
 #if defined(DEBUG)
     virtual void Show( int nestLevel, std::ostream& os ) const override { ShowDummy( os ); }
@@ -295,6 +304,9 @@ protected:
 
     /**
      * Update the text field value from the current geometry (called by updateGeometry normally).
+     *
+     * If you change the text, you should call updateGeometry which will call this,
+     * and also handle any text-dependent geoemtry handling (like a knockout)
      */
     virtual void updateText();
 
@@ -406,7 +418,7 @@ public:
     void ChangeHeight( int aHeight )
     {
         SetHeight( aHeight );
-        updateGeometry();
+        Update();
     }
 
     /**
@@ -422,7 +434,7 @@ public:
     void ChangeExtensionHeight( int aHeight )
     {
         SetExtensionHeight( aHeight );
-        updateGeometry();
+        Update();
     }
 
     /**
@@ -553,7 +565,7 @@ public:
     void ChangeLeaderLength( int aLength )
     {
         SetLeaderLength( aLength );
-        updateGeometry();
+        Update();
     }
 
     // Returns the point (c).
@@ -616,7 +628,7 @@ public:
     void ChangeTextBorder( DIM_TEXT_BORDER aBorder )
     {
         SetTextBorder( aBorder );
-        updateGeometry();
+        Update();
     }
 
     void GetMsgPanelInfo( EDA_DRAW_FRAME* aFrame, std::vector<MSG_PANEL_ITEM>& aList ) override;

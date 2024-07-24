@@ -145,7 +145,7 @@ int SCH_DRAWING_TOOLS::PlaceSymbol( const TOOL_EVENT& aEvent )
 
     // First we need to get all instances of this sheet so we can annotate
     // whatever symbols we place on all copies
-    SCH_SHEET_LIST hierarchy = m_frame->Schematic().GetSheets();
+    SCH_SHEET_LIST hierarchy = m_frame->Schematic().BuildSheetListSortedByPageNumbers();
     SCH_SHEET_LIST newInstances =
             hierarchy.FindAllSheetsForScreen( m_frame->GetCurrentSheet().LastScreen() );
     newInstances.SortByPageNumbers();
@@ -216,7 +216,7 @@ int SCH_DRAWING_TOOLS::PlaceSymbol( const TOOL_EVENT& aEvent )
                 // Then we need to annotate all instances by sheet
                 for( SCH_SHEET_PATH& instance : newInstances )
                 {
-                    SCH_REFERENCE newReference( symbol, symbol->GetLibSymbolRef().get(), instance );
+                    SCH_REFERENCE newReference( symbol, instance );
                     SCH_REFERENCE_LIST refs;
                     refs.AddItem( newReference );
 
@@ -324,7 +324,6 @@ int SCH_DRAWING_TOOLS::PlaceSymbol( const TOOL_EVENT& aEvent )
             {
                 m_toolMgr->RunAction( EE_ACTIONS::clearSelection );
 
-                SCH_SHEET_LIST    sheets = m_frame->Schematic().GetSheets();
                 SYMBOL_LIB_TABLE* libs = PROJECT_SCH::SchSymbolLibTable( &m_frame->Prj() );
                 SYMBOL_LIB*       cache = PROJECT_SCH::SchLibs( &m_frame->Prj() )->GetCacheLibrary();
 
@@ -336,13 +335,10 @@ int SCH_DRAWING_TOOLS::PlaceSymbol( const TOOL_EVENT& aEvent )
 
                 std::set<LIB_SYMBOL*, decltype( compareByLibID )> part_list( compareByLibID );
 
-                for( SCH_SHEET_PATH& sheet : sheets )
+                for( SCH_SHEET_PATH& sheet : hierarchy )
                 {
-                    for( SCH_ITEM* item : sheet.LastScreen()->Items() )
+                    for( SCH_ITEM* item : sheet.LastScreen()->Items().OfType( SCH_SYMBOL_T ) )
                     {
-                        if( item->Type() != SCH_SYMBOL_T )
-                            continue;
-
                         SCH_SYMBOL* s = static_cast<SCH_SYMBOL*>( item );
                         LIB_SYMBOL* libSymbol = SchGetLibSymbol( s->GetLibId(), libs, cache );
 
@@ -393,8 +389,7 @@ int SCH_DRAWING_TOOLS::PlaceSymbol( const TOOL_EVENT& aEvent )
                 annotate();
 
                 // Update the list of references for the next symbol placement.
-                SCH_REFERENCE placedSymbolReference( symbol, symbol->GetLibSymbolRef().get(),
-                                                     m_frame->GetCurrentSheet() );
+                SCH_REFERENCE placedSymbolReference( symbol, m_frame->GetCurrentSheet() );
                 existingRefs.AddItem( placedSymbolReference );
                 existingRefs.SortByReferenceOnly();
 
@@ -456,9 +451,7 @@ int SCH_DRAWING_TOOLS::PlaceSymbol( const TOOL_EVENT& aEvent )
                         annotate();
 
                         // Update the list of references for the next symbol placement.
-                        SCH_REFERENCE placedSymbolReference( symbol,
-                                                             symbol->GetLibSymbolRef().get(),
-                                                             m_frame->GetCurrentSheet() );
+                        SCH_REFERENCE placedSymbolReference( symbol, m_frame->GetCurrentSheet() );
                         existingRefs.AddItem( placedSymbolReference );
                         existingRefs.SortByReferenceOnly();
                     }
@@ -485,6 +478,17 @@ int SCH_DRAWING_TOOLS::PlaceSymbol( const TOOL_EVENT& aEvent )
                 if( symbol )
                 {
                     m_frame->SelectUnit( symbol, unit );
+                    m_toolMgr->PostAction( ACTIONS::refreshPreview );
+                }
+            }
+            else if( *evt->GetCommandId() >= ID_POPUP_SCH_SELECT_BASE
+                     && *evt->GetCommandId() <= ID_POPUP_SCH_SELECT_ALT )
+            {
+                int bodyStyle = ( *evt->GetCommandId() - ID_POPUP_SCH_SELECT_BASE ) + 1;
+
+                if( symbol && symbol->GetBodyStyle() != bodyStyle )
+                {
+                    m_frame->FlipBodyStyle( symbol );
                     m_toolMgr->PostAction( ACTIONS::refreshPreview );
                 }
             }
@@ -2585,7 +2589,7 @@ int SCH_DRAWING_TOOLS::DrawSheet( const TOOL_EVENT& aEvent )
             getViewControls()->CaptureCursor( false );
 
             if( m_frame->EditSheetProperties( static_cast<SCH_SHEET*>( sheet ),
-                                              &m_frame->GetCurrentSheet(), nullptr ) )
+                                              &m_frame->GetCurrentSheet() ) )
             {
                 m_view->ClearPreview();
 

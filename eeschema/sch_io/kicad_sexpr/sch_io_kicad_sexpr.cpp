@@ -28,41 +28,43 @@
 #include <wx/base64.h>
 #include <wx/log.h>
 #include <wx/mstream.h>
+#include <boost/algorithm/string/join.hpp>
+
 #include <advanced_config.h>
 #include <base_units.h>
 #include <build_version.h>
-#include <trace_helpers.h>
+#include <ee_selection.h>
+#include <font/fontconfig.h>
+#include <io/kicad/kicad_io_utils.h>
 #include <locale_io.h>
+#include <progress_reporter.h>
+#include <schematic.h>
+#include <schematic_lexer.h>
 #include <sch_bitmap.h>
 #include <sch_bus_entry.h>
-#include <sch_symbol.h>
 #include <sch_edit_frame.h>       // SYMBOL_ORIENTATION_T
+#include <sch_io/kicad_sexpr/sch_io_kicad_sexpr.h>
+#include <sch_io/kicad_sexpr/sch_io_kicad_sexpr_common.h>
+#include <sch_io/kicad_sexpr/sch_io_kicad_sexpr_lib_cache.h>
+#include <sch_io/kicad_sexpr/sch_io_kicad_sexpr_parser.h>
 #include <sch_junction.h>
 #include <sch_line.h>
-#include <sch_pin.h>
-#include <sch_shape.h>
 #include <sch_no_connect.h>
+#include <sch_pin.h>
 #include <sch_rule_area.h>
-#include <sch_text.h>
-#include <sch_textbox.h>
-#include <sch_table.h>
-#include <sch_tablecell.h>
+#include <sch_screen.h>
+#include <sch_shape.h>
 #include <sch_sheet.h>
 #include <sch_sheet_pin.h>
-#include <schematic.h>
-#include <sch_screen.h>
-#include <io/kicad/kicad_io_utils.h>
-#include <schematic_lexer.h>
-#include <sch_io/kicad_sexpr/sch_io_kicad_sexpr.h>
-#include <sch_io/kicad_sexpr/sch_io_kicad_sexpr_parser.h>
-#include <sch_io/kicad_sexpr/sch_io_kicad_sexpr_lib_cache.h>
-#include <sch_io/kicad_sexpr/sch_io_kicad_sexpr_common.h>
-#include <symbol_lib_table.h>  // for PropPowerSymsOnly definition.
-#include <ee_selection.h>
+#include <sch_symbol.h>
+#include <sch_table.h>
+#include <sch_tablecell.h>
+#include <sch_text.h>
+#include <sch_textbox.h>
 #include <string_utils.h>
+#include <symbol_lib_table.h>  // for PropPowerSymsOnly definition.
+#include <trace_helpers.h>
 #include <wx_filename.h>       // for ::ResolvePossibleSymlinks()
-#include <progress_reporter.h>
-#include <boost/algorithm/string/join.hpp>
 
 using namespace TSCHEMATIC_T;
 
@@ -106,6 +108,9 @@ SCH_SHEET* SCH_IO_KICAD_SEXPR::LoadSchematicFile( const wxString& aFileName, SCH
     SCH_SHEET*  sheet;
 
     wxFileName fn = aFileName;
+
+    // Show the font substitution warnings
+    fontconfig::FONTCONFIG::SetReporter( &WXLOG_REPORTER::GetInstance() );
 
     // Unfortunately child sheet file names the legacy schematic file format are not fully
     // qualified and are always appended to the project path.  The aFileName attribute must
@@ -362,9 +367,18 @@ void SCH_IO_KICAD_SEXPR::Format( SCH_SHEET* aSheet )
     wxCHECK_RET( aSheet != nullptr, "NULL SCH_SHEET* object." );
     wxCHECK_RET( m_schematic != nullptr, "NULL SCHEMATIC* object." );
 
+    SCH_SHEET_LIST sheets = m_schematic->BuildSheetListSortedByPageNumbers();
     SCH_SCREEN* screen = aSheet->GetScreen();
 
     wxCHECK( screen, /* void */ );
+
+    // If we've requested to embed the fonts in the schematic, do so.
+    // Otherwise, clear the embedded fonts from the schematic.  Embedded
+    // fonts will be used if available
+    if( m_schematic->GetAreFontsEmbedded() )
+        m_schematic->EmbedFonts();
+    else
+        m_schematic->GetEmbeddedFiles()->ClearEmbeddedFonts();
 
     m_out->Print( 0, "(kicad_sch (version %d) (generator \"eeschema\") (generator_version \"%s\")\n\n",
                   SEXPR_SCHEMATIC_FILE_VERSION, GetMajorMinorVersion().c_str().AsChar() );
@@ -426,7 +440,7 @@ void SCH_IO_KICAD_SEXPR::Format( SCH_SHEET* aSheet )
         {
         case SCH_SYMBOL_T:
             m_out->Print( 0, "\n" );
-            saveSymbol( static_cast<SCH_SYMBOL*>( item ), *m_schematic, 1, false );
+            saveSymbol( static_cast<SCH_SYMBOL*>( item ), *m_schematic, sheets, 1, false );
             break;
 
         case SCH_BITMAP_T:
@@ -435,7 +449,7 @@ void SCH_IO_KICAD_SEXPR::Format( SCH_SHEET* aSheet )
 
         case SCH_SHEET_T:
             m_out->Print( 0, "\n" );
-            saveSheet( static_cast<SCH_SHEET*>( item ), 1 );
+            saveSheet( static_cast<SCH_SHEET*>( item ), sheets, 1 );
             break;
 
         case SCH_JUNCTION_T:
@@ -471,7 +485,7 @@ void SCH_IO_KICAD_SEXPR::Format( SCH_SHEET* aSheet )
         case SCH_SHAPE_T:
             saveShape( static_cast<SCH_SHAPE*>( item ), 1 );
             break;
-        
+
         case SCH_RULE_AREA_T:
             saveRuleArea( static_cast<SCH_RULE_AREA*>( item ), 1 );
             break;
@@ -503,6 +517,13 @@ void SCH_IO_KICAD_SEXPR::Format( SCH_SHEET* aSheet )
 
         instances.emplace_back( aSheet->GetRootInstance() );
         saveInstances( instances, 1 );
+
+        m_out->Print( 1, "(embedded_fonts %s)\n",
+                      m_schematic->GetAreFontsEmbedded() ? "yes" : "no" );
+
+        // Save any embedded files
+        if( !m_schematic->GetEmbeddedFiles()->IsEmpty() )
+            m_schematic->WriteEmbeddedFiles( *m_out, 1, true );
     }
 
     m_out->Print( 0, ")\n" );
@@ -516,7 +537,7 @@ void SCH_IO_KICAD_SEXPR::Format( EE_SELECTION* aSelection, SCH_SHEET_PATH* aSele
     wxCHECK( aSelection && aSelectionPath && aFormatter, /* void */ );
 
     LOCALE_IO toggle;
-    SCH_SHEET_LIST fullHierarchy = aSchematic.GetSheets();
+    SCH_SHEET_LIST sheets = aSchematic.BuildSheetListSortedByPageNumbers();
 
     m_schematic = &aSchematic;
     m_out = aFormatter;
@@ -558,7 +579,7 @@ void SCH_IO_KICAD_SEXPR::Format( EE_SELECTION* aSelection, SCH_SHEET_PATH* aSele
         for( const std::pair<const wxString, LIB_SYMBOL*>& libSymbol : libSymbols )
         {
             SCH_IO_KICAD_SEXPR_LIB_CACHE::SaveSymbol( libSymbol.second, *m_out, 1,
-                                                      libSymbol.first );
+                                                      libSymbol.first, false );
         }
 
         m_out->Print( 0, ")\n\n" );
@@ -580,7 +601,7 @@ void SCH_IO_KICAD_SEXPR::Format( EE_SELECTION* aSelection, SCH_SHEET_PATH* aSele
             break;
 
         case SCH_SHEET_T:
-            saveSheet( static_cast< SCH_SHEET* >( item ), 0 );
+            saveSheet( static_cast< SCH_SHEET* >( item ), sheets, 0 );
             break;
 
         case SCH_JUNCTION_T:
@@ -647,6 +668,7 @@ void SCH_IO_KICAD_SEXPR::Format( EE_SELECTION* aSelection, SCH_SHEET_PATH* aSele
 
 
 void SCH_IO_KICAD_SEXPR::saveSymbol( SCH_SYMBOL* aSymbol, const SCHEMATIC& aSchematic,
+                                     const SCH_SHEET_LIST& aSheetList,
                                      int aNestLevel, bool aForClipboard,
                                      const SCH_SHEET_PATH* aRelativePath )
 {
@@ -711,9 +733,8 @@ void SCH_IO_KICAD_SEXPR::saveSymbol( SCH_SYMBOL* aSymbol, const SCHEMATIC& aSche
 
     // The symbol unit is always set to the first instance regardless of the current sheet
     // instance to prevent file churn.
-    int unit = ( aSymbol->GetInstances().size() == 0 ) ?
-               aSymbol->GetUnit() :
-               aSymbol->GetInstances()[0].m_Unit;
+    int unit = ( aSymbol->GetInstances().size() == 0 ) ? aSymbol->GetUnit()
+                                                       : aSymbol->GetInstances()[0].m_Unit;
 
     if( aForClipboard && aRelativePath )
     {
@@ -819,7 +840,6 @@ void SCH_IO_KICAD_SEXPR::saveSymbol( SCH_SYMBOL* aSymbol, const SCHEMATIC& aSche
         wxString projectName;
         KIID lastProjectUuid;
         KIID rootSheetUuid = aSchematic.Root().m_Uuid;
-        SCH_SHEET_LIST fullHierarchy = aSchematic.GetSheets();
 
         for( const SCH_SYMBOL_INSTANCE& inst : aSymbol->GetInstances() )
         {
@@ -830,7 +850,7 @@ void SCH_IO_KICAD_SEXPR::saveSymbol( SCH_SYMBOL* aSymbol, const SCHEMATIC& aSche
             // path, don't save it.  This prevents large amounts of orphaned instance data for the
             // current project from accumulating in the schematic files.
             bool isOrphaned = ( inst.m_Path[0] == rootSheetUuid )
-                              && !fullHierarchy.GetSheetPathByKIIDPath( inst.m_Path );
+                              && !aSheetList.GetSheetPathByKIIDPath( inst.m_Path );
 
             // Keep all instance data when copying to the clipboard.  They may be needed on paste.
             if( !aForClipboard && isOrphaned )
@@ -998,7 +1018,8 @@ void SCH_IO_KICAD_SEXPR::saveBitmap( SCH_BITMAP* aBitmap, int aNestLevel )
 }
 
 
-void SCH_IO_KICAD_SEXPR::saveSheet( SCH_SHEET* aSheet, int aNestLevel )
+void SCH_IO_KICAD_SEXPR::saveSheet( SCH_SHEET* aSheet, const SCH_SHEET_LIST& aSheetList,
+                                    int aNestLevel )
 {
     wxCHECK_RET( aSheet != nullptr && m_out != nullptr, "" );
 
@@ -1011,6 +1032,11 @@ void SCH_IO_KICAD_SEXPR::saveSheet( SCH_SHEET* aSheet, int aNestLevel )
                                                        aSheet->GetSize().x ).c_str(),
                   EDA_UNIT_UTILS::FormatInternalUnits( schIUScale,
                                                        aSheet->GetSize().y ).c_str() );
+
+    m_out->Print( 0, " (exclude_from_sim %s)", ( aSheet->GetExcludedFromSim() ) ? "yes" : "no" );
+    m_out->Print( 0, " (in_bom %s)", ( aSheet->GetExcludedFromBOM() ) ? "no" : "yes" );
+    m_out->Print( 0, " (on_board %s)", ( aSheet->GetExcludedFromBoard() ) ? "no" : "yes" );
+    m_out->Print( 0, " (dnp %s)", ( aSheet->GetDNP() ) ? "yes" : "no" );
 
     if( aSheet->GetFieldsAutoplaced() != FIELDS_AUTOPLACED_NO )
         m_out->Print( 0, " (fields_autoplaced yes)" );
@@ -1076,7 +1102,6 @@ void SCH_IO_KICAD_SEXPR::saveSheet( SCH_SHEET* aSheet, int aNestLevel )
 
         KIID lastProjectUuid;
         KIID rootSheetUuid = m_schematic->Root().m_Uuid;
-        SCH_SHEET_LIST fullHierarchy = m_schematic->GetSheets();
         bool project_open = false;
 
         for( size_t i = 0; i < sheetInstances.size(); i++ )
@@ -1087,7 +1112,7 @@ void SCH_IO_KICAD_SEXPR::saveSheet( SCH_SHEET* aSheet, int aNestLevel )
             //
             // Keep all instance data when copying to the clipboard.  It may be needed on paste.
             if( ( sheetInstances[i].m_Path[0] == rootSheetUuid )
-              && !fullHierarchy.GetSheetPathByKIIDPath( sheetInstances[i].m_Path, false ) )
+              && !aSheetList.GetSheetPathByKIIDPath( sheetInstances[i].m_Path, false ) )
             {
                 if( project_open && ( ( i + 1 == sheetInstances.size() )
                   || lastProjectUuid != sheetInstances[i+1].m_Path[0] ) )
@@ -1580,6 +1605,9 @@ void SCH_IO_KICAD_SEXPR::saveInstances( const std::vector<SCH_SHEET_INSTANCE>& a
 void SCH_IO_KICAD_SEXPR::cacheLib( const wxString& aLibraryFileName,
                                    const STRING_UTF8_MAP* aProperties )
 {
+    // Suppress font substitution warnings
+    fontconfig::FONTCONFIG::SetReporter( nullptr );
+
     if( !m_cache || !m_cache->IsFile( aLibraryFileName ) || m_cache->IsFileChanged() )
     {
         // a spectacular episode in memory management:

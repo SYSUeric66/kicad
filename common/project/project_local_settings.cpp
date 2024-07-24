@@ -19,12 +19,13 @@
  * with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+#include <lset.h>
 #include <project.h>
 #include <project/project_local_settings.h>
 #include <settings/json_settings_internals.h>
 #include <settings/parameters.h>
 
-const int projectLocalSettingsVersion = 3;
+const int projectLocalSettingsVersion = 4;
 
 
 PROJECT_LOCAL_SETTINGS::PROJECT_LOCAL_SETTINGS( PROJECT* aProject, const wxString& aFilename ) :
@@ -40,6 +41,7 @@ PROJECT_LOCAL_SETTINGS::PROJECT_LOCAL_SETTINGS( PROJECT* aProject, const wxStrin
         m_ViaOpacity( 1.0 ),
         m_PadOpacity( 1.0 ),
         m_ZoneOpacity( 0.6 ),
+        m_ShapeOpacity( 1.0 ),
         m_ImageOpacity( 0.6 ),
         m_PcbSelectionFilter(),
         m_project( aProject )
@@ -159,6 +161,7 @@ PROJECT_LOCAL_SETTINGS::PROJECT_LOCAL_SETTINGS( PROJECT* aProject, const wxStrin
     m_params.emplace_back( new PARAM<double>( "board.opacity.pads", &m_PadOpacity, 1.0 ) );
     m_params.emplace_back( new PARAM<double>( "board.opacity.zones", &m_ZoneOpacity, 0.6 ) );
     m_params.emplace_back( new PARAM<double>( "board.opacity.images", &m_ImageOpacity, 0.6 ) );
+    m_params.emplace_back( new PARAM<double>( "board.opacity.shapes", &m_ShapeOpacity, 1.0 ) );
 
     m_params.emplace_back( new PARAM_LIST<wxString>( "board.hidden_nets", &m_HiddenNets, {} ) );
 
@@ -404,6 +407,24 @@ PROJECT_LOCAL_SETTINGS::PROJECT_LOCAL_SETTINGS( PROJECT* aProject, const wxStrin
                     }
 
                     At( "board" )["visible_items"] = visible;
+                }
+
+                return true;
+            } );
+
+    registerMigration( 3, 4,
+            [&]()
+            {
+                // Schema version 3 to 4: LAYER_SHAPES added to visibility controls
+
+                std::string ptr( "board.visible_items" );
+
+                if( Contains( ptr ) )
+                {
+                    if( At( ptr ).is_array() )
+                        At( ptr ).push_back( LAYER_SHAPES - GAL_LAYER_ID_START );
+                    else
+                        At( "board" ).erase( "visible_items" );
                 }
 
                 return true;

@@ -12,14 +12,16 @@
 #include <wx/intl.h>
 class STD_BITMAP_BUTTON;
 class WX_GRID;
+class WX_INFOBAR;
 
 #include "dialog_shim.h"
-#include <wx/string.h>
-#include <wx/radiobut.h>
+#include <wx/infobar.h>
 #include <wx/gdicmn.h>
 #include <wx/font.h>
 #include <wx/colour.h>
 #include <wx/settings.h>
+#include <wx/string.h>
+#include <wx/radiobut.h>
 #include <wx/stattext.h>
 #include <wx/textctrl.h>
 #include <wx/bmpbuttn.h>
@@ -52,6 +54,7 @@ class DIALOG_SIM_MODEL_BASE : public DIALOG_SHIM
 	private:
 
 	protected:
+		WX_INFOBAR* m_infoBar;
 		wxNotebook* m_notebook;
 		wxPanel* m_modelPanel;
 		wxRadioButton* m_rbLibraryModel;
@@ -91,7 +94,7 @@ class DIALOG_SIM_MODEL_BASE : public DIALOG_SHIM
 		virtual void onRadioButton( wxCommandEvent& event ) { event.Skip(); }
 		virtual void onLibraryPathLabelUpdate( wxUpdateUIEvent& event ) { event.Skip(); }
 		virtual void onLibraryPathTextKillFocus( wxFocusEvent& event ) { event.Skip(); }
-		virtual void onLibrarayPathText( wxCommandEvent& event ) { event.Skip(); }
+		virtual void onLibraryPathText( wxCommandEvent& event ) { event.Skip(); }
 		virtual void onLibraryPathTextEnter( wxCommandEvent& event ) { event.Skip(); }
 		virtual void onBrowseButtonClick( wxCommandEvent& event ) { event.Skip(); }
 		virtual void onBrowseButtonUpdate( wxUpdateUIEvent& event ) { event.Skip(); }

@@ -363,7 +363,7 @@ void PCB_GROUP::Flip( const VECTOR2I& aCentre, bool aFlipLeftRight )
 }
 
 
-wxString PCB_GROUP::GetItemDescription( UNITS_PROVIDER* aUnitsProvider ) const
+wxString PCB_GROUP::GetItemDescription( UNITS_PROVIDER* aUnitsProvider, bool aFull ) const
 {
     if( m_name.empty() )
         return wxString::Format( _( "Unnamed Group, %zu members" ), m_items.size() );
@@ -426,20 +426,26 @@ void PCB_GROUP::RunOnDescendants( const std::function<void( BOARD_ITEM* )>& aFun
 }
 
 
-bool PCB_GROUP::operator==( const BOARD_ITEM& aOther ) const
+bool PCB_GROUP::operator==( const BOARD_ITEM& aBoardItem ) const
 {
-    if( aOther.Type() != Type() )
+    if( aBoardItem.Type() != Type() )
         return false;
 
-    const PCB_GROUP& other = static_cast<const PCB_GROUP&>( aOther );
+    const PCB_GROUP& other = static_cast<const PCB_GROUP&>( aBoardItem );
 
-    if( m_items.size() != other.m_items.size() )
+    return *this == other;
+}
+
+
+bool PCB_GROUP::operator==( const PCB_GROUP& aOther ) const
+{
+    if( m_items.size() != aOther.m_items.size() )
         return false;
 
     // The items in groups are in unordered sets hashed by the pointer value, so we need to
     // order them by UUID (EDA_ITEM_SET) to compare
     EDA_ITEM_SET itemSet( m_items.begin(), m_items.end() );
-    EDA_ITEM_SET otherItemSet( other.m_items.begin(), other.m_items.end() );
+    EDA_ITEM_SET otherItemSet( aOther.m_items.begin(), aOther.m_items.end() );
 
     for( auto it1 = itemSet.begin(), it2 = otherItemSet.begin(); it1 != itemSet.end(); ++it1, ++it2 )
     {

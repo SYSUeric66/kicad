@@ -21,6 +21,7 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA
  */
 
+#include <kiplatform/ui.h>
 #include <widgets/indicator_icon.h>
 #include <wx/event.h>
 #include <wx/settings.h>
@@ -38,7 +39,7 @@ INDICATOR_ICON::INDICATOR_ICON( wxWindow* aParent, ICON_PROVIDER& aIconProvider,
 
     const wxBitmap& icon = m_iconProvider.GetIndicatorIcon( m_currentId );
 
-    m_bitmap = new wxStaticBitmap( this, aID, icon, wxDefaultPosition, icon.GetSize() );
+    m_bitmap = new wxStaticBitmap( this, aID, icon, wxDefaultPosition, icon.GetLogicalSize() );
 
     sizer->Add( m_bitmap, 0, 0 );
 
@@ -60,7 +61,7 @@ void INDICATOR_ICON::SetIndicatorState( ICON_ID aIconId )
 
     const wxBitmap& icon = m_iconProvider.GetIndicatorIcon( m_currentId );
     m_bitmap->SetBitmap( icon );
-    m_bitmap->SetSize( icon.GetSize() );
+    m_bitmap->SetSize( icon.GetLogicalSize() );
 }
 
 
@@ -75,9 +76,12 @@ wxImage createBlankImage( int size )
     wxImage image( size, size );
 
     image.InitAlpha();
+
     for( int y = 0; y < size; ++y )
+    {
         for( int x = 0; x < size; ++x )
             image.SetAlpha( x, y, wxIMAGE_ALPHA_TRANSPARENT );
+    }
 
 #ifdef __WXMSW__
     // wxWidgets on Windows chokes on an empty fully transparent bitmap and draws it
@@ -92,7 +96,7 @@ wxImage createBlankImage( int size )
 
 // Create an arrow icon of a particular size, colour and direction.  0 points up, 1 points
 // right, and so forth.
-wxBitmap createArrow( int size, int aDirection, wxColour aColour )
+wxBitmap createArrow( int size, double aScaleFactor, int aDirection, wxColour aColour )
 {
     wxImage image = createBlankImage( size );
 
@@ -117,12 +121,14 @@ wxBitmap createArrow( int size, int aDirection, wxColour aColour )
     for( int i = 0; i < aDirection; ++i )
         image = image.Rotate90();
 
-    return wxBitmap( image );
+    wxBitmap bmp( image );
+    bmp.SetScaleFactor( aScaleFactor );
+    return bmp;
 }
 
 
 // Create a diamond icon of a particular size and colour.
-wxBitmap createDiamond( int size, wxColour aColour )
+wxBitmap createDiamond( int size, double aScaleFactor, wxColour aColour )
 {
     wxImage image = createBlankImage( size );
 
@@ -152,17 +158,30 @@ wxBitmap createDiamond( int size, wxColour aColour )
         }
     }
 
-    return wxBitmap( image );
+    wxBitmap bmp( image );
+    bmp.SetScaleFactor( aScaleFactor );
+    return bmp;
 }
 
 
-ROW_ICON_PROVIDER::ROW_ICON_PROVIDER( int aSize )
+ROW_ICON_PROVIDER::ROW_ICON_PROVIDER( int aSizeDIP, wxWindow* aWindow )
 {
-    m_blankBitmap = wxBitmap( createBlankImage( aSize ) );
-    m_rightArrowBitmap = createArrow( aSize, 1, wxColour( 64, 72, 255 ) );
-    m_upArrowBitmap = createArrow( aSize - 2, 0, wxSystemSettings().GetColour( wxSYS_COLOUR_3DDKSHADOW ) );
-    m_downArrowBitmap = createArrow( aSize - 2, 2, wxSystemSettings().GetColour( wxSYS_COLOUR_3DDKSHADOW ) );
-    m_dotBitmap = createDiamond( aSize, wxColour( 128, 144, 255 ) );
+    auto toPhys =
+            [&]( int dip )
+            {
+                return aWindow->ToPhys( aWindow->FromDIP( dip ) );
+            };
+
+    double   scale = aWindow->GetDPIScaleFactor();
+    wxColour shadowColor = wxSystemSettings().GetColour( wxSYS_COLOUR_3DDKSHADOW );
+
+    m_blankBitmap = wxBitmap( createBlankImage( toPhys( aSizeDIP ) ) );
+    m_blankBitmap.SetScaleFactor( scale );
+
+    m_rightArrowBitmap = createArrow( toPhys( aSizeDIP ), scale, 1, wxColour( 64, 72, 255 ) );
+    m_upArrowBitmap = createArrow( toPhys( aSizeDIP - 2 ), scale, 0, shadowColor );
+    m_downArrowBitmap = createArrow( toPhys( aSizeDIP - 2 ), scale, 2, shadowColor );
+    m_dotBitmap = createDiamond( toPhys( aSizeDIP ), scale, wxColour( 128, 144, 255 ) );
 }
 
 

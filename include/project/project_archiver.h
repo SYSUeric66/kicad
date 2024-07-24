@@ -37,6 +37,16 @@ public:
     ~PROJECT_ARCHIVER() = default;
 
     /**
+     * Compares the crcs of all the files in zip archive to determine whether the archives are identical
+     * @param aZipFileA is the full path to the first zip
+     * @param aZipFileB is the full path to the second zip
+     * @param aReporter is used to report status
+     * @return true if the archives are identical
+     */
+    static bool AreZipArchivesIdentical( const wxString& aZipFileA, const wxString& aZipFileB,
+                                        REPORTER& aReporter );
+
+    /**
      * Creates an archive of the project
      * @param aSrcFile is the full path to the project to be archived
      * @param aDestFile is the full path to the zip file to be created
@@ -45,8 +55,8 @@ public:
      * @param aIncludeExtraFiles if true will archive legacy and output files
      * @return true if the archive was created successfully
      */
-    bool Archive( const wxString& aSrcDir, const wxString& aDestFile, REPORTER& aReporter,
-                  bool aVerbose = true, bool aIncludeExtraFiles = false );
+    static bool Archive( const wxString& aSrcDir, const wxString& aDestFile, REPORTER& aReporter,
+                         bool aVerbose = true, bool aIncludeExtraFiles = false );
 
     /**
      * Extracts an archive of the current project over existing files
@@ -57,7 +67,7 @@ public:
      * @param aReporter is used to report status
      * @return true if the archive was created successfully
      */
-    bool Unarchive( const wxString& aSrcFile, const wxString& aDestDir, REPORTER& aReporter );
+    static bool Unarchive( const wxString& aSrcFile, const wxString& aDestDir, REPORTER& aReporter );
 };
 
 #endif // KICAD_PROJECT_ARCHIVER_H

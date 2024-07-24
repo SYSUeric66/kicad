@@ -48,6 +48,7 @@
 #include <font/outline_font.h>
 #include <geometry/shape_poly_set.h>
 #include <properties/property_validators.h>
+#include <ctl_flags.h>         // for CTL_OMIT_HIDE definition
 
 #include <wx/debug.h>           // for wxASSERT
 #include <wx/string.h>
@@ -542,10 +543,13 @@ EDA_TEXT::GetRenderCache( const KIFONT::FONT* aFont, const wxString& forResolved
 }
 
 
-void EDA_TEXT::SetupRenderCache( const wxString& aResolvedText, const EDA_ANGLE& aAngle )
+void EDA_TEXT::SetupRenderCache( const wxString& aResolvedText, const KIFONT::FONT* aFont,
+                                 const EDA_ANGLE& aAngle, const VECTOR2I& aOffset )
 {
     m_render_cache_text = aResolvedText;
+    m_render_cache_font = aFont;
     m_render_cache_angle = aAngle;
+    m_render_cache_offset = aOffset;
     m_render_cache.clear();
 }
 
@@ -553,6 +557,7 @@ void EDA_TEXT::SetupRenderCache( const wxString& aResolvedText, const EDA_ANGLE&
 void EDA_TEXT::AddRenderCacheGlyph( const SHAPE_POLY_SET& aPoly )
 {
     m_render_cache.emplace_back( std::make_unique<KIFONT::OUTLINE_GLYPH>( aPoly ) );
+    static_cast<KIFONT::OUTLINE_GLYPH*>( m_render_cache.back().get() )->CacheTriangulation();
 }
 
 
@@ -935,7 +940,7 @@ void EDA_TEXT::Format( OUTPUTFORMATTER* aFormatter, int aNestLevel, int aControl
     if( IsItalic() )
         aFormatter->Print( 0, " (italic yes)" );
 
-    if( GetTextColor() != COLOR4D::UNSPECIFIED )
+    if( !( aControlBits & CTL_OMIT_COLOR ) && GetTextColor() != COLOR4D::UNSPECIFIED )
     {
         aFormatter->Print( 0, " (color %d %d %d %s)",
                            KiROUND( GetTextColor().r * 255.0 ),
@@ -966,7 +971,7 @@ void EDA_TEXT::Format( OUTPUTFORMATTER* aFormatter, int aNestLevel, int aControl
     if( !( aControlBits & CTL_OMIT_HIDE ) && !IsVisible() )
         aFormatter->Print( 0, " (hide yes)" );
 
-    if( HasHyperlink() )
+    if( !( aControlBits & CTL_OMIT_HYPERLINK ) && HasHyperlink() )
     {
         aFormatter->Print( 0, " (href %s)", aFormatter->Quotew( GetHyperlink() ).c_str() );
     }
@@ -1174,14 +1179,26 @@ static struct EDA_TEXT_DESC
 {
     EDA_TEXT_DESC()
     {
-        ENUM_MAP<GR_TEXT_H_ALIGN_T>::Instance()
-                .Map( GR_TEXT_H_ALIGN_LEFT,   _HKI( "Left" ) )
-                .Map( GR_TEXT_H_ALIGN_CENTER, _HKI( "Center" ) )
-                .Map( GR_TEXT_H_ALIGN_RIGHT,  _HKI( "Right" ) );
-        ENUM_MAP<GR_TEXT_V_ALIGN_T>::Instance()
-                .Map( GR_TEXT_V_ALIGN_TOP,    _HKI( "Top" ) )
-                .Map( GR_TEXT_V_ALIGN_CENTER, _HKI( "Center" ) )
-                .Map( GR_TEXT_V_ALIGN_BOTTOM, _HKI( "Bottom" ) );
+        // These are defined in SCH_FIELD as well but initialization order is
+        // not defined, so this needs to be conditional.  Defining in both
+        // places leads to duplicate symbols.
+        auto& h_inst = ENUM_MAP<GR_TEXT_H_ALIGN_T>::Instance();
+
+        if( h_inst.Choices().GetCount() == 0)
+        {
+            h_inst.Map( GR_TEXT_H_ALIGN_LEFT,   _( "Left" ) );
+            h_inst.Map( GR_TEXT_H_ALIGN_CENTER, _( "Center" ) );
+            h_inst.Map( GR_TEXT_H_ALIGN_RIGHT,  _( "Right" ) );
+        }
+
+        auto& v_inst = ENUM_MAP<GR_TEXT_V_ALIGN_T>::Instance();
+
+        if( v_inst.Choices().GetCount() == 0)
+        {
+            v_inst.Map( GR_TEXT_V_ALIGN_TOP,    _( "Top" ) );
+            v_inst.Map( GR_TEXT_V_ALIGN_CENTER, _( "Center" ) );
+            v_inst.Map( GR_TEXT_V_ALIGN_BOTTOM, _( "Bottom" ) );
+        }
 
         PROPERTY_MANAGER& propMgr = PROPERTY_MANAGER::Instance();
         REGISTER_TYPE( EDA_TEXT );

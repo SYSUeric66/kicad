@@ -53,11 +53,10 @@ void FIELDS_EDITOR_GRID_DATA_MODEL::AddColumn( const wxString& aFieldName, const
 void FIELDS_EDITOR_GRID_DATA_MODEL::updateDataStoreSymbolField( const SCH_SYMBOL& aSymbol,
                                                                 const wxString&   aFieldName )
 {
-    if( const SCH_FIELD* field = aSymbol.GetFieldByName( aFieldName ) )
-        m_dataStore[aSymbol.m_Uuid][aFieldName] = field->GetText();
-    else if( isAttribute( aFieldName ) )
+    if( isAttribute( aFieldName ) )
         m_dataStore[aSymbol.m_Uuid][aFieldName] = getAttributeValue( aSymbol, aFieldName );
-
+    else if( const SCH_FIELD* field = aSymbol.GetFieldByName( aFieldName ) )
+        m_dataStore[aSymbol.m_Uuid][aFieldName] = field->GetText();
     // Handle fields with variables as names that are not present in the symbol
     // by giving them the correct value
     else if( IsTextVar( aFieldName ) )
@@ -85,9 +84,12 @@ void FIELDS_EDITOR_GRID_DATA_MODEL::RenameColumn( int aCol, const wxString& newN
     {
         SCH_SYMBOL* symbol = m_symbolsList[i].GetSymbol();
 
-        auto node = m_dataStore[symbol->m_Uuid].extract( m_cols[aCol].m_fieldName );
-        node.key() = newName;
-        m_dataStore[symbol->m_Uuid].insert( std::move( node ) );
+        // Careful; field may have already been renamed from another sheet instance
+        if( auto node = m_dataStore[symbol->m_Uuid].extract( m_cols[aCol].m_fieldName ) )
+        {
+            node.key() = newName;
+            m_dataStore[symbol->m_Uuid].insert( std::move( node ) );
+        }
     }
 
     m_cols[aCol].m_fieldName = newName;
@@ -318,8 +320,8 @@ bool FIELDS_EDITOR_GRID_DATA_MODEL::cmp( const DATA_MODEL_ROW&          lhGroup,
 
     // Primary sort key is sortCol; secondary is always REFERENCE (column 0)
 
-    wxString lhs = dataModel->GetValue( (DATA_MODEL_ROW&) lhGroup, sortCol );
-    wxString rhs = dataModel->GetValue( (DATA_MODEL_ROW&) rhGroup, sortCol );
+    wxString lhs = dataModel->GetValue( lhGroup, sortCol ).Trim( true ).Trim( false );
+    wxString rhs = dataModel->GetValue( rhGroup, sortCol ).Trim( true ).Trim( false );
 
     if( lhs == rhs || sortCol == REFERENCE_FIELD )
     {
@@ -872,6 +874,7 @@ BOM_PRESET FIELDS_EDITOR_GRID_DATA_MODEL::GetBomSettings()
     current.filterString = GetFilter();
     current.groupSymbols = GetGroupingEnabled();
     current.excludeDNP = GetExcludeDNP();
+    current.includeExcludedFromBOM = GetIncludeExcludedFromBOM();
 
     return current;
 }

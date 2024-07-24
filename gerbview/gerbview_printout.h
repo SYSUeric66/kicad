@@ -23,6 +23,7 @@
 #include <board_printout.h>
 
 class GBR_LAYOUT;
+class LSET;
 
 class GERBVIEW_PRINTOUT : public BOARD_PRINTOUT
 {

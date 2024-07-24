@@ -47,10 +47,11 @@
 #include "wx/dcclient.h"
 
 DIALOG_SHEET_PROPERTIES::DIALOG_SHEET_PROPERTIES( SCH_EDIT_FRAME* aParent, SCH_SHEET* aSheet,
-                                                  bool* aClearAnnotationNewItems,
+                                                  bool* aIsUndoable, bool* aClearAnnotationNewItems,
                                                   bool* aUpdateHierarchyNavigator ) :
     DIALOG_SHEET_PROPERTIES_BASE( aParent ),
     m_frame( aParent ),
+    m_isUndoable( aIsUndoable ),
     m_clearAnnotationNewItems( aClearAnnotationNewItems ),
     m_updateHierarchyNavigator( aUpdateHierarchyNavigator ),
     m_borderWidth( aParent, m_borderWidthLabel, m_borderWidthCtrl, m_borderWidthUnits ),
@@ -66,7 +67,7 @@ DIALOG_SHEET_PROPERTIES::DIALOG_SHEET_PROPERTIES( SCH_EDIT_FRAME* aParent, SCH_S
     m_grid->SetDefaultRowSize( m_grid->GetDefaultRowSize() + 4 );
 
     m_grid->SetTable( m_fields );
-    m_grid->PushEventHandler( new FIELDS_GRID_TRICKS( m_grid, this,
+    m_grid->PushEventHandler( new FIELDS_GRID_TRICKS( m_grid, this, &aParent->Schematic(),
                                                       [&]( wxCommandEvent& aEvent )
                                                       {
                                                           OnAddField( aEvent );
@@ -198,6 +199,11 @@ bool DIALOG_SHEET_PROPERTIES::TransferDataToWindow()
 
     m_pageNumberTextCtrl->ChangeValue( pageNumber );
 
+    m_cbExcludeFromSim->SetValue( m_sheet->GetExcludedFromSim() );
+    m_cbExcludeFromBom->SetValue( m_sheet->GetExcludedFromBOM() );
+    m_cbExcludeFromBoard->SetValue( m_sheet->GetExcludedFromBoard() );
+    m_cbDNP->SetValue( m_sheet->GetDNP() );
+
     return true;
 }
 
@@ -270,7 +276,8 @@ bool DIALOG_SHEET_PROPERTIES::TransferDataFromWindow()
 
     commit.Modify( m_sheet, m_frame->GetScreen() );
 
-    bool isUndoable = true;
+    if( m_isUndoable )
+        *m_isUndoable = true;
 
     // Sheet file names can be relative or absolute.
     wxString sheetFileName = m_fields->at( SHEETFILENAME ).GetText();
@@ -340,7 +347,7 @@ bool DIALOG_SHEET_PROPERTIES::TransferDataFromWindow()
             }
         }
 
-        if( !onSheetFilenameChanged( newRelativeFilename, &isUndoable ) )
+        if( !onSheetFilenameChanged( newRelativeFilename ) )
         {
             if( clearFileName )
                 currentScreen->SetFileName( wxEmptyString );
@@ -356,7 +363,8 @@ bool DIALOG_SHEET_PROPERTIES::TransferDataFromWindow()
             currentScreen->SetFileName( wxEmptyString );
 
         // One last validity check (and potential repair) just to be sure to be sure
-        SCH_SHEET_LIST repairedList( &m_frame->Schematic().Root(), true );
+        SCH_SHEET_LIST repairedList;
+        repairedList.BuildSheetList( &m_frame->Schematic().Root(), true );
     }
 
     wxString newSheetname = m_fields->at( SHEETNAME ).GetText();
@@ -389,7 +397,7 @@ bool DIALOG_SHEET_PROPERTIES::TransferDataFromWindow()
 
     m_sheet->SetFields( *m_fields );
 
-    m_sheet->SetBorderWidth( m_borderWidth.GetValue() );
+    m_sheet->SetBorderWidth( m_borderWidth.GetIntValue() );
 
     COLOR_SETTINGS* colorSettings = m_frame->GetColorSettings();
 
@@ -414,6 +422,11 @@ bool DIALOG_SHEET_PROPERTIES::TransferDataFromWindow()
     m_sheet->SetBorderColor( m_borderSwatch->GetSwatchColor() );
     m_sheet->SetBackgroundColor( m_backgroundSwatch->GetSwatchColor() );
 
+    m_sheet->SetExcludedFromSim( m_cbExcludeFromSim->GetValue() );
+    m_sheet->SetExcludedFromBOM( m_cbExcludeFromBom->GetValue() );
+    m_sheet->SetExcludedFromBoard( m_cbExcludeFromBoard->GetValue() );
+    m_sheet->SetDNP( m_cbDNP->GetValue() );
+
     SCH_SHEET_PATH instance = m_frame->GetCurrentSheet();
 
     instance.push_back( m_sheet );
@@ -426,38 +439,22 @@ bool DIALOG_SHEET_PROPERTIES::TransferDataFromWindow()
     for( SCH_ITEM* item : m_frame->GetScreen()->Items().OfType( SCH_SHEET_T ) )
         m_frame->UpdateItem( item );
 
-    if( isUndoable )
-    {
-        commit.Push( _( "Edit Sheet Properties" ) );
-    }
-    else
-    {
-        // If we are renaming files, the undo/redo list becomes invalid and must be cleared.
-        m_frame->ClearUndoRedoList();
-        m_frame->OnModify();
-    }
-
     return true;
 }
 
 
-bool DIALOG_SHEET_PROPERTIES::onSheetFilenameChanged( const wxString& aNewFilename,
-                                                      bool* aIsUndoable )
+bool DIALOG_SHEET_PROPERTIES::onSheetFilenameChanged( const wxString& aNewFilename )
 {
-    wxCHECK( aIsUndoable, false );
-
-    wxString   msg;
-    wxFileName sheetFileName(
-            EnsureFileExtension( aNewFilename, FILEEXT::KiCadSchematicFileExtension ) );
-
+    wxString       msg;
+    wxFileName     sheetFileName( EnsureFileExtension( aNewFilename,
+                                                       FILEEXT::KiCadSchematicFileExtension ) );
     // Sheet file names are relative to the path of the current sheet.  This allows for
     // nesting of schematic files in subfolders.  Screen file names are always absolute.
-    SCHEMATIC&                             schematic = m_frame->Schematic();
-    SCH_SHEET_LIST                         fullHierarchy = schematic.GetFullHierarchy();
-    wxFileName                             screenFileName( sheetFileName );
-    wxFileName                             tmp( sheetFileName );
-
-    SCH_SCREEN* currentScreen = m_frame->GetCurrentSheet().LastScreen();
+    SCHEMATIC&     schematic = m_frame->Schematic();
+    SCH_SHEET_LIST fullHierarchy = schematic.GetFullHierarchy();
+    wxFileName     screenFileName( sheetFileName );
+    wxFileName     tmp( sheetFileName );
+    SCH_SCREEN*    currentScreen = m_frame->GetCurrentSheet().LastScreen();
 
     wxCHECK( currentScreen, false );
 
@@ -545,7 +542,8 @@ bool DIALOG_SHEET_PROPERTIES::onSheetFilenameChanged( const wxString& aNewFilena
         if( newAbsoluteFilename.Cmp( oldAbsoluteFilename ) != 0 )
         {
             // Sheet file name changes cannot be undone.
-            *aIsUndoable = false;
+            if( m_isUndoable )
+                *m_isUndoable = false;
 
             if( useScreen || loadFromFile )           // Load from existing file.
             {

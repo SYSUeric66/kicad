@@ -102,14 +102,46 @@ wxString SCH_MARKER::SerializeToString() const
     if( erc->AuxItemHasSheetPath() )
         auxItemPath = erc->GetAuxItemSheetPath().Path().AsString();
 
-    return wxString::Format( wxT( "%s|%d|%d|%s|%s|%s|%s|%s" ), m_rcItem->GetSettingsKey(), m_Pos.x,
-                             m_Pos.y, m_rcItem->GetMainItemID().AsString(),
-                             m_rcItem->GetAuxItemID().AsString(), sheetSpecificPath, mainItemPath,
+    if( m_rcItem->GetErrorCode() == ERCE_GENERIC_WARNING
+            || m_rcItem->GetErrorCode() == ERCE_GENERIC_ERROR
+            || m_rcItem->GetErrorCode() == ERCE_UNRESOLVED_VARIABLE )
+    {
+        SCH_ITEM* sch_item = Schematic()->GetItem( erc->GetMainItemID() );
+        SCH_ITEM* parent = static_cast<SCH_ITEM*>( sch_item->GetParent() );
+        EDA_TEXT* text_item = dynamic_cast<EDA_TEXT*>( sch_item );
+
+        // SCH_FIELDs and SCH_ITEMs inside LIB_SYMBOLs don't have persistent KIIDs.  So the
+        // exclusion must refer to the parent's KIID, and include the text of the original text
+        // item for later look-up.
+
+        if( parent->IsType( { SCH_SYMBOL_T, SCH_LABEL_T, SCH_SHEET_T } ) )
+        {
+            return wxString::Format( wxT( "%s|%d|%d|%s|%s|%s|%s|%s" ),
+                                     m_rcItem->GetSettingsKey(),
+                                     m_Pos.x,
+                                     m_Pos.y,
+                                     parent->m_Uuid.AsString(),
+                                     text_item->GetText(),
+                                     sheetSpecificPath,
+                                     mainItemPath,
+                                     wxEmptyString );
+        }
+    }
+
+    return wxString::Format( wxT( "%s|%d|%d|%s|%s|%s|%s|%s" ),
+                             m_rcItem->GetSettingsKey(),
+                             m_Pos.x,
+                             m_Pos.y,
+                             m_rcItem->GetMainItemID().AsString(),
+                             m_rcItem->GetAuxItemID().AsString(),
+                             sheetSpecificPath,
+                             mainItemPath,
                              auxItemPath );
 }
 
 
-SCH_MARKER* SCH_MARKER::DeserializeFromString( SCHEMATIC* schematic, const wxString& data )
+SCH_MARKER* SCH_MARKER::DeserializeFromString( const SCH_SHEET_LIST& aSheetList,
+                                               const wxString& data )
 {
     wxArrayString props = wxSplit( data, '|' );
     VECTOR2I      markerPos( (int) strtol( props[1].c_str(), nullptr, 10 ),
@@ -120,7 +152,62 @@ SCH_MARKER* SCH_MARKER::DeserializeFromString( SCHEMATIC* schematic, const wxStr
     if( !ercItem )
         return nullptr;
 
-    ercItem->SetItems( KIID( props[3] ), KIID( props[4] ) );
+    if( ercItem->GetErrorCode() == ERCE_GENERIC_WARNING
+            || ercItem->GetErrorCode() == ERCE_GENERIC_ERROR
+            || ercItem->GetErrorCode() == ERCE_UNRESOLVED_VARIABLE )
+    {
+        // SCH_FIELDs and SCH_ITEMs inside LIB_SYMBOLs don't have persistent KIIDs.  So the
+        // exclusion will contain the parent's KIID in prop[3], and the text of the original
+        // text item in prop[4].
+
+        if( !props[4].IsEmpty() )
+        {
+            KIID      uuid = niluuid;
+            SCH_ITEM* parent = aSheetList.GetItem( KIID( props[3] ) );
+
+            // Check fields and pins for a match
+            parent->RunOnChildren(
+                    [&]( SCH_ITEM* child )
+                    {
+                        if( EDA_TEXT* text_item = dynamic_cast<EDA_TEXT*>( child ) )
+                        {
+                            if( text_item->GetText() == props[4] )
+                                uuid = child->m_Uuid;
+                        }
+                    } );
+
+            // If it's a symbol, we must also check non-overridden LIB_SYMBOL text children
+            if( uuid == niluuid && parent->Type() == SCH_SYMBOL_T )
+            {
+                static_cast<SCH_SYMBOL*>( parent )->GetLibSymbolRef()->RunOnChildren(
+                        [&]( SCH_ITEM* child )
+                        {
+                            if( child->Type() == SCH_FIELD_T )
+                            {
+                                // Match only on SCH_SYMBOL fields, not LIB_SYMBOL fields.
+                            }
+                            else if( EDA_TEXT* text_item = dynamic_cast<EDA_TEXT*>( child ) )
+                            {
+                                if( text_item->GetText() == props[4] )
+                                    uuid = child->m_Uuid;
+                            }
+                        } );
+            }
+
+            if( uuid != niluuid )
+                ercItem->SetItems( uuid );
+            else
+                return nullptr;
+        }
+        else
+        {
+            ercItem->SetItems( KIID( props[3] ) );
+        }
+    }
+    else
+    {
+        ercItem->SetItems( KIID( props[3] ), KIID( props[4] ) );
+    }
 
     bool isLegacyMarker = true;
 
@@ -132,13 +219,11 @@ SCH_MARKER* SCH_MARKER::DeserializeFromString( SCHEMATIC* schematic, const wxStr
     {
         isLegacyMarker = false;
 
-        SCH_SHEET_LIST sheetPaths = schematic->GetSheets();
-
         if( !props[5].IsEmpty() )
         {
             KIID_PATH                     sheetSpecificKiidPath( props[5] );
             std::optional<SCH_SHEET_PATH> sheetSpecificPath =
-                    sheetPaths.GetSheetPathByKIIDPath( sheetSpecificKiidPath, true );
+                    aSheetList.GetSheetPathByKIIDPath( sheetSpecificKiidPath, true );
             if( sheetSpecificPath.has_value() )
                 ercItem->SetSheetSpecificPath( sheetSpecificPath.value() );
         }
@@ -147,7 +232,7 @@ SCH_MARKER* SCH_MARKER::DeserializeFromString( SCHEMATIC* schematic, const wxStr
         {
             KIID_PATH                     mainItemKiidPath( props[6] );
             std::optional<SCH_SHEET_PATH> mainItemPath =
-                    sheetPaths.GetSheetPathByKIIDPath( mainItemKiidPath, true );
+                    aSheetList.GetSheetPathByKIIDPath( mainItemKiidPath, true );
             if( mainItemPath.has_value() )
             {
                 if( props[7].IsEmpty() )
@@ -158,7 +243,7 @@ SCH_MARKER* SCH_MARKER::DeserializeFromString( SCHEMATIC* schematic, const wxStr
                 {
                     KIID_PATH                     auxItemKiidPath( props[7] );
                     std::optional<SCH_SHEET_PATH> auxItemPath =
-                            sheetPaths.GetSheetPathByKIIDPath( auxItemKiidPath, true );
+                            aSheetList.GetSheetPathByKIIDPath( auxItemKiidPath, true );
 
                     if( auxItemPath.has_value() )
                         ercItem->SetItemsSheetPaths( mainItemPath.value(), auxItemPath.value() );
@@ -310,10 +395,10 @@ void SCH_MARKER::GetMsgPanelInfo( EDA_DRAW_FRAME* aFrame, std::vector<MSG_PANEL_
             auxItem = aFrame->GetItem( m_rcItem->GetAuxItemID() );
 
         if( mainItem )
-            mainText = mainItem->GetItemDescription( aFrame );
+            mainText = mainItem->GetItemDescription( aFrame, true );
 
         if( auxItem )
-            auxText = auxItem->GetItemDescription( aFrame );
+            auxText = auxItem->GetItemDescription( aFrame, true );
 
         aList.emplace_back( mainText, auxText );
     }

@@ -147,6 +147,7 @@ bool SCH_EDIT_FRAME::OpenProjectFiles( const std::vector<wxString>& aFileSet, in
     // unload current project file before loading new
     {
         ClearUndoRedoList();
+        ClearRepeatItemsList();
         SetScreen( nullptr );
         m_toolManager->GetTool<EE_INSPECTION_TOOL>()->Reset( TOOL_BASE::SUPERMODEL_RELOAD );
         CreateScreens();
@@ -184,7 +185,7 @@ bool SCH_EDIT_FRAME::OpenProjectFiles( const std::vector<wxString>& aFileSet, in
         CreateScreens();
     }
 
-    SCH_IO_MGR::SCH_FILE_T schFileType = SCH_IO_MGR::GuessPluginTypeFromSchPath( fullFileName );
+    SCH_IO_MGR::SCH_FILE_T schFileType = SCH_IO_MGR::GuessPluginTypeFromSchPath( fullFileName, KICTL_KICAD_ONLY );
 
     if( schFileType == SCH_IO_MGR::SCH_LEGACY )
     {
@@ -234,7 +235,10 @@ bool SCH_EDIT_FRAME::OpenProjectFiles( const std::vector<wxString>& aFileSet, in
 
         if( schFileType == SCH_IO_MGR::SCH_FILE_T::SCH_FILE_UNKNOWN )
         {
-            msg.Printf( _( "Unsupported schematic file '%s'." ), fullFileName );
+            msg.Printf( _( "'%s' is not a KiCad schematic file.\nUse File -> Import for "
+                           "non-KiCad schematic files." ),
+                        fullFileName );
+
             progressReporter.Hide();
             DisplayErrorMessage( this, msg );
         }
@@ -269,10 +273,12 @@ bool SCH_EDIT_FRAME::OpenProjectFiles( const std::vector<wxString>& aFileSet, in
             {
                 wxBusyCursor busy;
                 Schematic().SetRoot( pi->LoadSchematicFile( fullFileName, &Schematic() ) );
+
                 // Make ${SHEETNAME} work on the root sheet until we properly support
                 // naming the root sheet
                 Schematic().Root().SetName( _( "Root" ) );
-                wxLogDebug( "Loaded schematic with root sheet UUID %s", Schematic().Root().m_Uuid.AsString() );
+                wxLogTrace( tracePathsAndFiles, wxS( "Loaded schematic with root sheet UUID %s" ),
+                            Schematic().Root().m_Uuid.AsString() );
             }
 
             if( !pi->GetError().IsEmpty() )
@@ -327,7 +333,7 @@ bool SCH_EDIT_FRAME::OpenProjectFiles( const std::vector<wxString>& aFileSet, in
 
         // It's possible the schematic parser fixed errors due to bugs so warn the user
         // that the schematic has been fixed (modified).
-        SCH_SHEET_LIST sheetList = Schematic().GetSheets();
+        SCH_SHEET_LIST sheetList = Schematic().BuildSheetListSortedByPageNumbers();
 
         if( sheetList.IsModified() )
         {
@@ -511,8 +517,13 @@ bool SCH_EDIT_FRAME::OpenProjectFiles( const std::vector<wxString>& aFileSet, in
             }
         }
 
-        schematic.PruneOrphanedSymbolInstances( Prj().GetProjectName(), Schematic().GetSheets() );
-        schematic.PruneOrphanedSheetInstances( Prj().GetProjectName(), Schematic().GetSheets() );
+        // After the schematic is successfully loaded, we load the drawing sheet.
+        // This allows us to use the drawing sheet embedded in the schematic (if any)
+        // instead of the default one.
+        LoadDrawingSheet();
+
+        schematic.PruneOrphanedSymbolInstances( Prj().GetProjectName(), sheetList );
+        schematic.PruneOrphanedSheetInstances( Prj().GetProjectName(), sheetList );
 
         Schematic().ConnectionGraph()->Reset();
 
@@ -604,11 +615,7 @@ bool SCH_EDIT_FRAME::AppendSchematic()
 {
     SCH_SCREEN* screen = GetScreen();
 
-    if( !screen )
-    {
-        wxLogError( wxS( "Document not ready, cannot import" ) );
-        return false;
-    }
+    wxCHECK( screen, false );
 
     // open file chooser dialog
     wxString path = wxPathOnly( Prj().GetProjectFullName() );
@@ -643,6 +650,7 @@ bool SCH_EDIT_FRAME::AddSheetAndUpdateDisplay( const wxString aFullFileName )
     SyncView();
     OnModify();
     HardRedraw();   // Full reinit of the current screen and the display.
+    bool selected = false;
 
     // Select all new items
     for( EDA_ITEM* item : GetScreen()->Items() )
@@ -650,7 +658,8 @@ bool SCH_EDIT_FRAME::AddSheetAndUpdateDisplay( const wxString aFullFileName )
         if( !item->HasFlag( SKIP_STRUCT ) )
         {
             commit.Added( item, GetScreen() );
-            selectionTool->AddItemToSel( item );
+            selectionTool->AddItemToSel( item, true );
+            selected = true;
 
             if( item->Type() == SCH_LINE_T )
                 item->SetFlags( STARTPOINT | ENDPOINT );
@@ -658,6 +667,9 @@ bool SCH_EDIT_FRAME::AddSheetAndUpdateDisplay( const wxString aFullFileName )
         else
             item->ClearFlags( SKIP_STRUCT );
     }
+
+    if( selected )
+        m_toolManager->ProcessEvent( EVENTS::SelectedEvent );
 
     // Start moving selection, cancel undoes the insertion
     if( !m_toolManager->RunSynchronousAction( EE_ACTIONS::move, &commit ) )
@@ -746,6 +758,7 @@ void SCH_EDIT_FRAME::OnImportProject( wxCommandEvent& aEvent )
     // Don't leave dangling pointers to previously-opened document.
     m_toolManager->GetTool<EE_SELECTION_TOOL>()->ClearSelection();
     ClearUndoRedoList();
+    ClearRepeatItemsList();
 
     if( setProject )
     {
@@ -814,7 +827,8 @@ bool SCH_EDIT_FRAME::saveSchematicFile( SCH_SHEET* aSheet, const wxString& aSave
     wxCHECK( screen, false );
 
     // Cannot save to nowhere
-    wxCHECK( !aSavePath.IsEmpty(), false );
+    if( aSavePath.IsEmpty() )
+        return false;
 
     // Construct the name of the file to be saved
     schematicFileName = Prj().AbsolutePath( aSavePath );
@@ -1072,14 +1086,10 @@ bool SCH_EDIT_FRAME::SaveProject( bool aSaveAs )
         }
 
         // Attempt to make sheet file name paths relative to the new root schematic path.
-        SCH_SHEET_LIST sheets = Schematic().GetSheets();
-
-        for( SCH_SHEET_PATH& sheet : sheets )
+        for( SCH_SHEET_PATH& sheet : Schematic().BuildUnorderedSheetList() )
         {
-            if( sheet.Last()->IsRootSheet() )
-                continue;
-
-            sheet.MakeFilePathRelativeToParentSheet();
+            if( !sheet.Last()->IsRootSheet() )
+                sheet.MakeFilePathRelativeToParentSheet();
         }
     }
     else if( !fn.FileExists() )
@@ -1087,7 +1097,7 @@ bool SCH_EDIT_FRAME::SaveProject( bool aSaveAs )
         // File doesn't exist yet; true if we just imported something
         updateFileHistory = true;
     }
-    else if( !Schematic().GetSheets().IsModified() )
+    else if( !IsContentModified() )
     {
         return true;
     }
@@ -1239,7 +1249,7 @@ bool SCH_EDIT_FRAME::SaveProject( bool aSaveAs )
     std::vector<FILE_INFO_PAIR>& sheets = Prj().GetProjectFile().GetSheets();
     sheets.clear();
 
-    for( SCH_SHEET_PATH& sheetPath : Schematic().GetSheets() )
+    for( SCH_SHEET_PATH& sheetPath : Schematic().BuildUnorderedSheetList() )
     {
         SCH_SHEET* sheet = sheetPath.Last();
 
@@ -1367,7 +1377,6 @@ bool SCH_EDIT_FRAME::importFile( const wxString& aFileName, int aFileType,
 {
     wxFileName             filename( aFileName );
     wxFileName             newfilename;
-    SCH_SHEET_LIST         sheetList = Schematic().GetSheets();
     SCH_IO_MGR::SCH_FILE_T fileType = (SCH_IO_MGR::SCH_FILE_T) aFileType;
 
     wxCommandEvent changingEvt( EDA_EVT_SCHEMATIC_CHANGING );
@@ -1388,18 +1397,14 @@ bool SCH_EDIT_FRAME::importFile( const wxString& aFileName, int aFileType,
 
         try
         {
-            IO_RELEASER<SCH_IO> pi( SCH_IO_MGR::FindPlugin( fileType ) );
-            DIALOG_HTML_REPORTER              errorReporter( this );
-            WX_PROGRESS_REPORTER              progressReporter( this, _( "Importing Schematic" ), 1 );
+            IO_RELEASER<SCH_IO>  pi( SCH_IO_MGR::FindPlugin( fileType ) );
+            DIALOG_HTML_REPORTER errorReporter( this );
+            WX_PROGRESS_REPORTER progressReporter( this, _( "Importing Schematic" ), 1 );
 
-            PROJECT_CHOOSER_PLUGIN* projectChooserPlugin =
-                    dynamic_cast<PROJECT_CHOOSER_PLUGIN*>( pi.get() );
-
-            if( projectChooserPlugin )
+            if( PROJECT_CHOOSER_PLUGIN* c_pi = dynamic_cast<PROJECT_CHOOSER_PLUGIN*>( pi.get() ) )
             {
-                projectChooserPlugin->RegisterChooseProjectCallback(
-                        std::bind( DIALOG_IMPORT_CHOOSE_PROJECT::GetSelectionsModal, this,
-                                   std::placeholders::_1 ) );
+                c_pi->RegisterCallback( std::bind( DIALOG_IMPORT_CHOOSE_PROJECT::RunModal,
+                                                   this, std::placeholders::_1 ) );
             }
 
             if( eeconfig()->m_System.show_import_issues )
@@ -1409,8 +1414,8 @@ bool SCH_EDIT_FRAME::importFile( const wxString& aFileName, int aFileType,
 
             pi->SetProgressReporter( &progressReporter );
 
-            SCH_SHEET* loadedSheet =
-                    pi->LoadSchematicFile( aFileName, &Schematic(), nullptr, aProperties );
+            SCH_SHEET* loadedSheet = pi->LoadSchematicFile( aFileName, &Schematic(), nullptr,
+                                                            aProperties );
 
             if( loadedSheet )
             {
@@ -1422,8 +1427,8 @@ bool SCH_EDIT_FRAME::importFile( const wxString& aFileName, int aFileType,
                     errorReporter.ShowModal();
                 }
 
-                // Non-KiCad schematics do not use a drawing-sheet (or if they do, it works differently
-                // to KiCad), so set it to an empty one
+                // Non-KiCad schematics do not use a drawing-sheet (or if they do, it works
+                // differently to KiCad), so set it to an empty one.
                 DS_DATA_MODEL& drawingSheet = DS_DATA_MODEL::GetTheInstance();
                 drawingSheet.SetEmptyLayout();
                 BASE_SCREEN::m_DrawingSheetFileName = "empty.kicad_wks";
@@ -1475,6 +1480,7 @@ bool SCH_EDIT_FRAME::importFile( const wxString& aFileName, int aFileType,
         }
 
         ClearUndoRedoList();
+        ClearRepeatItemsList();
 
         initScreenZoom();
         SetSheetNumberAndCount();

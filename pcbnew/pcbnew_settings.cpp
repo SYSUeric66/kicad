@@ -26,6 +26,7 @@
 #include <common.h>
 #include <footprint_editor_settings.h>
 #include <layer_ids.h>
+#include <lset.h>
 #include <pcbnew_settings.h>
 #include <pgm_base.h>
 #include <router/pns_routing_settings.h>
@@ -129,7 +130,7 @@ PCBNEW_SETTINGS::PCBNEW_SETTINGS()
             &m_AuiPanels.show_search, false ) );
 
     m_params.emplace_back( new PARAM<bool>( "aui.show_net_inspector",
-            &m_AuiPanels.show_net_inspector, false ) );        
+            &m_AuiPanels.show_net_inspector, false ) );
 
     m_params.emplace_back( new PARAM<int>( "footprint_chooser.width",
             &m_FootprintChooser.width, -1 ) );
@@ -283,6 +284,9 @@ PCBNEW_SETTINGS::PCBNEW_SETTINGS()
 
     m_params.emplace_back( new PARAM<bool>( "pcb_display.show_page_borders",
             &m_ShowPageLimits, true ) );
+
+    m_params.emplace_back( new PARAM<bool>( "cleanup.cleanup_refill_zones",
+            &m_Cleanup.cleanup_refill_zones, true ) );
 
     m_params.emplace_back( new PARAM<bool>( "cleanup.cleanup_vias",
             &m_Cleanup.cleanup_vias, true ) );
