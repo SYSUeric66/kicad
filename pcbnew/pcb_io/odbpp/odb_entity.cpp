@@ -455,13 +455,6 @@ void ODB_LAYER_ENTITY::InitEntityData()
         return;
     }
 
-    // if( m_matrixLayerName.Contains( "slot" ) )
-    // {
-    //     InitSlotData();
-    //     InitFeatureData();
-    //     return;
-    // }
-
     if( m_layerID != PCB_LAYER_ID::UNDEFINED_LAYER )
     {
         InitFeatureData();
@@ -621,56 +614,13 @@ void ODB_LAYER_ENTITY::InitDrillData()
             break;
         }
     }
-
 }
-
-// void ODB_LAYER_ENTITY::InitSlotData()
-// {
-//     std::map<std::pair<PCB_LAYER_ID, PCB_LAYER_ID>, std::vector<BOARD_ITEM*>>&
-//         slot_holes = m_plugin->GetSlotHolesMap();
-
-//     if( !m_layerItems.empty() )
-//     {
-//         m_layerItems.clear();
-//     }
-
-//     m_tools.emplace( "MM" );
-    
-//     for( const auto& [layer_pair, vec] : slot_holes )
-//     {
-//         wxString sLayerName = wxString::Format( "slot_%s-%s",
-//                         m_board->GetLayerName( layer_pair.first ),
-//                         m_board->GetLayerName( layer_pair.second ) );
-
-//         if( ODB::GenLegalEntityName( sLayerName ) == m_matrixLayerName )
-//         {
-//             for( BOARD_ITEM * item : vec )
-//             {
-//                 PAD* pad = static_cast<PAD*>( item );
-//                 //for slot tools
-//                 m_tools.value().AddDrillTools(
-//                     pad->GetAttribute() == PAD_ATTRIB::PTH ? "PLATED" : "NON_PLATED",
-//                     ODB::Float2StrVal( m_ODBSymbolScale * pad->GetDrillSizeX() ) );
-
-//                 //for slot features
-//                 m_layerItems[pad->GetNetCode()].push_back( pad );
-//             }
-
-//             break;
-//         }
-//     }
-
-// }
-
-
 
 void ODB_STEP_ENTITY::InitEntityData()
 {
     MakeLayerEntity();
     InitEdaData();
-    // InitNetListData();
     InitLayerEntityData();
-
 }
 
 void ODB_STEP_ENTITY::InitPackage()
@@ -848,11 +798,6 @@ void ODB_STEP_ENTITY::InitEdaData()
 
 }
 
-
-// void ODB_STEP_ENTITY::InitNetListData()
-// {
-
-// }
 
 bool ODB_STEP_ENTITY::GenerateFiles( ODB_TREE_WRITER& writer )
 {

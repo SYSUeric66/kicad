@@ -216,7 +216,6 @@ public:
     void InitFeatureData();
     ODB_COMPONENT& InitComponentData( const FOOTPRINT* aFp, const EDAData::Package& aPkg );
     void InitDrillData();
-    // void InitSlotData();
     
     void AddLayerFeatures();
 
