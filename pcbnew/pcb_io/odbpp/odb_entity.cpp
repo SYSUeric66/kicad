@@ -662,7 +662,7 @@ bool ODB_LAYER_ENTITY::GenerateFiles( ODB_TREE_WRITER &writer )
 
 bool ODB_LAYER_ENTITY::GenComponents( ODB_TREE_WRITER &writer )
 {
-    auto fileproxy = writer.CreateFileProxy( "component" );
+    auto fileproxy = writer.CreateFileProxy( "components" );
     
     if( m_compTop.has_value() )
     {

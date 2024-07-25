@@ -49,10 +49,7 @@ class SHAPE_SEGMENT;
 class EDAData::Subnet;
 
 
-
-
-
-class PCB_IO_ODBPP : public PCB_IO, public LAYER_REMAPPABLE_PLUGIN
+class PCB_IO_ODBPP : public PCB_IO
 {
 public:
     /**

@@ -213,10 +213,10 @@ void FEATURES_MANAGER::AddPadShape( const PAD& aPad, PCB_LAYER_ID aLayer )
     // for drill, slot, component layers, as their layerID is UNDEFINED_LAYER.
     if( aLayer != PCB_LAYER_ID::UNDEFINED_LAYER )
     {
-        if( LSET( 2, F_Mask, B_Mask ).Contains( aLayer ) )
+        if( LSET( { F_Mask, B_Mask } ).Contains( aLayer ) )
             expansion.x = expansion.y = 2 * aPad.GetSolderMaskExpansion();
 
-        if( LSET( 2, F_Paste, B_Paste ).Contains( aLayer ) )
+        if( LSET( { F_Paste, B_Paste } ).Contains( aLayer ) )
             expansion = 2 * aPad.GetSolderPasteMargin();
     }
 

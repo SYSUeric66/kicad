@@ -243,7 +243,7 @@ void EDAData::AddPackage( const FOOTPRINT* aFp )
         for( size_t j = i + 1; j < fp->Pads().size(); ++j )
         {
             const PAD* pad2 = fp->Pads()[j];
-            const uint64_t pin_dist = KiROUND( EuclideanNorm( pad1->GetCenter() - pad2->GetCenter() ) );
+            const uint64_t pin_dist = ( pad1->GetCenter() - pad2->GetCenter() ).EuclideanNorm();
             pkg->m_pitch = std::min( pkg->m_pitch, pin_dist );
         }
     }
