@@ -640,6 +640,16 @@ public:
     bool HitTest( const VECTOR2I& aPosition, int aAccuracy = 0 ) const override;
     bool HitTest( const BOX2I& aRect, bool aContained, int aAccuracy = 0 ) const override;
 
+
+    /**
+     * Recombines the pad with other graphical shapes in the footprint
+     *
+     * @param aIsDryRun if true, the pad will not be recombined but the operation will still be logged
+     * @param aMaxError the maximum error to allow for converting arcs to polygons
+     * @return a list of shapes that were recombined
+    */
+    std::vector<PCB_SHAPE*> Recombine( bool aIsDryRun, int aMaxError );
+
     wxString GetClass() const override
     {
         return wxT( "PAD" );
@@ -720,6 +730,10 @@ public:
         std::unique_lock<std::mutex> cacheLock( m_zoneLayerOverridesMutex );
         m_zoneLayerOverrides.at( aLayer ) = aOverride;
     }
+
+    void CheckPad( UNITS_PROVIDER* aUnitsProvider,
+                   const std::function<void( int aErrorCode,
+                                             const wxString& aMsg )>& aErrorHandler ) const;
 
     double Similarity( const BOARD_ITEM& aOther ) const override;
 

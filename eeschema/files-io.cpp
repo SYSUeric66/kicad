@@ -146,6 +146,7 @@ bool SCH_EDIT_FRAME::OpenProjectFiles( const std::vector<wxString>& aFileSet, in
     // unload current project file before loading new
     {
         ClearUndoRedoList();
+        ClearRepeatItemsList();
         SetScreen( nullptr );
         m_toolManager->GetTool<EE_INSPECTION_TOOL>()->Reset( TOOL_BASE::SUPERMODEL_RELOAD );
         CreateScreens();
@@ -180,7 +181,7 @@ bool SCH_EDIT_FRAME::OpenProjectFiles( const std::vector<wxString>& aFileSet, in
         CreateScreens();
     }
 
-    SCH_IO_MGR::SCH_FILE_T schFileType = SCH_IO_MGR::GuessPluginTypeFromSchPath( fullFileName );
+    SCH_IO_MGR::SCH_FILE_T schFileType = SCH_IO_MGR::GuessPluginTypeFromSchPath( fullFileName, KICTL_KICAD_ONLY );
 
     if( schFileType == SCH_IO_MGR::SCH_LEGACY )
     {
@@ -230,7 +231,10 @@ bool SCH_EDIT_FRAME::OpenProjectFiles( const std::vector<wxString>& aFileSet, in
 
         if( schFileType == SCH_IO_MGR::SCH_FILE_T::SCH_FILE_UNKNOWN )
         {
-            msg.Printf( _( "Unsupported schematic file '%s'." ), fullFileName );
+            msg.Printf( _( "'%s' is not a KiCad schematic file.\nUse File -> Import for "
+                           "non-KiCad schematic files." ),
+                        fullFileName );
+
             progressReporter.Hide();
             DisplayErrorMessage( this, msg );
         }
@@ -742,6 +746,7 @@ void SCH_EDIT_FRAME::OnImportProject( wxCommandEvent& aEvent )
     // Don't leave dangling pointers to previously-opened document.
     m_toolManager->GetTool<EE_SELECTION_TOOL>()->ClearSelection();
     ClearUndoRedoList();
+    ClearRepeatItemsList();
 
     if( setProject )
     {
@@ -1075,7 +1080,7 @@ bool SCH_EDIT_FRAME::SaveProject( bool aSaveAs )
         // File doesn't exist yet; true if we just imported something
         updateFileHistory = true;
     }
-    else if( !Schematic().GetSheets().IsModified() )
+    else if( !IsContentModified() )
     {
         return true;
     }
@@ -1462,6 +1467,7 @@ bool SCH_EDIT_FRAME::importFile( const wxString& aFileName, int aFileType,
         }
 
         ClearUndoRedoList();
+        ClearRepeatItemsList();
 
         initScreenZoom();
         SetSheetNumberAndCount();

@@ -1579,6 +1579,21 @@ void PCB_SELECTION_TOOL::selectAllConnectedTracks(
         }
     }
 
+    // Promote generated members to their PCB_GENERATOR parents
+    for( EDA_ITEM* item : m_selection )
+    {
+        BOARD_ITEM* boardItem = dynamic_cast<BOARD_ITEM*>( item );
+        PCB_GROUP*  parent = boardItem ? boardItem->GetParentGroup() : nullptr;
+
+        if( parent && parent->Type() == PCB_GENERATOR_T )
+        {
+            unselect( item );
+
+            if( !parent->IsSelected() )
+                select( parent );
+        }
+    }
+
     for( BOARD_CONNECTED_ITEM* item : cleanupItems )
         item->ClearFlags( SKIP_STRUCT );
 }
@@ -1741,6 +1756,12 @@ int PCB_SELECTION_TOOL::grabUnconnected( const TOOL_EVENT& aEvent )
         // Check every ratsnest line for the nearest one
         for( const CN_EDGE& edge : edges )
         {
+            if( edge.GetSourceNode()->Parent()->GetParentFootprint()
+                == edge.GetTargetNode()->Parent()->GetParentFootprint() )
+            {
+                continue; // This edge is a loop on the same footprint
+            }
+
             // Figure out if we are the source or the target node on the ratnest
             const CN_ANCHOR* other = edge.GetSourceNode()->Parent() == pad ? edge.GetTargetNode().get()
                                                                            : edge.GetSourceNode().get();
@@ -1973,7 +1994,7 @@ void PCB_SELECTION_TOOL::doSyncSelection( const std::vector<BOARD_ITEM*>& aItems
     if( aWithNets )
         selectConnections( aItems );
 
-    BOX2I bbox = m_selection.GetBoundingBox();
+    BOX2I bbox = m_selection.GetBoundingBox( true );
 
     if( bbox.GetWidth() != 0 && bbox.GetHeight() != 0 )
     {

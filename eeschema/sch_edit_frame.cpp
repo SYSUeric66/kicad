@@ -404,6 +404,11 @@ SCH_EDIT_FRAME::~SCH_EDIT_FRAME()
     if( m_schematic )
         m_schematic->RemoveAllListeners();
 
+    // Delete all items not in draw list before deleting schematic
+    // to avoid dangling pointers stored in these items
+    ClearUndoRedoList();
+    ClearRepeatItemsList();
+
     delete m_schematic;
     m_schematic = nullptr;
 
@@ -774,7 +779,7 @@ void SCH_EDIT_FRAME::AddCopyForRepeatItem( const SCH_ITEM* aItem )
 
 EDA_ITEM* SCH_EDIT_FRAME::GetItem( const KIID& aId ) const
 {
-    return Schematic().GetSheets().GetItem( aId );
+    return Schematic().GetItem( aId );
 }
 
 
@@ -894,7 +899,7 @@ bool SCH_EDIT_FRAME::canCloseWindow( wxCloseEvent& aEvent )
 
     // Shutdown blocks must be determined and vetoed as early as possible
     if( KIPLATFORM::APP::SupportsShutdownBlockReason() && aEvent.GetId() == wxEVT_QUERY_END_SESSION
-            && Schematic().GetSheets().IsModified() )
+            && IsContentModified() )
     {
         return false;
     }
@@ -942,9 +947,7 @@ bool SCH_EDIT_FRAME::canCloseWindow( wxCloseEvent& aEvent )
     if( !Schematic().IsValid() )
         return false;
 
-    SCH_SHEET_LIST sheetlist = Schematic().GetSheets();
-
-    if( sheetlist.IsModified() )
+    if( IsContentModified() )
     {
         wxFileName fileName = Schematic().RootScreen()->GetFileName();
         wxString msg = _( "Save changes to '%s' before closing?" );
@@ -965,7 +968,7 @@ bool SCH_EDIT_FRAME::canCloseWindow( wxCloseEvent& aEvent )
 
 void SCH_EDIT_FRAME::doCloseWindow()
 {
-    SCH_SHEET_LIST sheetlist = Schematic().GetSheets();
+    SCH_SHEET_LIST sheetlist = Schematic().GetUnorderedSheets();
 
     // Shutdown all running tools
     if( m_toolManager )
@@ -1057,7 +1060,7 @@ void SCH_EDIT_FRAME::doCloseWindow()
     // Make sure local settings are persisted
     SaveProjectLocalSettings();
 
-    Schematic().RootScreen()->Clear();
+    Schematic().RootScreen()->Clear( true );
 
     // all sub sheets are deleted, only the main sheet is usable
     GetCurrentSheet().clear();
@@ -2037,7 +2040,7 @@ const BOX2I SCH_EDIT_FRAME::GetDocumentExtents( bool aIncludeAllVisible ) const
 
 bool SCH_EDIT_FRAME::IsContentModified() const
 {
-    return Schematic().GetSheets().IsModified();
+    return Schematic().GetUnorderedSheets().IsModified();
 }
 
 
@@ -2052,9 +2055,8 @@ void SCH_EDIT_FRAME::FocusOnItem( SCH_ITEM* aItem )
 {
     static KIID lastBrightenedItemID( niluuid );
 
-    SCH_SHEET_LIST sheetList = Schematic().GetSheets();
     SCH_SHEET_PATH dummy;
-    SCH_ITEM*      lastItem = sheetList.GetItem( lastBrightenedItemID, &dummy );
+    SCH_ITEM*      lastItem = Schematic().GetItem( lastBrightenedItemID, &dummy );
 
     if( lastItem && lastItem != aItem )
     {

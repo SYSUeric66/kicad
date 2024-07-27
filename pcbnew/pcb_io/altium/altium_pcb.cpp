@@ -33,9 +33,12 @@
 #include <pad.h>
 #include <pcb_shape.h>
 #include <pcb_text.h>
+#include <pcb_textbox.h>
 #include <pcb_track.h>
 #include <core/profile.h>
+#include <pad_shapes.h>
 #include <string_utils.h>
+#include <tools/pad_tool.h>
 #include <zone.h>
 
 #include <board_stackup_manager/stackup_predefined_prms.h>
@@ -764,7 +767,7 @@ FOOTPRINT* ALTIUM_PCB::ParseFootprint( ALTIUM_COMPOUND_FILE& altiumLibFile,
         case ALTIUM_RECORD::VIA:
         {
             AVIA6 via( parser );
-            // TODO: implement
+            ConvertVias6ToFootprintItem( footprint.get(), via );
             break;
         }
         case ALTIUM_RECORD::TRACK:
@@ -800,6 +803,36 @@ FOOTPRINT* ALTIUM_PCB::ParseFootprint( ALTIUM_COMPOUND_FILE& altiumLibFile,
         default:
             THROW_IO_ERROR( wxString::Format( _( "Record of unknown type: '%d'." ), recordtype ) );
         }
+    }
+
+
+    // Loop over this multiple times to catch pads that are jumpered to each other by multiple shapes
+    for( bool changes = true; changes; )
+    {
+        changes = false;
+
+        alg::for_all_pairs( footprint->Pads().begin(), footprint->Pads().end(),
+            [&changes]( PAD* aPad1, PAD* aPad2 )
+            {
+                if( !( aPad1->GetNumber().IsEmpty() ^ aPad2->GetNumber().IsEmpty() ) )
+                    return;
+
+                for( PCB_LAYER_ID layer : aPad1->GetLayerSet().Seq() )
+                {
+                    std::shared_ptr<SHAPE> shape1 = aPad1->GetEffectiveShape( layer );
+                    std::shared_ptr<SHAPE> shape2 = aPad2->GetEffectiveShape( layer );
+
+                    if( shape1->Collide( shape2.get() ) )
+                    {
+                        if( aPad1->GetNumber().IsEmpty() )
+                            aPad1->SetNumber( aPad2->GetNumber() );
+                        else
+                            aPad2->SetNumber( aPad1->GetNumber() );
+
+                        changes = true;
+                    }
+                }
+            } );
     }
 
     // Auto-position reference and value
@@ -1879,6 +1912,26 @@ void ALTIUM_PCB::ParsePolygons6Data( const ALTIUM_COMPOUND_FILE&     aAltiumPcbF
             continue;
         }
 
+        SHAPE_POLY_SET outline( linechain );
+
+        if( elem.hatchstyle != ALTIUM_POLYGON_HATCHSTYLE::SOLID )
+        {
+            // Altium "Hatched" or "None" polygon outlines have thickness, convert it to KiCad's representation.
+            outline.Inflate( elem.trackwidth / 2, CORNER_STRATEGY::CHAMFER_ACUTE_CORNERS,
+                             ARC_HIGH_DEF, true );
+        }
+
+        if( outline.OutlineCount() != 1 && m_reporter )
+        {
+            wxString msg;
+            msg.Printf( _( "Polygon outline count is %d, expected 1." ), outline.OutlineCount() );
+
+            m_reporter->Report( msg, RPT_SEVERITY_ERROR );
+        }
+
+        if( outline.OutlineCount() == 0 )
+            continue;
+
         ZONE* zone = new ZONE( m_board );
         m_board->Add( zone, ADD_MODE::APPEND );
         m_polygons.emplace_back( zone );
@@ -1887,7 +1940,7 @@ void ALTIUM_PCB::ParsePolygons6Data( const ALTIUM_COMPOUND_FILE&     aAltiumPcbF
         zone->SetPosition( elem.vertices.at( 0 ).position );
         zone->SetLocked( elem.locked );
         zone->SetAssignedPriority( elem.pourindex > 0 ? elem.pourindex : 0 );
-        zone->Outline()->AddOutline( linechain );
+        zone->Outline()->AddOutline( outline.Outline( 0 ) );
 
         HelperSetZoneLayers( zone, elem.layer );
 
@@ -2448,12 +2501,12 @@ void ALTIUM_PCB::ConvertShapeBasedRegions6ToFootprintItemOnLayer( FOOTPRINT*    
 
     if( aLayer == F_Cu || aLayer == B_Cu )
     {
-        PAD* pad = new PAD( aFootprint );
+        std::unique_ptr<PAD> pad = std::make_unique<PAD>( aFootprint );
 
         LSET padLayers;
         padLayers.set( aLayer );
 
-        pad->SetKeepTopBottom( false ); // TODO: correct? This seems to be KiCad default on import
+        pad->SetKeepTopBottom( false );
         pad->SetAttribute( PAD_ATTRIB::SMD );
         pad->SetShape( PAD_SHAPE::CUSTOM );
         pad->SetThermalSpokeAngle( ANGLE_90 );
@@ -2498,18 +2551,18 @@ void ALTIUM_PCB::ConvertShapeBasedRegions6ToFootprintItemOnLayer( FOOTPRINT*    
 
         pad->SetLayerSet( padLayers );
 
-        aFootprint->Add( pad, ADD_MODE::APPEND );
+        aFootprint->Add( pad.release(), ADD_MODE::APPEND );
     }
     else
     {
-        PCB_SHAPE* shape = new PCB_SHAPE( aFootprint, SHAPE_T::POLY );
+        std::unique_ptr<PCB_SHAPE> shape = std::make_unique<PCB_SHAPE>( aFootprint, SHAPE_T::POLY );
 
         shape->SetPolyShape( polySet );
         shape->SetFilled( true );
         shape->SetLayer( aLayer );
         shape->SetStroke( STROKE_PARAMS( 0 ) );
 
-        aFootprint->Add( shape, ADD_MODE::APPEND );
+        aFootprint->Add( shape.release(), ADD_MODE::APPEND );
     }
 }
 
@@ -2882,6 +2935,49 @@ void ALTIUM_PCB::ConvertPads6ToBoardItem( const APAD6& aElem )
 
         m_board->Add( footprint, ADD_MODE::APPEND );
     }
+}
+
+
+void ALTIUM_PCB::ConvertVias6ToFootprintItem( FOOTPRINT* aFootprint, const AVIA6& aElem )
+{
+    std::unique_ptr<PAD> pad = std::make_unique<PAD>( aFootprint );
+
+    pad->SetNumber( "" );
+    pad->SetNetCode( GetNetCode( aElem.net ) );
+
+    pad->SetKeepTopBottom( false );
+    pad->SetPosition( aElem.position );
+    pad->SetSize( VECTOR2I( aElem.diameter, aElem.diameter ) );
+    pad->SetDrillSize( VECTOR2I( aElem.holesize, aElem.holesize ) );
+    pad->SetDrillShape( PAD_DRILL_SHAPE_CIRCLE );
+    pad->SetShape( PAD_SHAPE::CIRCLE );
+    pad->SetAttribute( PAD_ATTRIB::PTH );
+
+    // Pads are always through holes in KiCad
+    pad->SetLayerSet( LSET().AllCuMask() );
+
+    if( aElem.is_tent_top )
+        pad->SetLayerSet( pad->GetLayerSet().reset( F_Mask ) );
+    else
+        pad->SetLayerSet( pad->GetLayerSet().set( F_Mask ) );
+
+    if( aElem.is_tent_bottom )
+        pad->SetLayerSet( pad->GetLayerSet().reset( B_Mask ) );
+    else
+        pad->SetLayerSet( pad->GetLayerSet().set( B_Mask ) );
+
+
+    if( aElem.is_locked )
+        pad->SetLocked( true );
+
+    if( aElem.soldermask_expansion_manual )
+    {
+        pad->SetLocalSolderMaskMargin(
+                std::max( aElem.soldermask_expansion_front, aElem.soldermask_expansion_back ) );
+    }
+
+
+    aFootprint->Add( pad.release(), ADD_MODE::APPEND );
 }
 
 
@@ -3386,7 +3482,7 @@ void ALTIUM_PCB::HelperParsePad6NonCopper( const APAD6& aElem, PCB_LAYER_ID aLay
             {
                 // short vertical line
                 aShape->SetShape( SHAPE_T::SEGMENT );
-                VECTOR2I pointOffset( 0, ( aElem.topsize.y - aElem.topsize.x ) / 2 );
+                VECTOR2I pointOffset( 0, ( aElem.topsize.y / 2 - aElem.topsize.x / 2 ) );
                 aShape->SetStart( aElem.position + pointOffset );
                 aShape->SetEnd( aElem.position - pointOffset );
             }
@@ -3394,7 +3490,7 @@ void ALTIUM_PCB::HelperParsePad6NonCopper( const APAD6& aElem, PCB_LAYER_ID aLay
             {
                 // short horizontal line
                 aShape->SetShape( SHAPE_T::SEGMENT );
-                VECTOR2I pointOffset( ( aElem.topsize.x - aElem.topsize.y ) / 2, 0 );
+                VECTOR2I pointOffset( ( aElem.topsize.x / 2 - aElem.topsize.y / 2 ), 0 );
                 aShape->SetStart( aElem.position + pointOffset );
                 aShape->SetEnd( aElem.position - pointOffset );
             }
@@ -3422,13 +3518,13 @@ void ALTIUM_PCB::HelperParsePad6NonCopper( const APAD6& aElem, PCB_LAYER_ID aLay
 
             if( aElem.topsize.x < aElem.topsize.y )
             {
-                VECTOR2I offset( 0, ( aElem.topsize.y - aElem.topsize.x ) / 2 );
+                VECTOR2I offset( 0, ( aElem.topsize.y / 2 - aElem.topsize.x / 2 ) );
                 aShape->SetStart( aElem.position + offset );
                 aShape->SetEnd( aElem.position - offset );
             }
             else
             {
-                VECTOR2I offset( ( aElem.topsize.x - aElem.topsize.y ) / 2, 0 );
+                VECTOR2I offset( ( aElem.topsize.x / 2 - aElem.topsize.y / 2 ), 0 );
                 aShape->SetStart( aElem.position + offset );
                 aShape->SetEnd( aElem.position - offset );
             }
@@ -3862,43 +3958,115 @@ void ALTIUM_PCB::ConvertTexts6ToFootprintItem( FOOTPRINT* aFootprint, const ATEX
 
 void ALTIUM_PCB::ConvertTexts6ToBoardItemOnLayer( const ATEXT6& aElem, PCB_LAYER_ID aLayer )
 {
-    PCB_TEXT* pcbText = new PCB_TEXT( m_board );
+    std::unique_ptr<PCB_TEXTBOX> pcbTextbox = std::make_unique<PCB_TEXTBOX>( m_board );
+    std::unique_ptr<PCB_TEXT> pcbText = std::make_unique<PCB_TEXT>( m_board );
+    bool isTextbox = ( aElem.textbox_rect_height != 0 );
 
     static const std::map<wxString, wxString> variableMap = {
         { "LAYER_NAME", "LAYER" },
         { "PRINT_DATE", "CURRENT_DATE"},
     };
 
-    wxString  kicadText = AltiumPcbSpecialStringsToKiCadStrings( aElem.text, variableMap );
 
-    pcbText->SetText(kicadText);
-    pcbText->SetLayer( aLayer );
-    pcbText->SetPosition( aElem.position );
-    pcbText->SetTextAngle( EDA_ANGLE( aElem.rotation, DEGREES_T ) );
+    wxString    kicadText = AltiumPcbSpecialStringsToKiCadStrings( aElem.text, variableMap );
+    BOARD_ITEM* item = pcbText.get();
+    EDA_TEXT*   text = pcbText.get();
 
-    ConvertTexts6ToEdaTextSettings( aElem, pcbText );
+    if( isTextbox )
+    {
+        // Altium textboxes do not have borders
+        pcbTextbox->SetBorderEnabled( false );
 
-    m_board->Add( pcbText, ADD_MODE::APPEND );
+        item = pcbTextbox.get();
+        text = pcbTextbox.get();
+        pcbTextbox->SetPosition( aElem.position );
+        pcbTextbox->SetRectangle( aElem.textbox_rect_height, aElem.textbox_rect_width );
+
+        switch( aElem.textbox_rect_justification )
+        {
+        case ALTIUM_TEXT_POSITION::LEFT_TOP:
+        case ALTIUM_TEXT_POSITION::LEFT_CENTER:
+        case ALTIUM_TEXT_POSITION::LEFT_BOTTOM:
+            pcbTextbox->SetHorizJustify( GR_TEXT_H_ALIGN_LEFT );
+            pcbTextbox->SetVertJustify( GR_TEXT_V_ALIGN_TOP );
+            break;
+        case ALTIUM_TEXT_POSITION::CENTER_TOP:
+        case ALTIUM_TEXT_POSITION::CENTER_CENTER:
+        case ALTIUM_TEXT_POSITION::CENTER_BOTTOM:
+            pcbTextbox->SetHorizJustify( GR_TEXT_H_ALIGN_CENTER );
+            pcbTextbox->SetVertJustify( GR_TEXT_V_ALIGN_TOP );
+            break;
+        case ALTIUM_TEXT_POSITION::RIGHT_TOP:
+        case ALTIUM_TEXT_POSITION::RIGHT_CENTER:
+        case ALTIUM_TEXT_POSITION::RIGHT_BOTTOM:
+            pcbTextbox->SetHorizJustify( GR_TEXT_H_ALIGN_RIGHT );
+            pcbTextbox->SetVertJustify( GR_TEXT_V_ALIGN_TOP );
+            break;
+        default:
+            if( m_reporter )
+            {
+                wxString msg;
+                msg.Printf( _( "Unknown textbox justification %d, text %s" ),
+                            aElem.textbox_rect_justification, aElem.text );
+                m_reporter->Report( msg, RPT_SEVERITY_DEBUG );
+            }
+
+            pcbTextbox->SetHorizJustify( GR_TEXT_H_ALIGN_LEFT );
+            pcbTextbox->SetVertJustify( GR_TEXT_V_ALIGN_TOP );
+            break;
+        }
+
+    }
+    else
+    {
+        pcbText->SetPosition( aElem.position );
+        pcbText->SetHorizJustify( GR_TEXT_H_ALIGN_LEFT );
+        pcbText->SetVertJustify( GR_TEXT_V_ALIGN_BOTTOM );
+    }
+
+    text->SetText(kicadText);
+    item->SetLayer( aLayer );
+    item->SetIsKnockout( aElem.isInverted );
+
+    ConvertTexts6ToEdaTextSettings( aElem, text );
+
+    if( isTextbox )
+        m_board->Add( pcbTextbox.release(), ADD_MODE::APPEND );
+    else
+        m_board->Add( pcbText.release(), ADD_MODE::APPEND );
 }
 
 
 void ALTIUM_PCB::ConvertTexts6ToFootprintItemOnLayer( FOOTPRINT* aFootprint, const ATEXT6& aElem,
                                                       PCB_LAYER_ID aLayer )
 {
-    PCB_TEXT* fpText;
+    std::unique_ptr<PCB_TEXTBOX> fpTextbox = std::make_unique<PCB_TEXTBOX>( aFootprint );
+    std::unique_ptr<PCB_TEXT> fpText = std::make_unique<PCB_TEXT>( aFootprint );
+
+    BOARD_ITEM* item = fpText.get();
+    EDA_TEXT*   text = fpText.get();
+    PCB_FIELD*  field = nullptr;
+
+    bool isTextbox = ( aElem.textbox_rect_height != 0 );
+    bool toAdd = false;
 
     if( aElem.isDesignator )
     {
-        fpText = &aFootprint->Reference(); // TODO: handle multiple layers
+        item = &aFootprint->Reference(); // TODO: handle multiple layers
+        text = &aFootprint->Reference();
+        field = &aFootprint->Reference();
     }
     else if( aElem.isComment )
     {
-        fpText = &aFootprint->Value(); // TODO: handle multiple layers
+        item = &aFootprint->Value(); // TODO: handle multiple layers
+        text = &aFootprint->Value();
+        field = &aFootprint->Value();
     }
     else
     {
-        fpText = new PCB_TEXT( aFootprint );
-        aFootprint->Add( fpText, ADD_MODE::APPEND );
+        item = fpText.get();
+        text = fpText.get();
+        toAdd = true;
     }
 
     static const std::map<wxString, wxString> variableMap = {
@@ -3915,15 +4083,74 @@ void ALTIUM_PCB::ConvertTexts6ToFootprintItemOnLayer( FOOTPRINT* aFootprint, con
     fpText->SetKeepUpright( false );
     fpText->SetLayer( aLayer );
     fpText->SetPosition( aElem.position );
-    fpText->SetTextAngle( EDA_ANGLE( aElem.rotation, DEGREES_T ) );
+    fpText->SetIsKnockout( aElem.isInverted );
 
-    ConvertTexts6ToEdaTextSettings( aElem, fpText );
+    if( isTextbox )
+    {
+        item = fpTextbox.get();
+        text = fpTextbox.get();
+        fpTextbox->SetPosition( aElem.position );
+        fpTextbox->SetRectangle( aElem.textbox_rect_height, aElem.textbox_rect_width );
+
+        // KiCad only does top alignment for textboxes atm
+        switch( aElem.textbox_rect_justification )
+        {
+        case ALTIUM_TEXT_POSITION::LEFT_TOP:
+        case ALTIUM_TEXT_POSITION::LEFT_CENTER:
+        case ALTIUM_TEXT_POSITION::LEFT_BOTTOM:
+            fpTextbox->SetHorizJustify( GR_TEXT_H_ALIGN_LEFT );
+            fpTextbox->SetVertJustify( GR_TEXT_V_ALIGN_TOP );
+            break;
+        case ALTIUM_TEXT_POSITION::CENTER_TOP:
+        case ALTIUM_TEXT_POSITION::CENTER_CENTER:
+        case ALTIUM_TEXT_POSITION::CENTER_BOTTOM:
+            fpTextbox->SetHorizJustify( GR_TEXT_H_ALIGN_CENTER );
+            fpTextbox->SetVertJustify( GR_TEXT_V_ALIGN_TOP );
+            break;
+        case ALTIUM_TEXT_POSITION::RIGHT_TOP:
+        case ALTIUM_TEXT_POSITION::RIGHT_CENTER:
+        case ALTIUM_TEXT_POSITION::RIGHT_BOTTOM:
+            fpTextbox->SetHorizJustify( GR_TEXT_H_ALIGN_RIGHT );
+            fpTextbox->SetVertJustify( GR_TEXT_V_ALIGN_TOP );
+            break;
+        default:
+            if( m_reporter )
+            {
+                wxString msg;
+                msg.Printf( _( "Unknown textbox justification %d, text %s" ),
+                            aElem.textbox_rect_justification, aElem.text );
+                m_reporter->Report( msg, RPT_SEVERITY_DEBUG );
+            }
+
+            fpTextbox->SetHorizJustify( GR_TEXT_H_ALIGN_LEFT );
+            fpTextbox->SetVertJustify( GR_TEXT_V_ALIGN_TOP );
+            break;
+        }
+
+    }
+    else
+    {
+        text->SetTextPos( aElem.position );
+    }
+
+    ConvertTexts6ToEdaTextSettings( aElem, text );
+
+    if( toAdd )
+    {
+        if( isTextbox )
+            aFootprint->Add( fpTextbox.release(), ADD_MODE::APPEND );
+        else
+            aFootprint->Add( fpText.release(), ADD_MODE::APPEND );
+    }
 }
 
 
 void ALTIUM_PCB::ConvertTexts6ToEdaTextSettings( const ATEXT6& aElem, EDA_TEXT* aEdaText )
 {
-    aEdaText->SetTextSize( VECTOR2I( aElem.height, aElem.height ) ); // TODO: parse text width
+    // Altium counts the width of the text from the centerline of each stroke while KiCad measures
+    // it to the outside of the stroke. TODO: need to adjust this based on the stroke font.  Altium Default is
+    // definitely wider than the sans serif font.
+    aEdaText->SetTextSize( VECTOR2I( aElem.height, aElem.height + aElem.strokewidth ) );
 
     if( aElem.fonttype == ALTIUM_TEXT_TYPE::TRUETYPE )
     {
@@ -3944,12 +4171,10 @@ void ALTIUM_PCB::ConvertTexts6ToEdaTextSettings( const ATEXT6& aElem, EDA_TEXT* 
     aEdaText->SetBold( aElem.isBold );
     aEdaText->SetItalic( aElem.isItalic );
     aEdaText->SetMirrored( aElem.isMirrored );
+    aEdaText->SetTextAngle( EDA_ANGLE( aElem.rotation, DEGREES_T ) );
 
-    // Altium position always specifies the bottom left corner
     aEdaText->SetHorizJustify( GR_TEXT_H_ALIGN_LEFT );
     aEdaText->SetVertJustify( GR_TEXT_V_ALIGN_BOTTOM );
-
-    // TODO: correct the position and set proper justification
 }
 
 
@@ -3996,8 +4221,8 @@ void ALTIUM_PCB::ConvertFills6ToBoardItem( const AFILL6& aElem )
 
         if( aElem.rotation != 0. )
         {
-            VECTOR2I center( ( aElem.pos1.x + aElem.pos2.x ) / 2,
-                             ( aElem.pos1.y + aElem.pos2.y ) / 2 );
+            VECTOR2I center( aElem.pos1.x / 2 + aElem.pos2.x / 2,
+                             aElem.pos1.y / 2 + aElem.pos2.y / 2 );
             shape.Rotate( center, EDA_ANGLE( aElem.rotation, DEGREES_T ) );
         }
 
@@ -4027,8 +4252,8 @@ void ALTIUM_PCB::ConvertFills6ToFootprintItem( FOOTPRINT* aFootprint, const AFIL
 
         if( aElem.rotation != 0. )
         {
-            VECTOR2I center( ( aElem.pos1.x + aElem.pos2.x ) / 2,
-                             ( aElem.pos1.y + aElem.pos2.y ) / 2 );
+            VECTOR2I center( aElem.pos1.x / 2 + aElem.pos2.x / 2,
+                             aElem.pos1.y / 2 + aElem.pos2.y / 2 );
             shape.Rotate( center, EDA_ANGLE( aElem.rotation, DEGREES_T ) );
         }
 
@@ -4069,7 +4294,8 @@ void ALTIUM_PCB::ConvertFills6ToBoardItemOnLayer( const AFILL6& aElem, PCB_LAYER
     if( aElem.rotation != 0. )
     {
         // TODO: Do we need SHAPE_T::POLY for non 90° rotations?
-        VECTOR2I center( ( aElem.pos1.x + aElem.pos2.x ) / 2, ( aElem.pos1.y + aElem.pos2.y ) / 2 );
+        VECTOR2I center( aElem.pos1.x / 2 + aElem.pos2.x / 2,
+                         aElem.pos1.y / 2 + aElem.pos2.y / 2 );
         fill->Rotate( center, EDA_ANGLE( aElem.rotation, DEGREES_T ) );
     }
 
@@ -4080,23 +4306,84 @@ void ALTIUM_PCB::ConvertFills6ToBoardItemOnLayer( const AFILL6& aElem, PCB_LAYER
 void ALTIUM_PCB::ConvertFills6ToFootprintItemOnLayer( FOOTPRINT* aFootprint, const AFILL6& aElem,
                                                       PCB_LAYER_ID aLayer )
 {
-    PCB_SHAPE* fill = new PCB_SHAPE( aFootprint, SHAPE_T::RECTANGLE );
-
-    fill->SetFilled( true );
-    fill->SetLayer( aLayer );
-    fill->SetStroke( STROKE_PARAMS( 0 ) );
-
-    fill->SetStart( aElem.pos1 );
-    fill->SetEnd( aElem.pos2 );
-
-    if( aElem.rotation != 0. )
+    if( aLayer == F_Cu || aLayer == B_Cu )
     {
-        // TODO: Do we need SHAPE_T::POLY for non 90° rotations?
-        VECTOR2I center( ( aElem.pos1.x + aElem.pos2.x ) / 2, ( aElem.pos1.y + aElem.pos2.y ) / 2 );
-        fill->Rotate( center, EDA_ANGLE( aElem.rotation, DEGREES_T ) );
-    }
+        std::unique_ptr<PAD> pad = std::make_unique<PAD>( aFootprint );
 
-    aFootprint->Add( fill, ADD_MODE::APPEND );
+        LSET padLayers;
+        padLayers.set( aLayer );
+
+        pad->SetKeepTopBottom( false );
+        pad->SetAttribute( PAD_ATTRIB::SMD );
+        EDA_ANGLE rotation( aElem.rotation, DEGREES_T );
+
+        // Handle rotation multiples of 90 degrees
+        if( rotation.IsCardinal() )
+        {
+            pad->SetShape( PAD_SHAPE::RECTANGLE );
+
+            int width = std::abs( aElem.pos2.x - aElem.pos1.x );
+            int height = std::abs( aElem.pos2.y - aElem.pos1.y );
+
+            // Swap width and height for 90 or 270 degree rotations
+            if( rotation.IsCardinal90() )
+                std::swap( width, height );
+
+            pad->SetSize( { width, height } );
+            pad->SetPosition( aElem.pos1 / 2 + aElem.pos2 / 2 );
+        }
+        else
+        {
+            pad->SetShape( PAD_SHAPE::CUSTOM );
+
+            int      anchorSize = std::min( std::abs( aElem.pos2.x - aElem.pos1.x ),
+                                            std::abs( aElem.pos2.y - aElem.pos1.y ) );
+            VECTOR2I anchorPos = aElem.pos1;
+
+            pad->SetAnchorPadShape( PAD_SHAPE::CIRCLE );
+            pad->SetSize( { anchorSize, anchorSize } );
+            pad->SetPosition( anchorPos );
+
+            SHAPE_POLY_SET shapePolys;
+            shapePolys.NewOutline();
+            shapePolys.Append( aElem.pos1.x - anchorPos.x, aElem.pos1.y - anchorPos.y );
+            shapePolys.Append( aElem.pos2.x - anchorPos.x, aElem.pos1.y - anchorPos.y );
+            shapePolys.Append( aElem.pos2.x - anchorPos.x, aElem.pos2.y - anchorPos.y );
+            shapePolys.Append( aElem.pos1.x - anchorPos.x, aElem.pos2.y - anchorPos.y );
+            shapePolys.Outline( 0 ).SetClosed( true );
+
+            VECTOR2I center( aElem.pos1.x / 2 + aElem.pos2.x / 2 - anchorPos.x,
+                             aElem.pos1.y / 2 + aElem.pos2.y / 2 - anchorPos.y );
+            shapePolys.Rotate( EDA_ANGLE( aElem.rotation, DEGREES_T ), center );
+            pad->AddPrimitivePoly( shapePolys, 0, true );
+        }
+
+        pad->SetThermalSpokeAngle( ANGLE_90 );
+        pad->SetLayerSet( padLayers );
+
+        aFootprint->Add( pad.release(), ADD_MODE::APPEND );
+    }
+    else
+    {
+        std::unique_ptr<PCB_SHAPE> fill =
+                std::make_unique<PCB_SHAPE>( aFootprint, SHAPE_T::RECTANGLE );
+
+        fill->SetFilled( true );
+        fill->SetLayer( aLayer );
+        fill->SetStroke( STROKE_PARAMS( 0 ) );
+
+        fill->SetStart( aElem.pos1 );
+        fill->SetEnd( aElem.pos2 );
+
+        if( aElem.rotation != 0. )
+        {
+            VECTOR2I center( aElem.pos1.x / 2 + aElem.pos2.x / 2,
+                             aElem.pos1.y / 2 + aElem.pos2.y / 2 );
+            fill->Rotate( center, EDA_ANGLE( aElem.rotation, DEGREES_T ) );
+        }
+
+        aFootprint->Add( fill.release(), ADD_MODE::APPEND );
+    }
 }
 
 

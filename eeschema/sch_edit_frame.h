@@ -710,6 +710,15 @@ public:
         return m_items_to_repeat;
     }
 
+    /**
+     * Clear the list of items which are to be repeated with the insert key.
+     * These objects are owned by this container.
+     */
+    void ClearRepeatItemsList()
+    {
+        m_items_to_repeat.clear();
+    }
+
     EDA_ITEM* GetItem( const KIID& aId ) const override;
 
     /**
@@ -866,7 +875,8 @@ public:
     void RefreshNetNavigator( const NET_NAVIGATOR_ITEM_DATA* aSelection = nullptr );
 
     void MakeNetNavigatorNode( const wxString& aNetName, wxTreeItemId aParentId,
-                               const NET_NAVIGATOR_ITEM_DATA* aSelection = nullptr );
+                               const NET_NAVIGATOR_ITEM_DATA* aSelection,
+                               bool aSingleSheetSchematic );
 
     void SelectNetNavigatorItem( const NET_NAVIGATOR_ITEM_DATA* aSelection = nullptr );
 

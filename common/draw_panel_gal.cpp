@@ -648,8 +648,21 @@ void EDA_DRAW_PANEL_GAL::onShowTimer( wxTimerEvent& aEvent )
 
 void EDA_DRAW_PANEL_GAL::SetCurrentCursor( KICURSOR aCursor )
 {
-    if( m_gal )
-        m_gal->SetNativeCursorStyle( aCursor );
+    if( !m_gal )
+        return;
+
+    DPI_SCALING_COMMON dpi( nullptr, m_parent );
+
+    bool hidpi = false;
+
+    // Cursor scaling factor cannot be set for a wxCursor on GTK and OSX (at least before wx 3.3),
+    // resulting in 4x rendered size on 2x window scale.
+    // MSW renders the bitmap as-is, without scaling, so this works here.
+#ifdef __WXMSW__
+    hidpi = dpi.GetContentScaleFactor() >= 2.0;
+#endif
+
+    m_gal->SetNativeCursorStyle( aCursor, hidpi );
 }
 
 

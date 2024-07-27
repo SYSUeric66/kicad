@@ -705,15 +705,7 @@ void PCB_PAINTER::draw( const PCB_TRACK* aTrack, int aLayer )
             return;
 
         SHAPE_SEGMENT trackShape( { aTrack->GetStart(), aTrack->GetEnd() }, aTrack->GetWidth() );
-        wxString netname = aTrack->GetUnescapedShortNetname();
-
-        for( const auto& netinfo : aTrack->GetBoard()->GetNetInfo() )
-        {
-            if( netinfo->GetUnescapedShortNetname() == netname )
-                netname = UnescapeString( aTrack->GetNetname() );
-        }
-
-        renderNetNameForSegment( trackShape, color, netname );
+        renderNetNameForSegment( trackShape, color, aTrack->GetDisplayNetname() );
         return;
     }
     else if( IsCopperLayer( aLayer ) || aLayer == LAYER_LOCKED_ITEM_SHADOW )
@@ -736,15 +728,27 @@ void PCB_PAINTER::draw( const PCB_TRACK* aTrack, int aLayer )
 
     // Clearance lines
     if( pcbconfig() && pcbconfig()->m_Display.m_TrackClearance == SHOW_WITH_VIA_ALWAYS
-            && !m_pcbSettings.m_isPrinting && aLayer != LAYER_LOCKED_ITEM_SHADOW )
+            && !m_pcbSettings.m_isPrinting
+            && aLayer != LAYER_LOCKED_ITEM_SHADOW )
     {
-        int clearance = aTrack->GetOwnClearance( m_pcbSettings.GetActiveLayer() );
+        /*
+         * Showing the clearance area is not obvious for optionally-flashed pads and vias, so we
+         * choose to not display clearance lines at all on non-copper active layers.  We follow
+         * the same rule for tracks to be consistent (even though they don't have the same issue).
+         */
+        PCB_LAYER_ID activeLayer = m_pcbSettings.GetActiveLayer();
+        const BOARD* board = aTrack->GetBoard();
 
-        m_gal->SetLineWidth( m_pcbSettings.m_outlineWidth );
-        m_gal->SetIsFill( false );
-        m_gal->SetIsStroke( true );
-        m_gal->SetStrokeColor( color );
-        m_gal->DrawSegment( start, end, track_width + clearance * 2 );
+        if( IsCopperLayer( activeLayer ) && board->GetVisibleLayers().test( activeLayer ) )
+        {
+            int clearance = aTrack->GetOwnClearance( activeLayer );
+
+            m_gal->SetLineWidth( m_pcbSettings.m_outlineWidth );
+            m_gal->SetIsFill( false );
+            m_gal->SetIsStroke( true );
+            m_gal->SetStrokeColor( color );
+            m_gal->DrawSegment( start, end, track_width + clearance * 2 );
+        }
     }
 }
 
@@ -761,17 +765,13 @@ void PCB_PAINTER::renderNetNameForSegment( const SHAPE_SEGMENT& aSeg, const COLO
     viewport.SetEnd( VECTOR2D( matrix * screenSize ) );
     viewport.Normalize();
 
-    BOX2I clipBox( viewport.GetOrigin(), viewport.GetSize() );
-    SEG   visibleSeg( aSeg.GetSeg().A, aSeg.GetSeg().B );
-
-    ClipLine( &clipBox, visibleSeg.A.x, visibleSeg.A.y, visibleSeg.B.x, visibleSeg.B.y );
-
-    size_t  num_char = aNetName.size();
+    int num_char = aNetName.size();
 
     // Check if the track is long enough to have a netname displayed
-    int seg_minlength = aSeg.GetWidth() * num_char;
+    int         seg_minlength = aSeg.GetWidth() * num_char;
+    SEG::ecoord seg_minlength_sq = seg_minlength * seg_minlength;
 
-    if( visibleSeg.Length() < seg_minlength )
+    if( aSeg.GetSeg().SquaredLength() < seg_minlength_sq )
         return;
 
     double    textSize = aSeg.GetWidth();
@@ -781,27 +781,25 @@ void PCB_PAINTER::renderNetNameForSegment( const SHAPE_SEGMENT& aSeg, const COLO
 
     VECTOR2I start = aSeg.GetSeg().A;
     VECTOR2I end   = aSeg.GetSeg().B;
+    VECTOR2D segV  = end - start;
 
     if( end.y == start.y ) // horizontal
     {
         textOrientation = ANGLE_HORIZONTAL;
-        num_names = std::max( num_names,
-                static_cast<int>( aSeg.GetSeg().Length() / viewport.GetWidth() ) );
+        num_names = std::max( num_names, KiROUND( aSeg.GetSeg().Length() / viewport.GetWidth() ) );
     }
     else if( end.x == start.x ) // vertical
     {
         textOrientation = ANGLE_VERTICAL;
-        num_names = std::max( num_names,
-                static_cast<int>( aSeg.GetSeg().Length() / viewport.GetHeight() ) );
+        num_names = std::max( num_names, KiROUND( aSeg.GetSeg().Length() / viewport.GetHeight() ) );
     }
     else
     {
-        textOrientation = -EDA_ANGLE( visibleSeg.B - visibleSeg.A );
+        textOrientation = -EDA_ANGLE( segV );
         textOrientation.Normalize90();
 
         double min_size = std::min( viewport.GetWidth(), viewport.GetHeight() );
-        num_names = std::max( num_names,
-                static_cast<int>( aSeg.GetSeg().Length() / ( M_SQRT2 * min_size ) ) );
+        num_names = std::max( num_names, KiROUND( aSeg.GetSeg().Length() / ( M_SQRT2 * min_size ) ) );
     }
 
     m_gal->SetIsStroke( true );
@@ -816,13 +814,13 @@ void PCB_PAINTER::renderNetNameForSegment( const SHAPE_SEGMENT& aSeg, const COLO
     m_gal->SetHorizontalJustify( GR_TEXT_H_ALIGN_CENTER );
     m_gal->SetVerticalJustify( GR_TEXT_V_ALIGN_CENTER );
 
-    for( int ii = 0; ii < num_names; ++ii )
-    {
-        VECTOR2I textPosition =
-                  VECTOR2D( start ) * static_cast<double>( num_names - ii ) / ( num_names + 1 )
-                + VECTOR2D( end ) * static_cast<double>( ii + 1 ) / ( num_names + 1 );
+    int divisions = num_names + 1;
 
-        if( clipBox.Contains( textPosition ) )
+    for( int ii = 1; ii < divisions; ++ii )
+    {
+        VECTOR2I textPosition = start + segV * ( (double) ii / divisions );
+
+        if( viewport.Contains( textPosition ) )
             m_gal->BitmapText( aNetName, textPosition, textOrientation );
     }
 }
@@ -862,17 +860,29 @@ void PCB_PAINTER::draw( const PCB_ARC* aArc, int aLayer )
 
     // Clearance lines
     if( pcbconfig() && pcbconfig()->m_Display.m_TrackClearance == SHOW_WITH_VIA_ALWAYS
-            && !m_pcbSettings.m_isPrinting && aLayer != LAYER_LOCKED_ITEM_SHADOW )
+            && !m_pcbSettings.m_isPrinting
+            && aLayer != LAYER_LOCKED_ITEM_SHADOW )
     {
-        int clearance = aArc->GetOwnClearance( m_pcbSettings.GetActiveLayer() );
+        /*
+         * Showing the clearance area is not obvious for optionally-flashed pads and vias, so we
+         * choose to not display clearance lines at all on non-copper active layers.  We follow
+         * the same rule for tracks to be consistent (even though they don't have the same issue).
+         */
+        PCB_LAYER_ID activeLayer = m_pcbSettings.GetActiveLayer();
+        const BOARD* board = aArc->GetBoard();
 
-        m_gal->SetLineWidth( m_pcbSettings.m_outlineWidth );
-        m_gal->SetIsFill( false );
-        m_gal->SetIsStroke( true );
-        m_gal->SetStrokeColor( color );
+        if( IsCopperLayer( activeLayer ) && board->GetVisibleLayers().test( activeLayer ) )
+        {
+            int clearance = aArc->GetOwnClearance( activeLayer );
 
-        m_gal->DrawArcSegment( center, radius, start_angle, angle, width + clearance * 2,
-                               m_maxError );
+            m_gal->SetLineWidth( m_pcbSettings.m_outlineWidth );
+            m_gal->SetIsFill( false );
+            m_gal->SetIsStroke( true );
+            m_gal->SetStrokeColor( color );
+
+            m_gal->DrawArcSegment( center, radius, start_angle, angle, width + clearance * 2,
+                                   m_maxError );
+        }
     }
 
 // Debug only: enable this code only to test the TransformArcToPolygon function
@@ -955,7 +965,7 @@ void PCB_PAINTER::draw( const PCB_VIA* aVia, int aLayer )
         // the netname
         VECTOR2D textpos( 0.0, 0.0 );
 
-        wxString netname = aVia->GetUnescapedShortNetname();
+        wxString netname = aVia->GetDisplayNetname();
 
         int topLayer = aVia->TopLayer() + 1;
         int bottomLayer = std::min( aVia->BottomLayer() + 1, board->GetCopperLayerCount() );
@@ -1115,21 +1125,32 @@ void PCB_PAINTER::draw( const PCB_VIA* aVia, int aLayer )
     // Clearance lines
     if( pcbconfig() && pcbconfig()->m_Display.m_TrackClearance == SHOW_WITH_VIA_ALWAYS
             && aLayer != LAYER_VIA_HOLES
-            && !m_pcbSettings.m_isPrinting )
+            && !m_pcbSettings.m_isPrinting
+            && aLayer != LAYER_LOCKED_ITEM_SHADOW )
     {
+        /*
+         * Showing the clearance area is not obvious as the clearance extends from the via's pad
+         * on flashed copper layers and from the via's hole on non-flashed copper layers.  Because
+         * of this, we choose to not display clearance lines at all on non-copper active layers as
+         * it's not clear which we'd be displaying.
+         */
         PCB_LAYER_ID activeLayer = m_pcbSettings.GetActiveLayer();
-        double       radius;
 
-        if( aVia->FlashLayer( activeLayer ) )
-            radius = aVia->GetWidth() / 2.0;
-        else
-            radius = getViaDrillSize( aVia ) / 2.0 + m_holePlatingThickness;
+        if( IsCopperLayer( activeLayer ) && board->GetVisibleLayers().test( activeLayer ) )
+        {
+            double radius;
 
-        m_gal->SetLineWidth( m_pcbSettings.m_outlineWidth );
-        m_gal->SetIsFill( false );
-        m_gal->SetIsStroke( true );
-        m_gal->SetStrokeColor( color );
-        m_gal->DrawCircle( center, radius + aVia->GetOwnClearance( activeLayer ) );
+            if( aVia->FlashLayer( activeLayer ) )
+                radius = aVia->GetWidth() / 2.0;
+            else
+                radius = getViaDrillSize( aVia ) / 2.0 + m_holePlatingThickness;
+
+            m_gal->SetLineWidth( m_pcbSettings.m_outlineWidth );
+            m_gal->SetIsFill( false );
+            m_gal->SetIsStroke( true );
+            m_gal->SetStrokeColor( color );
+            m_gal->DrawCircle( center, radius + aVia->GetOwnClearance( activeLayer ) );
+        }
     }
 }
 
@@ -1156,7 +1177,7 @@ void PCB_PAINTER::draw( const PAD* aPad, int aLayer )
         if( displayOpts && !dynamic_cast<CVPCB_SETTINGS*>( viewer_settings() ) )
         {
             if( displayOpts->m_NetNames == 1 || displayOpts->m_NetNames == 3 )
-                netname = aPad->GetUnescapedShortNetname();
+                netname = aPad->GetDisplayNetname();
 
             if( aPad->IsNoConnectPad() )
                 netname = wxT( "x" );
@@ -1166,12 +1187,6 @@ void PCB_PAINTER::draw( const PAD* aPad, int aLayer )
 
         if( netname.IsEmpty() && padNumber.IsEmpty() )
             return;
-
-        for( const auto& netinfo : board->GetNetInfo() )
-        {
-            if( netinfo->GetUnescapedShortNetname() == netname )
-                netname = UnescapeString( aPad->GetNetname() );
-        }
 
         BOX2I    padBBox = aPad->GetBoundingBox();
         VECTOR2D position = padBBox.Centre();
@@ -1634,24 +1649,15 @@ void PCB_PAINTER::draw( const PAD* aPad, int aLayer )
             && ( aLayer == LAYER_PADS_SMD_FR || aLayer == LAYER_PADS_SMD_BK || aLayer == LAYER_PADS_TH )
             && !m_pcbSettings.m_isPrinting )
     {
-        /* Showing the clearance area is not obvious.
-         * - A pad can be removed from some copper layers.
-         * - For non copper layers, what is the clearance area?
-         * So for copper layers, the clearance area is the shape if the pad is flashed on this
-         * layer and the hole clearance area for other copper layers.
-         * For other layers, use the pad shape, although one can use an other criteria,
-         * depending on the non copper layer.
+        /*
+         * Showing the clearance area is not obvious as the clearance extends from the pad on
+         * flashed copper layers and from the hole on non-flashed copper layers.  Because of this,
+         * we choose to not display clearance lines at all on non-copper active layers as it's
+         * not clear which we'd be displaying.
          */
-        int  activeLayer = m_pcbSettings.GetActiveLayer();
-        bool flashActiveLayer = true;
+        PCB_LAYER_ID activeLayer = m_pcbSettings.GetActiveLayer();
 
-        if( IsCopperLayer( activeLayer ) )
-            flashActiveLayer = aPad->FlashLayer( activeLayer );
-
-        if( !board->GetVisibleLayers().test( activeLayer ) )
-            flashActiveLayer = false;
-
-        if( flashActiveLayer || aPad->GetDrillSize().x )
+        if( IsCopperLayer( activeLayer ) && board->GetVisibleLayers().test( activeLayer ) )
         {
             if( aPad->GetAttribute() == PAD_ATTRIB::NPTH )
                 color = m_pcbSettings.GetLayerColor( LAYER_NON_PLATEDHOLES );
@@ -1661,9 +1667,9 @@ void PCB_PAINTER::draw( const PAD* aPad, int aLayer )
             m_gal->SetIsFill( false );
             m_gal->SetStrokeColor( color );
 
-            int clearance = aPad->GetOwnClearance( m_pcbSettings.GetActiveLayer() );
+            int clearance = aPad->GetOwnClearance( activeLayer );
 
-            if( flashActiveLayer && clearance > 0 )
+            if( aPad->FlashLayer( activeLayer ) && clearance > 0 )
             {
                 auto shape = std::dynamic_pointer_cast<SHAPE_COMPOUND>( aPad->GetEffectiveShape() );
 
@@ -1683,8 +1689,8 @@ void PCB_PAINTER::draw( const PAD* aPad, int aLayer )
                     SHAPE_POLY_SET polySet;
 
                     // Use ERROR_INSIDE because it avoids Clipper and is therefore much faster.
-                    aPad->TransformShapeToPolygon( polySet, ToLAYER_ID( aLayer ), clearance,
-                                                   m_maxError, ERROR_INSIDE );
+                    aPad->TransformShapeToPolygon( polySet, activeLayer, clearance, m_maxError,
+                                                   ERROR_INSIDE );
 
                     if( polySet.Outline( 0 ).PointCount() > 2 )     // Careful of empty pads
                         m_gal->DrawPolygon( polySet );
@@ -1720,7 +1726,7 @@ void PCB_PAINTER::draw( const PCB_SHAPE* aShape, int aLayer )
         if( aShape->GetNetCode() <= NETINFO_LIST::UNCONNECTED )
             return;
 
-        wxString netname = aShape->GetUnescapedShortNetname();
+        wxString netname = aShape->GetDisplayNetname();
 
         if( netname.IsEmpty() )
             return;
@@ -2081,9 +2087,10 @@ void PCB_PAINTER::draw( const PCB_TEXT* aText, int aLayer )
         return;
     }
 
-    TEXT_ATTRIBUTES attrs = aText->GetAttributes();
-    const COLOR4D& color = m_pcbSettings.GetColor( aText, aLayer );
-    bool           outline_mode = !viewer_settings()->m_ViewersDisplay.m_DisplayTextFill;
+    const KIFONT::METRICS& metrics = aText->GetFontMetrics();
+    TEXT_ATTRIBUTES        attrs = aText->GetAttributes();
+    const COLOR4D&         color = m_pcbSettings.GetColor( aText, aLayer );
+    bool                   outline_mode = !viewer_settings()->m_ViewersDisplay.m_DisplayTextFill;
 
     KIFONT::FONT* font = aText->GetFont();
 
@@ -2116,8 +2123,18 @@ void PCB_PAINTER::draw( const PCB_TEXT* aText, int aLayer )
 
         if( m_gal->IsFlippedX() && !( aText->GetLayerSet() & LSET::SideSpecificMask() ).any() )
         {
+            VECTOR2I textPos = aText->GetTextPos();
+            VECTOR2I textWidth = VECTOR2I( aText->GetTextBox().GetWidth(), 0 );
+            RotatePoint( textWidth, textPos, aText->GetDrawRotation() );
+
+            if( attrs.m_Mirrored )
+                textPos -= textWidth;
+            else
+                textPos += textWidth;
+
             attrs.m_Mirrored = !attrs.m_Mirrored;
-            attrs.m_Halign = static_cast<GR_TEXT_H_ALIGN_T>( -attrs.m_Halign );
+            strokeText( resolvedText, textPos, attrs, metrics );
+            return;
         }
 
         std::vector<std::unique_ptr<KIFONT::GLYPH>>* cache = nullptr;
@@ -2132,7 +2149,7 @@ void PCB_PAINTER::draw( const PCB_TEXT* aText, int aLayer )
         }
         else
         {
-            strokeText( resolvedText, aText->GetTextPos(), attrs, aText->GetFontMetrics() );
+            strokeText( resolvedText, aText->GetTextPos(), attrs, metrics );
         }
     }
 
@@ -2224,18 +2241,6 @@ void PCB_PAINTER::draw( const PCB_TEXTBOX* aTextBox, int aLayer )
         }
     }
 
-    if( resolvedText.Length() == 0 )
-        return;
-
-    TEXT_ATTRIBUTES attrs = aTextBox->GetAttributes();
-    attrs.m_StrokeWidth = getLineThickness( aTextBox->GetEffectiveTextPenWidth() );
-
-    if( m_gal->IsFlippedX() && !( aTextBox->GetLayerSet() & LSET::SideSpecificMask() ).any() )
-    {
-        attrs.m_Mirrored = !attrs.m_Mirrored;
-        attrs.m_Halign = static_cast<GR_TEXT_H_ALIGN_T>( -attrs.m_Halign );
-    }
-
     if( aLayer == LAYER_LOCKED_ITEM_SHADOW )
     {
         // For now, the textbox is a filled shape.
@@ -2252,6 +2257,20 @@ void PCB_PAINTER::draw( const PCB_TEXTBOX* aTextBox, int aLayer )
         #endif
     }
 
+    if( resolvedText.Length() == 0 )
+        return;
+
+    const KIFONT::METRICS& metrics = aTextBox->GetFontMetrics();
+    TEXT_ATTRIBUTES        attrs = aTextBox->GetAttributes();
+    attrs.m_StrokeWidth = getLineThickness( aTextBox->GetEffectiveTextPenWidth() );
+
+    if( m_gal->IsFlippedX() && !( aTextBox->GetLayerSet() & LSET::SideSpecificMask() ).any() )
+    {
+        attrs.m_Mirrored = !attrs.m_Mirrored;
+        strokeText( resolvedText, aTextBox->GetDrawPos( true ), attrs, metrics );
+        return;
+    }
+
     std::vector<std::unique_ptr<KIFONT::GLYPH>>* cache = nullptr;
 
     if( font->IsOutline() )
@@ -2264,7 +2283,7 @@ void PCB_PAINTER::draw( const PCB_TEXTBOX* aTextBox, int aLayer )
     }
     else
     {
-        strokeText( resolvedText, aTextBox->GetDrawPos(), attrs, aTextBox->GetFontMetrics() );
+        strokeText( resolvedText, aTextBox->GetDrawPos(), attrs, metrics );
     }
 }
 

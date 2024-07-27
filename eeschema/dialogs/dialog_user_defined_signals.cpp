@@ -1,7 +1,7 @@
 /*
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
- * Copyright (C) 2023 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2024 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -29,6 +29,7 @@
 #include <../sim/simulator_frame.h>
 #include <dialog_user_defined_signals.h>
 #include <string_utils.h>
+#include <validators.h>
 
 
 DIALOG_USER_DEFINED_SIGNALS::DIALOG_USER_DEFINED_SIGNALS( SIMULATOR_FRAME* aParent,
@@ -86,12 +87,19 @@ void DIALOG_USER_DEFINED_SIGNALS::addGridRow( const wxString& aText, int aId )
     m_grid->SetCellValue( row, 1, wxString::Format( wxS( "%d" ), aId ) );
 
     wxGridCellAttr* attr = new wxGridCellAttr;
+#if defined( __WXMSW__ )
+    // For some obscure reason, a GRID_CELL_STC_EDITOR does not work on MSW:
+    // It has a strange behavior when entering data, making it unusable.
+    // (see https://gitlab.com/kicad/code/kicad/-/issues/15837)
+    // So use a GRID_CELL_TEXT_EDITOR.
+    attr->SetEditor( new GRID_CELL_TEXT_EDITOR() );
+#else
     attr->SetEditor( new GRID_CELL_STC_EDITOR( true,
             [this]( wxStyledTextEvent& aEvent, SCINTILLA_TRICKS* aScintillaTricks )
             {
                 onScintillaCharAdded( aEvent, aScintillaTricks );
             } ) );
-
+#endif
     m_grid->SetAttr( row, 0, attr );
 }
 

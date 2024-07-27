@@ -57,6 +57,7 @@
 
 #include <bezier_curves.h>
 #include <compoundfilereader.h>
+#include <font/fontconfig.h>
 #include <geometry/ellipse.h>
 #include <string_utils.h>
 #include <sch_edit_frame.h>
@@ -324,6 +325,9 @@ SCH_SHEET* SCH_IO_ALTIUM::LoadSchematicFile( const wxString& aFileName, SCHEMATI
     wxFileName fileName( aFileName );
     fileName.SetExt( FILEEXT::KiCadSchematicFileExtension );
     m_schematic = aSchematic;
+
+    // Show the font substitution warnings
+    fontconfig::FONTCONFIG::SetReporter( &WXLOG_REPORTER::GetInstance() );
 
     // Delete on exception, if I own m_rootSheet, according to aAppendToMe
     std::unique_ptr<SCH_SHEET> deleter( aAppendToMe ? nullptr : m_rootSheet );
@@ -892,9 +896,9 @@ void SCH_IO_ALTIUM::ParseRecord( int index, std::map<wxString, wxString>& proper
         ParseEllipse( properties );
         break;
 
-        case ALTIUM_SCH_RECORD::PIECHART:
-            m_reporter->Report( _( "Record 'PIECHART' not handled." ), RPT_SEVERITY_INFO );
-            break;
+    case ALTIUM_SCH_RECORD::PIECHART:
+        ParsePieChart( properties );
+        break;
 
     case ALTIUM_SCH_RECORD::ROUND_RECTANGLE:
         ParseRoundRectangle( properties );
@@ -2152,7 +2156,9 @@ void SCH_IO_ALTIUM::ParseArc( const std::map<wxString, wxString>& aProperties,
 
             circle->SetPosition( elem.m_Center + m_sheetOffset );
             circle->SetEnd( circle->GetPosition() + VECTOR2I( arc_radius, 0 ) );
-            circle->SetStroke( STROKE_PARAMS( elem.LineWidth, LINE_STYLE::SOLID ) );
+
+            SetSchShapeLine( elem, circle );
+            SetSchShapeFillAndColor( elem, circle );
 
             currentScreen->Append( circle );
         }
@@ -2168,7 +2174,8 @@ void SCH_IO_ALTIUM::ParseArc( const std::map<wxString, wxString>& aProperties,
             arc->SetStart( elem.m_Center + startOffset + m_sheetOffset );
             arc->SetArcAngleAndEnd( includedAngle.Normalize(), true );
 
-            arc->SetStroke( STROKE_PARAMS( elem.LineWidth, LINE_STYLE::SOLID ) );
+            SetSchShapeLine( elem, arc );
+            SetSchShapeFillAndColor( elem, arc );
 
             currentScreen->Append( arc );
         }
@@ -2214,6 +2221,7 @@ void SCH_IO_ALTIUM::ParseArc( const std::map<wxString, wxString>& aProperties,
 
             circle->SetEnd( circle->GetPosition() + VECTOR2I( arc_radius, 0 ) );
             SetLibShapeLine( elem, circle, ALTIUM_SCH_RECORD::ARC );
+            SetLibShapeFillAndColor( elem, circle, ALTIUM_SCH_RECORD::ARC, elem.Color );
         }
         else
         {
@@ -2241,6 +2249,7 @@ void SCH_IO_ALTIUM::ParseArc( const std::map<wxString, wxString>& aProperties,
             arc->SetArcAngleAndEnd( includedAngle.Normalize(), true );
 
             SetLibShapeLine( elem, arc, ALTIUM_SCH_RECORD::ARC );
+            SetLibShapeFillAndColor( elem, arc, ALTIUM_SCH_RECORD::ARC, elem.Color );
         }
     }
 }
@@ -2337,6 +2346,92 @@ void SCH_IO_ALTIUM::ParseEllipticalArc( const std::map<wxString, wxString>& aPro
             SetLibShapeLine( elem, schbezier, ALTIUM_SCH_RECORD::ELLIPTICAL_ARC );
             schbezier->RebuildBezierToSegmentsPointsList( elem.LineWidth );
         }
+    }
+}
+
+
+void SCH_IO_ALTIUM::ParsePieChart( const std::map<wxString, wxString>& aProperties,
+                                  std::vector<LIB_SYMBOL*>& aSymbol )
+{
+    ParseArc( aProperties, aSymbol );
+
+    ASCH_PIECHART elem( aProperties );
+
+    int       arc_radius = elem.m_Radius;
+    VECTOR2I  center = elem.m_Center;
+    EDA_ANGLE startAngle( elem.m_EndAngle, DEGREES_T );
+    EDA_ANGLE endAngle( elem.m_StartAngle, DEGREES_T );
+    VECTOR2I  startOffset( KiROUND( arc_radius * startAngle.Cos() ),
+                           -KiROUND( arc_radius * startAngle.Sin() ) );
+    VECTOR2I  endOffset( KiROUND( arc_radius * endAngle.Cos() ),
+                         -KiROUND( arc_radius * endAngle.Sin() ) );
+
+    if( aSymbol.empty() && ShouldPutItemOnSheet( elem.ownerindex ) )
+    {
+        SCH_SCREEN* screen = getCurrentScreen();
+        wxCHECK( screen, /* void */ );
+
+        // close polygon
+        SCH_LINE* line = new SCH_LINE( center + m_sheetOffset, SCH_LAYER_ID::LAYER_NOTES );
+        line->SetEndPoint( center + startOffset + m_sheetOffset );
+        line->SetStroke( STROKE_PARAMS( elem.LineWidth, LINE_STYLE::SOLID ) );
+
+        line->SetFlags( IS_NEW );
+        screen->Append( line );
+
+        line = new SCH_LINE( center + m_sheetOffset, SCH_LAYER_ID::LAYER_NOTES );
+        line->SetEndPoint( center + endOffset + m_sheetOffset );
+        line->SetStroke( STROKE_PARAMS( elem.LineWidth, LINE_STYLE::SOLID ) );
+
+        line->SetFlags( IS_NEW );
+        screen->Append( line );
+    }
+    else
+    {
+        LIB_SYMBOL* symbol = (int) aSymbol.size() <= elem.ownerpartdisplaymode
+                                                             ? nullptr
+                                                             : aSymbol[elem.ownerpartdisplaymode];
+        SCH_SYMBOL* schsym = nullptr;
+
+        if( !symbol )
+        {
+            const auto& libSymbolIt = m_libSymbols.find( elem.ownerindex );
+
+            if( libSymbolIt == m_libSymbols.end() )
+            {
+                // TODO: e.g. can depend on Template (RECORD=39
+                m_reporter->Report( wxString::Format( wxT( "Piechart's owner (%d) not found." ),
+                                                      elem.ownerindex ),
+                                    RPT_SEVERITY_DEBUG );
+                return;
+            }
+
+            symbol = libSymbolIt->second;
+            schsym = m_symbols.at( libSymbolIt->first );
+        }
+
+        if( aSymbol.empty() && !IsComponentPartVisible( elem ) )
+            return;
+
+        LIB_SHAPE*  line = new LIB_SHAPE( symbol, SHAPE_T::POLY );
+        symbol->AddDrawItem( line, false );
+
+        line->SetUnit( std::max( 0, elem.ownerpartid ) );
+
+        if( !schsym )
+        {
+            line->AddPoint( center + startOffset );
+            line->AddPoint( center );
+            line->AddPoint( center + endOffset );
+        }
+        else
+        {
+            line->AddPoint( GetRelativePosition( center + startOffset + m_sheetOffset, schsym ) );
+            line->AddPoint( GetRelativePosition( center + m_sheetOffset, schsym ) );
+            line->AddPoint( GetRelativePosition( center + endOffset + m_sheetOffset, schsym ) );
+        }
+
+        SetLibShapeLine( elem, line, ALTIUM_SCH_RECORD::LINE );
     }
 }
 
@@ -3193,8 +3288,8 @@ void SCH_IO_ALTIUM::ParsePowerPort( const std::map<wxString, wxString>& aPropert
     {
         libSymbol = powerSymbolIt->second; // cache hit
     }
-    else if( LIB_SYMBOL* alreadyLoaded =
-             m_pi->LoadSymbol( getLibFileName().GetFullPath(), elem.text, m_properties.get() ) )
+    else if( LIB_SYMBOL* alreadyLoaded = m_pi->LoadSymbol( getLibFileName().GetFullPath(), symName,
+                                                           m_properties.get() ) )
     {
         libSymbol = alreadyLoaded;
     }
@@ -4210,6 +4305,8 @@ std::map<wxString,LIB_SYMBOL*> SCH_IO_ALTIUM::ParseLibFile( const ALTIUM_COMPOUN
 
             case ALTIUM_SCH_RECORD::ELLIPSE: ParseEllipse( properties, symbols ); break;
 
+            case ALTIUM_SCH_RECORD::PIECHART: ParsePieChart( properties, symbols ); break;
+
             case ALTIUM_SCH_RECORD::ROUND_RECTANGLE: ParseRoundRectangle( properties, symbols ); break;
 
             case ALTIUM_SCH_RECORD::ELLIPTICAL_ARC: ParseEllipticalArc( properties, symbols ); break;
@@ -4292,6 +4389,9 @@ long long SCH_IO_ALTIUM::getLibraryTimestamp( const wxString& aLibraryPath ) con
 void SCH_IO_ALTIUM::ensureLoadedLibrary( const wxString&        aLibraryPath,
                                          const STRING_UTF8_MAP* aProperties )
 {
+    // Suppress font substitution warnings
+    fontconfig::FONTCONFIG::SetReporter( nullptr );
+
     if( m_libCache.count( aLibraryPath ) )
     {
         wxCHECK( m_timestamps.count( aLibraryPath ), /*void*/ );

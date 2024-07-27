@@ -35,6 +35,7 @@
 #include <dialogs/dialog_unit_entry.h>
 #include <collectors.h>
 #include <scoped_set_reset.h>
+#include <core/mirror.h>
 
 #include <board_design_settings.h>
 #include <drc/drc_engine.h>
@@ -307,15 +308,32 @@ public:
     {
         if( !this->HasFlag( IN_EDIT ) )
         {
-            RotatePoint( m_origin, aRotCentre, aAngle );
+            PCB_GENERATOR::Rotate( aRotCentre, aAngle );
             RotatePoint( m_end, aRotCentre, aAngle );
-            PCB_GROUP::Rotate( aRotCentre, aAngle );
 
             if( m_baseLine )
                 m_baseLine->Rotate( aAngle, aRotCentre );
 
             if( m_baseLineCoupled )
                 m_baseLineCoupled->Rotate( aAngle, aRotCentre );
+        }
+    }
+
+    void Flip( const VECTOR2I& aCentre, bool aFlipLeftRight ) override
+    {
+        if( !this->HasFlag( IN_EDIT ) )
+        {
+            PCB_GENERATOR::Flip( aCentre, aFlipLeftRight );
+            if( aFlipLeftRight )
+                MIRROR( m_end.x, aCentre.x );
+            else
+                MIRROR( m_end.y, aCentre.y );
+
+            if( m_baseLine )
+                m_baseLine->Mirror( aFlipLeftRight, !aFlipLeftRight, aCentre );
+
+            if( m_baseLineCoupled )
+                m_baseLineCoupled->Mirror( aFlipLeftRight, !aFlipLeftRight, aCentre );
         }
     }
 
@@ -1438,6 +1456,8 @@ void PCB_TUNING_PATTERN::EditPush( GENERATOR_TOOL* aTool, BOARD* aBoard, BOARD_C
 
         for( BOARD_ITEM* item : routerAddedItems )
         {
+            aCommit->Add( item );
+
             if( PCB_TRACK* track = dynamic_cast<PCB_TRACK*>( item ) )
             {
                 if( bounds.PointInside( track->GetStart(), epsilon )
@@ -1447,8 +1467,6 @@ void PCB_TUNING_PATTERN::EditPush( GENERATOR_TOOL* aTool, BOARD* aBoard, BOARD_C
                     aCommit->Stage( item, CHT_GROUP );
                 }
             }
-
-            aCommit->Add( item );
         }
     }
 

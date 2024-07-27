@@ -720,6 +720,20 @@ void CONNECTION_GRAPH::Recalculate( const SCH_SHEET_LIST& aSheetList, bool aUnco
                             item->GetTypeDesc() );
                 items.push_back( item );
                 dirty_items.insert( item );
+
+                // Add any symbol dirty pins to the dirty_items list
+                if( item->Type() == SCH_SYMBOL_T )
+                {
+                    SCH_SYMBOL* symbol = static_cast<SCH_SYMBOL*>( item );
+
+                    for( SCH_PIN* pin : symbol->GetPins( &sheet ) )
+                    {
+                        if( pin->IsConnectivityDirty() )
+                        {
+                            dirty_items.insert( pin );
+                        }
+                    }
+                }
             }
             // If the symbol isn't dirty, look at the pins
             // TODO: remove symbols from connectivity graph and only use pins
@@ -728,6 +742,19 @@ void CONNECTION_GRAPH::Recalculate( const SCH_SHEET_LIST& aSheetList, bool aUnco
                 SCH_SYMBOL* symbol = static_cast<SCH_SYMBOL*>( item );
 
                 for( SCH_PIN* pin : symbol->GetPins( &sheet ) )
+                {
+                    if( pin->IsConnectivityDirty() )
+                    {
+                        items.push_back( pin );
+                        dirty_items.insert( pin );
+                    }
+                }
+            }
+            else if( item->Type() == SCH_SHEET_T )
+            {
+                SCH_SHEET* sheet = static_cast<SCH_SHEET*>( item );
+
+                for( SCH_SHEET_PIN* pin : sheet->GetPins() )
                 {
                     if( pin->IsConnectivityDirty() )
                     {
@@ -889,6 +916,9 @@ std::set<std::pair<SCH_SHEET_PATH, SCH_ITEM*>> CONNECTION_GRAPH::ExtractAffected
     }
 
     removeSubgraphs( subgraphs );
+
+    for( const auto& [path, item] : retvals )
+        alg::delete_matching( m_items, item );
 
     return retvals;
 }
@@ -2304,6 +2334,7 @@ void CONNECTION_GRAPH::buildConnectionGraph( std::function<void( SCH_ITEM* )>* a
 
     std::shared_ptr<NET_SETTINGS>& netSettings = m_schematic->Prj().GetProjectFile().m_NetSettings;
     std::map<wxString, wxString>   oldAssignments = netSettings->m_NetClassLabelAssignments;
+    std::set<wxString>             affectedNetclassNetAssignments;
 
     netSettings->m_NetClassLabelAssignments.clear();
 
@@ -2345,9 +2376,6 @@ void CONNECTION_GRAPH::buildConnectionGraph( std::function<void( SCH_ITEM* )>* a
                     }
                 }
 
-                if( netclass.IsEmpty() )
-                    return;
-
                 if( !driverSubgraph )
                     driverSubgraph = subgraphs.front();
 
@@ -2357,7 +2385,10 @@ void CONNECTION_GRAPH::buildConnectionGraph( std::function<void( SCH_ITEM* )>* a
                 {
                     for( const auto& member : driverSubgraph->m_driver_connection->Members() )
                     {
-                        netSettings->m_NetClassLabelAssignments[ member->Name() ] = netclass;
+                        if( netclass.IsEmpty() )
+                            netSettings->m_NetClassLabelAssignments.erase( member->Name() );
+                        else
+                            netSettings->m_NetClassLabelAssignments[member->Name()] = netclass;
 
                         auto ii = m_net_name_to_subgraphs_map.find( member->Name() );
 
@@ -2366,10 +2397,24 @@ void CONNECTION_GRAPH::buildConnectionGraph( std::function<void( SCH_ITEM* )>* a
                     }
                 }
 
-                netSettings->m_NetClassLabelAssignments[ netname ] = netclass;
+                if( netclass.IsEmpty() )
+                    netSettings->m_NetClassLabelAssignments.erase( netname );
+                else
+                    netSettings->m_NetClassLabelAssignments[netname] = netclass;
 
-                if( oldAssignments[ netname ] != netclass )
+                if( oldAssignments.count( netname ) )
+                {
+                    if( oldAssignments[netname] != netclass )
+                    {
+                        affectedNetclassNetAssignments.insert( netname );
+                        dirtySubgraphs( subgraphs );
+                    }
+                }
+                else if( !netclass.IsEmpty() )
+                {
+                    affectedNetclassNetAssignments.insert( netname );
                     dirtySubgraphs( subgraphs );
+                }
             };
 
     for( const auto& [ netname, subgraphs ] : m_net_name_to_subgraphs_map )
@@ -2379,8 +2424,11 @@ void CONNECTION_GRAPH::buildConnectionGraph( std::function<void( SCH_ITEM* )>* a
     {
         for( auto& [ netname, netclass ] : oldAssignments )
         {
-            if( netSettings->m_NetClassLabelAssignments.count( netname ) )
+            if( netSettings->m_NetClassLabelAssignments.count( netname )
+                || affectedNetclassNetAssignments.count( netname ) )
+            {
                 continue;
+            }
 
             netSettings->m_NetClassLabelAssignments[ netname ] = netclass;
         }
@@ -2988,7 +3036,7 @@ CONNECTION_SUBGRAPH* CONNECTION_GRAPH::FindFirstSubgraphByName( const wxString& 
 }
 
 
-CONNECTION_SUBGRAPH* CONNECTION_GRAPH::GetSubgraphForItem( SCH_ITEM* aItem )
+CONNECTION_SUBGRAPH* CONNECTION_GRAPH::GetSubgraphForItem( SCH_ITEM* aItem ) const
 {
     auto                 it  = m_item_to_subgraph_map.find( aItem );
     CONNECTION_SUBGRAPH* ret = it != m_item_to_subgraph_map.end() ? it->second : nullptr;

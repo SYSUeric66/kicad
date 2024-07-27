@@ -255,7 +255,8 @@ GLuint GL_BITMAP_CACHE::cacheBitmap( const BITMAP_BASE* aBitmap )
     bmp.accessTime = currentTime;
 
 #ifndef DISABLE_BITMAP_CACHE
-    if( m_cacheLru.size() + 1 > m_cacheMaxElements || m_cacheSize + bmp.size > m_cacheMaxSize )
+    if( ( m_cacheLru.size() + 1 > m_cacheMaxElements || m_cacheSize + bmp.size > m_cacheMaxSize )
+        && !m_cacheLru.empty() )
     {
         KIID toRemove( 0 );
         auto toRemoveLru = m_cacheLru.end();
@@ -504,13 +505,6 @@ bool OPENGL_GAL::updatedGalDisplayOptions( const GAL_DISPLAY_OPTIONS& aOptions )
     {
         m_compositor->SetAntialiasingMode( m_options.gl_antialiasing_mode );
         m_isFramebufferInitialized = false;
-        refresh = true;
-    }
-
-    if( m_options.m_scaleFactor != GetScaleFactor() )
-    {
-        SetScaleFactor( m_options.m_scaleFactor );
-        m_gridLineWidth = m_options.m_scaleFactor * ( m_options.m_gridLineWidth + 0.25 );
         refresh = true;
     }
 
@@ -2134,13 +2128,16 @@ void OPENGL_GAL::EndDiffLayer()
 }
 
 
-bool OPENGL_GAL::SetNativeCursorStyle( KICURSOR aCursor )
+bool OPENGL_GAL::SetNativeCursorStyle( KICURSOR aCursor, bool aHiDPI )
 {
     // Store the current cursor type and get the wxCursor for it
-    if( !GAL::SetNativeCursorStyle( aCursor ) )
+    if( !GAL::SetNativeCursorStyle( aCursor, aHiDPI ) )
         return false;
 
-    m_currentwxCursor = CURSOR_STORE::GetCursor( m_currentNativeCursor );
+    if( aHiDPI )
+        m_currentwxCursor = CURSOR_STORE::GetHiDPICursor( m_currentNativeCursor );
+    else
+        m_currentwxCursor = CURSOR_STORE::GetCursor( m_currentNativeCursor );
 
     // Update the cursor in the wx control
     HIDPI_GL_CANVAS::SetCursor( m_currentwxCursor );

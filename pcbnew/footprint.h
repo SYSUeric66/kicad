@@ -432,7 +432,8 @@ public:
      *
      * @param aErrorHandler callback to handle the error messages generated
      */
-    void CheckPads( const std::function<void( const PAD*, int, const wxString& )>& aErrorHandler );
+    void CheckPads( UNITS_PROVIDER* aUnitsProvider,
+                    const std::function<void( const PAD*, int, const wxString& )>& aErrorHandler );
 
     /**
      * Check for overlapping, different-numbered, non-net-tie pads.
@@ -923,6 +924,13 @@ public:
      * @return the courtyard polygon.
      */
     const SHAPE_POLY_SET& GetCourtyard( PCB_LAYER_ID aLayer ) const;
+
+    /**
+     * Return the cached courtyard area. No checks are performed.
+     *
+     * @return the cached courtyard polygon.
+     */
+    const SHAPE_POLY_SET& GetCachedCourtyard( PCB_LAYER_ID aLayer ) const;
 
     /**
      * Build complex polygons of the courtyard areas from graphic items on the courtyard layers.

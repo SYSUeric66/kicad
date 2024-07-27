@@ -61,6 +61,7 @@ Load() TODO's
 #include <wx/window.h>
 
 #include <convert_basic_shapes_to_polygon.h>
+#include <font/fontconfig.h>
 #include <string_utils.h>
 #include <locale_io.h>
 #include <string_utf8_map.h>
@@ -77,6 +78,7 @@ Load() TODO's
 #include <pad_shapes.h>
 #include <pcb_text.h>
 #include <pcb_dimension.h>
+#include <reporter.h>
 
 #include <pcb_io/pcb_io.h>
 #include <pcb_io/eagle/pcb_io_eagle.h>
@@ -325,6 +327,8 @@ BOARD* PCB_IO_EAGLE::LoadBoard( const wxString& aFileName, BOARD* aAppendToMe,
 {
     LOCALE_IO       toggle;     // toggles on, then off, the C locale.
     wxXmlNode*      doc;
+
+    fontconfig::FONTCONFIG::SetReporter( &WXLOG_REPORTER::GetInstance() );
 
     init( aProperties );
 
@@ -723,98 +727,82 @@ void PCB_IO_EAGLE::loadPlain( wxXmlNode* aGraphics )
                 pcbtxt->SetLayer( layer );
                 wxString kicadText = interpretText( t.text );
                 pcbtxt->SetText( kicadText );
-                pcbtxt->SetTextPos( VECTOR2I( kicad_x( t.x ), kicad_y( t.y ) ) );
 
                 double ratio = t.ratio ? *t.ratio : 8;     // DTD says 8 is default
                 int textThickness = KiROUND( t.size.ToPcbUnits() * ratio / 100 );
                 pcbtxt->SetTextThickness( textThickness );
                 pcbtxt->SetTextSize( kicad_fontsize( t.size, textThickness ) );
+                pcbtxt->SetKeepUpright( false );
 
-                int align = t.align ? *t.align : ETEXT::BOTTOM_LEFT;
+                // Eagle's anchor is independent of text justification; KiCad's is not.
+                VECTOR2I eagleAnchor( kicad_x( t.x ), kicad_y( t.y ) );
+                int      align = t.align ? *t.align : ETEXT::BOTTOM_LEFT;
+                BOX2I    textbox = pcbtxt->GetBoundingBox();
+                VECTOR2I offset( 0, 0 );
+                double   degrees = 0;
+                int      signX = 0;
+                int      signY = 0;
 
                 if( t.rot )
                 {
-                    int sign = t.rot->mirror ? -1 : 1;
-                    pcbtxt->SetMirrored( t.rot->mirror );
+                    if( !t.rot->spin )
+                        degrees = t.rot->degrees;
 
-                    double degrees = t.rot->degrees;
+                    if( t.rot->mirror )
+                        pcbtxt->SetMirrored( t.rot->mirror );
 
-                    if( degrees == 90 || t.rot->spin )
+                    if( degrees > 90 && degrees <= 270 )
                     {
-                        pcbtxt->SetTextAngle( EDA_ANGLE( sign * degrees, DEGREES_T ) );
+                        if( degrees == 270 && t.rot->mirror )
+                            degrees = 270;          // an odd special-case
+                        else
+                            degrees -= 180;
 
-                        if( sign < 0 )
-                        {
-                            BOX2I bbox = pcbtxt->GetBoundingBox();
-                            VECTOR2I pos = pcbtxt->GetTextPos();
-                            pos.y -= sign * bbox.GetWidth();    // yes, width: bbox is unrotated
-                            pcbtxt->SetTextPos( pos );
-                        }
+                        signX = t.rot->mirror ? 1 : -1;
+                        signY = 1;
                     }
-                    else if( degrees == 180 )
-                    {
-                        BOX2I bbox = pcbtxt->GetBoundingBox();
-                        VECTOR2I pos = pcbtxt->GetTextPos();
-                        pos.x -= sign * bbox.GetWidth();
-                        pcbtxt->SetTextPos( pos );
 
-                        switch( align )
-                        {
-                        case ETEXT::TOP_CENTER:    align = ETEXT::BOTTOM_CENTER; break;
-                        case ETEXT::TOP_LEFT:      align = ETEXT::BOTTOM_LEFT;   break;
-                        case ETEXT::TOP_RIGHT:     align = ETEXT::BOTTOM_RIGHT;  break;
-                        case ETEXT::BOTTOM_CENTER: align = ETEXT::TOP_CENTER;    break;
-                        case ETEXT::BOTTOM_LEFT:   align = ETEXT::TOP_LEFT;      break;
-                        case ETEXT::BOTTOM_RIGHT:  align = ETEXT::TOP_RIGHT;     break;
-                        }
-                    }
-                    else if( degrees == 270 )
-                    {
-                        if( sign < 0 )
-                        {
-                            BOX2I bbox = pcbtxt->GetBoundingBox();
-                            VECTOR2I pos = pcbtxt->GetTextPos();
-                            pos.y -=  sign * bbox.GetWidth();   // yes, width; bbox is unrotated
-                            pcbtxt->SetTextPos( pos );
-                        }
-
-                        pcbtxt->SetTextAngle( EDA_ANGLE( sign * 90, DEGREES_T ) );
-
-                        switch( align )
-                        {
-                        case ETEXT::TOP_CENTER:    align = ETEXT::BOTTOM_CENTER; break;
-                        case ETEXT::TOP_LEFT:      align = ETEXT::BOTTOM_LEFT;   break;
-                        case ETEXT::TOP_RIGHT:     align = ETEXT::BOTTOM_RIGHT;  break;
-                        case ETEXT::BOTTOM_CENTER: align = ETEXT::TOP_CENTER;    break;
-                        case ETEXT::BOTTOM_LEFT:   align = ETEXT::TOP_LEFT;      break;
-                        case ETEXT::BOTTOM_RIGHT:  align = ETEXT::TOP_RIGHT;     break;
-                        }
-                    }
-                    else
-                    {
-                        // Ok so text is not at 90,180 or 270 so do some funny stuff to get
-                        // placement right.
-                        if( ( degrees > 0 ) &&  ( degrees < 90 ) )
-                        {
-                            pcbtxt->SetTextAngle( EDA_ANGLE( sign * degrees, DEGREES_T ) );
-                        }
-                        else if( ( degrees > 90 ) && ( degrees < 180 ) )
-                        {
-                            pcbtxt->SetTextAngle( EDA_ANGLE( sign * ( degrees + 180 ), DEGREES_T ) );
-                            align = ETEXT::TOP_RIGHT;
-                        }
-                        else if( ( degrees > 180 ) && ( degrees < 270 ) )
-                        {
-                            pcbtxt->SetTextAngle( EDA_ANGLE( sign * ( degrees - 180 ), DEGREES_T ) );
-                            align = ETEXT::TOP_RIGHT;
-                        }
-                        else if( ( degrees > 270 ) && ( degrees < 360 ) )
-                        {
-                            pcbtxt->SetTextAngle( EDA_ANGLE( sign * degrees, DEGREES_T ) );
-                            align = ETEXT::BOTTOM_LEFT;
-                        }
-                    }
+                    pcbtxt->SetTextAngle( EDA_ANGLE( degrees, DEGREES_T ) );
                 }
+
+                switch( align )
+                {
+                case ETEXT::BOTTOM_CENTER:
+                case ETEXT::BOTTOM_LEFT:
+                case ETEXT::BOTTOM_RIGHT:
+                    offset.y = signY * (int) textbox.GetHeight();
+                    break;
+
+                case ETEXT::TOP_CENTER:
+                case ETEXT::TOP_LEFT:
+                case ETEXT::TOP_RIGHT:
+                    offset.y = -signY * (int) textbox.GetHeight();
+                    break;
+
+                default:
+                    break;
+                }
+
+                switch( align )
+                {
+                case ETEXT::TOP_LEFT:
+                case ETEXT::CENTER_LEFT:
+                case ETEXT::BOTTOM_LEFT:
+                    offset.x = signX * (int) textbox.GetWidth();
+                    break;
+
+                case ETEXT::TOP_RIGHT:
+                case ETEXT::CENTER_RIGHT:
+                case ETEXT::BOTTOM_RIGHT:
+                    offset.x = -signX * (int) textbox.GetWidth();
+                    break;
+
+                default:
+                    break;
+                }
+
+                RotatePoint( offset, EDA_ANGLE( degrees, DEGREES_T ) );
+                pcbtxt->SetTextPos( eagleAnchor + offset );
 
                 switch( align )
                 {
@@ -2097,6 +2085,7 @@ void PCB_IO_EAGLE::packageText( FOOTPRINT* aFootprint, wxXmlNode* aTree ) const
 
     textItem->SetTextThickness( textThickness );
     textItem->SetTextSize( kicad_fontsize( t.size, textThickness ) );
+    textItem->SetKeepUpright( false );
 
     int align = t.align ? *t.align : ETEXT::BOTTOM_LEFT;  // bottom-left is eagle default
 
@@ -3171,6 +3160,8 @@ wxDateTime PCB_IO_EAGLE::getModificationTime( const wxString& aPath )
 
 void PCB_IO_EAGLE::cacheLib( const wxString& aLibPath )
 {
+    fontconfig::FONTCONFIG::SetReporter( nullptr );
+
     try
     {
         wxDateTime  modtime = getModificationTime( aLibPath );

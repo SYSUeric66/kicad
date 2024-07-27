@@ -325,26 +325,8 @@ void DIALOG_BOARD_STATISTICS::getDataFromPCB()
     sort( m_drillTypes.begin(), m_drillTypes.end(),
           DRILL_LINE_ITEM::COMPARE( DRILL_LINE_ITEM::COL_COUNT, false ) );
 
-    bool           boundingBoxCreated = false; //flag if bounding box initialized
-    BOX2I          bbox;
     SHAPE_POLY_SET polySet;
     m_hasOutline = board->GetBoardPolygonOutlines( polySet );
-
-    // If board has no Edge Cuts lines, board->GetBoardPolygonOutlines will
-    // return small rectangle, so we double check that
-    bool edgeCutsExists = false;
-
-    for( BOARD_ITEM* drawing : board->Drawings() )
-    {
-        if( drawing->GetLayer() == Edge_Cuts )
-        {
-            edgeCutsExists = true;
-            break;
-        }
-    }
-
-    if( !edgeCutsExists )
-        m_hasOutline = false;
 
     if( m_hasOutline )
     {
@@ -360,18 +342,41 @@ void DIALOG_BOARD_STATISTICS::getDataFromPCB()
             {
                 for( int j = 0; j < polySet.HoleCount( i ); j++ )
                     m_boardArea -= polySet.Hole( i, j ).Area();
-            }
 
-            if( boundingBoxCreated )
-            {
-                bbox.Merge( outline.BBox() );
-            }
-            else
-            {
-                bbox = outline.BBox();
-                boundingBoxCreated = true;
+                for( FOOTPRINT* fp : board->Footprints() )
+                {
+                    for( PAD* pad : fp->Pads() )
+                    {
+                        if( !pad->HasHole() )
+                            continue;
+
+                        auto hole = pad->GetEffectiveHoleShape();
+                        const SEG& seg = hole->GetSeg();
+                        double width = hole->GetWidth();
+                        double area = seg.Length() * width;
+
+                        // Each end of the hole is a half-circle, so together, we have one
+                        // full circle.  The area of a circle is pi * r^2, so the area of the
+                        // hole is pi * (d/2)^2 = pi * 1/4 * d^2.
+                        area += M_PI * 0.25 * width * width;
+                        m_boardArea -= area;
+                    }
+                }
+
+                for( PCB_TRACK* track : board->Tracks() )
+                {
+                    if( track->Type() == PCB_VIA_T )
+                    {
+                        PCB_VIA* via = static_cast<PCB_VIA*>( track );
+                        double drill = via->GetDrillValue();
+                        m_boardArea -= M_PI * 0.25 * drill * drill;
+                    }
+                }
             }
         }
+
+        // Compute the bounding box to get a rectangular size
+        BOX2I bbox = board->GetBoardEdgesBoundingBox();
 
         m_boardWidth = bbox.GetWidth();
         m_boardHeight = bbox.GetHeight();

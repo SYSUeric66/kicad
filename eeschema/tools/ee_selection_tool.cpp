@@ -1034,8 +1034,11 @@ OPT_TOOL_EVENT EE_SELECTION_TOOL::autostartEvent( TOOL_EVENT* aEvent, EE_GRID_HE
 
             wxCHECK( pin, OPT_TOOL_EVENT() );
 
-            if( !pin->IsVisible() && !m_frame->eeconfig()->m_Appearance.show_hidden_pins )
+            if( !pin->IsVisible()
+                && !( m_frame->eeconfig()->m_Appearance.show_hidden_pins ) )
+            {
                 return OPT_TOOL_EVENT();
+            }
         }
 
         newEvt->SetMousePosition( pos );

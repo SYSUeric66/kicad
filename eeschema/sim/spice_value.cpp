@@ -35,6 +35,7 @@
 #include <confirm.h>
 #include <common.h>
 #include <locale_io.h>
+#include <geometry/eda_angle.h>
 
 
 void SPICE_VALUE_FORMAT::FromString( const wxString& aString )
@@ -223,6 +224,13 @@ wxString SPICE_VALUE::ToString( const SPICE_VALUE_FORMAT& aFormat )
 {
     wxString range( aFormat.Range );
 
+    if( range.EndsWith( wxS( "°" ) ) )
+    {
+        EDA_ANGLE angle( m_base * std::pow( 10, (int) m_prefix ), DEGREES_T );
+        angle.Normalize180();
+        return wxString::FromCDouble( angle.AsDegrees(), aFormat.Precision ) + wxS( "°" );
+    }
+
     if( range.StartsWith( wxS( "~" ) ) )
     {
         Normalize();
@@ -254,6 +262,11 @@ wxString SPICE_VALUE::ToString( const SPICE_VALUE_FORMAT& aFormat )
     mantissa *= std::pow( 10, scale - aFormat.Precision + 1 );
 
     wxString res = wxString::FromCDouble( mantissa, std::max( 0, aFormat.Precision - scale - 1 ) );
+
+    // If we have an excessively long number, switch to scientific notation
+    if( ssize_t( res.length() ) > aFormat.Precision + scale + 1 )
+        res = wxString::FromCDouble( mantissa );
+
     return res + range;
 }
 

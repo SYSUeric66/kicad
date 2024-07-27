@@ -149,8 +149,6 @@ public:
      */
     int Intersect( const SHAPE_ARC& aArc, std::vector<VECTOR2I>* aIpsBuffer ) const;
 
-    bool IsClockwise() const;
-
     void SetWidth( int aWidth )
     {
         m_width = aWidth;
@@ -248,6 +246,23 @@ public:
 
     void TransformToPolygon( SHAPE_POLY_SET& aBuffer, int aError,
                              ERROR_LOC aErrorLoc ) const override;
+
+    /**
+     * @return true if the arc is counter-clockwise.
+     */
+    bool IsCCW() const
+    {
+        VECTOR2L mid = m_mid;
+        VECTOR2L v1 = m_end - mid;
+        VECTOR2L v2 = m_start - mid;
+
+        return v1.Cross( v2 ) > 0;
+    }
+
+    /**
+     * @return true if the arc is clockwise.
+     */
+    bool IsClockwise() const { return !IsCCW(); }
 
 private:
     bool ccw( const VECTOR2I& aA, const VECTOR2I& aB, const VECTOR2I& aC ) const

@@ -42,6 +42,7 @@ class NETINFO_ITEM;
 class PAD;
 class PCB_SHAPE;
 class PCB_VIA;
+class PCB_TEXT;
 class PROGRESS_REPORTER;
 class SHAPE_POLY_SET;
 class SHAPE_SEGMENT;
@@ -85,7 +86,7 @@ public:
 
     const IO_BASE::IO_FILE_DESC GetBoardFileDesc() const override
     {
-        return IO_BASE::IO_FILE_DESC( _HKI( "IPC-2581 Production File" ), { "xml" } );
+        return IO_BASE::IO_FILE_DESC( wxEmptyString, {} );
     }
 
     const IO_BASE::IO_FILE_DESC GetLibraryDesc() const override
@@ -234,6 +235,8 @@ private:
     void addShape( wxXmlNode* aContentNode, const PAD& aPad, PCB_LAYER_ID aLayer );
 
     void addSlotCavity( wxXmlNode* aContentNode, const PAD& aPad, const wxString& aName );
+
+    void addKnockoutText( wxXmlNode* aContentNode, PCB_TEXT* aText );
 
     void addText( wxXmlNode* aContentNode, EDA_TEXT* aShape, const KIFONT::METRICS& aFontMetrics );
 

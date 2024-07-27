@@ -882,7 +882,6 @@ AVIA6::AVIA6( ALTIUM_BINARY_PARSER& aReader )
     size_t subrecord1 = aReader.ReadAndSetSubrecordLength();
 
     aReader.Skip( 1 );
-
     uint8_t flags1  = aReader.Read<uint8_t>();
     is_test_fab_top = ( flags1 & 0x80 ) != 0;
     is_tent_bottom  = ( flags1 & 0x40 ) != 0;
@@ -907,8 +906,47 @@ AVIA6::AVIA6( ALTIUM_BINARY_PARSER& aReader )
     }
     else
     {
-        aReader.Skip( 43 );
+        uint8_t temp_byte = aReader.Read<uint8_t>(); // Unknown.
+
+        thermal_relief_airgap = aReader.ReadKicadUnit();
+        thermal_relief_conductorcount = aReader.Read<uint8_t>();
+        aReader.Skip( 1 ); // Unknown.
+
+        thermal_relief_conductorwidth = aReader.ReadKicadUnit();
+
+        aReader.ReadKicadUnit(); // Unknown.  20mil?
+        aReader.ReadKicadUnit(); // Unknown.  20mil?
+
+        aReader.Skip( 4 );
+        soldermask_expansion_front = aReader.ReadKicadUnit();
+        aReader.Skip( 8 );
+
+        temp_byte = aReader.Read<uint8_t>();
+        soldermask_expansion_manual = temp_byte & 0x02;
+
+        aReader.Skip( 7 );
+
         viamode = static_cast<ALTIUM_PAD_MODE>( aReader.Read<uint8_t>() );
+
+        for( int ii = 0; ii < 32; ++ii )
+        {
+            diameter_by_layer[ii] = aReader.ReadKicadUnit();
+        }
+    }
+
+    if( subrecord1 >= 246 )
+    {
+        aReader.Skip( 38 );
+        soldermask_expansion_linked = aReader.Read<uint8_t>() & 0x01;
+        soldermask_expansion_back = aReader.ReadKicadUnit();
+    }
+
+    if( subrecord1 >= 307 )
+    {
+        aReader.Skip( 45 );
+
+        pos_tolerance = aReader.ReadKicadUnit();
+        neg_tolerance = aReader.ReadKicadUnit();
     }
 
     aReader.SkipSubrecord();
@@ -977,13 +1015,24 @@ ATEXT6::ATEXT6( ALTIUM_BINARY_PARSER& aReader, std::map<uint32_t, wxString>& aSt
     aReader.Skip( 4 );
     position = aReader.ReadVector2IPos();
     height   = aReader.ReadKicadUnit();
-    aReader.Skip( 2 );
+    strokefonttype = static_cast<STROKE_FONT_TYPE>( aReader.Read<uint16_t>() );
+    // TODO: The Serif font type doesn't match well with KiCad, we should replace it with a better match
+
     rotation     = aReader.Read<double>();
     isMirrored   = aReader.Read<uint8_t>() != 0;
     strokewidth  = aReader.ReadKicadUnit();
+
+    if( subrecord1 < 123 )
+    {
+        fonttype = ALTIUM_TEXT_TYPE::STROKE;
+        aReader.SkipSubrecord();
+        return;
+    }
+
     isComment    = aReader.Read<uint8_t>() != 0;
     isDesignator = aReader.Read<uint8_t>() != 0;
-    aReader.Skip( 2 );
+    aReader.Skip( 1 );
+    fonttype = static_cast<ALTIUM_TEXT_TYPE>( aReader.Read<uint8_t>() );
     isBold   = aReader.Read<uint8_t>() != 0;
     isItalic = aReader.Read<uint8_t>() != 0;
 
@@ -991,27 +1040,25 @@ ATEXT6::ATEXT6( ALTIUM_BINARY_PARSER& aReader, std::map<uint32_t, wxString>& aSt
     aReader.ReadBytes( fontData, sizeof( fontData ) );
     fontname = wxString( fontData, wxMBConvUTF16LE(), sizeof( fontData ) ).BeforeFirst( '\0' );
 
-    isInverted = aReader.Read<uint8_t>() != 0;
+    char tmpbyte = aReader.Read<uint8_t>();
+    isInverted = !!tmpbyte;
+    inverted_borderwidth = aReader.ReadKicadUnit();
+    widestring_index = aReader.Read<uint32_t>();
     aReader.Skip( 4 );
-    uint32_t stringIndex = aReader.Read<uint32_t>();
-    aReader.Skip( 13 );
-    textposition = static_cast<ALTIUM_TEXT_POSITION>( aReader.Read<uint8_t>() );
-    /**
-     * In Altium 14 (subrecord1 == 230) only left bottom is valid? I think there is a bit missing.
-     * https://gitlab.com/kicad/code/kicad/-/merge_requests/60#note_274913397
-     */
-    if( subrecord1 <= 230 )
-        textposition = ALTIUM_TEXT_POSITION::LEFT_BOTTOM;
 
-    aReader.Skip( 27 );
-    fonttype = static_cast<ALTIUM_TEXT_TYPE>( aReader.Read<uint8_t>() );
+    // An inverted rect in Altium is like a text box with the text inverted.
+    isInvertedRect = aReader.Read<uint8_t>() != 0;
 
+    textbox_rect_width = aReader.ReadKicadUnit();
+    textbox_rect_height = aReader.ReadKicadUnit();
+    textbox_rect_justification = static_cast<ALTIUM_TEXT_POSITION>( aReader.Read<uint8_t>() );
+    textbox_rect_offset = aReader.ReadKicadUnit();
     aReader.SkipSubrecord();
 
     // Subrecord 2 - Legacy 8bit string, max 255 chars, unknown codepage
     aReader.ReadAndSetSubrecordLength();
 
-    auto entry = aStringTable.find( stringIndex );
+    auto entry = aStringTable.find( widestring_index );
 
     if( entry != aStringTable.end() )
         text = entry->second;
@@ -1022,6 +1069,13 @@ ATEXT6::ATEXT6( ALTIUM_BINARY_PARSER& aReader, std::map<uint32_t, wxString>& aSt
     text.Replace( wxT( "\r\n" ), wxT( "\n" ) );
 
     aReader.SkipSubrecord();
+
+    // Altium only supports inverting truetype fonts
+    if( fonttype != ALTIUM_TEXT_TYPE::TRUETYPE )
+    {
+        isInverted = false;
+        isInvertedRect = false;
+    }
 
     if( aReader.HasParsingError() )
         THROW_IO_ERROR( wxT( "Texts6 stream was not parsed correctly" ) );
