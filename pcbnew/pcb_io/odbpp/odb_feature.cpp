@@ -401,6 +401,9 @@ void FEATURES_MANAGER::InitFeatureList( PCB_LAYER_ID aLayer,
                 AddVia( via, aLayer );
                 subnet->AddFeatureID( EDAData::FeatureID::Type::COPPER,
                       m_layerName, m_featuresList.size() - 1 );
+
+                AddFeatureAttribute( *m_featuresList.back(), ODB_ATTR::PAD_USAGE::VIA );
+
             }
             else
             {
@@ -410,8 +413,15 @@ void FEATURES_MANAGER::InitFeatureList( PCB_LAYER_ID aLayer,
                     AddViaDrillHole( via, aLayer );
                     subnet->AddFeatureID( EDAData::FeatureID::Type::HOLE,
                         m_layerName, m_featuresList.size() - 1 );
+
+                    // TODO: confirm TOOLING_HOLE
+                    // AddFeatureAttribute( *m_featuresList.back(), ODB_ATTR::PAD_USAGE::TOOLING_HOLE );
+                    AddFeatureAttribute( *m_featuresList.back(), ODB_ATTR::DRILL::VIA );
+                
                 }
             }
+            AddFeatureAttribute( *m_featuresList.back(), 
+                    ODB_ATTR::GEOMETRY{ "VIA_RoundD" + std::to_string( via->GetWidth() ) } );
         }
 
     };
@@ -435,6 +445,10 @@ void FEATURES_MANAGER::InitFeatureList( PCB_LAYER_ID aLayer,
 
             iter->second->AddFeatureID( EDAData::FeatureID::Type::COPPER,
                       m_layerName, m_featuresList.size() - 1 );
+
+            if( zone->IsTeardropArea() )
+                AddFeatureAttribute( *m_featuresList.back(), ODB_ATTR::TEAR_DROP{ true } );
+
         }
             
     };
@@ -443,6 +457,7 @@ void FEATURES_MANAGER::InitFeatureList( PCB_LAYER_ID aLayer,
     {
         int maxError = m_board->GetDesignSettings().m_MaxError;
         SHAPE_POLY_SET poly_set;
+        wxString shown_text;
         // EDA_TEXT* text_item;
         // text_item = static_cast<EDA_TEXT*>( tmp_text );
 
@@ -451,7 +466,7 @@ void FEATURES_MANAGER::InitFeatureList( PCB_LAYER_ID aLayer,
             if( !tmp_text->IsVisible() || tmp_text->GetShownText( false ).empty() )
                 return;
             tmp_text->TransformTextToPolySet( poly_set, 0, maxError, ERROR_INSIDE );
-
+            shown_text = tmp_text->GetShownText( false );
         }
         else if( PCB_TEXTBOX* textbox = dynamic_cast<PCB_TEXTBOX*>( text ) )
         {
@@ -463,10 +478,14 @@ void FEATURES_MANAGER::InitFeatureList( PCB_LAYER_ID aLayer,
 
             // text
             textbox->TransformTextToPolySet( poly_set, 0, maxError, ERROR_INSIDE );
+            shown_text = textbox->GetShownText( false );
         }
 
         for( int ii = 0; ii < poly_set.OutlineCount(); ++ii )
+        {
             AddContour( poly_set, ii );
+            AddFeatureAttribute( *m_featuresList.back(), ODB_ATTR::STRING{ shown_text.ToStdString() } );
+        }
 
     };
 
@@ -497,6 +516,11 @@ void FEATURES_MANAGER::InitFeatureList( PCB_LAYER_ID aLayer,
                 AddPadShape( *pad, aLayer );
 
             iter->second->AddFeatureID( EDAData::FeatureID::Type::COPPER, m_layerName, m_featuresList.size() - 1 );
+            
+            AddFeatureAttribute( *m_featuresList.back(), ODB_ATTR::PAD_USAGE::TOEPRINT );
+            
+            if( !pad->HasHole())
+                AddFeatureAttribute( *m_featuresList.back(), ODB_ATTR::SMD{ true } );
         }
         else
         {
@@ -514,15 +538,25 @@ void FEATURES_MANAGER::InitFeatureList( PCB_LAYER_ID aLayer,
                 dummy.SetSize( pad->GetDrillSize() );
 
                 AddPadShape( dummy, aLayer );
-                // only plated holes link to subnet
+                
                 if( pad->GetAttribute() == PAD_ATTRIB::PTH )
                 {
+                    // only plated holes link to subnet
                     iter->second->AddFeatureID( EDAData::FeatureID::Type::HOLE,
                         m_layerName, m_featuresList.size() - 1 );
+
+                    AddFeatureAttribute( *m_featuresList.back(), ODB_ATTR::DRILL::PLATED );
+                }
+                else
+                {
+                    AddFeatureAttribute( *m_featuresList.back(), ODB_ATTR::DRILL::NON_PLATED );
                 }
             }
             
         }
+        // AddFeatureAttribute( *m_featuresList.back(), 
+        //         ODB_ATTR::GEOMETRY{ "PAD_xxxx" } );
+
     };
 
     for( BOARD_ITEM* item : aItems )

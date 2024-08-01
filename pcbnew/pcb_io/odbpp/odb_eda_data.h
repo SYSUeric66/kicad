@@ -37,7 +37,7 @@
 // enum class ODB_FID_TYPE;
 
 class PKG_OUTLINE;
-class EDAData : public AttributeProvider
+class EDAData : public ATTR_MANAGER
 {
 public:
     EDAData();

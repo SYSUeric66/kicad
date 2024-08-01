@@ -48,15 +48,6 @@ void EDAData::Net::Write(std::ostream &ost) const
     }
 }
 
-// static std::string get_net_name(const Net &net)
-// {
-//     std::string net_name;
-//     if (net.is_named())
-//         return net.name;
-//     else
-//         return "$" + static_cast<std::string>(net.uuid);
-// }
-
 void EDAData::AddNET( const NETINFO_ITEM* aNet )
 {
     if( nets_map.end() == nets_map.find( aNet->GetNetCode() ) )

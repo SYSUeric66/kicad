@@ -29,7 +29,7 @@
 #include "odb_eda_data.h"
 
 class ODB_COMPONENT;
-class COMPONENTS_MANAGER : public AttributeProvider
+class COMPONENTS_MANAGER : public ATTR_MANAGER
 {
 public:
     COMPONENTS_MANAGER() = default;

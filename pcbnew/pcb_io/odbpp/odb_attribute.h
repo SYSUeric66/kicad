@@ -24,206 +24,200 @@
 #include "odb_util.h"
 #include "stroke_params.h"
 #include <wx/string.h>
+#include <string>
+#include <type_traits>
 
 
-// class ODB_ATTRIBUTE
-// {
-// public:
-// 	ODB_ATTRIBUTE_BASE();
-//     virtual ~ODB_ATTRIBUTE_BASE();
-// };
+namespace ODB_ATTR {
 
-// class SYSTEM_ATTRIBUTE : public ODB_ATTRIBUTE
-// {
-// public:
-// 	SYSTEM_ATTRIBUTE();
-//     virtual ~SYSTEM_ATTRIBUTE();
-//     // virtual wxTextOutputStream& Generate () = 0;
+enum class Type { FLOAT, BOOLEAN, TEXT, OPTION, INTEGER };
 
-// };
+// Base class template for attributes
+template <typename T, Type AttrType>
+struct AttributeBase {
+    using ValueType = T;
+    static constexpr Type type = AttrType;
+    constexpr AttributeBase(T v) : value(v) {}
+    T value;
+};
 
-// class SYSATTR : public SYSTEM_ATTRIBUTE
-// {
-// private:
-//     enum class PRODUCT_ATTR
-//     {
-//         all_eda_layers,
+// Specialized attribute types
+template <typename T, unsigned int N>
+struct FloatAttribute : AttributeBase<double, Type::FLOAT> {
+    static constexpr unsigned int ndigits = N;
+    using AttributeBase<double, Type::FLOAT>::AttributeBase;
+};
 
-//     };
-    
-// public:
-//     SYSATTR(/* args */);
-//     virtual ~SYSATTR();
-// };
+template <typename T>
+struct BooleanAttribute : AttributeBase<bool, Type::BOOLEAN> {
+    using AttributeBase<bool, Type::BOOLEAN>::AttributeBase;
+};
 
-// class SYSATTR_DFM : public SYSTEM_ATTRIBUTE
-// {
-// private:
-//     /* data */
-// public:
-//     SYSATTR_DFM(/* args */);
-//     virtual ~SYSATTR_DFM();
-// };
+template <typename T>
+struct TextAttribute : AttributeBase<std::string, Type::TEXT> {
+    constexpr TextAttribute(const std::string &t) :
+        AttributeBase<std::string, Type::TEXT>( ODB::GenLegalEntityName( t ).ToStdString() ) {}
+};
 
-// class SYSATTR_FAB : public SYSTEM_ATTRIBUTE
-// {
-// private:
-//     /* data */
-// public:
-//     SYSATTR_FAB(/* args */);
-//     virtual ~SYSATTR_FAB();
-// };
-
-// class SYSATTR_ASSY : public SYSTEM_ATTRIBUTE
-// {
-// private:
-//     /* data */
-// public:
-//     SYSATTR_ASSY(/* args */);
-//     virtual ~SYSATTR_ASSY();
-// };
-
-// class SYSATTR_TEST : public SYSTEM_ATTRIBUTE
-// {
-// private:
-//     /* data */
-// public:
-//     SYSATTR_TEST(/* args */);
-//     virtual ~SYSATTR_TEST();
-// };
-
-// class SYSATTR_GEN : public SYSTEM_ATTRIBUTE
-// {
-// private:
-//     /* data */
-// public:
-//     SYSATTR_GEN(/* args */);
-//     virtual ~SYSATTR_GEN();
-// };
-
-// struct ODB_ATTR_NAME
-// {
-//     std::map<std::string, unsigned int> m_names;
-// };
-
-// struct ODB_ATTR_VALUE
-// {
-//     std::map<std::string, unsigned int> m_values;
-// };
-
-namespace ODB
-{
-    template <typename T> struct attribute_name {};
-
-    enum class ATTRTYPE { FLOAT, BOOLEAN, TEXT };
-
-    template <typename T, unsigned int n> struct float_attribute
-    {
-        double value;
-        static constexpr unsigned int ndigits = n;
-        static constexpr ATTRTYPE type = ATTRTYPE::FLOAT;
-    };
-
-    template <typename T> struct boolean_attribute {
-        bool value = true;
-        static constexpr ATTRTYPE type = ATTRTYPE::BOOLEAN;
-    };
-
-    template <typename T> struct text_attribute {
-        text_attribute(const std::string &t) : value(t)
-        {
-        }
-        std::string value;
-        static constexpr ATTRTYPE type = ATTRTYPE::TEXT;
-    };
-
-    #define ATTR_NAME(n)                                                                                                   \
-        template <> struct attribute_name<n> {                                                                             \
-            static constexpr const char *name = "." #n;                                                                    \
-        };
+template <typename T>
+struct OPTION_Attribute : AttributeBase<int, Type::OPTION> {
+    using AttributeBase<int, Type::OPTION>::AttributeBase;
+};
 
 
-//     #define MAKE_FLOAT_ATTR(n, nd)                                                                                         \
-//         using n = float_attribute<struct n##_t, nd>;                                                                       \
-//         ATTR_NAME(n)
+template <typename T> 
+struct AttributeName {};
 
-//     #define MAKE_TEXT_ATTR(n)                                                                                              \
-//         using n = text_attribute<struct n##_t>;                                                                            \
-//         ATTR_NAME(n)
+// Attribute name and type definitions
+template <typename Tag, template <typename, unsigned int> class Attr, Type AttrType, unsigned int N>
+struct Attribute {
+    using Type = Attr<Tag, N>;
+};
 
-//     #define MAKE_BOOLEAN_ATTR(n)                                                                                           \
-//         using n = boolean_attribute<struct n##_t>;                                                                         \
-//         ATTR_NAME(n)
+template <typename Tag, template <typename> class Attr, Type AttrType>
+struct AttributeSimple {
+    using Type = Attr<Tag>;
+};
 
-//     template <typename T> struct is_feature : std::false_type {};
-//     template <typename T> struct is_net : std::false_type {};
-//     template <typename T> struct is_pkg : std::false_type {};
+// Type traits for attributes
+template <typename T>
+struct IsFeature : std::false_type {};
+template <typename T>
+struct IsNet : std::false_type {};
+template <typename T>
+struct IsPkg : std::false_type {};
+template <typename T>
+struct IsLayer : std::false_type {};
+template <typename T>
+struct IsStep : std::false_type {};
+template <typename T>
+struct IsComp : std::false_type {};
+template <typename T>
+struct IsProductModel : std::false_type {};
+template <typename T>
+struct IsSymbol : std::false_type {};
 
-//     template <class T> inline constexpr bool is_feature_v = is_feature<T>::value;
-//     template <class T> inline constexpr bool is_net_v = is_net<T>::value;
-//     template <class T> inline constexpr bool is_pkg_v = is_pkg<T>::value;
+// template <typename T>
+// inline constexpr bool is_feature_v = IsFeature<T>::value;
+// template <typename T>
+// inline constexpr bool is_net_v = IsNet<T>::value;
+// template <typename T>
+// inline constexpr bool is_pkg_v = IsPkg<T>::value;
 
-//     #define ATTR_IS_FEATURE(a)                                                                                             \
-//         template <> struct is_feature<a> : std::true_type {};
+#define DEFINE_ATTR(Tag, Attr, AttrType, AttrName, ...) \
+    struct Tag##_t {}; \
+    constexpr const char Tag##_name[] = AttrName; \
+    using Tag = Attribute<Tag##_t, Attr, AttrType, __VA_ARGS__>::Type; \
+    template <> struct AttributeName<Tag> { static constexpr const char* name = Tag##_name; };
 
-//     #define ATTR_IS_NET(a)                                                                                                 \
-//         template <> struct is_net<a> : std::true_type {};
-
-//     #define ATTR_IS_PKG(a)                                                                                                 \
-//         template <> struct is_pkg<a> : std::true_type {};
-
-//     enum class drill { PLATED, NON_PLATED, VIA };
-//     ATTR_NAME(drill)
-//     ATTR_IS_FEATURE(drill)
-
-//     enum class primary_side { TOP, BOTTOM };
-//     ATTR_NAME(primary_side)
-
-//     enum class pad_usage { TOEPRINT, VIA, G_FIDUCIAL, L_FIDUCIAL, TOOLING_HOLE };
-//     ATTR_NAME(pad_usage)
-//     ATTR_IS_FEATURE(pad_usage)
-
-//     ATTR_NAME( LINE_STYLE )
-//     ATTR_IS_FEATURE( LINE_STYLE )
+#define DEFINE_ATTR_SIMPLE(Tag, Attr, AttrType, AttrName) \
+    struct Tag##_t {}; \
+    constexpr const char Tag##_name[] = AttrName; \
+    using Tag = AttributeSimple<Tag##_t, Attr, AttrType>::Type; \
+    template <> struct AttributeName<Tag> { static constexpr const char* name = Tag##_name; };
 
 
-//     MAKE_FLOAT_ATTR(drc_max_height, 3)
-//     ATTR_IS_FEATURE(drc_max_height)
+#define DEFINE_FLOAT_ATTR(NAME, N) \
+    DEFINE_ATTR(NAME, FloatAttribute, Type::FLOAT, #NAME, N)
 
-//     MAKE_BOOLEAN_ATTR(smd)
-//     ATTR_IS_FEATURE(smd)
+#define DEFINE_BOOLEAN_ATTR(NAME) \
+    DEFINE_ATTR_SIMPLE(NAME, BooleanAttribute, Type::BOOLEAN, #NAME)
 
-//     MAKE_TEXT_ATTR(electrical_class)
-//     ATTR_IS_NET(electrical_class)
+#define DEFINE_TEXT_ATTR(NAME) \
+    DEFINE_ATTR_SIMPLE(NAME, TextAttribute, Type::TEXT, #NAME)
 
-//     MAKE_TEXT_ATTR(net_type)
-//     ATTR_IS_NET(net_type)
+#define DEFINE_OPTION_ATTR(NAME) \
+    struct NAME##_t {}; \
+    template <> struct AttributeSimple<NAME##_t, OPTION_Attribute, Type::OPTION>; \
+    template <> struct AttributeName<NAME> { static constexpr const char* name = #NAME; };
 
-//     MAKE_TEXT_ATTR(diff_pair)
-//     ATTR_IS_NET(diff_pair)
 
-//     MAKE_TEXT_ATTR(string)
-//     ATTR_IS_FEATURE(string)
+// used by which entity
+#define USED_BY_FEATURE_ENTITY(NAME) \
+    template <> struct IsFeature<NAME> : std::true_type {};
+
+#define USED_BY_NET_ENTITY(NAME) \
+    template <> struct IsNet<NAME> : std::true_type {};
+
+#define USED_BY_PKG_ENTITY(NAME) \
+    template <> struct IsPkg<NAME> : std::true_type {};
+
+// Attribute definitions
+// BOOLEAN
+DEFINE_BOOLEAN_ATTR(SMD)
+USED_BY_FEATURE_ENTITY(SMD)
+
+DEFINE_BOOLEAN_ATTR(NET_POINT)
+USED_BY_FEATURE_ENTITY(NET_POINT)
+
+DEFINE_BOOLEAN_ATTR(ROUT_PLATED)
+USED_BY_FEATURE_ENTITY(ROUT_PLATED)
+
+DEFINE_BOOLEAN_ATTR(MECHANICAL)
+
+DEFINE_BOOLEAN_ATTR(MOUNT_HOLE)
+USED_BY_FEATURE_ENTITY(MOUNT_HOLE)
+
+DEFINE_BOOLEAN_ATTR(TEAR_DROP)
+USED_BY_FEATURE_ENTITY(TEAR_DROP)
+
+DEFINE_BOOLEAN_ATTR(TEST_POINT)
+USED_BY_FEATURE_ENTITY(TEST_POINT)
+
+// TEXT
+DEFINE_TEXT_ATTR(STRING)
+USED_BY_FEATURE_ENTITY(STRING)
+
+DEFINE_TEXT_ATTR(GEOMETRY)
+USED_BY_FEATURE_ENTITY(GEOMETRY)
+
+DEFINE_TEXT_ATTR(NET_NAME)
+USED_BY_FEATURE_ENTITY(NET_NAME)
+
+
+// FLOAT
+DEFINE_FLOAT_ATTR(BOARD_THICKNESS, 1)  // 0.0~10.0
+
+DEFINE_FLOAT_ATTR(STRING_ANGLE, 1)   // 0.0~360.0
+USED_BY_FEATURE_ENTITY(STRING_ANGLE)
+
+
+// OPTION
+enum class DRILL { PLATED, NON_PLATED, VIA };
+DEFINE_OPTION_ATTR(DRILL)
+USED_BY_FEATURE_ENTITY(DRILL)
+
+enum class PAD_USAGE { TOEPRINT, VIA, G_FIDUCIAL, L_FIDUCIAL, TOOLING_HOLE, BOND_FINGER };
+DEFINE_OPTION_ATTR(PAD_USAGE)
+USED_BY_FEATURE_ENTITY(PAD_USAGE)
+
+enum class PLATED_TYPE { STANDARD, PRESS_FIT };
+DEFINE_OPTION_ATTR(PLATED_TYPE)
+USED_BY_FEATURE_ENTITY(PLATED_TYPE)
+
+enum class VIA_TYPE { DRILLED, LASER, PHOTO };
+DEFINE_OPTION_ATTR(VIA_TYPE)
+USED_BY_FEATURE_ENTITY(VIA_TYPE)
 
 }
 
-class AttributeProvider
+
+class ATTR_MANAGER
 {
 public:
-    AttributeProvider() = default;
-    virtual ~AttributeProvider() = default;
+    ATTR_MANAGER() = default;
+    virtual ~ATTR_MANAGER() = default;
 
     template <typename Tr, typename Ta> void AddFeatureAttribute(Tr &r, Ta v)
     {
-        using Tc = typename Tr::template check_type<Ta>;
-        static_assert(Tc::value);
-
-        const auto id = get_or_create_attribute_name(ODB::attribute_name<Ta>::name);
+        // using Tc = typename Tr::template check_type<Ta>;
+        // static_assert(Tc::value);
+        const auto id = get_or_create_attribute_name( ODB_ATTR::AttributeName<Ta>::name );
 
         if constexpr (std::is_enum_v<Ta>)
             r.attributes.emplace_back(id, std::to_string(static_cast<int>(v)));
         else
-            r.attributes.emplace_back(id, attr_to_string(v));
+        r.attributes.emplace_back(id, attr_to_string(v));
     }
 
 protected:
@@ -239,17 +233,17 @@ private:
 
     static std::string double_to_string(double v, unsigned int n);
 
-    template <typename T, unsigned int n> std::string attr_to_string(ODB::float_attribute<T, n> a)
+    template <typename T, unsigned int n> std::string attr_to_string(ODB_ATTR::FloatAttribute<T, n> a)
     {
         return double_to_string(a.value, a.ndigits);
     }
 
-    template <typename T> std::string attr_to_string(ODB::boolean_attribute<T> a)
+    template <typename T> std::string attr_to_string(ODB_ATTR::BooleanAttribute<T> a)
     {
         return "";
     }
 
-    template <typename T> std::string attr_to_string(ODB::text_attribute<T> a)
+    template <typename T> std::string attr_to_string(ODB_ATTR::TextAttribute<T> a)
     {
         return std::to_string(get_or_create_attribute_text(a.value));
     }
@@ -267,131 +261,9 @@ public:
 
     void write_attributes(std::ostream &ost) const;
 
-private:
+public:
     std::vector<std::pair<unsigned int, std::string>> attributes;
 };
-
-
-// struct ODB_ATTRLIST
-// {
-//     ODB_ATTRLIST( const wxString &aUnit ) : m_unit( aUnit ) {}
-//     wxString m_unit;
-//     std::vector<std::pair<ODB_ATTRIBUTE, wxString>> m_attrlist;
-// }
-
-
-
-
-// struct STEP_HDR
-// {
-//     STEP_HDR( const wxString &aUnit ) : m_unit( aUnit ) {}
-//     STEP_HDR() : m_unit( wxS( "mm" ) ) {}
-//     ~STEP_HDR() {}
-
-//     static const char* m_general_fields[];
-//     static const char* m_stepRepeat_fields[];
-
-//     struct STEP_REPEAT
-//     {
-//         const wxString m_structuredText_name = wxS( "STEP-REPEAT" );
-
-//     };
-
-//     wxString GetFileName()
-//     {
-//         return "stephdr";
-//     }
-
-//     // bool GenerateFiles( ODB_TREE_WRITER& writer )
-//     // {
-//     //     auto filewriter = writer.CreateFileProxy( GetFileName() );
-//     //     filewriter.GetStream();
-
-//     // }
-
-//     std::vector<STEP_REPEAT> m_repeat;
-//     wxString m_unit;
-// };
-
-
-// const char* STEP_HDR::m_general_fields[] =
-// {
-//     "X_DATUM",
-//     "Y_DATUM",
-//     "ID",
-//     "X_ORIGIN",
-//     "Y_ORIGIN",
-//     "TOP_ACTIVE",
-//     "BOTTOM_ACTIVE",
-//     "RIGHT_ACTIVE",
-//     "LEFT_ACTIVE",
-//     "AFFECTING_BOM",
-//     "AFFECTING_BOM_CHANGED"
-// };
-
-// const char* STEP_HDR::m_stepRepeat_fields[] =
-// {
-//     "NAME",
-//     "X",
-//     "Y",
-//     "DX",
-//     "DY",
-//     "NX",
-//     "NY",
-//     "ANGLE",
-//     "FLIP",
-//     "MIRROR"
-// };
-
-
-
-
-
-// struct ODB_COMPONENTS
-// {
-//     ODB_COMPONENTS() {}
-//     wxString m_unit;
-
-
-//     // struct Toeprint
-//     // {
-//     // public:
-//     //     Toeprint(const EDAData::Pin &pin) : pin_num(pin.index), toeprint_name(pin.name)
-//     //     {
-//     //     }
-
-//     //     unsigned int pin_num;
-
-//     //     // Placement placement;
-//     //     unsigned int net_num = 0;
-//     //     unsigned int subnet_num = 0;
-//     //     std::string toeprint_name = 0;
-
-//     //     void Write(std::ostream &ost) const;
-//     // };
-
-//     struct COMPONENT
-//     {
-//         COMPONENT(unsigned int i, unsigned int r) : m_index(i), m_pkg_ref(r)
-//         {
-//         }
-//         const unsigned int m_index;
-//         unsigned int m_pkg_ref;
-//         // Placement placement;
-
-//         wxString m_comp_name;
-//         wxString m_part_name;
-
-//         std::vector<std::pair<wxString, wxString>> m_prp;   // !< Component Property Record
-
-//         std::list<Toeprint> toeprints;
-
-//         void Write(std::ostream &ost) const;
-//     };
-
-//     std::list<COMPONENT> components;
-
-// };
 
 
 #endif // ATTRIBUTE_PROVIDER_H_

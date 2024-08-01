@@ -58,7 +58,7 @@ class ODB_FEATURE;
 class PCB_IO_ODBPP;
 class PCB_VIA;
 
-class FEATURES_MANAGER : public AttributeProvider
+class FEATURES_MANAGER : public ATTR_MANAGER
 {
 public:
     FEATURES_MANAGER(  BOARD* aBoard, PCB_IO_ODBPP* aPlugin, const wxString& aLayerName )
