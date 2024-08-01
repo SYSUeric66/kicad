@@ -33,25 +33,26 @@ std::string ATTR_MANAGER::double_to_string(double v, unsigned int n)
 
 static unsigned int get_or_create_text(std::map<std::string, unsigned int> &m, const std::string &t)
 {
-    if (m.count(t))
+    if( m.count(t) )
     {
         return m.at(t);
     }
-    else {
+    else
+    {
         auto n = m.size();
         m.emplace(t, n);
         return n;
     }
 }
 
-unsigned int ATTR_MANAGER::get_or_create_attribute_name(const std::string &name)
+unsigned int ATTR_MANAGER::get_or_create_attribute_name( const wxString& name )
 {
-    return get_or_create_text(attribute_names, name);
+    return get_or_create_text( attribute_names, name.Lower().ToStdString() );
 }
 
-unsigned int ATTR_MANAGER::get_or_create_attribute_text(const std::string &name)
+unsigned int ATTR_MANAGER::get_or_create_attribute_text( const wxString& name )
 {
-    return get_or_create_text(attribute_texts, name);
+    return get_or_create_text( attribute_texts, name.Upper().ToStdString() );
 }
 
 void ATTR_RECORD_WRITER::write_attributes(std::ostream &ost) const
@@ -60,7 +61,7 @@ void ATTR_RECORD_WRITER::write_attributes(std::ostream &ost) const
     for(const auto &attr : attributes)
     {
         if (once())
-            ost << " ;";
+            ost << ";";
         else
             ost << ",";
         ost << attr.first;
@@ -71,14 +72,16 @@ void ATTR_RECORD_WRITER::write_attributes(std::ostream &ost) const
 
 void ATTR_MANAGER::WriteAttributesName(std::ostream &ost, const std::string &prefix) const
 {
-    for (const auto &[name, n] : attribute_names) {
+    for(const auto &[name, n] : attribute_names)
+    {
         ost << prefix << "@" << n << " " << name << std::endl;
     }
 }
 
 void ATTR_MANAGER::WriteAttributesText(std::ostream &ost, const std::string &prefix) const
 {
-    for (const auto &[name, n] : attribute_texts) {
+    for(const auto &[name, n] : attribute_texts)
+    {
         ost << prefix << "&" << n << " " << name << std::endl;
     }
 }

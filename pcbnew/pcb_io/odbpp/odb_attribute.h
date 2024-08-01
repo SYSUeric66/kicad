@@ -217,11 +217,11 @@ public:
         if constexpr (std::is_enum_v<Ta>)
             r.attributes.emplace_back(id, std::to_string(static_cast<int>(v)));
         else
-        r.attributes.emplace_back(id, attr_to_string(v));
+            r.attributes.emplace_back(id, attr_to_string(v));
     }
 
 protected:
-    unsigned int get_or_create_attribute_name(const std::string &name);
+    unsigned int get_or_create_attribute_name( const wxString& name );
 
     void write_attributes(std::ostream &ost, const std::string &prefix = "") const;
     void WriteAttributesName(std::ostream &ost, const std::string &prefix = "") const;
@@ -229,7 +229,7 @@ protected:
 
 
 private:
-    unsigned int get_or_create_attribute_text(const std::string &name);
+    unsigned int get_or_create_attribute_text( const wxString& name );
 
     static std::string double_to_string(double v, unsigned int n);
 
