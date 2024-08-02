@@ -311,6 +311,8 @@ void ODB_MATRIX_ENTITY::AddDrillMatrixLayer()
             else if( pad->HasHole() )
                 drill_layers[std::make_pair( F_Cu, B_Cu )].push_back( pad );
         }
+
+        // m_plugin->GetLoadedFootprintList().push_back( std::move( fp ) );
     }
 
     auto InitDrillMatrix = [&]( const wxString& aHasPlated, std::pair<PCB_LAYER_ID, PCB_LAYER_ID> aLayerPair )
@@ -959,8 +961,6 @@ void ODB_STEP_ENTITY::MakeLayerEntity()
 {
     LSEQ layers = m_board->GetEnabledLayers().Seq();
     const NETINFO_LIST& nets = m_board->GetNetInfo();
-    std::vector<std::shared_ptr<FOOTPRINT>>& footprints =
-            m_plugin->GetLoadedFootprintList();
 
     // To avoid the overhead of repeatedly cycling through the layers and nets,
     // we pre-sort the board items into a map of layer -> net -> items
@@ -1012,9 +1012,9 @@ void ODB_STEP_ENTITY::MakeLayerEntity()
     for( FOOTPRINT* fp : m_board->Footprints() )
     {
         // std::shared_ptr<FOOTPRINT> fp( static_cast<FOOTPRINT*>( it_fp->Clone() ) );
-
-        if( fp->GetLayer() != F_Cu )
-            fp->Flip( fp->GetPosition(), false );
+    
+        // if( fp->GetLayer() != F_Cu )
+        //     fp->Flip( fp->GetPosition(), false );
 
         for( PCB_FIELD* field : fp->GetFields() )
             elements[field->GetLayer()][0].push_back( field );
@@ -1036,7 +1036,7 @@ void ODB_STEP_ENTITY::MakeLayerEntity()
             }
         }
 
-        // footprints.push_back( std::move( fp ) );
+        // m_plugin->GetLoadedFootprintList().push_back( std::move( fp ) );
     }
 
     for( const auto& [layerID, layerName] : m_plugin->GetLayerNameList() )
