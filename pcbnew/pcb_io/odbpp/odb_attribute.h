@@ -208,20 +208,20 @@ public:
     ATTR_MANAGER() = default;
     virtual ~ATTR_MANAGER() = default;
 
-    template <typename Tr, typename Ta> void AddFeatureAttribute(Tr &r, Ta v)
+    template <typename Tr, typename Ta> void AddFeatureAttribute( Tr &r, Ta v )
     {
         // using Tc = typename Tr::template check_type<Ta>;
         // static_assert(Tc::value);
-        const auto id = get_or_create_attribute_name( ODB_ATTR::AttributeName<Ta>::name );
+        const auto id = GetAttrNameNumber( ODB_ATTR::AttributeName<Ta>::name );
 
-        if constexpr (std::is_enum_v<Ta>)
-            r.attributes.emplace_back(id, std::to_string(static_cast<int>(v)));
+        if constexpr ( std::is_enum_v<Ta> )
+            r.attributes.emplace( id, std::to_string( static_cast<int>( v ) ) );
         else
-            r.attributes.emplace_back(id, attr_to_string(v));
-    }
+            r.attributes.emplace( id, attr_to_string( v ) );
+    } 
 
 protected:
-    unsigned int get_or_create_attribute_name( const wxString& name );
+    size_t GetAttrNameNumber( const wxString& name );
 
     void write_attributes(std::ostream &ost, const std::string &prefix = "") const;
     void WriteAttributesName(std::ostream &ost, const std::string &prefix = "") const;
@@ -229,9 +229,11 @@ protected:
 
 
 private:
-    unsigned int get_or_create_attribute_text( const wxString& name );
+    size_t GetAttrTextNumber( const wxString& name );
+    size_t GetTextIndex( std::unordered_map<std::string, size_t>& aMap,
+                std::vector<std::pair<size_t, std::string>>& aVec, const std::string& aText );
 
-    static std::string double_to_string(double v, unsigned int n);
+    std::string double_to_string(double v, unsigned int n);
 
     template <typename T, unsigned int n> std::string attr_to_string(ODB_ATTR::FloatAttribute<T, n> a)
     {
@@ -245,12 +247,16 @@ private:
 
     template <typename T> std::string attr_to_string(ODB_ATTR::TextAttribute<T> a)
     {
-        return std::to_string(get_or_create_attribute_text(a.value));
+        return std::to_string( GetAttrTextNumber( a.value ) );
     }
 
 
-    std::map<std::string, unsigned int> attribute_names;
-    std::map<std::string, unsigned int> attribute_texts;
+    std::unordered_map<std::string, size_t> m_attrNames;
+    std::vector<std::pair<size_t, std::string>> m_attrNameVec;
+
+    std::unordered_map<std::string, size_t> m_attrTexts;
+    std::vector<std::pair<size_t, std::string>> m_attrTextVec;
+
 };
 
 class ATTR_RECORD_WRITER
@@ -262,7 +268,7 @@ public:
     void write_attributes(std::ostream &ost) const;
 
 public:
-    std::vector<std::pair<unsigned int, std::string>> attributes;
+    std::map<unsigned int, std::string> attributes;
 };
 
 

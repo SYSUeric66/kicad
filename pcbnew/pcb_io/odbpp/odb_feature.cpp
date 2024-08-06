@@ -20,7 +20,7 @@
 
 #include "odb_feature.h"
 #include <sstream>
-#include <pcb_shape.h>
+#include "pcb_shape.h"
 #include "odb_defines.h"
 #include "convert_basic_shapes_to_polygon.h"
 #include <math/util.h>    // for KiROUND
@@ -34,6 +34,8 @@
 #include "pcb_io_odbpp.h"
 #include <map>
 #include "wx/log.h"
+#include <callback_gal.h>
+
 
 
 void FEATURES_MANAGER::AddFeatureLine( const VECTOR2I& aStart,
@@ -453,41 +455,236 @@ void FEATURES_MANAGER::InitFeatureList( PCB_LAYER_ID aLayer,
             
     };
 
-    auto add_text = [&]( BOARD_ITEM* text )
+    auto add_text = [&]( BOARD_ITEM* item )
     {
-        int maxError = m_board->GetDesignSettings().m_MaxError;
-        SHAPE_POLY_SET poly_set;
-        wxString shown_text;
-        // EDA_TEXT* text_item;
-        // text_item = static_cast<EDA_TEXT*>( tmp_text );
+        EDA_TEXT* text_item = nullptr;
 
-        if( PCB_TEXT* tmp_text = dynamic_cast<PCB_TEXT*>( text ) )
-        {
-            if( !tmp_text->IsVisible() || tmp_text->GetShownText( false ).empty() )
-                return;
-            tmp_text->TransformTextToPolySet( poly_set, 0, maxError, ERROR_INSIDE );
-            shown_text = tmp_text->GetShownText( false );
-        }
-        else if( PCB_TEXTBOX* textbox = dynamic_cast<PCB_TEXTBOX*>( text ) )
-        {
-            if( !textbox->IsVisible() || textbox->GetShownText( false ).empty() )
-                return;
-            // border
-            textbox->PCB_SHAPE::TransformShapeToPolygon( poly_set, aLayer, 0, maxError,
-                                                         ERROR_INSIDE );
+        if( PCB_TEXT* tmp_text = dynamic_cast<PCB_TEXT*>( item ) )
+            text_item = static_cast<EDA_TEXT*>( tmp_text );
+        else if( PCB_TEXTBOX* tmp_text = dynamic_cast<PCB_TEXTBOX*>( item ) )
+            text_item = static_cast<EDA_TEXT*>( tmp_text );
 
-            // text
-            textbox->TransformTextToPolySet( poly_set, 0, maxError, ERROR_INSIDE );
-            shown_text = textbox->GetShownText( false );
+        if( !text_item->IsVisible() || text_item->GetShownText( false ).empty() )
+            return;
+
+        auto plot_text = [&]( const VECTOR2I&      aPos,
+                            const wxString&        aTextString,
+                            const TEXT_ATTRIBUTES& aAttributes,
+                            KIFONT::FONT*          aFont,
+                            const KIFONT::METRICS& aFontMetrics )
+        {
+            KIGFX::GAL_DISPLAY_OPTIONS empty_opts;
+
+            TEXT_ATTRIBUTES attributes = aAttributes;
+            int penWidth = attributes.m_StrokeWidth;
+
+            if( penWidth == 0 && attributes.m_Bold ) // Use default values if aPenWidth == 0
+                penWidth = GetPenSizeForBold( std::min( attributes.m_Size.x, attributes.m_Size.y ) );
+
+            if( penWidth < 0 )
+                penWidth = -penWidth;
+
+            attributes.m_StrokeWidth = penWidth;
+
+            std::list<VECTOR2I> pts;
+
+            auto push_pts =
+                    [&]()
+                    {
+                        if( pts.size() < 2 )
+                            return;
+
+                        // Polylines are only allowed for more than 3 points.
+                        // Otherwise, we have to use a line
+                        if( pts.size() < 3 )
+                        {
+                            PCB_SHAPE shape( nullptr, SHAPE_T::SEGMENT );
+                            shape.SetStart( pts.front() );
+                            shape.SetEnd( pts.back() );
+                            shape.SetWidth(  attributes.m_StrokeWidth );
+
+                            AddShape( shape );
+                            AddFeatureAttribute( *m_featuresList.back(), ODB_ATTR::STRING{ aTextString.ToStdString() } );
+
+                        }
+                        else
+                        {
+                            for( auto it = pts.begin(); std::next( it ) != pts.end(); ++it )
+                            {
+                                auto it2 = std::next( it );
+                                PCB_SHAPE shape( nullptr, SHAPE_T::SEGMENT );
+                                shape.SetStart( *it );
+                                shape.SetEnd( *it2 );
+                                shape.SetWidth( attributes.m_StrokeWidth );
+                                AddShape( shape );
+                                AddFeatureAttribute( *m_featuresList.back(), ODB_ATTR::STRING{ aTextString.ToStdString() } );
+                            }
+
+                            // SHAPE_LINE_CHAIN pts_chain( pts, false );
+
+                            // SHAPE_POLY_SET polyset;
+
+                            // polyset.AddOutline( pts_chain );
+
+                            // for( int ii = 0; ii < polyset.OutlineCount(); ++ii )
+                            // {
+                            //     AddContour( polyset, ii, FILL_T::FILLED_SHAPE );
+                            //     AddFeatureAttribute( *m_featuresList.back(), ODB_ATTR::STRING{ aTextString.ToStdString() } );
+                            // }
+
+                        }
+
+                        // addLineDesc( line_node, attrs.m_StrokeWidth, LINE_STYLE::SOLID );
+                        pts.clear();
+                    };
+
+            CALLBACK_GAL callback_gal( empty_opts,
+                    // Stroke callback
+                    [&]( const VECTOR2I& aPt1, const VECTOR2I& aPt2 )
+                    {
+                        if( !pts.empty() )
+                        {
+                            if( aPt1 == pts.back() )
+                                pts.push_back( aPt2 );
+                            else if( aPt2 == pts.front() )
+                                pts.push_front( aPt1 );
+                            else if( aPt1 == pts.front() )
+                                pts.push_front( aPt2 );
+                            else if( aPt2 == pts.back() )
+                                pts.push_back( aPt1 );
+                            else
+                            {
+                                push_pts();
+                                pts.push_back( aPt1 );
+                                pts.push_back( aPt2 );
+                            }
+                        }
+                        else
+                        {
+                            pts.push_back( aPt1 );
+                            pts.push_back( aPt2 );
+                        }
+                    },
+                    // Polygon callback
+                    [&]( const SHAPE_LINE_CHAIN& aPoly )
+                    {
+                        if( aPoly.PointCount() < 3 )
+                            return;
+
+                        SHAPE_POLY_SET poly_set;
+                        poly_set.AddOutline( aPoly );
+
+                        for( int ii = 0; ii < poly_set.OutlineCount(); ++ii )
+                        {
+                            AddContour( poly_set, ii, FILL_T::FILLED_SHAPE );
+                            AddFeatureAttribute( *m_featuresList.back(), ODB_ATTR::STRING{ aTextString.ToStdString() } );
+                        }
+
+                    } );
+
+            // if( !aFont )
+            //     aFont = KIFONT::FONT::GetFont();
+
+            aFont->Draw( &callback_gal, aTextString, aPos, aAttributes, aFontMetrics );
+
+            if( !pts.empty() )
+                push_pts();
+
+        };
+
+        bool isKnockout = false;
+        if( item->Type() == PCB_TEXT_T || item->Type() == PCB_FIELD_T )
+            isKnockout = static_cast<PCB_TEXT*>( item )->IsKnockout();
+        else if( item->Type() == PCB_TEXTBOX_T )
+            isKnockout = static_cast<PCB_TEXTBOX*>( item )->IsKnockout();
+
+        const KIFONT::METRICS& fontMetrics = item->GetFontMetrics();
+                      
+        KIFONT::FONT* font = text_item->GetFont();
+
+        if( !font )
+        {
+            wxString defaultFontName;   // empty string is the KiCad stroke font
+
+            font = KIFONT::FONT::GetFont( defaultFontName, text_item->IsBold(), text_item->IsItalic() );
         }
 
-        for( int ii = 0; ii < poly_set.OutlineCount(); ++ii )
+        wxString shownText( text_item->GetShownText( true ) );
+
+        if( shownText.IsEmpty() )
+            return;
+
+        VECTOR2I pos = text_item->GetTextPos();
+
+        TEXT_ATTRIBUTES attrs = text_item->GetAttributes();
+        attrs.m_StrokeWidth = text_item->GetEffectiveTextPenWidth();
+        attrs.m_Angle = text_item->GetDrawRotation();
+        attrs.m_Multiline = false;
+
+        if( isKnockout )
         {
-            AddContour( poly_set, ii );
-            AddFeatureAttribute( *m_featuresList.back(), ODB_ATTR::STRING{ shown_text.ToStdString() } );
+            PCB_TEXT* text = static_cast<PCB_TEXT*>( item );
+            SHAPE_POLY_SET  finalpolyset;
+
+            text->TransformTextToPolySet( finalpolyset, 0, m_board->GetDesignSettings().m_MaxError,
+                                        ERROR_INSIDE );
+            finalpolyset.Fracture( SHAPE_POLY_SET::PM_FAST );
+
+            for( int ii = 0; ii < finalpolyset.OutlineCount(); ++ii )
+            {
+                AddContour( finalpolyset, ii, FILL_T::FILLED_SHAPE );
+                AddFeatureAttribute( *m_featuresList.back(), ODB_ATTR::STRING{ shownText.ToStdString() } );
+            }
+
         }
+        else if( text_item->IsMultilineAllowed() )
+        {
+            std::vector<VECTOR2I> positions;
+            wxArrayString strings_list;
+            wxStringSplit( shownText, strings_list, '\n' );
+            positions.reserve(  strings_list.Count() );
+
+            text_item->GetLinePositions( positions, strings_list.Count() );
+
+            for( unsigned ii = 0; ii < strings_list.Count(); ii++ )
+            {
+                wxString& txt =  strings_list.Item( ii );
+                plot_text( positions[ii], txt, attrs, font, fontMetrics );
+            }
+        }
+        else
+        {
+            plot_text( pos, shownText, attrs, font, fontMetrics );
+        }
+
+        // int maxError = m_board->GetDesignSettings().m_MaxError;
+        // SHAPE_POLY_SET poly_set;
+        // wxString shown_text;
+        // // EDA_TEXT* text_item;
+        // // text_item = static_cast<EDA_TEXT*>( tmp_text );
+
+        // if( PCB_TEXT* tmp_text = dynamic_cast<PCB_TEXT*>( text ) )
+        // {
+        //     if( !tmp_text->IsVisible() || tmp_text->GetShownText( false ).empty() )
+        //         return;
+        //     tmp_text->TransformTextToPolySet( poly_set, 0, maxError, ERROR_INSIDE );
+        //     shown_text = tmp_text->GetShownText( false );
+        // }
+        // else if( PCB_TEXTBOX* textbox = dynamic_cast<PCB_TEXTBOX*>( text ) )
+        // {
+        //     if( !textbox->IsVisible() || textbox->GetShownText( false ).empty() )
+        //         return;
+        //     // border
+        //     textbox->PCB_SHAPE::TransformShapeToPolygon( poly_set, aLayer, 0, maxError,
+        //                                                  ERROR_INSIDE );
+
+        //     // text
+        //     textbox->TransformTextToPolySet( poly_set, 0, maxError, ERROR_INSIDE );
+        //     shown_text = textbox->GetShownText( false );
+        // }
 
     };
+
 
     auto add_shape = [&] ( PCB_SHAPE* shape )
     {
@@ -582,9 +779,16 @@ void FEATURES_MANAGER::InitFeatureList( PCB_LAYER_ID aLayer,
             break;
 
         case PCB_TEXT_T:
-        case PCB_TEXTBOX_T:
         case PCB_FIELD_T:
             add_text( item );
+            break;
+        case PCB_TEXTBOX_T:
+        {
+            PCB_TEXTBOX* textbox = static_cast<PCB_TEXTBOX*>( item );
+            add_text( item );
+            if( textbox->IsBorderEnabled() )
+                add_shape( textbox );
+        }
             break;
 
         case PCB_DIMENSION_T:

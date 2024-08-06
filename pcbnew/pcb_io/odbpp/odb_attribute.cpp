@@ -31,28 +31,30 @@ std::string ATTR_MANAGER::double_to_string(double v, unsigned int n)
 }
 
 
-static unsigned int get_or_create_text(std::map<std::string, unsigned int> &m, const std::string &t)
+size_t ATTR_MANAGER::GetTextIndex( std::unordered_map<std::string, size_t>& aMap,
+                     std::vector<std::pair<size_t, std::string>>& aVec, const std::string& aText )
 {
-    if( m.count(t) )
+    if( aMap.count( aText ) )
     {
-        return m.at(t);
+        return aMap.at( aText );
     }
     else
     {
-        auto n = m.size();
-        m.emplace(t, n);
-        return n;
+        auto index = aMap.size();
+        aMap.emplace( aText, index );
+        aVec.emplace_back( index, aText );
+        return index;
     }
 }
 
-unsigned int ATTR_MANAGER::get_or_create_attribute_name( const wxString& name )
+size_t ATTR_MANAGER::GetAttrNameNumber( const wxString& aName )
 {
-    return get_or_create_text( attribute_names, name.Lower().ToStdString() );
+    return GetTextIndex( m_attrNames, m_attrNameVec, aName.Lower().ToStdString() );
 }
 
-unsigned int ATTR_MANAGER::get_or_create_attribute_text( const wxString& name )
+size_t ATTR_MANAGER::GetAttrTextNumber( const wxString& aText )
 {
-    return get_or_create_text( attribute_texts, name.Upper().ToStdString() );
+    return GetTextIndex( m_attrTexts, m_attrTextVec, aText.Upper().ToStdString() );
 }
 
 void ATTR_RECORD_WRITER::write_attributes(std::ostream &ost) const
@@ -68,11 +70,12 @@ void ATTR_RECORD_WRITER::write_attributes(std::ostream &ost) const
         if (attr.second.size())
             ost << "=" << attr.second;
     }
+    ost << ";";
 }
 
 void ATTR_MANAGER::WriteAttributesName(std::ostream &ost, const std::string &prefix) const
 {
-    for(const auto &[name, n] : attribute_names)
+    for(const auto &[n, name] : m_attrNameVec)
     {
         ost << prefix << "@" << n << " " << name << std::endl;
     }
@@ -80,7 +83,7 @@ void ATTR_MANAGER::WriteAttributesName(std::ostream &ost, const std::string &pre
 
 void ATTR_MANAGER::WriteAttributesText(std::ostream &ost, const std::string &prefix) const
 {
-    for(const auto &[name, n] : attribute_texts)
+    for(const auto &[n, name] : m_attrTextVec)
     {
         ost << prefix << "&" << n << " " << name << std::endl;
     }
