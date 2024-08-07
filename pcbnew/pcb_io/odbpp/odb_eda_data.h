@@ -44,6 +44,7 @@ public:
 
     void Write(std::ostream &ost) const;
     unsigned int GetLyrIdx( const wxString& aLayerName );
+    std::vector<std::shared_ptr<FOOTPRINT>> GetEdaFootprints() const { return m_eda_footprints; }
     
     class FeatureID
     {
@@ -230,19 +231,16 @@ public:
 
         std::list<std::unique_ptr<PKG_OUTLINE>> m_pkgOutlines;
 
-        Pin& AddPin( const PAD* aPad, size_t aPinNum );
-        const Pin& GetEdaPkgPin( size_t aHash ) const
+        void AddPin( const PAD* aPad, size_t aPinNum );
+        const std::shared_ptr<Pin> GetEdaPkgPin( size_t aPadIndex ) const
         {
-            return m_pinsMap.at( aHash );
+            return m_pinsVec.at( aPadIndex );
         }
 
         void Write(std::ostream &ost) const;
 
-        // wxString GenPinName( const PAD* aPad ); 
-
     private:
-        std::map<size_t, Pin> m_pinsMap;
-        std::list<const Pin*> m_pinsList;
+        std::vector<std::shared_ptr<Pin>> m_pinsVec;
     };
 
     void AddPackage( const FOOTPRINT* aFp );
@@ -253,13 +251,14 @@ public:
 
 private:
     std::map<size_t, Net> nets_map;
-    std::list<const Net *> nets;
+    std::list<const Net*> nets;
 
     std::map<size_t, Package> packages_map;    //hash value, package
     std::list<const Package*> packages;
 
     std::map<wxString, unsigned int> layers_map;
     std::vector<wxString> layers;
+    std::vector<std::shared_ptr<FOOTPRINT>> m_eda_footprints;
 
 };
 

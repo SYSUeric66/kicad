@@ -116,10 +116,6 @@ public:
         return false;
     }
 
-    // void add_matrix_layer(const std::string &name);
-    // ODB_STEP_ENTITY &add_step(const std::string &name);
-    // void Write( std::shared_ptr<ODB_TREE_WRITER> aTreeWriter ) const;
-
 
     /**
      * Return the automapped layers.
@@ -127,35 +123,15 @@ public:
      * @param aInputLayerDescriptionVector
      * @return Auto-mapped layers
      */
-    // static std::map<wxString, PCB_LAYER_ID> DefaultLayerMappingCallback(
-    //         const std::vector<INPUT_LAYER_DESC>& aInputLayerDescriptionVector );
 
     /**
      * Register a different handler to be called when mapping of IPC2581 to KiCad layers occurs.
      *
      * @param aLayerMappingHandler
      */
-    // void RegisterLayerMappingCallback( LAYER_MAPPING_HANDLER aLayerMappingHandler ) override
-    // {};
 
 public:
 
-    // struct ODB_JOB
-    // {
-    //     ODB_MATRIX_ENTITY m_matrix;
-    //     ODB_MISC_ENTITY m_misc;
-    //     ODB_FONTS_ENTITY m_fonts;
-    //     ODB_SYMBOLS_ENTITY m_symbols;
-    //     ODB_WHEELS_ENTITY m_wheels;
-
-    //     std::map<wxString, ODB_STEP_ENTITY> m_steps;
-    //     wxString m_jobName;
-
-    //     // using SymbolKey = std::tuple<UUID, int, std::string>; // padstack UUID, layer, content hash
-    //     // std::map<SymbolKey, Symbol> symbols;
-    //     // std::set<std::string> symbol_names;
-
-    // };
     inline std::vector<std::pair<PCB_LAYER_ID, wxString>>& GetLayerNameList()
     {
         return m_layer_name_list;
@@ -184,7 +160,7 @@ public:
         return m_slot_holes;
     }
 
-    inline std::map<PAD*, EDAData::SubnetToeprint*>&
+    inline std::map<const PAD*, EDAData::SubnetToeprint*>&
            GetPadSubnetMap()
     {
         return m_topeprint_subnets;
@@ -229,10 +205,6 @@ private:
         if( entity )
             m_entities.push_back( entity );
     }
-    // LAYER_MAPPING_HANDLER   m_layerMappingHandler;
-    // bool                    m_show_layer_mapping_warnings;
-
-    // size_t                  m_total_bytes;  //<! Total number of bytes to be written
 
     wxString                m_units_str;    //<! Output string for units
     int                     m_sigfig;       //<! Max number of digits past the decimal point
@@ -248,15 +220,6 @@ private:
     std::vector<std::shared_ptr<FOOTPRINT>> m_loaded_footprints;
     // std::vector<FOOTPRINT*> m_loaded_footprints;
     // const STRING_UTF8_MAP*  m_props;
-
-    // std::map<size_t, wxString> m_user_shape_dict;   //<! Map between shape hash values and reference id string
-
-    // std::map<size_t, wxString> m_std_shape_dict;    //<! Map between shape hash values and reference id string
-
-    // std::map<size_t, wxString> m_line_dict;         //<! Map between line hash values and reference id string
-
-    // std::map<size_t, wxString> m_padstack_dict;     //<! Map between padstack hash values and reference id string (PADSTACK_##)
- 
     
     // std::map<size_t, wxString>
     //         m_footprint_dict; //<! Map between the footprint hash values and reference id string (<fpid>_##)
@@ -279,7 +242,7 @@ private:
     std::map<PCB_LAYER_ID, std::map<int, std::vector<BOARD_ITEM*>>> 
             m_layer_elements; //<! Storage map of layer to element list
 
-    std::map<PAD*, EDAData::SubnetToeprint*>
+    std::map<const PAD*, EDAData::SubnetToeprint*>
             m_topeprint_subnets;
             
     std::map<std::pair<PCB_LAYER_ID, ZONE*>, EDAData::SubnetPlane*>

@@ -195,7 +195,8 @@ void EDAData::AddPackage( const FOOTPRINT* aFp )
 {
     // ODBPP only need unique Package in PKG record in eda/data file.
     // the PKG index can repeat to be ref in CMP record in component file.
-    std::unique_ptr<FOOTPRINT> fp( static_cast<FOOTPRINT*>( aFp->Clone() ) );
+    std::shared_ptr<FOOTPRINT> fp( static_cast<FOOTPRINT*>( aFp->Clone() ) );
+    m_eda_footprints.emplace_back( fp );
     fp->SetParentGroup( nullptr );
     fp->SetPosition( { 0, 0 } );
 
@@ -275,7 +276,7 @@ void EDAData::AddPackage( const FOOTPRINT* aFp )
 }
 
 
-EDAData::Pin& EDAData::Package::AddPin( const PAD* aPad, size_t aPinNum )
+void EDAData::Package::AddPin( const PAD* aPad, size_t aPinNum )
 {
     wxString name = aPad->GetNumber();
 
@@ -286,18 +287,9 @@ EDAData::Pin& EDAData::Package::AddPin( const PAD* aPad, size_t aPinNum )
     else if( name.empty() )
         name = wxString::Format( "PAD%zu", aPinNum );
 
-    size_t hash = hash_fp_item( aPad, HASH_POS | REL_COORD );
-
-    auto& pin = m_pinsMap.emplace(
-        std::piecewise_construct, std::forward_as_tuple( hash ),
-        std::forward_as_tuple( m_pinsList.size(), name ) )
-            .first->second;
-
     // // for SNT record, pad, net, pin
-    // m_net_pin_dict[aPad->GetNetCode()].emplace_back(
-    //         genString( fp->GetReference(), "CMP" ), name );
-
-    m_pinsList.push_back( &pin );
+    std::shared_ptr<Pin> pin = std::make_shared<Pin>( m_pinsVec.size(), name );
+    m_pinsVec.push_back( pin );
 
     VECTOR2D relpos = aPad->GetFPRelativePosition();
 
@@ -305,40 +297,40 @@ EDAData::Pin& EDAData::Package::AddPin( const PAD* aPad, size_t aPinNum )
     if( aPad->GetOffset().x != 0 || aPad->GetOffset().y != 0 )
         relpos += aPad->GetOffset();
 
-    pin.m_center = ODB::AddXY( relpos );
+    pin->m_center = ODB::AddXY( relpos );
 
     if( aPad->HasHole() )
     {
-        pin.type = Pin::Type::THROUGH_HOLE;
+        pin->type = Pin::Type::THROUGH_HOLE;
     }
     else
     {
-        pin.type = Pin::Type::SURFACE;
+        pin->type = Pin::Type::SURFACE;
     }
 
     if( aPad->GetAttribute() == PAD_ATTRIB::NPTH )
-        pin.etype = Pin::ElectricalType::MECHANICAL;
+        pin->etype = Pin::ElectricalType::MECHANICAL;
     else if( aPad->IsOnCopperLayer() )
-        pin.etype = Pin::ElectricalType::ELECTRICAL;
+        pin->etype = Pin::ElectricalType::ELECTRICAL;
     else
-        pin.etype = Pin::ElectricalType::UNDEFINED;
+        pin->etype = Pin::ElectricalType::UNDEFINED;
 
 
     if( ( aPad->HasHole() && aPad->IsOnCopperLayer() ) || aPad->GetAttribute() == PAD_ATTRIB::PTH )
     {
-        pin.mtype = Pin::MountType::THROUGH_HOLE;
+        pin->mtype = Pin::MountType::THROUGH_HOLE;
     }
     else if( aPad->HasHole() && aPad->GetAttribute() == PAD_ATTRIB::NPTH )
     {
-        pin.mtype = Pin::MountType::HOLE;
+        pin->mtype = Pin::MountType::HOLE;
     }
     else if( aPad->GetAttribute() == PAD_ATTRIB::SMD )
     {
-        pin.mtype = Pin::MountType::SMT;
+        pin->mtype = Pin::MountType::SMT;
     }
     else
     {
-        pin.mtype = Pin::MountType::UNDEFINED;
+        pin->mtype = Pin::MountType::UNDEFINED;
     }
 
     // int maxError = m_board->GetDesignSettings().m_MaxError;
@@ -366,11 +358,10 @@ EDAData::Pin& EDAData::Package::AddPin( const PAD* aPad, size_t aPinNum )
     // Note:pad only use polygons->Polygon(0),
     if( polygons.OutlineCount() > 0 )
     {
-        pin.m_pinOutlines.push_back( 
+        pin->m_pinOutlines.push_back( 
             std::make_unique<OUTLINE_CONTOUR>( polygons.Polygon( 0 ) ) );
     }
 
-    return pin;
 }
 
 void EDAData::Pin::Write( std::ostream &ost ) const
@@ -417,12 +408,12 @@ void EDAData::Package::Write( std::ostream &ost ) const
         << ODB::Float2StrVal( m_ODBScale * m_xmax ) << " "
         << ODB::Float2StrVal( m_ODBScale * m_ymax ) << std::endl;
 
-    for ( const auto& outline : m_pkgOutlines )
+    for( const auto& outline : m_pkgOutlines )
     {
         outline->Write(ost);
     }
 
-    for ( const auto &pin : m_pinsList )
+    for( const auto& pin : m_pinsVec )
     {
         pin->Write(ost);
     }

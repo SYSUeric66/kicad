@@ -707,6 +707,7 @@ void ODB_STEP_ENTITY::InitEdaData()
     }
 
     // for CMP
+    size_t j = 0;
     for( const FOOTPRINT* fp : m_board->Footprints() )
     {
         wxString compName = ODB::GenLegalEntityName( "COMP_+_TOP" );
@@ -722,14 +723,8 @@ void ODB_STEP_ENTITY::InitEdaData()
 
         // ODBPP only need unique Package in PKG record in eda/data file.
         // the PKG index can repeat to be ref in CMP record in component file.
-        std::unique_ptr<FOOTPRINT> fp_pkg( static_cast<FOOTPRINT*>( fp->Clone() ) );
-        fp_pkg->SetParentGroup( nullptr );
-        fp_pkg->SetPosition( { 0, 0 } );
-
-        if( fp_pkg->GetLayer() != F_Cu )
-            fp_pkg->Flip( fp_pkg->GetPosition(), false );
-
-        fp_pkg->SetOrientation( ANGLE_0 );
+        std::shared_ptr<FOOTPRINT> fp_pkg = m_edaData.GetEdaFootprints().at( j );
+        ++j;
 
         const EDAData::Package& eda_pkg = m_edaData.GetPackage( 
             hash_fp_item( fp_pkg.get(), HASH_POS | REL_COORD ) );
@@ -747,14 +742,11 @@ void ODB_STEP_ENTITY::InitEdaData()
                                     : EDAData::SubnetToeprint::Side::TOP,
                     comp.m_index, comp.toeprints.size() );
             
-            // Note: hash from pad which relative coord to fp_pkg locate at (0,0)
-            size_t pad_hash = hash_fp_item( fp_pkg->Pads()[i], HASH_POS | REL_COORD );
-            
             m_plugin->GetPadSubnetMap().emplace( pad, &subnet );
 
-            const auto& pin = eda_pkg.GetEdaPkgPin( pad_hash );
-            
-            auto& toep = comp.toeprints.emplace_back( pin );
+            const std::shared_ptr<EDAData::Pin> pin = eda_pkg.GetEdaPkgPin( i );
+            const EDAData::Pin& pin_ref = *pin;
+            auto& toep = comp.toeprints.emplace_back( pin_ref );
 
             toep.m_net_num = eda_net.index;
             toep.m_subnet_num = subnet.index;

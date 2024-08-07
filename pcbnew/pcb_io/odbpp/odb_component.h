@@ -69,7 +69,7 @@ public:
     struct Toeprint
     {
     public:
-        Toeprint( const EDAData::Pin &pin )
+        Toeprint( const EDAData::Pin& pin )
          : m_pin_num( pin.m_index ), m_toeprint_name( pin.m_name )
         {
         }

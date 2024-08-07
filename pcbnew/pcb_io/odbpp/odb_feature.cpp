@@ -896,7 +896,7 @@ void ODB_FEATURE::WriteFeatures( std::ostream &ost )
     case FEATURE_TYPE::SURFACE:
         ost << "S ";
         break;
-    default:   //TODO TEXT B
+    default:
         return;
     }
 
